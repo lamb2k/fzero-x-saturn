@@ -1,0 +1,16 @@
+/build/
+/generated/*
+!/generated/.gitignore
+/saturn/build/
+/saturn/*.iso
+/saturn/*.cue
+/saturn/*.bin
+/web/fzero.wasm
+/web/fzero-module.js
+__pycache__/
+*.pyc
+*.z64
+*.n64
+*.v64
+*.o2r
+baserom*

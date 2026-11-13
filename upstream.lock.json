@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "source": {
+    "repository": "https://github.com/Zorkats/G-Diffuser",
+    "commit": "4f9320675758fd524bb3bc9ea98b913a09d48552",
+    "path": "upstream/G-Diffuser"
+  },
+  "decompilation": {
+    "repository": "https://github.com/Zorkats/fzerox",
+    "commit": "b944a4135409d24979f5c74b001befab8345761a",
+    "path_in_source": "decomp"
+  },
+  "math": {
+    "repository": "https://github.com/lamb2k/SH2ZAM",
+    "commit": "3374d77c4625749cc932cafa4385ad18db811e9b",
+    "path": "third_party/SH2ZAM"
+  },
+  "saturn_toolchain": {
+    "image": "ijacquez/yaul@sha256:b6d272204767cd0a734139dd3a2ab298ef5912fb7b7224b78e6d9fac1a7825a6"
+  }
+}

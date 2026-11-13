@@ -1,0 +1,106 @@
+name: Saturn port foundation
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: fzero-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  host:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - run: git submodule update --init third_party/SH2ZAM
+      - name: Check core with GCC and Clang
+        run: |
+          make test CC=gcc BUILD=build/gcc
+          make test CC=clang BUILD=build/clang
+          make sanitize CC=clang
+  saturn:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - run: git submodule update --init third_party/SH2ZAM
+      - name: Build native big-endian SH-2 disc image
+        run: |
+          set -euo pipefail
+          docker pull ijacquez/yaul@sha256:b6d272204767cd0a734139dd3a2ab298ef5912fb7b7224b78e6d9fac1a7825a6
+          docker run --rm -v "$PWD:/work" -w /work ijacquez/yaul@sha256:b6d272204767cd0a734139dd3a2ab298ef5912fb7b7224b78e6d9fac1a7825a6 /bin/bash -c '
+            set -euo pipefail
+            export PATH="$YAUL_INSTALL_ROOT/bin:$PATH"
+            "${YAUL_ARCH_SH_PREFIX}-gcc" --version > saturn/toolchain.txt
+            make -C saturn
+            "${YAUL_ARCH_SH_PREFIX}-readelf" -h saturn/build/fzero-x-saturn.elf > saturn/elf-header.txt
+            "${YAUL_ARCH_SH_PREFIX}-size" saturn/build/fzero-x-saturn.elf > saturn/size.txt
+            "${YAUL_ARCH_SH_PREFIX}-nm" saturn/build/fzero-x-saturn.elf > saturn/symbols.txt
+            grep -q "big endian" saturn/elf-header.txt
+            grep -q "sh2" saturn/elf-header.txt
+            sha256sum saturn/fzero-x-saturn.iso > saturn/image-sha256.txt
+          '
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: fzero-x-saturn-native
+          path: |
+            saturn/*.iso
+            saturn/*.cue
+            saturn/*.bin
+            saturn/*.txt
+            saturn/build/*.elf
+            saturn/build/*.sym
+          if-no-files-found: error
+  web:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - run: git submodule update --init third_party/SH2ZAM
+      - name: Install build and browser test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang lld
+          python3 -m venv /tmp/fzero-web-tests
+          /tmp/fzero-web-tests/bin/pip install playwright
+          /tmp/fzero-web-tests/bin/playwright install --with-deps chromium
+      - name: Build and test the shared C core in WebAssembly
+        run: |
+          make web
+          node --check web/app.js
+          /tmp/fzero-web-tests/bin/python web/test-browser.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: fzero-x-saturn-web
+          path: |
+            web/
+            build/web-test/
+      - name: Stage public workbench
+        run: |
+          mkdir -p build/site
+          cp web/index.html web/style.css web/app.js web/fzero.wasm web/fzero-module.js build/site/
+          cp LICENSE NOTICE.md build/site/
+          touch build/site/.nojekyll
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: build/site
+  pages:
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    needs: [host, saturn, web]
+    runs-on: ubuntu-24.04
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/configure-pages@v5
+        with:
+          enablement: true
+      - uses: actions/deploy-pages@v4
+        id: deployment

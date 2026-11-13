@@ -1,0 +1,6 @@
+[submodule "G-Diffuser"]
+	path = upstream/G-Diffuser
+	url = https://github.com/Zorkats/G-Diffuser.git
+[submodule "third_party/SH2ZAM"]
+	path = third_party/SH2ZAM
+	url = https://github.com/lamb2k/SH2ZAM.git

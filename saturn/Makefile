@@ -1,0 +1,39 @@
+# Build with the same Yaul SDK/toolchain as SH2ZAM's native cross workflow.
+ifeq ($(strip $(YAUL_INSTALL_ROOT)),)
+$(error YAUL_INSTALL_ROOT must point to the Yaul installation)
+endif
+
+include $(YAUL_INSTALL_ROOT)/share/build.pre.mk
+
+SH2ZAM_ROOT ?= ../third_party/SH2ZAM
+FZX_IMPORTED ?= 0
+
+ifeq ($(wildcard $(SH2ZAM_ROOT)/saturn/include/sh2zam/sh2zam.h),)
+$(error SH2ZAM not found at $(SH2ZAM_ROOT); initialize third_party/SH2ZAM or set SH2ZAM_ROOT)
+endif
+
+ifeq ($(FZX_IMPORTED),1)
+ifeq ($(wildcard ../generated/course.h),)
+$(error FZX_IMPORTED=1 requires ../generated/course.h from the course importer)
+endif
+SH_CFLAGS += -DFZX_USE_IMPORTED_COURSE=1
+else ifneq ($(FZX_IMPORTED),0)
+$(error FZX_IMPORTED must be 0 for the demo or 1 for the imported course)
+endif
+
+SH_PROGRAM := fzero-x-saturn
+SH_SRCS := main.c ../src/fzx.c $(wildcard $(SH2ZAM_ROOT)/saturn/src/*.c)
+SH_CFLAGS += -O2 -std=c11 -Wall -Wextra -I../include \
+             -I$(SH2ZAM_ROOT)/saturn/include -DSH2Z_REQUIRE_SH2=1
+
+IP_VERSION := V0.100
+IP_RELEASE_DATE := 20261113
+IP_AREAS := JTUBKAEL
+IP_PERIPHERALS := J
+IP_TITLE := F-Zero X Saturn port foundation
+IP_MASTER_STACK_ADDR := 0x06004000
+IP_SLAVE_STACK_ADDR := 0x06001E00
+IP_1ST_READ_ADDR := 0x06004000
+IP_1ST_READ_SIZE := 0
+
+include $(YAUL_INSTALL_ROOT)/share/build.post.iso-cue.mk

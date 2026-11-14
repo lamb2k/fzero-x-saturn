@@ -9,6 +9,15 @@ concurrency:
   group: fzero-${{ github.ref }}
   cancel-in-progress: true
 jobs:
+  hygiene:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Scan publishable files (ROMs, binaries, private paths)
+        run: |
+          python3 tools/hygiene_scan.py
+          python3 -m unittest tests.test_hygiene -v
   host:
     runs-on: ubuntu-24.04
     timeout-minutes: 15

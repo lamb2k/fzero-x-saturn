@@ -12,7 +12,7 @@
   },
   "math": {
     "repository": "https://github.com/lamb2k/SH2ZAM",
-    "commit": "fe865bfec270a8d228a0d251b686ad3d086d64fa",
+    "commit": "3ddb84ce2e4537395b76ad28efabe5845924fb41",
     "path": "third_party/SH2ZAM"
   },
   "saturn_toolchain": {

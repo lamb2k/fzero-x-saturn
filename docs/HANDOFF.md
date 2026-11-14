@@ -13,8 +13,8 @@ picture on the CPU; VDP1 is not yet the limit). Then G1.7 fit table and cartridg
 Both repositories are maintained together (AGENTS.md "Improve SH2ZAM as you go").
 
 SH2ZAM, in order of modelled payoff for this tick (`docs/cost/`):
-1. `sh2z_div` with DIV1 steps: lamb2k/SH2ZAM#1 (div/recip 266 to 104 cycles, rsqrt 689 to
-   534; exact). On merge, move the pin here and rerun host, web, Saturn and bench checks.
+1. Done: `sh2z_div` with DIV1 steps merged (lamb2k/SH2ZAM#1, `3ddb84c`, pinned here):
+   div/recip 266 to 104 modelled cycles, rsqrt 689 to 534, exact.
 2. Exact fast `sh2zi_isqrt`: normalise, table seed, reciprocal-sqrt Newton with DMULU, then an
    exact +-1 correction against the 64-bit square. Feeds sqrt (445), rsqrt, length and
    normalize (1,115). Oracle: the existing root_property tests; model run must stay exact.

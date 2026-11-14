@@ -57,6 +57,9 @@ masked, best of 8 passes) in Yabause 0.9.15. CI's emulator job uploads its still
 | SH2ZAM straight translation (`vec3_normalize`, `vec3_cross`) | 3,076 | 4 LSB of Q16.16 |
 | SH2ZAM in the original's shape (`rsqrt`, scale, cross) | 1,950 | 5 LSB |
 
+With SH2ZAM `3ddb84c` (pinned 2026-11-14: newer normalize, DIV1 division) the straight
+translation drops to 2,485 cycles and the rsqrt version to 1,934; errors unchanged.
+
 The model above prices this function at 6,597 cycles for 3 calls a tick, 2,199 per call: within
 13% of the rsqrt version, so the model ranks work sensibly. How the code is converted matters as
 much as fixed versus float (1.6x between the two SH2ZAM versions). Software float was only 2x

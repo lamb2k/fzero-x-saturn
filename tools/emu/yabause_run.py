@@ -76,7 +76,7 @@ def free_display() -> str:
 def window_id(env: dict, timeout: float = 15.0) -> str:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        found = subprocess.run(("xdotool", "search", "--name", "Yabause"), env=env,
+        found = subprocess.run(("xdotool", "search", "--onlyvisible", "--name", "Yabause"), env=env,
                                capture_output=True, text=True).stdout.split()
         if found:
             return found[-1]
@@ -86,8 +86,20 @@ def window_id(env: dict, timeout: float = 15.0) -> str:
 
 def grab(env: dict, wid: str, out: Path) -> None:
     raw = out.with_suffix(".raw.png")
-    subprocess.run(("import", "-window", wid, str(raw)), env=env, check=True,
-                   capture_output=True)
+    # The window can be briefly unviewable (CI saw this): retry, then grab the screen
+    # region the window occupies.
+    for _attempt in range(3):
+        if subprocess.run(("import", "-window", wid, str(raw)), env=env,
+                          capture_output=True).returncode == 0:
+            break
+        time.sleep(0.5)
+    else:
+        geometry = subprocess.run(("xdotool", "getwindowgeometry", "--shell", wid), env=env,
+                                  capture_output=True, text=True, check=True).stdout
+        g = dict(line.split("=", 1) for line in geometry.split())
+        subprocess.run(("import", "-window", "root", "-crop",
+                        f"{g['WIDTH']}x{g['HEIGHT']}+{g['X']}+{g['Y']}", str(raw)),
+                       env=env, check=True, capture_output=True)
     # Crop the menu and toolbar, then find the 4:3-ish viewport by trimming the border.
     subprocess.run(("convert", str(raw), "-crop", f"+0+{TOOLBAR_GUESS}", "+repage",
                     "-resize", "320x224!", str(out)), check=True)

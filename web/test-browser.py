@@ -70,6 +70,8 @@ def run(url, output):
         expect(page.locator("#failure")).to_be_hidden()
         expect(page.locator("#play-state")).to_have_text("Ready")
         assert int(page.locator("#polygons").inner_text()) > 0, "Initial track must render"
+        expect(page.locator("#simulation")).to_have_text("PROTO")
+        expect(page.locator("#simulation-note")).to_contain_text("not the original physics")
         initial = pixels(page)
 
         page.locator("#start").click()

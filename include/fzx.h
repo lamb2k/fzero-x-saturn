@@ -14,6 +14,24 @@
 #define FZX_BRAKE 8u
 #define FZX_RESET 16u
 #define FZX_FRAME_IMPORTED 1u
+/* Frame flags bits 8..15 carry the active simulation id (card G0.4). */
+#define FZX_FRAME_SIM_SHIFT 8u
+#define FZX_FRAME_SIM_MASK 0xFF00u
+
+/* Simulation selector, chosen at build time with FZX_SIM=proto|fixed.
+ * PROTO: the prototype centreline driver. It is not the original game and is
+ * named on every screen. FIXED: the original racer code in fixed point; it
+ * does not exist until Gate 3 of docs/POC_PLAN.md. */
+#define FZX_SIM_PROTO 0u
+#define FZX_SIM_FIXED 1u
+#ifndef FZX_SIM
+#define FZX_SIM FZX_SIM_PROTO
+#endif
+#if FZX_SIM == FZX_SIM_FIXED
+#error "FZX_SIM=fixed is not implemented yet (POC plan Gate 3); build with FZX_SIM=proto"
+#elif FZX_SIM != FZX_SIM_PROTO
+#error "FZX_SIM must be proto or fixed"
+#endif
 
 /* Positions and radii are Q16.16, at 1/16 original game scale. Bank is
  * SH2ZAM turns; tension is Q16.16 in [0,2]. This explicit layout is also
@@ -61,6 +79,9 @@ FZX_EXPORT void fzx_use_demo(void);
 /* 0: general exact SH2ZAM transform, 1: prepared SH2ZAM batch (default).
  * This switch makes correctness comparisons possible; it is not a timer. */
 FZX_EXPORT void fzx_set_transform_mode(uint32_t prepared);
+/* The active simulation: FZX_SIM_* id and its on-screen name. */
+FZX_EXPORT uint32_t fzx_sim_id(void);
+const char *fzx_sim_name(void);
 bool fzx_validate_course(const fzx_course_t *course);
 bool fzx_spline_sample(const fzx_course_t *course, uint32_t segment,
                        sh2z_fx_t t, sh2z_vec3_t *position,

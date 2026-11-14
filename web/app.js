@@ -10,6 +10,7 @@
   const buttons = { ArrowLeft: 1, KeyA: 1, ArrowRight: 2, KeyD: 2,
     ArrowUp: 4, KeyW: 4, ArrowDown: 8, KeyS: 8 };
   const fixedStep = 1000 / 60;
+  const simNames = ['PROTO', 'FIXED'];
   let api, memory, ready = false, playing = false, started = false;
   let lastTime = 0, accumulator = 0, request = 0;
   let imported = false, courseTitle = 'Test circuit';
@@ -118,6 +119,10 @@
     $('speed').textContent = String(data.getUint32(pointer + 4, true));
     $('lap').textContent = String(data.getUint32(pointer + 8, true));
     $('polygons').textContent = String(count);
+    // Bits 8..15 of the frame flags name the active simulation (FZX_SIM_*).
+    const sim = (data.getUint32(pointer + 12, true) >>> 8) & 0xff;
+    $('simulation').textContent = simNames[sim] || `UNKNOWN ${sim}`;
+    $('simulation-note').textContent = sim === 0 ? 'prototype driver, not the original physics' : '';
   }
 
   function fail(error) {

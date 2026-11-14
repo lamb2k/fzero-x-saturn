@@ -246,6 +246,9 @@ fzx_use_demo(void)
 
 FZX_EXPORT void fzx_set_transform_mode(uint32_t prepared) { use_prepared=!!prepared; }
 
+FZX_EXPORT uint32_t fzx_sim_id(void) { return FZX_SIM; }
+const char *fzx_sim_name(void) { return FZX_SIM==FZX_SIM_PROTO ? "PROTO" : "FIXED"; }
+
 FZX_EXPORT void
 fzx_step(uint32_t buttons)
 {
@@ -384,7 +387,7 @@ fzx_render(void)
             transformed[i]=sh2z_mat34_transform_point(&view,track_mesh[i]);
     }
     frame.count=0;frame.speed=(uint32_t)(((int64_t)speed*100)/SH2Z_ONE);
-    frame.lap=laps;frame.flags=imported?FZX_FRAME_IMPORTED:0;
+    frame.lap=laps;frame.flags=(imported?FZX_FRAME_IMPORTED:0u)|((uint32_t)FZX_SIM<<FZX_FRAME_SIM_SHIFT);
     const uint32_t visible=ring_count<VISIBLE_RINGS?ring_count:VISIBLE_RINGS;
     /* Include two rings behind the craft so near-plane clipping stays visible. */
     for(uint32_t j=0;j<visible;++j) {

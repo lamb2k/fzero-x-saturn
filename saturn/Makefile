@@ -25,6 +25,16 @@ else ifneq ($(FZX_IMPORTED),0)
 $(error FZX_IMPORTED must be 0 for the demo or 1 for the imported course)
 endif
 
+# Simulation selector (card G0.4): proto now; fixed after Gate 3.
+FZX_SIM ?= proto
+ifeq ($(FZX_SIM),proto)
+SH_CFLAGS += -DFZX_SIM=0
+else ifeq ($(FZX_SIM),fixed)
+SH_CFLAGS += -DFZX_SIM=1
+else
+$(error FZX_SIM must be proto or fixed)
+endif
+
 SH_PROGRAM := fzero-x-saturn
 SH_SRCS := main.c ../src/fzx.c $(wildcard $(SH2ZAM_ROOT)/saturn/src/*.c)
 SH_CFLAGS += -O2 -std=c11 -Wall -Wextra -I../include \

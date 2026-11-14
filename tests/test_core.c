@@ -277,9 +277,22 @@ test_laps_clipping_and_exact_transform_modes(void)
     printf("Compared %u driven frames exactly; reached lap %u\n", compared_frames, previous_lap);
 }
 
+/* Card G0.4: the active simulation is visible to every front end. */
+static void
+test_simulation_selector_is_reported(void)
+{
+    fzx_init();
+    const fzx_frame_t *f = fzx_render();
+    CHECK(fzx_sim_id() == FZX_SIM_PROTO);
+    CHECK(strcmp(fzx_sim_name(), "PROTO") == 0);
+    CHECK(((f->flags & FZX_FRAME_SIM_MASK) >> FZX_FRAME_SIM_SHIFT) == FZX_SIM_PROTO);
+    CHECK((f->flags & FZX_FRAME_IMPORTED) == 0);
+}
+
 int
 main(void)
 {
+    test_simulation_selector_is_reported();
     test_spline_against_independent_hermite_oracle();
     test_controls_reset_and_determinism();
     test_course_activation_is_transactional();

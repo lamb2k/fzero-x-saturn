@@ -10,14 +10,14 @@ CI and has **never been booted** (EMULATOR: UNRUN, HARDWARE: UNRUN).
 
 ## Plan position
 
-Gate 0 (ground rules), in progress. Plan: `docs/POC_PLAN.md`.
+Gate 0 (ground rules) done; Gate 1 (GO or NO-GO) next. Plan: `docs/POC_PLAN.md`.
 
 | Card | State | Evidence |
 | --- | --- | --- |
 | G0.1 agent files, STATUS, HANDOFF, plan | done | files in tree |
 | G0.2 hygiene scan + CI job | done | HOST: planted `.z64` stub and home path fail the scan (`tests/test_hygiene.py`, CI `hygiene` job) |
 | G0.3 evidence folder, generation receipts | done | HOST: `tests/test_receipt.py`; Saturn build (local Yaul image) stops on a hand-edited `generated/course.h` |
-| G0.4 `FZX_SIM` selector on HUD and web | not started | |
+| G0.4 `FZX_SIM` selector on HUD and web | done (web); Saturn coded, display UNRUN | HOST: core test + browser test show PROTO; Saturn: HUD string linked, seen on screen at G1.4 |
 
 ## Owner decisions
 

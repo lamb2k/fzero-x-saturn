@@ -3,12 +3,17 @@ set -euo pipefail
 FZX_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$FZX_ROOT"
 SH2ZAM_DIR="${SH2ZAM_DIR:-third_party/SH2ZAM}"
+case "${FZX_SIM:-proto}" in
+  proto) SIM_DEFINE=-DFZX_SIM=0 ;;
+  fixed) SIM_DEFINE=-DFZX_SIM=1 ;;
+  *) printf '%s\n' 'FZX_SIM must be proto or fixed.' >&2; exit 1 ;;
+esac
 test -f "$SH2ZAM_DIR/saturn/include/sh2zam/sh2zam.h" || {
   printf '%s\n' 'Initialize third_party/SH2ZAM before building.' >&2
   exit 1
 }
 "${CLANG:-clang}" --target=wasm32 -O2 -std=c11 -ffreestanding -fno-builtin \
-  -fno-fast-math -ffp-contract=off -nostdlib -DSH2Z_FORCE_PORTABLE=1 \
+  -fno-fast-math -ffp-contract=off -nostdlib -DSH2Z_FORCE_PORTABLE=1 "$SIM_DEFINE" \
   -Iinclude -I"$SH2ZAM_DIR/saturn/include" \
   src/fzx.c src/wasm_support.c "$SH2ZAM_DIR"/saturn/src/*.c \
   -Wl,--no-entry -Wl,--export-memory -Wl,--initial-memory=2097152 \
@@ -16,6 +21,7 @@ test -f "$SH2ZAM_DIR/saturn/include/sh2zam/sh2zam.h" || {
   -Wl,--export=fzx_init -Wl,--export=fzx_step -Wl,--export=fzx_render \
   -Wl,--export=fzx_course_buffer -Wl,--export=fzx_activate_course \
   -Wl,--export=fzx_use_demo -Wl,--export=fzx_set_transform_mode \
+  -Wl,--export=fzx_sim_id \
   -o web/fzero.wasm
 python3 - <<'PY'
 import base64,hashlib,json,pathlib

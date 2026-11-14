@@ -5,6 +5,14 @@ SH2ZAM_ROOT ?= third_party/SH2ZAM
 CFLAGS ?= -O2 -g
 WARNINGS := -std=c11 -Wall -Wextra -Werror -Wconversion -Wshadow -Wpedantic
 CPPFLAGS += -Iinclude -I$(SH2ZAM_ROOT)/saturn/include -DSH2Z_FORCE_PORTABLE=1
+FZX_SIM ?= proto
+ifeq ($(FZX_SIM),proto)
+CPPFLAGS += -DFZX_SIM=0
+else ifeq ($(FZX_SIM),fixed)
+CPPFLAGS += -DFZX_SIM=1
+else
+$(error FZX_SIM must be proto or fixed)
+endif
 CORE := src/fzx.c $(wildcard $(SH2ZAM_ROOT)/saturn/src/*.c)
 HEADERS := include/fzx.h src/demo_course.h
 

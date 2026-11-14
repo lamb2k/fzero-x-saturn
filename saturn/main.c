@@ -165,12 +165,15 @@ main(void)
         const fzx_frame_t *frame = fzx_render();
         commands_build(frame);
         dbgio_printf("\x1b[2;1H SPEED %04lu   LAP %02lu   POLYS %03lu "
-                     "\x1b[3;1H %s                     ",
+                     "\x1b[3;1H %s                     "
+                     "\x1b[4;1H SIM %s%s",
                      (unsigned long)frame->speed,
                      (unsigned long)frame->lap,
                      (unsigned long)frame->count,
                      (frame->flags & FZX_FRAME_IMPORTED) ? "IMPORTED COURSE"
-                                                        : "DEMO COURSE");
+                                                        : "DEMO COURSE",
+                     fzx_sim_name(),
+                     fzx_sim_id() == FZX_SIM_PROTO ? " (PROTOTYPE, NOT ORIGINAL)" : "");
         dbgio_flush();
 
         vdp1_sync_cmdt_list_put(&command_list, 0);

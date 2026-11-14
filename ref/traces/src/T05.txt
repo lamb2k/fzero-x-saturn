@@ -1,0 +1,11 @@
+# T05 boost chain with energy drain: bot steering; B taps from lap 2, when the game allows boost.
+480 8000 0 0
+700 8000 99 0
+20 c000 99 0
+60 8000 99 0
+20 c000 99 0
+60 8000 99 0
+20 c000 99 0
+60 8000 99 0
+20 c000 99 0
+400 8000 99 0

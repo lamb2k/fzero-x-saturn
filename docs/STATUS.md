@@ -12,7 +12,8 @@ HARDWARE: UNRUN. The original racer code runs natively in float in the reference
 synthetic walled-road loop with authored (non-retail) tuning: it counts down, launches, drives
 about one lap grinding walls, and retires near tick 700 (reference tier). With the ROM it also
 runs real Mute City 1 with retail Blue Falcon tuning: launch at GO, cruise near speed 33, walls
-at the first turn without steering (reference, 2026-11-14). The Saturn image boots Mute City 1's
+at the first turn without steering; with bot steering it races three laps to the finish in
+6,247 ticks from GO, about 104 s, no boosting (reference, 2026-11-14). The Saturn image boots Mute City 1's
 layout with prototype handling (EMULATOR); the web workbench drives it locally (HOST).
 
 ## Plan position
@@ -28,7 +29,7 @@ Gate 0 done. Gate 1 (GO or NO-GO) in progress. Plan: `docs/POC_PLAN.md`.
 | G1.5 emulator lane | done, pad input blocked | EMULATOR: `tools/emu/yabause_run.py`, CI `emulator` job; `docs/EMULATOR.md` |
 | G1.4 first boot, render probe | first boot done; budget sweep not started | EMULATOR: boots with and without the 4 MB cart |
 | G1.1 closure census | done | static: `docs/census/` (53 TICK, 66 OFFLINE, 188 OUT); control: PORT in racer.c changes every trace |
-| G1.2 reference harness | done; event coverage open | reference: T01-T10 identical on GCC/Clang x -O0/-O2, `ref/run_corpus.sh`, CI `reference`; tuning control fails as required |
+| G1.2 reference harness | done | reference: T01-T10 identical on 4 builds (CI `reference`); ROM lane M01-M05 identical on 4 builds; boost, dash, jump, wall, pit and a 3-lap finish covered |
 | G1.3 cost model | not started | |
 | G1.6 importer on real ROM | import and real-ROM test pass; shape census done; reference comparison open | ROM: US rev0 fingerprint verified; Mute City 1 23 points, checksum verified; shapes road, walled road, tunnel, air |
 | G1.7 fit table, cartridge detect | not started | |

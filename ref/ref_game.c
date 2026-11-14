@@ -24,6 +24,10 @@ extern unk_807B3C20 D_802C2020;
 extern void Course_Init(void);
 extern void Racer_Init(void);
 extern void Camera_Init(void);
+extern void Course_LandminesViewInteractDataInit(void);
+extern void Course_JumpsViewInteractDataInit(void);
+extern s32 gVenueType, gSkyboxType;
+extern bool D_800CD510;
 extern void Racer_Update(void);
 extern void Camera_Update(void);
 extern void Course_Update(void);
@@ -92,6 +96,15 @@ void ref_game_init(int machine) {
     Course_Init();
     Racer_Init();
     Camera_Init();
+    /* The rest of Race_Init (race.c:66), in order, minus OUT steps (backdrop, effects,
+     * decorations, HUD, minimap, menus). These build the vectors the racer tests course
+     * effects (pit, dash, dirt, ice), jumps and landmines against. */
+    gVenueType = COURSE_CONTEXT()->courseData.venue;   /* func_8007F4E0 (194E0.c) */
+    gSkyboxType = COURSE_CONTEXT()->courseData.skybox;
+    D_800CD510 = true;
+    Course_LandminesViewInteractDataInit();
+    Course_JumpsViewInteractDataInit();
+    Course_EffectsViewInteractDataInit(false);
 }
 
 /* One 60 Hz tick: the input latch as Controller_UpdateInputs leaves it, then Race_Update's
@@ -132,6 +145,15 @@ void ref_game_snapshot(RefSnapshot* out) {
     out->lap = copy.lap;
     out->laps_completed = copy.lapsCompleted;
     out->race_distance = copy.raceDistancePosition;
+    out->seg_forward[0] = copy.segmentPositionInfo.segmentForward.x;
+    out->seg_forward[1] = copy.segmentPositionInfo.segmentForward.y;
+    out->seg_forward[2] = copy.segmentPositionInfo.segmentForward.z;
+    out->seg_disp[0] = copy.segmentPositionInfo.segmentDisplacement.x;
+    out->seg_disp[1] = copy.segmentPositionInfo.segmentDisplacement.y;
+    out->seg_disp[2] = copy.segmentPositionInfo.segmentDisplacement.z;
+    out->up[0] = copy.trueBasis.y.x;
+    out->up[1] = copy.trueBasis.y.y;
+    out->up[2] = copy.trueBasis.y.z;
 }
 
 /* Baked course values the tick reads: per-segment tension and length (OFFLINE outputs). */

@@ -5,15 +5,13 @@ Keep under 50 lines. Overwrite, do not append.
 ## Next card
 
 G1.3 tick cost model: instrument the reference (count float ops by kind per function per tick
-over the corpus), then an SH-2 microbenchmark image timing SH2ZAM fixed-point ops in high work RAM
-and from the cartridge. Before that, close the G1.2 coverage gap below so the counts include
-boost, pit, dash and lap code.
+over T01-T10 and M01-M05), then an SH-2 microbenchmark image timing SH2ZAM fixed-point ops in
+high work RAM and from the cartridge.
 
 ## Open threads
 
-- G1.2 event coverage: open-loop scripts retire the fixture racer near tick 700, so T05-T09 miss
-  boost, pit, dash and laps. Generate their inputs with a closed-loop bot run once in the
-  reference, keep the inputs as scripts, then `ref/run_corpus.sh --update` after review.
+- ROM lane needs the owner's ROM each session: `FZX_TEST_ROM=... FZX_EVIDENCE=<outside git>
+  ref/run_rom_lane.sh`. Last run: M03 finish at tick 6727, hash 3778b5c92f7669da.
 - Camera state is stepped in the reference but not in the trace hash.
 - G1.4 render probe: why the Saturn main loop gives PIC/FLD = 0.5 (30 fps), then the polygon and
   fill sweep.

@@ -1,0 +1,3 @@
+# T07 dash plate: bot steering on the centre line over the dash plate at point 0 (lap 2).
+480 8000 0 0
+900 8000 99 0

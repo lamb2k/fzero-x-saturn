@@ -57,10 +57,32 @@ Inputs are `traces/T01.txt` .. `T10.txt` (authored; T10 is a seeded fuzz). The f
 `make_fixture.py`: a 12-point walled-road ellipse with one pit and one dash plate. Expected
 hashes: `traces/expected.tsv`.
 
+## Authoring inputs: the bot
+
+A script line with stick_x `99` means "auto": a centre-line bot steers (offset from the spline
+and heading, measured along the track's side axis), with an optional fifth column giving a
+lateral target. `ref --record OUT.txt --bot 1,0.5,60` writes the inputs actually used as a plain
+script. Sources live in `traces/src/` and `traces/rom/`; `record_traces.sh` regenerates
+`traces/T*.txt`. The gate replays the recorded inputs, never the bot.
+
+`--stop-at-finish 1` ends a run on the tick the racer finishes. After the finish the game drives
+the racer through `Cpu_GenerateInputs`, a stub here, so any run in which that stub ran exits 3
+as INVALID and fails the gate.
+
+## Coverage (`trace_events.py`)
+
+Synthetic fixture v2 (12 000 x 8 000 walled-road ellipse, half-width 150, authored tuning):
+T05 boost chain (energy 121 to 68 on B taps), T07 dash plate, T09 three laps to the finish.
+The fixture's pit never registers (its effect vectors are axis-aligned and the strips sit on a
+diagonal); T06 stays as a pit-lane pass.
+
+ROM lane (`run_rom_lane.sh`, Mute City 1, retail tuning; outputs stay in `$FZX_EVIDENCE/ref`):
+M01 idle, M02 throttle into the first wall, M03 three laps to the finish, M04 boost chain and pit
+recharge, M05 seeded fuzz. Dash plate, jump (airborne), wall hit, boost and pit all occur.
+
 ## Known gaps
 
-- **Event coverage.** With open-loop scripts the fixture racer grinds the walls and retires
-  around tick 700 on every trace, so T05 to T09 do not yet reach boost, pit, dash plate or three
-  laps. Next: generate those input scripts with a closed-loop bot run once in the reference.
-- Fixture tuning is not Blue Falcon's. Retail tuning, Mute City 1 and its traces are ROM-lane.
+- Fixture tuning is not Blue Falcon's; retail tuning and Mute City 1 are ROM-lane only.
 - Camera state is stepped but not in the trace or hash yet.
+- Data stubs are 64 KB each; a missing storage file can still hide behind one (game_context.c
+  did). Sizing stubs from the decomp's symbol_addrs.txt would catch it.

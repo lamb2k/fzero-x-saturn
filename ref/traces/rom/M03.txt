@@ -1,0 +1,3 @@
+# M03 three laps to the finish: bot steering, throttle held (run with --stop-at-finish 1).
+480 8000 0 0
+9000 8000 99 0

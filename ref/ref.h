@@ -5,6 +5,7 @@
 #define REF_H
 #define REF_COURSE_RECORD_SIZE 0x7E0
 #define REF_TRACE_FORMAT 1
+#define REF_AUTO_STEER 99 /* script stick_x meaning "bot steers" */
 #define REF_RACER_BYTES_MAX 0x400
 #define REF_ROM_HEAD_BYTES 0x1000
 /* Fixture machine tuning: an authored constant for every ROM word Racer_InitMachineStats
@@ -17,6 +18,8 @@ typedef struct {
     unsigned int state_flags;
     int segment;                     /* index of the racer's course segment, -1 if none */
     float t, pos[3], vel[3], speed, energy, race_distance;
+    float seg_forward[3], seg_disp[3];   /* spline tangent and offset from the spline point */
+    float up[3];                          /* racer's up axis (trueBasis.y) */
     int lap, laps_completed;
 } RefSnapshot;
 

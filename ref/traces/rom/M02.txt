@@ -1,0 +1,2 @@
+# M02 full throttle, no steering: launch and first-turn wall.
+900 8000 0 0

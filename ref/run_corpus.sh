@@ -21,8 +21,12 @@ done
 
 run() { # build trace [extra args]
     bin=$1; trace=$2; shift 2
-    "build/ref/$bin/ref" --course "$FX/fixture.bin" --script "ref/traces/$trace.txt" \
-        --trace "$FX/$trace-$bin.tsv" "$@" 2>/dev/null | awk '{print $3" "$5}'
+    if ! "build/ref/$bin/ref" --course "$FX/fixture.bin" --script "ref/traces/$trace.txt" \
+        --trace "$FX/$trace-$bin.tsv" "$@" > "$FX/$trace-$bin.out" 2> "$FX/$trace-$bin.err"; then
+        echo "invalid-run"
+        return 0
+    fi
+    awk '{print $3" "$5}' "$FX/$trace-$bin.out"
 }
 
 fail=0
@@ -37,6 +41,9 @@ for t in T01 T02 T03 T04 T05 T06 T07 T08 T09 T10; do
             echo "ref: FAIL determinism $t: $bin gives $got, gcc-O2 gives $first"; fail=1
         fi
     done
+    if [ "$first" = "invalid-run" ]; then
+        echo "ref: FAIL $t is not a valid run: $(grep INVALID "$FX/$t-gcc-O2.err")"; fail=1
+    fi
     printf '%s\t%s\t%s\n' "$t" "${first% *}" "${first#* }" >> "$out"
 done
 

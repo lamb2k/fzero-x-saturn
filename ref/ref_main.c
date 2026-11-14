@@ -10,11 +10,14 @@
  *   --rom-word  the fixture's authored tuning word (default REF_FIXTURE_ROM_WORD)
  *   RECORD.bin  one 0x7E0-byte CourseDataDisk record, big-endian as stored in the ROM
  *   INPUTS.txt  lines "<ticks> <buttons-hex> <stickX> <stickY>"; '#' starts a comment
+ * A script stick_x of 99 means "auto": a centre-line bot steers (see bot_steer) and
+ * --record OUT.txt writes the inputs actually used, as a plain script with no 99s.
  * Prints "ref: hash <16 hex>" (the hash of every tick's state hash) and a stub report.
  */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
 
 #include "ref.h"
 #include "ref_stubs.h"
@@ -24,6 +27,7 @@ typedef struct {
     uint32_t ticks;
     uint16_t buttons;
     int8_t stick_x, stick_y;
+    float target; /* lateral target for auto steering (optional 5th column, default 0) */
 } ScriptStep;
 
 static uint64_t fnv(uint64_t h, const void* data, size_t n) {
@@ -109,13 +113,15 @@ static int load_script(const char* path, ScriptStep* steps, int max) {
         int sx, sy;
         char* hash = strchr(line, '#');
         if (hash) *hash = '\0';
-        if (sscanf(line, "%u %x %d %d", &ticks, &buttons, &sx, &sy) != 4) continue;
-        if (n == max || sx < -80 || sx > 80 || sy < -80 || sy > 80 || buttons > 0xFFFF) {
+        float target = 0.0f;
+        if (sscanf(line, "%u %x %d %d %f", &ticks, &buttons, &sx, &sy, &target) < 4) continue;
+        if (n == max || ((sx < -80 || sx > 80) && sx != REF_AUTO_STEER) || sy < -80 || sy > 80 ||
+            buttons > 0xFFFF) {
             fprintf(stderr, "ref: bad script line: %s", line);
             fclose(f);
             return -1;
         }
-        steps[n++] = (ScriptStep) { ticks, (uint16_t) buttons, (int8_t) sx, (int8_t) sy };
+        steps[n++] = (ScriptStep) { ticks, (uint16_t) buttons, (int8_t) sx, (int8_t) sy, target };
     }
     fclose(f);
     return n;
@@ -127,8 +133,33 @@ static uint32_t bits(float v) {
     return u;
 }
 
+/* Centre-line bot: steer against the offset from the spline and the velocity's angle to it,
+ * both measured along the track's side axis (racer up x spline tangent), so climbs, banks
+ * and loops are handled. Used only to author input scripts; the gate never runs it. */
+static float bot_sign = 1.0f;
+static float bot_gain_offset = 0.5f, bot_gain_heading = 60.0f;
+static signed char bot_steer(const RefSnapshot* s, float target) {
+    const float* f = s->seg_forward;
+    const float* u = s->up;
+    float side[3] = { u[1] * f[2] - u[2] * f[1], u[2] * f[0] - u[0] * f[2], u[0] * f[1] - u[1] * f[0] };
+    float sl = sqrtf(side[0] * side[0] + side[1] * side[1] + side[2] * side[2]);
+    float vl = sqrtf(s->vel[0] * s->vel[0] + s->vel[1] * s->vel[1] + s->vel[2] * s->vel[2]);
+    if (sl == 0.0f) return 0;
+    float lateral = (side[0] * s->seg_disp[0] + side[1] * s->seg_disp[1] + side[2] * s->seg_disp[2]) / sl;
+    float heading = vl > 0.0f ? (side[0] * s->vel[0] + side[1] * s->vel[1] + side[2] * s->vel[2]) / (sl * vl) : 0.0f;
+    float c = bot_sign * (bot_gain_offset * (lateral - target) + bot_gain_heading * heading);
+    if (c > 80.0f) c = 80.0f;
+    if (c < -80.0f) c = -80.0f;
+    return (signed char) lrintf(c);
+}
+
 int main(int argc, char** argv) {
-    const char *course = NULL, *script = NULL, *trace = NULL, *rom = NULL;
+    const char *course = NULL, *script = NULL, *trace = NULL, *rom = NULL, *record = NULL;
+    FILE* rec = NULL;
+    int stop_at_finish = 0; /* --stop-at-finish 1: end after the tick the racer finishes */
+    signed char auto_x = 0;
+    int run_buttons = -1, run_x = 0, run_y = 0;
+    long run_len = 0;
     long max_ticks = -1;
     int machine = 0;
     uint64_t course_hash = 0;
@@ -142,6 +173,9 @@ int main(int argc, char** argv) {
         else if (!strcmp(argv[i], "--machine")) machine = (int) strtol(argv[i + 1], NULL, 10);
         else if (!strcmp(argv[i], "--rom-word")) ref_fixture_rom_word = (unsigned) strtoul(argv[i + 1], NULL, 16);
         else if (!strcmp(argv[i], "--rom")) rom = argv[i + 1];
+        else if (!strcmp(argv[i], "--record")) record = argv[i + 1];
+        else if (!strcmp(argv[i], "--stop-at-finish")) stop_at_finish = atoi(argv[i + 1]);
+        else if (!strcmp(argv[i], "--bot")) sscanf(argv[i + 1], "%f,%f,%f", &bot_sign, &bot_gain_offset, &bot_gain_heading);
     }
     if (!course || !script || !trace) {
         fprintf(stderr, "usage: ref --course RECORD.bin --script INPUTS.txt --trace OUT.tsv [--ticks N]\n");
@@ -177,32 +211,60 @@ int main(int argc, char** argv) {
 
     uint64_t run = fnv(0xCBF29CE484222325ull, &course_hash, sizeof(course_hash));
     long tick = 0;
+    if (record != NULL && (rec = fopen(record, "w")) == NULL) {
+        fprintf(stderr, "ref: cannot write %s\n", record);
+        return 2;
+    }
+    if (rec) fprintf(rec, "# Recorded by ref from %s (auto steering resolved).\n", script);
     for (int s = 0; s < nsteps; ++s) {
         for (uint32_t k = 0; k < steps[s].ticks; ++k) {
             if (max_ticks >= 0 && tick >= max_ticks) goto done;
             RefSnapshot snap;
-            ref_game_tick(steps[s].buttons, steps[s].stick_x, steps[s].stick_y);
+            signed char sx = steps[s].stick_x == REF_AUTO_STEER ? auto_x : steps[s].stick_x;
+            if (rec) {
+                if (steps[s].buttons == run_buttons && sx == run_x && steps[s].stick_y == run_y) {
+                    ++run_len;
+                } else {
+                    if (run_len) fprintf(rec, "%ld %04x %d %d\n", run_len, run_buttons, run_x, run_y);
+                    run_buttons = steps[s].buttons, run_x = sx, run_y = steps[s].stick_y, run_len = 1;
+                }
+            }
+            ref_game_tick(steps[s].buttons, sx, steps[s].stick_y);
             ref_game_snapshot(&snap);
+            auto_x = bot_steer(&snap, steps[s].target);
             uint64_t h = fnv(0xCBF29CE484222325ull, snap.racer, snap.racer_bytes);
             h = fnv(h, &snap.segment, sizeof(snap.segment));
             run = fnv(run, &h, sizeof(h));
             fprintf(out,
                     "%ld\t%04x\t%d\t%d\t%08x\t%d\t%08x\t%08x\t%08x\t%08x\t%08x\t%08x\t%08x"
                     "\t%08x\t%08x\t%d\t%d\t%08x\t%016llx\n",
-                    tick, steps[s].buttons, steps[s].stick_x, steps[s].stick_y,
+                    tick, steps[s].buttons, sx, steps[s].stick_y,
                     (unsigned) snap.state_flags, snap.segment, bits(snap.t), bits(snap.pos[0]),
                     bits(snap.pos[1]), bits(snap.pos[2]), bits(snap.vel[0]), bits(snap.vel[1]),
                     bits(snap.vel[2]), bits(snap.speed), bits(snap.energy), snap.lap,
                     snap.laps_completed, bits(snap.race_distance), (unsigned long long) h);
             ++tick;
+            if (stop_at_finish && (snap.state_flags & (1u << 25))) goto done; /* RACER_STATE_FINISHED */
         }
     }
 done:
     fclose(out);
+    if (rec) {
+        if (run_len) fprintf(rec, "%ld %04x %d %d\n", run_len, run_buttons, run_x, run_y);
+        fclose(rec);
+    }
     printf("ref: ticks %ld hash %016llx\n", tick, (unsigned long long) run);
     fprintf(stderr, "ref: course loads %u, other DMA %u\n", ref_dma_course_loads, ref_dma_other_loads);
+    int cpu_drove = 0;
     for (uint32_t i = 0; i < ref_stub_count; ++i) {
         if (ref_stub_calls[i]) fprintf(stderr, "ref: stub %s called %u times\n", ref_stub_names[i], ref_stub_calls[i]);
+        if (ref_stub_calls[i] && !strcmp(ref_stub_names[i], "Cpu_GenerateInputs")) cpu_drove = 1;
+    }
+    /* After the finish (or for a CPU racer) the game steers through Cpu_GenerateInputs, which is
+     * a stub here: whatever it leaves is not the original behaviour. Such a run is not valid. */
+    if (cpu_drove) {
+        fprintf(stderr, "ref: INVALID: the CPU-input stub drove the racer; end the script at the finish\n");
+        return 3;
     }
     return 0;
 }

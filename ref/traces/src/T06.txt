@@ -1,0 +1,4 @@
+# T06 pit lane pass on the fixture: bot hugs the left pit strip (lateral -120). The fixture's pit
+# does not register; pit recharge is checked on Mute City 1 in the ROM lane.
+480 8000 0 0
+1400 8000 99 0 -120

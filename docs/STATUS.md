@@ -16,7 +16,7 @@ Gate 0 (ground rules), in progress. Plan: `docs/POC_PLAN.md`.
 | --- | --- | --- |
 | G0.1 agent files, STATUS, HANDOFF, plan | done | files in tree |
 | G0.2 hygiene scan + CI job | done | HOST: planted `.z64` stub and home path fail the scan (`tests/test_hygiene.py`, CI `hygiene` job) |
-| G0.3 evidence folder, generation receipts | not started | |
+| G0.3 evidence folder, generation receipts | done | HOST: `tests/test_receipt.py`; Saturn build (local Yaul image) stops on a hand-edited `generated/course.h` |
 | G0.4 `FZX_SIM` selector on HUD and web | not started | |
 
 ## Owner decisions

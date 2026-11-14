@@ -22,6 +22,9 @@ from pathlib import Path
 import struct
 import sys
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from receipt import write_receipt  # noqa: E402
+
 UPSTREAM_COMMIT = "4f9320675758fd524bb3bc9ea98b913a09d48552"
 DECOMP_COMMIT = "b944a4135409d24979f5c74b001befab8345761a"
 UPSTREAM_URL = "https://github.com/Zorkats/G-Diffuser"
@@ -339,6 +342,11 @@ def main(argv: list[str] | None = None) -> int:
         json_output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(header, encoding="utf-8")
         json_output.write_text(json_text, encoding="utf-8")
+        # The input hash is a note only: the input is private and never checked by builds.
+        write_receipt(args.output, Path(__file__), [args.output, json_output],
+                      {"generator": "tools/import_course.py",
+                       "input_kind": course["provenance"].get("input_kind", "rom"),
+                       "input_sha256": hashlib.sha256(data).hexdigest()})
     except (OSError, CourseImportError) as exc:
         print(f"Course import failed: {exc}", file=sys.stderr)
         return 2

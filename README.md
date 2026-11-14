@@ -111,7 +111,9 @@ python3 tools/import_course.py --rom /path/to/F-Zero-X.z64 \
   --output generated/course.h
 ```
 
-This creates `generated/course.h` and `generated/course.json`. The importer
+This creates `generated/course.h`, `generated/course.json` and a receipt,
+`generated/course.h.receipt`. The Saturn build refuses a header whose receipt
+does not match (a changed importer or a hand edit); rerun the importer instead. The importer
 validates the ROM version, original course checksum, geometry and numeric
 ranges before writing. The supported retail extraction is Mute City 1.
 

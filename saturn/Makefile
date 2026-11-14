@@ -16,6 +16,10 @@ ifeq ($(FZX_IMPORTED),1)
 ifeq ($(wildcard ../generated/course.h),)
 $(error FZX_IMPORTED=1 requires ../generated/course.h from the course importer)
 endif
+# Refuse stale or hand-edited generated output (card G0.3).
+ifneq ($(shell sh ../tools/check_receipt.sh ../generated/course.h.receipt >/dev/null 2>&1 && echo ok),ok)
+$(error ../generated/course.h is stale or hand-edited: its receipt does not match. Rerun tools/import_course.py; see tools/check_receipt.sh ../generated/course.h.receipt)
+endif
 SH_CFLAGS += -DFZX_USE_IMPORTED_COURSE=1
 else ifneq ($(FZX_IMPORTED),0)
 $(error FZX_IMPORTED must be 0 for the demo or 1 for the imported course)

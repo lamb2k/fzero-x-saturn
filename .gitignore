@@ -14,3 +14,4 @@ __pycache__/
 *.v64
 *.o2r
 baserom*
+/saturn/cd/

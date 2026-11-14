@@ -63,6 +63,30 @@ jobs:
             saturn/build/*.elf
             saturn/build/*.sym
           if-no-files-found: error
+  emulator:
+    needs: saturn
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: fzero-x-saturn-native
+          path: saturn
+      - name: Install Yabause (emulated BIOS) and a virtual display
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y yabause-qt xvfb xdotool imagemagick
+      - name: Boot the image with and without the 4 MB cartridge (EMULATOR tier)
+        run: |
+          mkdir -p build/emu
+          python3 tools/emu/yabause_run.py saturn/fzero-x-saturn.cue --seconds 10 --cart 4mb --out build/emu/boot-4mb.png
+          python3 tools/emu/yabause_run.py saturn/fzero-x-saturn.cue --seconds 10 --cart none --out build/emu/boot-nocart.png
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: fzero-x-saturn-emulator
+          path: build/emu/
   web:
     runs-on: ubuntu-24.04
     timeout-minutes: 20

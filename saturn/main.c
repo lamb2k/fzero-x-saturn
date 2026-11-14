@@ -142,6 +142,8 @@ main(void)
     uint32_t previous_field = video_fields;
     uint32_t tick_remainder = 0;
     uint32_t pending_reset = 0;
+    uint32_t ticks = 0;
+    uint32_t pictures = 0;
 
     dbgio_printf("\x1b[H\x1b[2J F-ZERO X / SH2ZAM\n"
                  "\x1b[26;1H D-PAD STEER   A/C GO   B BRAKE\n"
@@ -160,20 +162,26 @@ main(void)
             fzx_step((buttons & ~FZX_RESET) | pending_reset);
             pending_reset = 0;
             tick_remainder -= fields_per_second;
+            ++ticks;
         }
 
         const fzx_frame_t *frame = fzx_render();
         commands_build(frame);
         dbgio_printf("\x1b[2;1H SPEED %04lu   LAP %02lu   POLYS %03lu "
                      "\x1b[3;1H %s                     "
-                     "\x1b[4;1H SIM %s%s",
+                     "\x1b[4;1H SIM %s%s"
+                     "\x1b[5;1H FLD %06lu TCK %06lu PIC %06lu"
+                     "\x1b[6;1H PAD %04X",
                      (unsigned long)frame->speed,
                      (unsigned long)frame->lap,
                      (unsigned long)frame->count,
                      (frame->flags & FZX_FRAME_IMPORTED) ? "IMPORTED COURSE"
                                                         : "DEMO COURSE",
                      fzx_sim_name(),
-                     fzx_sim_id() == FZX_SIM_PROTO ? " (PROTOTYPE, NOT ORIGINAL)" : "");
+                     fzx_sim_id() == FZX_SIM_PROTO ? " (PROTOTYPE, NOT ORIGINAL)" : "",
+                     (unsigned long)field, (unsigned long)ticks,
+                     (unsigned long)pictures,
+                     (unsigned int)(digital.connected ? digital.pressed.raw : 0xFFFFu));
         dbgio_flush();
 
         vdp1_sync_cmdt_list_put(&command_list, 0);
@@ -183,5 +191,6 @@ main(void)
         /* Wait for both the polygon frame and the HUD transfer. */
         vdp1_sync_wait();
         vdp2_sync_wait();
+        ++pictures;
     }
 }

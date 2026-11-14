@@ -43,6 +43,7 @@ CFLAGS := $(filter-out -fexcess-precision=standard,$(CFLAGS)) -ffp-eval-method=s
 endif
 
 DECOMP_SRCS := game/racer game/course game/course_gadgets game/camera sys/math game/EA90 \
+               game/game_context game/course_gadget_context \
                game/EA20 game/common
 DECOMP_OBJS := $(addprefix $(BUILD)/,$(addsuffix .o,$(notdir $(DECOMP_SRCS))))
 HARNESS_OBJS := $(BUILD)/ref_platform.o $(BUILD)/ref_game.o $(BUILD)/ref_main.o

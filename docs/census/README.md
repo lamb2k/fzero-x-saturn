@@ -24,11 +24,11 @@ are in `overrides.tsv`. Regenerate, never edit the TSVs by hand.
 
 | Class | Functions | Source lines |
 | --- | --- | --- |
-| TICK (per-tick, fixed-point port) | 53 | 4,542 |
+| TICK (per-tick, fixed-point port) | 55 | 4,548 |
 | OFFLINE (run by the reference at import, baked) | 66 | 5,643 |
-| OUT (not needed for this POC) | 188 | 8,772 |
+| OUT (not needed for this POC) | 186 | 8,766 |
 
-TICK static float operations: 828 add/sub, 884 mul, 65 div, 150 compare, 85 conversions.
+TICK static float operations (before the shape correction): 828 add/sub, 884 mul, 65 div, 150 compare, 85 conversions.
 
 The physics bulk is two functions: `Racer_UpdateFromControls` (1,750 lines; 317 add, 339 mul, 30
 div) and `Racer_Update` (619 lines). Then the track query `func_8009EBEC` (165), wall response
@@ -87,8 +87,8 @@ calculations") and `Matrix_SetAxisRotation` (OFFLINE). None is in the TICK closu
 
 ## Open items for later cards
 
-- Track shapes other than walled road and air are OUT pending the G1.6 shape census of Mute
-  City 1.
+- Mute City 1 (G1.6 import, 23 control points) uses road, walled road, tunnel and air; their
+  four shape handlers are TICK, the other four OUT.
 - `Effects_*` are OUT on the claim that the racer reads no effect state; G1.2 checks it by
   running the reference with them stubbed.
 - Multi-racer bookkeeping (`Racer_UpdateRivalRacer`, `Racer_UpdateRacePositions`,

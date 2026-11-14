@@ -15,6 +15,12 @@ extern s8 gTitleDemoState;
 extern CourseInfo* gCurrentCourseInfo;
 extern void func_8008D33C(void);
 extern void Math_SinTableInit(void);
+extern CourseFeaturesInfo gCourseFeaturesInfo;
+extern CourseFeature gCourseFeatures[];
+extern CourseEffectsInfo gCourseEffectsInfo;
+extern CourseEffect gCourseEffects[];
+extern CourseInfo gCourseInfos[];
+extern unk_807B3C20 D_802C2020;
 extern void Course_Init(void);
 extern void Racer_Init(void);
 extern void Camera_Init(void);
@@ -67,6 +73,12 @@ void ref_game_init(int machine) {
     /* Boot: sys_gfx.c:682 fills the sine table; racer.c copies the default machines.
      * The RNG keeps math.c's initial seeds (gRandSeed1/2). */
     Math_SinTableInit();
+    /* func_800742FC (course_gadgets.c:5241, called at sys_gfx.c:687) wires the course
+     * containers. Only its pointer wiring is mirrored: it also bzero's a linker segment
+     * range and loads a course, which Race_Init does again here. */
+    gCourseFeaturesInfo.features = gCourseFeatures;
+    gCourseInfos[0].courseSegments = D_802C2020.unk_0000;
+    gCourseEffectsInfo.effects = gCourseEffects;
     func_8008D33C();
     gGameMode = GAMEMODE_TIME_ATTACK;
     gNumPlayers = 1;

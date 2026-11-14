@@ -18,8 +18,8 @@ Dma_.*|Arena_.*|Fault_.*|LeoFault_.*|SL.*|Lights_.*|Segment_SegmentedToVirtual|f
 func_807[0-9A-F]+	OUT	64DD / Expansion Kit code: not in this POC
 Course_GenerateRandomCourse	OUT	random course mode: not in this POC
 Course_(Buildings|ExtraBuildings|ShortBuildings|SpireBuildings|TallBuildings|Signs|Decorations).*	OUT	scenery: not in this POC
-func_8008EC58|func_80090490	TICK	track-shape handlers for TRACK_SHAPE_WALLED_ROAD and TRACK_SHAPE_AIR (table D_800CF4B8)
-func_8008EC38|func_8008EC98|func_8008F550|func_8008FC80|func_8008EC78|func_80090568	OUT	track-shape handlers for shapes other than walled road and air; revisit if the G1.6 shape census finds them on Mute City 1
+func_8008EC38|func_8008EC58|func_8008EC78|func_80090490	TICK	track-shape handlers for road, walled road, tunnel and air: the shapes Mute City 1 uses (G1.6 import, table D_800CF4B8)
+func_8008EC98|func_8008F550|func_8008FC80|func_80090568	OUT	track-shape handlers for pipe, cylinder, half-pipe and borderless road: not on Mute City 1 (G1.6 import)
 Camera_.*	TICK	race chase camera: ported at G5.3; tier T keeps the labelled prototype camera
 Racer_UpdateRivalRacer|Racer_UpdateRacePositions|Racer_UpdateRacerPairInfo|Racer_UpdateNearestRacer	TICK	multi-racer bookkeeping that still runs for one racer; expected trivial, confirm in the trace
 Racer_RetireRacer|Racer_ReceiveDamage	TICK	energy and damage: part of the race loop

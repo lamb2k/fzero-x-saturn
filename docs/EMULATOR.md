@@ -26,6 +26,13 @@ screen. CI's `emulator` job runs it with and without the 4 MB cartridge and uplo
 - `FLD`: video fields since boot. `TCK`: simulation ticks. `PIC`: finished pictures.
   At 60 fps `PIC` advances with `FLD`; `FLD - PIC` is the missed-field count.
 - `PAD`: raw digital pad bits, `FFFF` when no pad is connected.
+- `CYC/FLD`: SH-2 cycles per field from the free-running timer (clock/128). Yabause gives
+  448,384 against the nominal 477,750: FLD counts real fields.
+- `CPU/PIC`, `R`, `B`: cycles per picture in step + render + command build, in `fzx_render`, and
+  in the VDP1 command build.
+- Probe knobs (`make -C saturn ...`, defaults are the original behaviour): `FZX_HUD_EVERY`,
+  `FZX_SYNC_WAIT` (2 or 1), `FZX_VDP1_INTERVAL` (-1 or 0). `--realtime` in the run script turns
+  on Yabause's limiter, which does not hold headless (about 167 fields per wall second).
 
 ## Known limits
 

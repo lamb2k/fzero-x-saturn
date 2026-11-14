@@ -6,7 +6,8 @@ Keep under 50 lines. Overwrite, do not append.
 
 G1.3 control: convert `Math_OrthonormalizeAroundForward` to SH2ZAM, build a Saturn image that
 times it (FRT) in high work RAM and from the cartridge, compare with `docs/cost/` (MODELLED).
-Then G1.4 render probe (PIC/FLD = 0.5 today) and the polygon/fill sweep, G1.7 fit table and
+Then the G1.4 polygon/fill sweep (the 30 fps cause is found: prototype fzx_render costs a whole
+field on the CPU; VDP1 is not yet the limit), G1.7 fit table and
 cartridge detect, G1.8 `docs/GATE1.md` and the owner's GO / NO-GO question.
 
 ## Open threads

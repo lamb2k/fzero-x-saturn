@@ -9,6 +9,21 @@
 
 #include "fzx.h"
 
+/* G1.4 probe knobs; defaults keep the original behaviour.
+ * FZX_HUD_EVERY: rewrite and transfer the debug HUD every N pictures.
+ * FZX_SYNC_WAIT: 2 = wait for VDP1 then VDP2 (original); 1 = one VDP2 wait (Yaul's examples). */
+#ifndef FZX_HUD_EVERY
+#define FZX_HUD_EVERY 1
+#endif
+#ifndef FZX_SYNC_WAIT
+#define FZX_SYNC_WAIT 2
+#endif
+/* FZX_VDP1_INTERVAL: Yaul VDP1 sync interval. -1 = variable, change after draw end (original);
+ * 0 = fixed, framebuffer change every field. */
+#ifndef FZX_VDP1_INTERVAL
+#define FZX_VDP1_INTERVAL (-1)
+#endif
+
 enum {
     COMMAND_SYSTEM_CLIP = 0,
     COMMAND_LOCAL_COORD = 1,
@@ -26,11 +41,18 @@ static vdp1_cmdt_t commands[COMMAND_CAPACITY];
 static vdp1_cmdt_list_t command_list;
 static smpc_peripheral_digital_t digital;
 static volatile uint32_t video_fields;
+/* SH-2 free-running timer at clock/128, sampled each field: an independent check that
+ * one field is ~477,750 CPU cycles (NTSC), so FLD counts real fields. */
+static volatile uint32_t frt_ticks_total;
+static uint16_t frt_previous;
 
 static void
 vblank_out(void *work)
 {
     (void)work;
+    const uint16_t now = cpu_frt_count_get();
+    frt_ticks_total += (uint16_t)(now - frt_previous);
+    frt_previous = now;
     ++video_fields;
     smpc_peripheral_intback_issue();
 }
@@ -53,8 +75,9 @@ user_init(void)
     env.erase_color = RGB1555(0, 0, 0, 0);
     vdp1_env_set(&env);
     /* Variable interval: present only after the polygon list has finished. */
-    vdp1_sync_interval_set(-1);
+    vdp1_sync_interval_set(FZX_VDP1_INTERVAL);
 
+    cpu_frt_init(CPU_FRT_CLOCK_DIV_128);
     vdp_sync_vblank_out_set(vblank_out, NULL);
     vdp2_tvmd_display_set();
 }
@@ -144,12 +167,15 @@ main(void)
     uint32_t pending_reset = 0;
     uint32_t ticks = 0;
     uint32_t pictures = 0;
+    uint32_t work_ticks = 0;   /* FRT/128 ticks spent in step + render + command build */
+    uint32_t render_ticks = 0, build_ticks = 0;
 
     dbgio_printf("\x1b[H\x1b[2J F-ZERO X / SH2ZAM\n"
                  "\x1b[26;1H D-PAD STEER   A/C GO   B BRAKE\n"
                  " START RESET");
 
     while (true) {
+        const uint16_t work_start = cpu_frt_count_get();
         const uint32_t buttons = buttons_read();
         pending_reset |= buttons & FZX_RESET;
         const uint32_t field = video_fields;
@@ -165,13 +191,21 @@ main(void)
             ++ticks;
         }
 
+        const uint16_t render_start = cpu_frt_count_get();
         const fzx_frame_t *frame = fzx_render();
+        const uint16_t build_start = cpu_frt_count_get();
         commands_build(frame);
+        const uint16_t work_end = cpu_frt_count_get();
+        render_ticks += (uint16_t)(build_start - render_start);
+        build_ticks += (uint16_t)(work_end - build_start);
+        work_ticks += (uint16_t)(work_end - work_start);
+        if (pictures % FZX_HUD_EVERY == 0) {
         dbgio_printf("\x1b[2;1H SPEED %04lu   LAP %02lu   POLYS %03lu "
                      "\x1b[3;1H %s                     "
                      "\x1b[4;1H SIM %s%s"
                      "\x1b[5;1H FLD %06lu TCK %06lu PIC %06lu"
-                     "\x1b[6;1H PAD %04X",
+                     "\x1b[6;1H PAD %04X CYC/FLD %07lu"
+                     "\x1b[7;1H CPU/PIC %07lu R %07lu B %06lu",
                      (unsigned long)frame->speed,
                      (unsigned long)frame->lap,
                      (unsigned long)frame->count,
@@ -181,16 +215,25 @@ main(void)
                      fzx_sim_id() == FZX_SIM_PROTO ? " (PROTOTYPE, NOT ORIGINAL)" : "",
                      (unsigned long)field, (unsigned long)ticks,
                      (unsigned long)pictures,
-                     (unsigned int)(digital.connected ? digital.pressed.raw : 0xFFFFu));
+                     (unsigned int)(digital.connected ? digital.pressed.raw : 0xFFFFu),
+                     (unsigned long)(field > 1 ? (frt_ticks_total / (field - 1)) * 128u : 0u),
+                     (unsigned long)(pictures ? (work_ticks / pictures) * 128u : 0u),
+                     (unsigned long)(pictures ? (render_ticks / pictures) * 128u : 0u),
+                     (unsigned long)(pictures ? (build_ticks / pictures) * 128u : 0u));
         dbgio_flush();
+        }
 
         vdp1_sync_cmdt_list_put(&command_list, 0);
         vdp1_sync_render();
         vdp1_sync();
         vdp2_sync();
+#if FZX_SYNC_WAIT == 2
         /* Wait for both the polygon frame and the HUD transfer. */
         vdp1_sync_wait();
         vdp2_sync_wait();
+#else
+        vdp2_sync_wait();
+#endif
         ++pictures;
     }
 }

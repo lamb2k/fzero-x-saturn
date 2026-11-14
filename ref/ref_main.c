@@ -221,7 +221,9 @@ int main(int argc, char** argv) {
         fprintf(stderr, "ref: cannot write %s\n", record);
         return 2;
     }
-#ifdef REF_PROFILE
+#ifndef REF_PROFILE
+    (void) profile_path;
+#else
     if (profile_path != NULL && (prof = fopen(profile_path, "w")) == NULL) return 2;
     if (prof) ref_profile_tick(NULL == prof ? stderr : fopen("/dev/null", "w"), -1); /* drop init counts */
 #endif

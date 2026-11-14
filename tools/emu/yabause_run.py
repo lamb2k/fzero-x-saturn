@@ -41,12 +41,12 @@ PAD_KEYS = {name: code for name, (_key, code) in PAD.items()}
 TOOLBAR_GUESS = 52  # menu + toolbar height of the Qt window at the default style
 
 
-def settings(cart: str) -> str:
+def settings(cart: str, realtime: bool = False) -> str:
     return "\n".join((
         "[General]",
         "EnableEmulatedBios=true",
-        "ClockSync=false",
-        "EnableFrameSkipLimiter=false",
+        f"ClockSync={'true' if realtime else 'false'}",
+        f"EnableFrameSkipLimiter={'true' if realtime else 'false'}",
         "[Cartridge]",
         f"Type={CARTS[cart]}",
         "[Video]",
@@ -126,6 +126,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--seconds", type=float, default=12.0)
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--cart", choices=tuple(CARTS), default="4mb")
+    parser.add_argument("--realtime", action="store_true",
+                        help="ClockSync on: emulated time follows wall time (checks field rates)")
     parser.add_argument("--keys", default="", help="schedule 't:key', 't:+key', 't:-key'")
     args = parser.parse_args(argv)
     for tool in ("yabause", "Xvfb", "xdotool", "import", "convert"):
@@ -140,7 +142,7 @@ def main(argv: list[str] | None = None) -> int:
         home = Path(tmp)
         conf = home / ".config/yabause/qt"
         conf.mkdir(parents=True)
-        (conf / "yabause.ini").write_text(settings(args.cart), encoding="utf-8")
+        (conf / "yabause.ini").write_text(settings(args.cart, args.realtime), encoding="utf-8")
         runtime = home / "run"
         runtime.mkdir(mode=0o700)
         display = free_display()

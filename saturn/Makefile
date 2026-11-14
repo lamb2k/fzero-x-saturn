@@ -35,6 +35,13 @@ else
 $(error FZX_SIM must be proto or fixed)
 endif
 
+# G1.4 probe knobs (see main.c); defaults are the original behaviour.
+FZX_HUD_EVERY ?= 1
+FZX_SYNC_WAIT ?= 2
+FZX_VDP1_INTERVAL ?= -1
+SH_CFLAGS += -DFZX_HUD_EVERY=$(FZX_HUD_EVERY) -DFZX_SYNC_WAIT=$(FZX_SYNC_WAIT) \
+             -DFZX_VDP1_INTERVAL="($(FZX_VDP1_INTERVAL))"
+
 SH_PROGRAM := fzero-x-saturn
 SH_SRCS := main.c ../src/fzx.c $(wildcard $(SH2ZAM_ROOT)/saturn/src/*.c)
 SH_CFLAGS += -O2 -std=c11 -Wall -Wextra -I../include \

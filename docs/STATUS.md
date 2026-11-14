@@ -27,7 +27,7 @@ Gate 0 done. Gate 1 (GO or NO-GO) in progress. Plan: `docs/POC_PLAN.md`.
 | G0.3 evidence folder, receipts | done | HOST: `tests/test_receipt.py`; Saturn build stops on a hand-edited header |
 | G0.4 `FZX_SIM` on HUD and web | done | HOST: core + browser tests; EMULATOR: HUD shows `SIM PROTO (PROTOTYPE, NOT ORIGINAL)` |
 | G1.5 emulator lane | done, pad input blocked | EMULATOR: `tools/emu/yabause_run.py`, CI `emulator` job; `docs/EMULATOR.md` |
-| G1.4 first boot, render probe | first boot done; budget sweep not started | EMULATOR: boots with and without the 4 MB cart |
+| G1.4 first boot, render probe | first boot and 30 fps cause done; polygon/fill sweep open | EMULATOR/MODELLED: prototype `fzx_render` takes ~447k of 450k cycles per picture (52 polys); HUD, sync mode and VDP1 interval ruled out |
 | G1.1 closure census | done | static: `docs/census/` (53 TICK, 66 OFFLINE, 188 OUT); control: PORT in racer.c changes every trace |
 | G1.2 reference harness | done | reference: T01-T10 identical on 4 builds (CI `reference`); ROM lane M01-M05 identical on 4 builds; boost, dash, jump, wall, pit and a 3-lap finish covered |
 | G1.3 cost model | op counts and model done; emulator control and cartridge cost open | MODELLED: Mute City 1 mean 782 float ops/tick, 32k cycles = 14% of the 8 ms master line (max 21%); `docs/cost/` |
@@ -39,7 +39,8 @@ Gate 0 done. Gate 1 (GO or NO-GO) in progress. Plan: `docs/POC_PLAN.md`.
 
 | What | Value | Tier |
 | --- | --- | --- |
-| Demo circuit: pictures per field, current main loop | 0.50 (PIC 558 / FLD 1117): 30 fps, not 60 | EMULATOR / MODELLED |
+| Demo circuit: pictures per field, current main loop | 0.50: 30 fps; cause: prototype renderer CPU ~447k cycles/picture, ~8.6k per polygon | EMULATOR / MODELLED |
+| Mute City 1 tick float work (original code) | 783 ops, 32k cycles = 14% of 8 ms master line (max 21%) | MODELLED (`docs/cost/`) |
 | Demo circuit polygons at start pose | 52 | HOST, EMULATOR |
 | Saturn image sha256 (this measurement) | `3c278d52…eaeebe` | build, local Yaul image |
 

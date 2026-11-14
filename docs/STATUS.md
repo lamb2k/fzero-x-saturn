@@ -52,5 +52,5 @@ Gate 0 done. Gate 1 (GO or NO-GO) in progress. Plan: `docs/POC_PLAN.md`.
 
 - `BLOCKED_EMULATOR_PAD`: Yabause 0.9.15 reports no pad to the image (`PAD FFFF`). Unblock
   conditions in `docs/EMULATOR.md`. Pad-only lap proofs (G4.3) need this.
-- ROM lane: the owner's US rev0 ROM is available in this session only (scratch, outside git);
-  a new session needs it supplied again. Retail Blue Falcon tuning comes from it via `ref --rom`.
+- ROM lane: the owner's US rev0 ROM is kept in the owner's private ROM store (outside this
+  repo); sessions fetch it into scratch (docs/HANDOFF.md). Retail tuning comes from `ref --rom`.

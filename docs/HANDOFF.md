@@ -33,8 +33,11 @@ This repo:
 
 - Emulator gaps: no pad, no RAM cartridge (ID FF, RAM probe fails), timing ~6% off; see
   docs/EMULATOR.md. Owner asked about a console or another emulator (Kronos, Mednafen).
-- ROM lane needs the owner's ROM each session: `FZX_TEST_ROM=... FZX_EVIDENCE=<outside git>
-  ref/run_rom_lane.sh`. Last run: M03 finish at tick 6727, hash 3778b5c92f7669da.
+- ROM lane: the owner's ROM is in their private ROM store (a private repo, named by the owner;
+  attach it read-only). Its README has the fetch steps: into the session scratchpad only, check
+  sha256, set `FZX_TEST_ROM` and `FZX_EVIDENCE` (outside git), then `ref/run_rom_lane.sh`.
+  Never copy the ROM or anything derived from it into this repo. Last run: M03 finish at tick
+  6727, hash 3778b5c92f7669da.
 - Camera state is stepped in the reference but not in the trace hash.
 - Tools in this container: `sudo apt-get install gcc-multilib clang gdb yabause-qt xvfb xdotool
   imagemagick`; `dockerd &` for Saturn builds; `pip install libclang` for the census tool.

@@ -1,7 +1,7 @@
 # F-Zero X Saturn: one-track POC plan
 
 Plan for this repository, written against commit `33a94ec`.
-Written 2026-11-13 for execution by Claude Opus 5.5 in Claude Code, with the owner as reviewer.
+Written 2026-11-13 for execution by an agent in Claude Code, with the owner as reviewer.
 
 Sources of the lessons: `lamb2k/avpsaturn` (AGENTS, handoff, learning notes, test plan, ADRs),
 `lamb2k/cps2saturn` (playbook and the nine skills, the "recomp" side), and `lamb2k/re4dc`
@@ -192,7 +192,7 @@ Each also exists on a **synthetic course with a fixture machine**, and those ver
 
 ## 6. The gates
 
-Card format: **goal**, **done when**, **control** (the mutation that must make the gate fail), **needs ROM**. Effort is the suggested session effort for Opus 5.5.
+Card format: **goal**, **done when**, **control** (the mutation that must make the gate fail), **needs ROM**. Effort is the suggested session effort.
 
 ### Gate 0: ground rules in the repo (ROM-free, effort medium, one session)
 
@@ -289,11 +289,11 @@ Also needing the owner: any still or clip of the retail course in a public place
 
 ## 8. Operating rules for the executing agent
 
-Written for Opus 5.5 in Claude Code. Reasons are given so the rules can be applied with judgement.
+Written for an agent in Claude Code. Reasons are given so the rules can be applied with judgement.
 
 **Start of every session.** Read `AGENTS.md`, `docs/STATUS.md`, `docs/HANDOFF.md` and the one gate section of this plan you are working in. That is the whole boot set. Read source files when a card needs them, not before. The context window is large; the reason to stay small is that old checkpoint prose reads like instructions and pulls work off course (AvP lesson 15).
 
-**Effort.** Opus 5.5 defaults to medium, and medium is right for most cards. Use high for Gate 1, for every G3 card, and for any divergence hunt. Use low for inventories and log scans handed to subagents. Raise effort before adding "think harder" prose; lower it before adding "be brief" prose.
+**Effort.** Medium is right for most cards. Use high for Gate 1, for every G3 card, and for any divergence hunt. Use low for inventories and log scans handed to subagents. Raise effort before adding "think harder" prose; lower it before adding "be brief" prose.
 
 **One card at a time, to done.** Done means committed, pushed and gated, with the control shown failing. "Coded, unrun" is a valid status and must be written as such. A first patch or a green host test is not a stopping point if the card's condition is not met.
 
@@ -335,7 +335,7 @@ Written for Opus 5.5 in Claude Code. Reasons are given so the rules can be appli
 
 ## 10. Kickoff prompt
 
-Paste into a fresh Opus 5.5 session opened on `lamb2k/fzero-x-saturn`:
+Paste into a fresh Claude Code session opened on `lamb2k/fzero-x-saturn`:
 
 ```
 Read docs/POC_PLAN.md sections 1, 4, 5 and 8, then Gate 0 in section 6.

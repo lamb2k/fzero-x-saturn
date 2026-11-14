@@ -4,9 +4,11 @@ Keep under 50 lines. Overwrite, do not append.
 
 ## Next card
 
-G1.4 render probe: why the main loop finishes one picture per two fields (PIC/FLD = 0.5), then
-the polygon and fill sweep. Beside it: G1.1 census and G1.2 reference (need the decomp
-submodule: `git submodule update --init upstream/G-Diffuser` and its `decomp`).
+G1.2 reference harness `ref/`: build the TICK + OFFLINE closure from `docs/census/closure.tsv`
+natively in float (-m32, binary32, -ffp-contract=off), trap-stub everything else, then run the
+G1.1 control (PORT defined changes the hash). Census tool needs `pip install libclang` and the
+decomp submodule (`git submodule update --init upstream/G-Diffuser`, then its `decomp`).
+Also open: G1.4 render probe (why PIC/FLD = 0.5), then the polygon and fill sweep.
 
 ## Open threads
 

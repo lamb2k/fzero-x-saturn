@@ -1,0 +1,24 @@
+# Census classification rules for card G1.1. Tab-separated: regex (full match on the function
+# name), class, reason. First match wins; rows here beat the tool's built-in rules.
+# Classes: TICK (per-tick, fixed-point port), OFFLINE (baked by the reference at import),
+# OUT (not needed for one human racer on this track in this POC).
+Cpu_.*|func_i3_8011[0-9A-F]+	OUT	CPU racer AI (src/overlays/ovl_i3/cpu.c): one human racer
+Effects_.*	OUT	visual effects; simulation independence checked by stubbing them in the reference (G1.2)
+Background_.*	OUT	presentation: backdrop is a VDP2 layer at P
+Menus_.*|Save_.*|func_i2_80102110|func_80089A74|func_80089BD0	OUT	menus and saving: not in this POC
+Controller_.*	OUT	platform input: replaced by the Saturn pad mapping (input latch stays in the tick contract)
+.*Sfx.*|.*Sound.*|func_800BA[0-9A-F]+|func_800BB[0-9A-F]+	OUT	audio: not in this POC
+.*Ghost.*|func_800950E8	OUT	time-attack ghosts: not in this POC
+Matrix_ToMtx|Camera_MatrixToMtx|Matrix_SetFrustrum|Camera_UpdateProjectionViewMtx|Camera_CalculateProjectionViewMtx|Camera_InitViewport|Camera_UpdateViewportTransition	OUT	RSP matrices and viewports: the renderer is native
+Camera_UpdateEnding|Camera_UpdateCourseSelect|Camera_UpdateFinished.*|Camera_SetupFinished.*|Camera_ScriptUpdate|Camera_UpdateRaceIntro|Camera_SettingsUpdateRaceIntroStart|Camera_SettingsUpdateOrbit	OUT	camera modes other than the race chase camera (G5.3 ports the default mode only)
+Records.*|Sram_.*|Hud_.*|Minimap_.*	OUT	records, save RAM, HUD and minimap: the HUD is native VDP2 at P
+Camera_UpdateTitleDemo|Camera_CheckEndingCameraMessage|Camera_UpdateEnemyEnginePan	OUT	title demo, ending and audio pan: not in this POC
+Dma_.*|Arena_.*|Fault_.*|LeoFault_.*|SL.*|Lights_.*|Segment_SegmentedToVirtual|func_80077CF0|func_80078104|func_800783AC	OUT	N64 platform: DMA, arenas, fault screens, lights, texture loading
+func_807[0-9A-F]+	OUT	64DD / Expansion Kit code: not in this POC
+Course_GenerateRandomCourse	OUT	random course mode: not in this POC
+Course_(Buildings|ExtraBuildings|ShortBuildings|SpireBuildings|TallBuildings|Signs|Decorations).*	OUT	scenery: not in this POC
+func_8008EC58|func_80090490	TICK	track-shape handlers for TRACK_SHAPE_WALLED_ROAD and TRACK_SHAPE_AIR (table D_800CF4B8)
+func_8008EC38|func_8008EC98|func_8008F550|func_8008FC80|func_8008EC78|func_80090568	OUT	track-shape handlers for shapes other than walled road and air; revisit if the G1.6 shape census finds them on Mute City 1
+Camera_.*	TICK	race chase camera: ported at G5.3; tier T keeps the labelled prototype camera
+Racer_UpdateRivalRacer|Racer_UpdateRacePositions|Racer_UpdateRacerPairInfo|Racer_UpdateNearestRacer	TICK	multi-racer bookkeeping that still runs for one racer; expected trivial, confirm in the trace
+Racer_RetireRacer|Racer_ReceiveDamage	TICK	energy and damage: part of the race loop

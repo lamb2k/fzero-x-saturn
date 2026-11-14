@@ -22,7 +22,8 @@ Gate 0 done. Gate 1 (GO or NO-GO) in progress. Plan: `docs/POC_PLAN.md`.
 | G0.4 `FZX_SIM` on HUD and web | done | HOST: core + browser tests; EMULATOR: HUD shows `SIM PROTO (PROTOTYPE, NOT ORIGINAL)` |
 | G1.5 emulator lane | done, pad input blocked | EMULATOR: `tools/emu/yabause_run.py`, CI `emulator` job; `docs/EMULATOR.md` |
 | G1.4 first boot, render probe | first boot done; budget sweep not started | EMULATOR: boots with and without the 4 MB cart |
-| G1.1 census, G1.2 reference, G1.3 cost model | not started | |
+| G1.1 closure census | census done; PORT control waits for G1.2 | static: `docs/census/` (53 TICK, 65 OFFLINE, 189 OUT) |
+| G1.2 reference, G1.3 cost model | not started | |
 | G1.6 importer on real ROM | waiting for `FZX_TEST_ROM` | |
 | G1.7 fit table, cartridge detect | not started | |
 | G1.8 gate report | not started | |

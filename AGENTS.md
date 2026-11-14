@@ -35,6 +35,21 @@ Tier T (technical) is the commitment; tier P (playable) follows. See `docs/POC_P
 - Every optimisation lands behind a knob that defaults off, with knob-off identity, one cost
   arm and one STRICT gate.
 
+## Improve SH2ZAM as you go
+
+SH2ZAM (`lamb2k/SH2ZAM`, pinned at `third_party/SH2ZAM`) is this project's math layer and is
+improved alongside it (owner instruction, 2026-11-14). When a cost or correctness finding here is
+general math rather than F-Zero X logic, fix it in SH2ZAM, not with a local workaround:
+
+- work on an SH2ZAM feature branch and follow its CONTRIBUTING.md: outputs exact against the
+  frozen implementation in its SH-2 model, host oracle tests with a failing mutation shown, no
+  implicit hardware-divider use, no console performance claim without a console measurement;
+- record the model capture in its `saturn/MATH_OPTIMIZATIONS.md`;
+- move the pin here only to a commit on SH2ZAM `main`, then rerun this repo's host, web, Saturn
+  and bench checks and note the effect on `saturn/bench`.
+
+Game-specific helpers stay here; SH2ZAM gets only general math.
+
 ## Evidence
 
 Tiers never promote each other: **HOST**, **reference**, **EMULATOR**, **HARDWARE** (owner

@@ -25,8 +25,8 @@ are in `overrides.tsv`. Regenerate, never edit the TSVs by hand.
 | Class | Functions | Source lines |
 | --- | --- | --- |
 | TICK (per-tick, fixed-point port) | 53 | 4,542 |
-| OFFLINE (run by the reference at import, baked) | 65 | 5,343 |
-| OUT (not needed for this POC) | 189 | 9,072 |
+| OFFLINE (run by the reference at import, baked) | 66 | 5,643 |
+| OUT (not needed for this POC) | 188 | 8,772 |
 
 TICK static float operations: 828 add/sub, 884 mul, 65 div, 150 compare, 85 conversions.
 
@@ -59,16 +59,31 @@ tensions, dash, pit, dirt, ice, jumps, landmines, gates) and machine setup (`Rac
   `gdx_settings_view_wind_any` and writes `gGdxWindCloudTexture`; `func_80078104` (texture
   loading) calls `GDX_LoadRawRomAsset`. Both are OUT; the reference stubs them.
 - No TICK function calls or references a fork symbol (column `active_hook_calls`).
-- **Control still to run (G1.2):** build the reference with `PORT` defined and show the trace
-  hash changes. Until then "hooks are inert" rests on preprocessing, not on a trace.
+- **Control (run in G1.2):** `racer.c` compiled with `PORT` defined, port hooks stubbed to
+  return 0, changes the trace hash of every trace (the intro gate hook alone stops the race
+  starting). The stock reference references none of them. A full `PORT` build is not possible
+  outside G-Diffuser (it needs `EXPANSION_KIT` and the port runtime).
 
 ## NON_MATCHING
 
-Four functions sit in `#ifdef NON_MATCHING` blocks: `func_8008D33C` and `Racer_Draw` (not reached
-or OUT), `func_8009DB28` (course segment, OFFLINE: "weird float/double calculations", f64 in the
-source) and `Matrix_SetAxisRotation` (OFFLINE). None is in the TICK closure. `func_8009DB28`
-runs at import, so its f64 behaviour matters only for the baked values; the reference runs the
-same source.
+Four functions sit in `#ifdef NON_MATCHING` blocks: `Racer_Draw` (OUT), the Expansion Kit variant
+of `func_8008D33C` (not built; the stock variant, which copies `sDefaultMachines` into
+`gMachines`, matches), `func_8009DB28` (spline tensions, OFFLINE: "weird float/double
+calculations") and `Matrix_SetAxisRotation` (OFFLINE). None is in the TICK closure.
+`func_8009DB28` is where the reference's four-way check first diverged (G1.2): see
+`ref/README.md`.
+
+## Found while building the reference (G1.2)
+
+- **Machine tuning reads the ROM.** `Racer_InitMachineStats` (OFFLINE) computes Blue Falcon's
+  stats from 38 raw words of the ROM's first 4 KB (`ROM_READ(0x078)` ... `ROM_READ(0xA20)`), not
+  from tables in the source. Retail tuning is therefore ROM-lane: the reference bakes it with
+  `--rom`. The synthetic lane uses an authored constant word.
+- **The sine table is computed at boot** by `Math_SinTableInit` (Taylor series in f64, rounded
+  to f32; `sys_gfx.c:682`). It is not ROM data; G3.2 can bake it bit-exactly.
+- **The starting grid is set in `cpu.c`** (`func_i3_80115E74`, called from
+  `Racer_SetupStartPositions`). For one racer it reduces to `gRacers[0].position = gTotalRacers`;
+  reclassified OFFLINE.
 
 ## Open items for later cards
 

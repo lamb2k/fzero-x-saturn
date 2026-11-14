@@ -1,0 +1,10 @@
+# T05 boost chain with energy drain (boost is refused until the game allows it).
+480 8000 0 0
+20 c000 0 0
+40 8000 0 0
+20 c000 0 0
+40 8000 0 0
+20 c000 0 0
+40 8000 0 0
+20 c000 0 0
+200 8000 0 0

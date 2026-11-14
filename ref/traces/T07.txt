@@ -1,0 +1,3 @@
+# T07 dash plate: the fixture's dash plate is at point 8, in the middle of the road.
+480 8000 0 0
+1200 8000 -12 0

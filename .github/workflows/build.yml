@@ -63,6 +63,21 @@ jobs:
             saturn/build/*.elf
             saturn/build/*.sym
           if-no-files-found: error
+  reference:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch the pinned decomp
+        run: |
+          git submodule update --init upstream/G-Diffuser
+          git -C upstream/G-Diffuser submodule update --init decomp
+      - name: Install 32-bit GCC and Clang
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-multilib clang
+      - name: Float reference corpus, four-way determinism and controls
+        run: ref/run_corpus.sh
   emulator:
     needs: saturn
     runs-on: ubuntu-24.04

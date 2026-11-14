@@ -1,0 +1,6 @@
+# T04 wall grind, each side, steep then shallow.
+480 8000 0 0
+90 8000 80 0
+90 8000 -80 0
+120 8000 25 0
+120 8000 -25 0

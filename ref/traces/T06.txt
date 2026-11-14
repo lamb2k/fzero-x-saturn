@@ -1,0 +1,3 @@
+# T06 pit lane: drive through the fixture's pit area (point 3) and keep going.
+480 8000 0 0
+600 8000 -12 0

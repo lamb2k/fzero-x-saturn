@@ -1,0 +1,3 @@
+# T09 three laps: held throttle with a constant steer for the fixture loop (open loop).
+480 8000 0 0
+5400 8000 -12 0

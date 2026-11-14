@@ -1,0 +1,2 @@
+# T02 full throttle from the grid onto the first straight.
+900 8000 0 0

@@ -2,6 +2,7 @@
 # name), class, reason. First match wins; rows here beat the tool's built-in rules.
 # Classes: TICK (per-tick, fixed-point port), OFFLINE (baked by the reference at import),
 # OUT (not needed for one human racer on this track in this POC).
+func_i3_80115E74	OFFLINE	starting grid (cpu.c); for one racer it sets gRacers[0].position = gTotalRacers, which the reference does
 Cpu_.*|func_i3_8011[0-9A-F]+	OUT	CPU racer AI (src/overlays/ovl_i3/cpu.c): one human racer
 Effects_.*	OUT	visual effects; simulation independence checked by stubbing them in the reference (G1.2)
 Background_.*	OUT	presentation: backdrop is a VDP2 layer at P

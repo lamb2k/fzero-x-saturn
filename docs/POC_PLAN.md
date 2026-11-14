@@ -3,8 +3,9 @@
 Plan for this repository, written against commit `33a94ec`.
 Written 2026-11-13 for execution by an agent in Claude Code, with the owner as reviewer.
 
-Sources of the lessons: `lamb2k/avpsaturn` (AGENTS, handoff, learning notes, test plan, ADRs),
-`lamb2k/cps2saturn` (playbook and the nine skills, the "recomp" side), and `lamb2k/re4dc`
+Sources of the lessons: two earlier private Saturn projects, an arcade port ("the arcade port":
+agent rules, handoffs, learning notes, test plan, ADRs) and its porting toolkit ("the toolkit":
+playbook and skills, the "recomp" side), and `lamb2k/re4dc`
 (AGENTS, CLAUDE, hardware-translation notes, the "decomp" side).
 
 **Owner decisions, 2026-11-13:** the target is **60 frames per second**, and the build **requires the 4 MB RAM cartridge**
@@ -60,29 +61,29 @@ Each row is a rule this plan applies, with where it was learned.
 
 | # | Lesson | Learned from | Rule here |
 | --- | --- | --- | --- |
-| 1 | AvP ran on a mixed architecture with authored gameplay until a full reset on 2026-08-20. A prototype quietly became the game. | AvP reset audit | The prototype driver stays behind `FZX_SIM=proto` and is named on screen. It can never be reported as the port. Default flips only when the trace gate passes. |
-| 2 | Measure before building. Phase 1 is a written GO or NO-GO with numbers. | cps2saturn playbook, sh2-game-logic | Gate 1 below. Nothing in Gates 2 to 5 starts before it. |
-| 3 | AvP's interactive play was blocked for months on `BLOCKED_MISSING_EXECUTABLE_TICK_CONTRACT`: the image picked updates from captured cadence tables. | AvP handoff, learning notes | The tick contract is written first (section 4.4). The simulation consumes current state and current input only. Traces exist only inside tests and the `AUTOTEST` build. |
+| 1 | The arcade port ran on a mixed architecture with authored gameplay until a full reset. A prototype quietly became the game. | arcade port reset audit | The prototype driver stays behind `FZX_SIM=proto` and is named on screen. It can never be reported as the port. Default flips only when the trace gate passes. |
+| 2 | Measure before building. Phase 1 is a written GO or NO-GO with numbers. | toolkit playbook, sh2-game-logic | Gate 1 below. Nothing in Gates 2 to 5 starts before it. |
+| 3 | The arcade port's interactive play was blocked for months by a missing tick contract: the image picked updates from captured cadence tables. | arcade port handoff, learning notes | The tick contract is written first (section 4.4). The simulation consumes current state and current input only. Traces exist only inside tests and the `AUTOTEST` build. |
 | 4 | Lift first, prove it against the reference, then make it readable and fast, one function at a time, each swap gated. | sh2-game-logic | The float decomp is the "lifted" tier here. Fixed-point functions replace it slice by slice, each behind the same gate (section 4.2, Gate 3). |
 | 5 | Source owns simulation and state; the native layer owns presentation. Never alter collision, event order, state or AI for speed. | re4dc AGENTS | Renderer and platform changes must leave the simulation trace STRICT-identical. |
 | 6 | Every optimisation lands behind a knob that defaults off, with knob-off identity, one cost arm and one STRICT gate. | re4dc contribution rule | Same rule, same words. Applies from Gate 4 on. |
-| 7 | Evidence tiers never promote each other: HOST, reference, EMULATOR, HARDWARE, MODELLED. | cps2saturn emulator-testing; AvP test plan | Section 5. Emulator timers are MODELLED for frame cost. Hardware is UNRUN until the owner runs it. |
-| 8 | A passing gate needs a control that can fail. A hardcoded zero is not evidence. Mutation counts and row-match percentages are not playability. | AvP AGENTS | Every card names a negative control. Reports state playable extent first, numbers second. |
+| 7 | Evidence tiers never promote each other: HOST, reference, EMULATOR, HARDWARE, MODELLED. | toolkit emulator-testing; arcade port test plan | Section 5. Emulator timers are MODELLED for frame cost. Hardware is UNRUN until the owner runs it. |
+| 8 | A passing gate needs a control that can fail. A hardcoded zero is not evidence. Mutation counts and row-match percentages are not playability. | arcade port agent rules | Every card names a negative control. Reports state playable extent first, numbers second. |
 | 9 | Float results drift. re4dc split comparisons into STRICT (tick-identical) and DISCRETE (same decisions). | re4dc CLAUDE notes | Three parity classes (section 4.3). Raw differences are reported next to any normalised ones. |
 | 10 | Sampling one frame-count residue gave re4dc a wrong "budget met". | re4dc, 2026-09-26 | Cost is measured over every tick of a fixed route: mean, p95, max. Never one sampled frame. |
-| 11 | Emulators hide faults (Flycast hid SH-4 misaligned access; Yaba slowed from 60 to 20 vblanks/s within a minute). | re4dc, cps2saturn | Short bounded runs, fresh process per run, one emulator instance per lane. Build with alignment-safe access; do not treat an emulator boot as a hardware claim. |
-| 12 | Pad-only proofs. A bot that pokes memory proves flow, not play. | cps2saturn lesson 4 | Proofs of play use pad input through the normal latch. Anything else is labelled DIAGNOSTIC. |
-| 13 | Pair before fixing: an apparent AvP bug was the arcade's own effect. | cps2saturn lesson 5 | Before calling a visual or handling difference a bug, compare with the reference (G-Diffuser still or reference trace). |
-| 14 | Kept intermediates went stale and produced phantom tile bugs. | cps2saturn lesson 1 | Generated files carry a receipt (hashes of generator, inputs, output). Builds refuse stale output. Re-check any odd bug on a clean build first. |
-| 15 | AvP's `project_state.yaml` reached 146 KB with single lines thousands of characters long; AGENTS had to forbid rereading it. | AvP state file | One `docs/STATUS.md` under 80 lines. One handoff under 50. History lives in git. |
-| 16 | AvP's agent file named one model while every card said `CLAUDE_ALLOWED: false`; the conflict sat open. | AvP handoff | One agent file, one owner of writes per lane, no per-card permission flags. |
-| 17 | Per-component human review loops stalled AvP; the fix was review only at slice boundaries. | AvP AGENTS | The owner is asked at exactly three points (section 7). |
-| 18 | An exhausted gate stays blocked. A new commit or deadline does not renew its attempt budget. | AvP AGENTS | Blocked cards record the exact unblock condition; work moves to the next dependency-safe card. |
-| 19 | Check history before solving: a screen fit already existed on an old branch. | cps2saturn lesson 6 | Before designing anything, search this repo, SH2ZAM's `saturn/` docs and the decomp for an existing answer. |
-| 20 | No general engine. AvP ADR 0009 rejected a general CPS2 runtime and an ECS. | AvP ADRs | No libultra layer, no F3DEX2 or display-list interpreter, no general float-to-fixed translator, no new engine. Title-specific code only. |
+| 11 | Emulators hide faults (Flycast hid SH-4 misaligned access; Yaba slowed from 60 to 20 vblanks/s within a minute). | re4dc, toolkit | Short bounded runs, fresh process per run, one emulator instance per lane. Build with alignment-safe access; do not treat an emulator boot as a hardware claim. |
+| 12 | Pad-only proofs. A bot that pokes memory proves flow, not play. | toolkit lesson 4 | Proofs of play use pad input through the normal latch. Anything else is labelled DIAGNOSTIC. |
+| 13 | Pair before fixing: an apparent port bug was the arcade original's own effect. | toolkit lesson 5 | Before calling a visual or handling difference a bug, compare with the reference (G-Diffuser still or reference trace). |
+| 14 | Kept intermediates went stale and produced phantom tile bugs. | toolkit lesson 1 | Generated files carry a receipt (hashes of generator, inputs, output). Builds refuse stale output. Re-check any odd bug on a clean build first. |
+| 15 | The arcade port's state file grew past 100 KB with single lines thousands of characters long; the agent rules had to forbid rereading it. | arcade port state file | One `docs/STATUS.md` under 80 lines. One handoff under 50. History lives in git. |
+| 16 | The arcade port's agent file and its work cards gave conflicting permissions; the conflict sat open. | arcade port handoff | One agent file, one owner of writes per lane, no per-card permission flags. |
+| 17 | Per-component human review loops stalled the arcade port; the fix was review only at slice boundaries. | arcade port agent rules | The owner is asked at exactly three points (section 7). |
+| 18 | An exhausted gate stays blocked. A new commit or deadline does not renew its attempt budget. | arcade port agent rules | Blocked cards record the exact unblock condition; work moves to the next dependency-safe card. |
+| 19 | Check history before solving: a screen fit already existed on an old branch. | toolkit lesson 6 | Before designing anything, search this repo, SH2ZAM's `saturn/` docs and the decomp for an existing answer. |
+| 20 | No general engine. The arcade port rejected a general CPS2 runtime and an ECS by ADR. | arcade port ADRs | No libultra layer, no F3DEX2 or display-list interpreter, no general float-to-fixed translator, no new engine. Title-specific code only. |
 | 21 | re4dc is a public repo: every push is a publication. | re4dc AGENTS | So is this one. Hygiene scan before every push; nothing ROM-derived in git, including traces and stills from the retail course. |
-| 22 | Master runs the game and hands one snapshot per frame to the slave, which owns drawing. A busy slave skips a picture, never the game. | cps2saturn saturn-graphics | This is the planned CPU split for 60 fps (section 4.5), behind a knob, with the simulation trace STRICT-identical either way. |
-| 23 | AvP kept per-region memory asserts, copied cartridge data to VDP1 with the CPU, and banned SCU DMA with an A-bus endpoint and any mid-play data read until physical evidence existed. | AvP AGENTS | Same rules for the cartridge here (section 4.6). |
+| 22 | Master runs the game and hands one snapshot per frame to the slave, which owns drawing. A busy slave skips a picture, never the game. | toolkit saturn-graphics | This is the planned CPU split for 60 fps (section 4.5), behind a knob, with the simulation trace STRICT-identical either way. |
+| 23 | The arcade port kept per-region memory asserts, copied cartridge data to VDP1 with the CPU, and banned SCU DMA with an A-bus endpoint and any mid-play data read until physical evidence existed. | arcade port agent rules | Same rules for the cartridge here (section 4.6). |
 | 24 | re4dc split its tick into a gameplay budget, a render budget and a margin, and chose every option by measured milliseconds. | re4dc AGENTS | A field budget split (section 4.4), set from Gate 1 measurements. |
 
 ---
@@ -91,7 +92,7 @@ Each row is a rule this plan applies, with where it was learned.
 
 ### 4.1 The reference: the decomp, built natively in float
 
-AvP needed MAME as its oracle. This project has something better: C source that compiles on a PC.
+The arcade port needed MAME as its oracle. This project has something better: C source that compiles on a PC.
 
 `ref/` is a small host program that builds the one-racer closure of the pinned decomp (from the submodule, with `PORT` and `EXPANSION_KIT` undefined) against thin stubs for libultra, audio and graphics. It takes an input script and a course, steps the original code, and writes a per-tick trace.
 
@@ -291,7 +292,7 @@ Also needing the owner: any still or clip of the retail course in a public place
 
 Written for an agent in Claude Code. Reasons are given so the rules can be applied with judgement.
 
-**Start of every session.** Read `AGENTS.md`, `docs/STATUS.md`, `docs/HANDOFF.md` and the one gate section of this plan you are working in. That is the whole boot set. Read source files when a card needs them, not before. The context window is large; the reason to stay small is that old checkpoint prose reads like instructions and pulls work off course (AvP lesson 15).
+**Start of every session.** Read `AGENTS.md`, `docs/STATUS.md`, `docs/HANDOFF.md` and the one gate section of this plan you are working in. That is the whole boot set. Read source files when a card needs them, not before. The context window is large; the reason to stay small is that old checkpoint prose reads like instructions and pulls work off course (lesson 15).
 
 **Effort.** Medium is right for most cards. Use high for Gate 1, for every G3 card, and for any divergence hunt. Use low for inventories and log scans handed to subagents. Raise effort before adding "think harder" prose; lower it before adding "be brief" prose.
 

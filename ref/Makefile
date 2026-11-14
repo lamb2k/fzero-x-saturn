@@ -10,10 +10,12 @@ endif
 OPT ?= -O2
 PORT ?= 0
 PORT_RACER ?= 0
+# PROFILE=1: gcov line counts and per-tick call counts for the G1.3 cost model (gcc -O0).
+PROFILE ?= 0
 ROOT := $(abspath ..)
 DECOMP := $(ROOT)/upstream/G-Diffuser/decomp
 GDX_INCLUDE := $(ROOT)/upstream/G-Diffuser/include
-BUILD ?= $(ROOT)/build/ref/$(notdir $(CC))$(OPT)$(if $(filter 1,$(PORT)),-port)$(if $(filter 1,$(PORT_RACER)),-portracer)
+BUILD ?= $(ROOT)/build/ref/$(notdir $(CC))$(OPT)$(if $(filter 1,$(PORT)),-port)$(if $(filter 1,$(PORT_RACER)),-portracer)$(if $(filter 1,$(PROFILE)),-prof)
 
 ifeq ($(wildcard $(DECOMP)/src/game/racer.c),)
 $(error decomp submodule missing at $(DECOMP))
@@ -42,6 +44,12 @@ CFLAGS := $(filter-out -fexcess-precision=standard,$(CFLAGS)) -ffp-eval-method=s
           -Wno-error=implicit-int -Wno-error=return-type -Wno-error=incompatible-pointer-types
 endif
 
+ifeq ($(PROFILE),1)
+PROF_FLAGS := --coverage -finstrument-functions
+PROF_OBJS = $(BUILD)/ref_profile.o
+PROF_LIBS := --coverage -no-pie
+endif
+
 DECOMP_SRCS := game/racer game/course game/course_gadgets game/camera sys/math game/EA90 \
                game/game_context game/course_gadget_context \
                game/EA20 game/common
@@ -56,7 +64,7 @@ $(BUILD):
 
 define decomp_rule
 $(BUILD)/$(notdir $(1)).o: $(DECOMP)/src/$(1).c | $(BUILD)
-	$(CC) $(CFLAGS) -c $$< -o $$@
+	$(CC) $(CFLAGS) $(PROF_FLAGS) -c $$< -o $$@
 endef
 $(foreach s,$(filter-out game/racer,$(DECOMP_SRCS)),$(eval $(call decomp_rule,$(s))))
 
@@ -69,7 +77,7 @@ $(BUILD)/racer.c: $(DECOMP)/src/game/racer.c | $(BUILD)
 	    -e 's/\bIO_WRITE(/REF_IO_WRITE(/g' $< > $@
 $(BUILD)/racer.o: $(BUILD)/racer.c ref_hw.h | $(BUILD)
 	$(CC) $(CFLAGS) $(if $(filter 1,$(PORT_RACER)),-DPORT -std=gnu11 -I$(ROOT)/upstream/G-Diffuser/port) \
-	    -include ref_hw.h -I$(DECOMP)/src/game -c $< -o $@
+	    $(PROF_FLAGS) -include ref_hw.h -I$(DECOMP)/src/game -c $< -o $@
 
 $(BUILD)/ref_platform.o: ref_platform.c ref.h | $(BUILD)
 	$(CC) $(filter-out -Dsqrtf=ref_sqrtf,$(CFLAGS)) -c $< -o $@
@@ -77,7 +85,9 @@ $(BUILD)/ref_game.o: ref_game.c ref.h | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
 # The libc side sees system headers only, never the decomp's.
 $(BUILD)/ref_main.o: ref_main.c ref.h ref_stubs.h | $(BUILD)
-	$(CC) -m32 -std=gnu99 $(OPT) -g $(FLOAT) -Wall -I. -c $< -o $@
+	$(CC) -m32 -std=gnu99 $(OPT) -g $(FLOAT) -Wall -I. $(if $(filter 1,$(PROFILE)),-DREF_PROFILE) -c $< -o $@
+$(BUILD)/ref_profile.o: ref_profile.c | $(BUILD)
+	$(CC) -m32 -std=gnu99 $(OPT) -g -Wall -c $< -o $@
 
 # Stubs cover whatever the closure and harness reference but nothing here defines.
 # Only the game side is scanned: ref_main.o's undefined symbols are libc's, and a stub
@@ -88,8 +98,8 @@ $(BUILD)/stubs.c: gen_stubs.py $(GAME_OBJS)
 $(BUILD)/stubs.o: $(BUILD)/stubs.c ref_stubs.h
 	$(CC) -m32 -w -I. -c $< -o $@
 
-$(BUILD)/ref: $(DECOMP_OBJS) $(HARNESS_OBJS) $(BUILD)/stubs.o
-	$(CC) -m32 $^ -lm -o $@
+$(BUILD)/ref: $(DECOMP_OBJS) $(HARNESS_OBJS) $(BUILD)/stubs.o $(PROF_OBJS)
+	$(CC) -m32 $^ $(PROF_LIBS) -lm -o $@
 
 clean:
 	rm -rf $(ROOT)/build/ref

@@ -21,6 +21,9 @@
 
 #include "ref.h"
 #include "ref_stubs.h"
+#ifdef REF_PROFILE
+void ref_profile_tick(FILE* out, long tick);
+#endif
 
 
 typedef struct {
@@ -156,6 +159,8 @@ static signed char bot_steer(const RefSnapshot* s, float target) {
 int main(int argc, char** argv) {
     const char *course = NULL, *script = NULL, *trace = NULL, *rom = NULL, *record = NULL;
     FILE* rec = NULL;
+    const char* profile_path = NULL; /* --profile OUT.tsv: per-tick call counts (PROFILE=1) */
+    FILE* prof = NULL;
     int stop_at_finish = 0; /* --stop-at-finish 1: end after the tick the racer finishes */
     signed char auto_x = 0;
     int run_buttons = -1, run_x = 0, run_y = 0;
@@ -175,6 +180,7 @@ int main(int argc, char** argv) {
         else if (!strcmp(argv[i], "--rom")) rom = argv[i + 1];
         else if (!strcmp(argv[i], "--record")) record = argv[i + 1];
         else if (!strcmp(argv[i], "--stop-at-finish")) stop_at_finish = atoi(argv[i + 1]);
+        else if (!strcmp(argv[i], "--profile")) profile_path = argv[i + 1];
         else if (!strcmp(argv[i], "--bot")) sscanf(argv[i + 1], "%f,%f,%f", &bot_sign, &bot_gain_offset, &bot_gain_heading);
     }
     if (!course || !script || !trace) {
@@ -215,6 +221,10 @@ int main(int argc, char** argv) {
         fprintf(stderr, "ref: cannot write %s\n", record);
         return 2;
     }
+#ifdef REF_PROFILE
+    if (profile_path != NULL && (prof = fopen(profile_path, "w")) == NULL) return 2;
+    if (prof) ref_profile_tick(NULL == prof ? stderr : fopen("/dev/null", "w"), -1); /* drop init counts */
+#endif
     if (rec) fprintf(rec, "# Recorded by ref from %s (auto steering resolved).\n", script);
     for (int s = 0; s < nsteps; ++s) {
         for (uint32_t k = 0; k < steps[s].ticks; ++k) {
@@ -230,6 +240,9 @@ int main(int argc, char** argv) {
                 }
             }
             ref_game_tick(steps[s].buttons, sx, steps[s].stick_y);
+#ifdef REF_PROFILE
+            if (prof) ref_profile_tick(prof, tick);
+#endif
             ref_game_snapshot(&snap);
             auto_x = bot_steer(&snap, steps[s].target);
             uint64_t h = fnv(0xCBF29CE484222325ull, snap.racer, snap.racer_bytes);
@@ -249,6 +262,7 @@ int main(int argc, char** argv) {
     }
 done:
     fclose(out);
+    if (prof) fclose(prof);
     if (rec) {
         if (run_len) fprintf(rec, "%ld %04x %d %d\n", run_len, run_buttons, run_x, run_y);
         fclose(rec);

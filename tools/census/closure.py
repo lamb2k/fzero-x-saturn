@@ -117,6 +117,11 @@ class Func:
         self.reads: set[str] = set()
         self.writes: set[str] = set()
         self.returns_gfx = False
+        self.line_ops: collections.Counter = collections.Counter()  # (line, kind) -> count
+
+    def add(self, kind: str, node: ci.Cursor) -> None:
+        self.ops[kind] += 1
+        self.line_ops[(node.location.line, kind)] += 1
 
 
 def scan_body(fn: Func, cur: ci.Cursor) -> None:
@@ -126,6 +131,8 @@ def scan_body(fn: Func, cur: ci.Cursor) -> None:
             ref = node.referenced
             if ref is not None and ref.kind == ci.CursorKind.FUNCTION_DECL:
                 fn.calls.add(ref.spelling)
+                if ref.spelling == "sqrtf":
+                    fn.add("fsqrt", node)
             else:
                 fn.indirect += 1
         elif kind == ci.CursorKind.BINARY_OPERATOR:
@@ -137,13 +144,13 @@ def scan_body(fn: Func, cur: ci.Cursor) -> None:
                     fn.writes.add(target.spelling)
             if any(is_float(k.type) for k in kids):
                 if op in ("+", "-"):
-                    fn.ops["fadd"] += 1
+                    fn.add("fadd", node)
                 elif op == "*":
-                    fn.ops["fmul"] += 1
+                    fn.add("fmul", node)
                 elif op == "/":
-                    fn.ops["fdiv"] += 1
+                    fn.add("fdiv", node)
                 elif op in ("<", ">", "<=", ">=", "==", "!="):
-                    fn.ops["fcmp"] += 1
+                    fn.add("fcmp", node)
         elif kind == ci.CursorKind.COMPOUND_ASSIGNMENT_OPERATOR:
             kids = list(node.get_children())
             op = operator(node)
@@ -151,7 +158,7 @@ def scan_body(fn: Func, cur: ci.Cursor) -> None:
             if is_global(target):
                 fn.writes.add(target.spelling)
             if kids and is_float(kids[0].type):
-                fn.ops["fdiv" if op == "/=" else "fmul" if op == "*=" else "fadd"] += 1
+                fn.add("fdiv" if op == "/=" else "fmul" if op == "*=" else "fadd", node)
         elif kind == ci.CursorKind.UNARY_OPERATOR:
             op = unary_operator(node)
             kids = list(node.get_children())
@@ -160,7 +167,7 @@ def scan_body(fn: Func, cur: ci.Cursor) -> None:
                 if is_global(target):
                     fn.writes.add(target.spelling)
             if op == "-" and is_float(node.type):
-                fn.ops["fneg"] += 1
+                fn.add("fneg", node)
         elif kind in (ci.CursorKind.CSTYLE_CAST_EXPR, ci.CursorKind.UNEXPOSED_EXPR):
             kids = list(node.get_children())
             if kids and is_float(node.type) != is_float(kids[0].type) and \
@@ -170,7 +177,7 @@ def scan_body(fn: Func, cur: ci.Cursor) -> None:
                         ci.TypeKind.SHORT, ci.TypeKind.USHORT, ci.TypeKind.CHAR_S, ci.TypeKind.SCHAR,
                         ci.TypeKind.UCHAR, ci.TypeKind.CHAR_U, ci.TypeKind.LONG, ci.TypeKind.ULONG,
                         ci.TypeKind.LONGLONG, ci.TypeKind.ULONGLONG}:
-                    fn.ops["fcvt"] += 1
+                    fn.add("fcvt", node)
         elif kind == ci.CursorKind.DECL_REF_EXPR:
             ref = node.referenced
             if is_global(ref):
@@ -323,6 +330,22 @@ def main(argv: list[str] | None = None) -> int:
         w = csv.writer(f, delimiter="\t", lineterminator="\n")
         w.writerow(header)
         w.writerows(rows)
+    # Per-line float operations of TICK and OFFLINE functions, for the G1.3 cost model.
+    kinds = ["fadd", "fmul", "fdiv", "fsqrt", "fcmp", "fneg", "fcvt"]
+    with (args.out / "float_ops_by_line.tsv").open("w", encoding="utf-8", newline="") as f:
+        w = csv.writer(f, delimiter="\t", lineterminator="\n")
+        w.writerow(["file", "line", "function", "class", *kinds])
+        for row in rows:
+            name, cls = row[0], row[7]
+            fn = funcs.get(name)
+            if fn is None or cls == "OUT":
+                continue
+            per_line: dict[int, collections.Counter] = collections.defaultdict(collections.Counter)
+            for (line, kind), n in fn.line_ops.items():
+                per_line[line][kind] += n
+            for line in sorted(per_line):
+                w.writerow([str(fn.path.relative_to(DECOMP)), line, name, cls,
+                            *(per_line[line][k] for k in kinds)])
     with (args.out / "callgraph.tsv").open("w", encoding="utf-8", newline="") as f:
         w = csv.writer(f, delimiter="\t", lineterminator="\n")
         w.writerow(["caller", "callee"])

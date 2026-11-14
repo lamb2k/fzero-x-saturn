@@ -1,0 +1,12 @@
+ticks	15634
+mean_ops_per_tick	717.5
+p95_ops_per_tick	782.1
+max_ops_per_tick	1089.2
+mean_ops_per_racing_tick	717.5
+mean_fadd_per_tick	265.9
+mean_fmul_per_tick	319.3
+mean_fdiv_per_tick	21.6
+mean_fsqrt_per_tick	22.2
+mean_fcmp_per_tick	56.1
+mean_fneg_per_tick	12.3
+mean_fcvt_per_tick	20.1

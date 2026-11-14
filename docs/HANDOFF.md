@@ -4,9 +4,10 @@ Keep under 50 lines. Overwrite, do not append.
 
 ## Next card
 
-G1.3 tick cost model: instrument the reference (count float ops by kind per function per tick
-over T01-T10 and M01-M05), then an SH-2 microbenchmark image timing SH2ZAM fixed-point ops in
-high work RAM and from the cartridge.
+G1.3 control: convert `Math_OrthonormalizeAroundForward` to SH2ZAM, build a Saturn image that
+times it (FRT) in high work RAM and from the cartridge, compare with `docs/cost/` (MODELLED).
+Then G1.4 render probe (PIC/FLD = 0.5 today) and the polygon/fill sweep, G1.7 fit table and
+cartridge detect, G1.8 `docs/GATE1.md` and the owner's GO / NO-GO question.
 
 ## Open threads
 

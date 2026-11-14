@@ -32,6 +32,14 @@ audio, opponents and game modes remain to be integrated.
 does not establish that it boots correctly or reaches a target frame rate.
 The browser preview is a functional check; it does not estimate console FPS.
 
+## Next
+
+The next milestone is a one-track proof of concept: Mute City 1, Blue Falcon and
+the original physics in a fixed-point core, at a 60 fps target with the 4 MB RAM
+cartridge. The plan, its gates and their evidence rules are in
+[docs/POC_PLAN.md](docs/POC_PLAN.md); current state is in
+[docs/STATUS.md](docs/STATUS.md).
+
 ## Get the project
 
 ```sh

@@ -44,6 +44,7 @@ jobs:
             export PATH="$YAUL_INSTALL_ROOT/bin:$PATH"
             "${YAUL_ARCH_SH_PREFIX}-gcc" --version > saturn/toolchain.txt
             make -C saturn
+            make -C saturn/bench
             "${YAUL_ARCH_SH_PREFIX}-readelf" -h saturn/build/fzero-x-saturn.elf > saturn/elf-header.txt
             "${YAUL_ARCH_SH_PREFIX}-size" saturn/build/fzero-x-saturn.elf > saturn/size.txt
             "${YAUL_ARCH_SH_PREFIX}-nm" saturn/build/fzero-x-saturn.elf > saturn/symbols.txt
@@ -60,6 +61,8 @@ jobs:
             saturn/*.cue
             saturn/*.bin
             saturn/*.txt
+            saturn/bench/*.iso
+            saturn/bench/*.cue
             saturn/build/*.elf
             saturn/build/*.sym
           if-no-files-found: error
@@ -97,6 +100,7 @@ jobs:
           mkdir -p build/emu
           python3 tools/emu/yabause_run.py saturn/fzero-x-saturn.cue --seconds 10 --cart 4mb --out build/emu/boot-4mb.png
           python3 tools/emu/yabause_run.py saturn/fzero-x-saturn.cue --seconds 10 --cart none --out build/emu/boot-nocart.png
+          python3 tools/emu/yabause_run.py saturn/bench/fzx-bench.cue --seconds 25 --out build/emu/sh2-bench.png || true
       - uses: actions/upload-artifact@v4
         if: always()
         with:

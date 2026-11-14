@@ -15,3 +15,7 @@ __pycache__/
 *.o2r
 baserom*
 /saturn/cd/
+/saturn/bench/build/
+/saturn/bench/*.iso
+/saturn/bench/*.cue
+/saturn/bench/cd/

@@ -36,6 +36,12 @@ screen. CI's `emulator` job runs it with and without the 4 MB cartridge and uplo
 
 ## Known limits
 
+- **No RAM cartridge is actually present in this emulator.** With `Cartridge/Type` 7 (4 MB) or
+  6 (1 MB) the cartridge ID byte reads `FF` and a write/read probe of cartridge RAM at
+  0x22400000 fails (bench image, 2026-11-14). Earlier "boots with and without the 4 MB cart"
+  meant only that the setting was passed. Cartridge timing and detection need another emulator
+  or the console.
+
 - **Pad input does not reach the image in this emulator.** The image reports `PAD FFFF` (no
   pad connected) with an explicit port-1 pad mapping, focused XTEST key events and a click into
   the view. Two hypotheses tested; the lane is `BLOCKED_EMULATOR_PAD`. Unblock: an emulator whose

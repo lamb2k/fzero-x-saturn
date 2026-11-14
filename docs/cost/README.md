@@ -46,9 +46,26 @@ the worst tick, even with a threefold allowance for unmodelled work. Square root
 17 of every 100 float operations by count but half the cycles: they are where cartridge tables
 and reciprocal reuse pay first (plan G5.4).
 
+## Control: one function timed on the SH-2 (EMULATOR / MODELLED)
+
+`saturn/bench` times `Math_OrthonormalizeAroundForward` (64 bases, FRT clock/8, interrupts
+masked, best of 8 passes) in Yabause 0.9.15. CI's emulator job uploads its still.
+
+| Version | Cycles per call | Max error vs float |
+| --- | --- | --- |
+| original float (GCC software float, integer correctly rounded sqrt) | 3,843 | reference |
+| SH2ZAM straight translation (`vec3_normalize`, `vec3_cross`) | 3,076 | 4 LSB of Q16.16 |
+| SH2ZAM in the original's shape (`rsqrt`, scale, cross) | 1,950 | 5 LSB |
+
+The model above prices this function at 6,597 cycles for 3 calls a tick, 2,199 per call: within
+13% of the rsqrt version, so the model ranks work sensibly. How the code is converted matters as
+much as fixed versus float (1.6x between the two SH2ZAM versions). Software float was only 2x
+the best fixed version here; that keeps it on the table for rare, parity-sensitive paths, not
+for the tick (it was a sqrt-and-cross function; divide-heavy code will differ).
+
 ## Not yet measured (rest of G1.3)
 
-- The control: convert one function (`Math_OrthonormalizeAroundForward`) to SH2ZAM and time it in
-  an emulator image against this model.
-- The same SH2ZAM operations with data in the 4 MB cartridge instead of high work RAM.
+- Cartridge-resident data: this emulator presents no cartridge (docs/EMULATOR.md). The bench
+  image measures it on a console or another emulator unchanged.
 - Integer and memory cost of the converted tick; that replaces the x3 allowance.
+- Hardware: every number here is emulator or model. The hardware sheet (G4.5) runs this image.

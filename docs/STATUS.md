@@ -30,7 +30,7 @@ Gate 0 done. Gate 1 (GO or NO-GO) in progress. Plan: `docs/POC_PLAN.md`.
 | G1.4 first boot, render probe | first boot and 30 fps cause done; polygon/fill sweep open | EMULATOR/MODELLED: prototype `fzx_render` takes ~447k of 450k cycles per picture (52 polys); HUD, sync mode and VDP1 interval ruled out |
 | G1.1 closure census | done | static: `docs/census/` (53 TICK, 66 OFFLINE, 188 OUT); control: PORT in racer.c changes every trace |
 | G1.2 reference harness | done | reference: T01-T10 identical on 4 builds (CI `reference`); ROM lane M01-M05 identical on 4 builds; boost, dash, jump, wall, pit and a 3-lap finish covered |
-| G1.3 cost model | op counts and model done; emulator control and cartridge cost open | MODELLED: Mute City 1 mean 782 float ops/tick, 32k cycles = 14% of the 8 ms master line (max 21%); `docs/cost/` |
+| G1.3 cost model | model and emulator control done; cartridge cost open (no cart in emulator) | MODELLED: Mute City 1 mean 782 float ops/tick, 32k cycles = 14% of 8 ms (max 21%); EMULATOR control: one function, model 2.2k vs measured 1.9k cycles (`saturn/bench`, `docs/cost/`) |
 | G1.6 importer on real ROM | import and real-ROM test pass; shape census done; reference comparison open | ROM: US rev0 fingerprint verified; Mute City 1 23 points, checksum verified; shapes road, walled road, tunnel, air |
 | G1.7 fit table, cartridge detect | not started | |
 | G1.8 gate report | not started | |

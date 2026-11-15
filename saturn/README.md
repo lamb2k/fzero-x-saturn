@@ -85,6 +85,16 @@ synthetic CI fixture; no ROM is read. Objects and outputs live in
 | A or C | Accelerate |
 | B | Brake |
 | Start | Reset on the button-down edge |
+| X | Clear the timing line's worst-case figures |
+| X + Z (held) | Overload control: burns 1.25 fields of CPU each frame |
+
+Row 5 is the timing line for hardware runs (`docs/HARDWARE_TEST.md`):
+`CPU` (this frame's CPU work), `MAX` (worst since the last clear) and `SIM`
+(worst race ticks in one frame), all in hundredths of a video field, measured
+with the master SH-2's free-running timer against the field itself; `MISS`
+counts frames that took more than one field. Holding X + Z must make `MISS`
+climb: a counter that cannot trip proves nothing. The same figures are in the
+image's `fzx_timing` for a debugger (`tools/emu/orig_drive.ps1` prints them).
 
 The display is 320 × 224. The core advances in 1/60-second ticks using a VBlank
 counter, with nominal 60 Hz NTSC / 50 Hz PAL conversion. Catch-up is bounded to
@@ -97,11 +107,14 @@ speed; sustained overload or long pauses can slow simulated time.
   sorted from far to near. The native local coordinate is `(0, 0)`.
 - Colors are RGB1555: bit 15 set, red in bits 0–4, green in 5–9 and blue in
   10–14. A clipped triangle uses the core's repeated-vertex convention.
-- A static, aligned command array holds the system clip, local coordinate,
-  up to 512 polygons and the draw-end command: 16,480 bytes in work RAM.
-- The backend preserves the core's order, transfers only the active commands,
-  and waits for VDP1 completion before reusing the buffer. Variable-interval
-  presentation avoids swapping an unfinished polygon frame.
+- Two static, aligned command arrays each hold the system clip, local
+  coordinate, up to 512 polygons and the draw-end command: 16,480 bytes each
+  in work RAM.
+- The backend preserves the core's order and transfers only the active
+  commands. Two command buffers alternate: the CPU builds frame N + 1 while
+  VDP1 draws frame N, and a buffer is reused only after the sync that sent it
+  completes. Variable-interval presentation avoids swapping an unfinished
+  polygon frame.
 - VDP1 uses priority 6. Yaul's debug console uses NBG3 at priority 7. The
   framebuffer clears to transparent so the VDP2 back-screen color shows.
 - The second SH-2 is not scheduled by this target. No speedup or frame-rate

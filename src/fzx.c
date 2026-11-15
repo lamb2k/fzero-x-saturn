@@ -5,6 +5,7 @@
  * the original race simulation, N64 renderer, materials or game logic. */
 #include "fzx.h"
 #include <limits.h>
+#include <string.h>
 
 #include "demo_course.h"
 #if defined(FZX_USE_IMPORTED_COURSE) && FZX_USE_IMPORTED_COURSE
@@ -25,6 +26,12 @@ static fzx_course_t active_course, upload_course;
 static ring_t rings[MAX_RINGS];
 static sh2z_vec3_t track_mesh[MAX_RINGS * RING_VERTS];
 static sh2z_vec3_t transformed[MAX_RINGS * RING_VERTS];
+/* Per transformed vertex in the drawn window: bit p of out_codes set when it surely lies outside
+ * clip plane p, in_codes all six bits set when it surely lies inside every plane; such a vertex
+ * also has its screen position and depth share (screen_x, screen_y, depth4) worked out once. */
+static uint8_t out_codes[MAX_RINGS * RING_VERTS], in_codes[MAX_RINGS * RING_VERTS];
+static int16_t screen_x[MAX_RINGS * RING_VERTS], screen_y[MAX_RINGS * RING_VERTS];
+static int32_t depth4[MAX_RINGS * RING_VERTS];
 static sh2z_vec3_t point_ups[FZX_MAX_POINTS];
 static sh2z_mesh_view_t mesh_view;
 static fzx_frame_t frame;
@@ -318,21 +325,67 @@ clip_distance(sh2z_vec3_t v, unsigned plane)
     }
 }
 
+/* Which side of each clip plane a vertex lies on, from 32-bit sums of its coordinates in units of
+ * 256 Q16.16 steps where they fit. Flooring moves a side plane's sum by less than 340 coarse
+ * units either way: a coarse sum >= 340 is surely inside, <= -340 surely outside, anything between
+ * is left undecided (neither bit), and the exact clipper settles it. Planes 0 and 1 are exact. */
 static void
-emit_polygon(const sh2z_vec3_t *v,uint32_t n,uint16_t color)
+classify(sh2z_vec3_t v,uint8_t *out,uint8_t *in)
 {
-    if(frame.count>=FZX_MAX_POLYGONS) return;
-    fzx_poly_t *p=&frame.polys[frame.count];
-    p->color=color; p->flags=0; p->depth=0;
-    for(uint32_t i=0;i<4;++i) {
-        const sh2z_vec3_t q=v[i<n?i:n-1];
-        const int32_t x=160+(int32_t)(((int64_t)q.x*FOCAL)/q.z);
-        const int32_t y=112-(int32_t)(((int64_t)q.y*FOCAL)/q.z);
-        p->x[i]=(int16_t)(x<0?0:(x>=FZX_WIDTH?FZX_WIDTH-1:x));
-        p->y[i]=(int16_t)(y<0?0:(y>=FZX_HEIGHT?FZX_HEIGHT-1:y));
-        p->depth+=q.z/4;
+    uint8_t o=0,n=0;
+    if(v.z<SH2Z_ONE) o|=1u; else n|=1u;
+    if(v.z>FX(480)) o|=2u; else n|=2u;
+    const int32_t x=v.x>>8,y=v.y>>8,z=v.z>>8;
+    const int32_t lim=1<<22; /* then |z*160| + |x*180| < 2^31 */
+    if(x>-lim && x<lim && y>-lim && y<lim && z>-lim && z<lim) {
+        const int32_t d[4]={z*160+x*FOCAL,z*160-x*FOCAL,z*112+y*FOCAL,z*112-y*FOCAL};
+        for(unsigned k=0;k<4;++k) {
+            if(d[k]>=340) n|=(uint8_t)(4u<<k);
+            else if(d[k]<=-340) o|=(uint8_t)(4u<<k);
+        }
+    } else {
+        for(unsigned plane=2;plane<6;++plane) {
+            if(clip_distance(v,plane)<0) o|=(uint8_t)(1u<<plane); else n|=(uint8_t)(1u<<plane);
+        }
     }
-    /* Discard projected zero-area polygons, including clipped slivers. */
+    *out=o; *in=n;
+}
+
+/* (a * FOCAL) / z truncated, exactly as the 64-bit expression. On the SH-2 (FZX_SH2_DIVU) the
+ * on-chip unit divides signed 64 by 32 bits in 39 cycles where the library would take hundreds.
+ * With |a| < 4z the quotient is under 4 * FOCAL, far inside 32 bits (a vertex inside the
+ * frustum has |a| <= z * 160 / FOCAL). */
+static int32_t
+project(sh2z_fx_t a, sh2z_fx_t z)
+{
+    const int64_t n=(int64_t)a*FOCAL;
+#if defined(FZX_SH2_DIVU) && FZX_SH2_DIVU
+    if(z>=SH2Z_ONE && z<=FX(480) && a<4*z && a>-4*z) {
+        volatile uint32_t *const dvsr=(volatile uint32_t *)0xFFFFFF00u;
+        volatile uint32_t *const dvdnth=(volatile uint32_t *)0xFFFFFF10u;
+        volatile uint32_t *const dvdntl=(volatile uint32_t *)0xFFFFFF14u;
+        *dvsr=(uint32_t)z;
+        *dvdnth=(uint32_t)((uint64_t)n>>32);
+        *dvdntl=(uint32_t)n; /* starts the division */
+        return (int32_t)*dvdntl;
+    }
+#endif
+    return (int32_t)(n/z);
+}
+
+static void
+vertex_screen(sh2z_vec3_t q,int16_t *sx,int16_t *sy)
+{
+    const int32_t x=160+project(q.x,q.z);
+    const int32_t y=112-project(q.y,q.z);
+    *sx=(int16_t)(x<0?0:(x>=FZX_WIDTH?FZX_WIDTH-1:x));
+    *sy=(int16_t)(y<0?0:(y>=FZX_HEIGHT?FZX_HEIGHT-1:y));
+}
+
+/* Keep the polygon at frame.count unless it projected to zero area (clipped slivers). */
+static void
+commit_polygon(fzx_poly_t *p)
+{
     int32_t area=0;
     for(uint32_t i=0;i<4;++i) {
         uint32_t j=(i+1)&3u;
@@ -342,12 +395,31 @@ emit_polygon(const sh2z_vec3_t *v,uint32_t n,uint16_t color)
 }
 
 static void
-draw_quad(sh2z_vec3_t a,sh2z_vec3_t b,sh2z_vec3_t c,sh2z_vec3_t d,uint16_t color)
+emit_polygon(const sh2z_vec3_t *v,uint32_t n,uint16_t color)
+{
+    if(frame.count>=FZX_MAX_POLYGONS) return;
+    fzx_poly_t *p=&frame.polys[frame.count];
+    p->color=color; p->flags=0; p->depth=0;
+    for(uint32_t i=0;i<4;++i) {
+        const sh2z_vec3_t q=v[i<n?i:n-1];
+        vertex_screen(q,&p->x[i],&p->y[i]);
+        p->depth+=q.z/4;
+    }
+    commit_polygon(p);
+}
+
+/* inside: planes every corner surely lies inside by classify()'s margin (340 * 256 in the
+ * plane's units). Points cut from the quad's edges lie on segments between corners, a rounding
+ * step or two from exact, so they stay inside those planes too: the pass would keep every
+ * point in order, and it is skipped. */
+static void
+draw_quad_inside(sh2z_vec3_t a,sh2z_vec3_t b,sh2z_vec3_t c,sh2z_vec3_t d,uint16_t color,unsigned inside)
 {
     sh2z_vec3_t buffers[2][CLIP_CAP];
     buffers[0][0]=a; buffers[0][1]=b; buffers[0][2]=c; buffers[0][3]=d;
     uint32_t count=4; unsigned source=0;
     for(unsigned plane=0;plane<6 && count>=3;++plane) {
+        if(inside&(1u<<plane)) continue;
         const sh2z_vec3_t *in=buffers[source];
         sh2z_vec3_t *out=buffers[source^1u];
         uint32_t written=0;
@@ -374,23 +446,54 @@ draw_quad(sh2z_vec3_t a,sh2z_vec3_t b,sh2z_vec3_t c,sh2z_vec3_t d,uint16_t color
     }
 }
 
+/* A window quad by its corners' vertex indices. Wholly inside every plane: emitted from the
+ * corners' screen positions as the clipper would (it keeps all four corners in order). Surely
+ * outside one plane: dropped, as the clipper leaves nothing. Otherwise clipped. */
+static void
+draw_window_quad(uint32_t a,uint32_t b,uint32_t c,uint32_t d,uint16_t color)
+{
+    if(out_codes[a]&out_codes[b]&out_codes[c]&out_codes[d]) return;
+    if((in_codes[a]&in_codes[b]&in_codes[c]&in_codes[d])==0x3Fu) {
+        if(frame.count>=FZX_MAX_POLYGONS) return;
+        fzx_poly_t *p=&frame.polys[frame.count];
+        const uint32_t k[4]={a,b,c,d};
+        p->color=color; p->flags=0; p->depth=0;
+        for(uint32_t i=0;i<4;++i) {
+            p->x[i]=screen_x[k[i]]; p->y[i]=screen_y[k[i]]; p->depth+=depth4[k[i]];
+        }
+        commit_polygon(p);
+        return;
+    }
+    draw_quad_inside(transformed[a],transformed[b],transformed[c],transformed[d],color,
+                     in_codes[a]&in_codes[b]&in_codes[c]&in_codes[d]);
+}
+
 static void
 sort_polygons(void)
 {
-    /* Stable bottom-up merge avoids quadratic ordering work in dense views. */
-    for(uint32_t width=1;width<frame.count;width*=2) {
-        for(uint32_t start=0;start<frame.count;start+=2*width) {
-            const uint32_t middle=start+width<frame.count?start+width:frame.count;
-            const uint32_t end=start+2*width<frame.count?start+2*width:frame.count;
+    /* Stable bottom-up merge, far to near, over 2-byte indices with the depths alongside; the
+     * 24-byte polygons move once at the end. */
+    static uint16_t order[2][FZX_MAX_POLYGONS];
+    static int32_t keys[FZX_MAX_POLYGONS];
+    const uint32_t count=frame.count;
+    if(count<2) return;
+    for(uint32_t i=0;i<count;++i) { order[0][i]=(uint16_t)i; keys[i]=frame.polys[i].depth; }
+    unsigned src=0;
+    for(uint32_t width=1;width<count;width*=2) {
+        const uint16_t *in=order[src]; uint16_t *out=order[src^1u];
+        for(uint32_t start=0;start<count;start+=2*width) {
+            const uint32_t middle=start+width<count?start+width:count;
+            const uint32_t end=start+2*width<count?start+2*width:count;
             uint32_t a=start,b=middle;
             for(uint32_t dst=start;dst<end;++dst) {
-                if(a<middle && (b==end || frame.polys[a].depth>=frame.polys[b].depth))
-                    sort_scratch[dst]=frame.polys[a++];
-                else sort_scratch[dst]=frame.polys[b++];
+                if(a<middle && (b==end || keys[in[a]]>=keys[in[b]])) out[dst]=in[a++];
+                else out[dst]=in[b++];
             }
         }
-        for(uint32_t i=0;i<frame.count;++i) frame.polys[i]=sort_scratch[i];
+        src^=1u;
     }
+    for(uint32_t i=0;i<count;++i) sort_scratch[i]=frame.polys[order[src][i]];
+    memcpy(frame.polys,sort_scratch,count*sizeof(frame.polys[0]));
 }
 
 FZX_EXPORT const fzx_frame_t *
@@ -423,27 +526,40 @@ fzx_render(void)
         {view_up.x,view_up.y,view_up.z,-sh2z_vec3_dot(view_up,camera)},
         {view_forward.x,view_forward.y,view_forward.z,-sh2z_vec3_dot(view_forward,camera)}
     }};
-    if(use_prepared) {
-        sh2z_transform_plan_t plan;
-        (void)sh2z_transform_plan_init(&plan,&mesh_view,&view);
-        sh2z_transform_plan_execute(transformed,&plan);
-    } else {
-        for(uint32_t i=0;i<ring_count*4;++i)
+    const uint32_t visible=ring_count<VISIBLE_RINGS?ring_count:VISIBLE_RINGS;
+    /* Include two rings behind the craft so near-plane clipping stays visible. Only the rings
+     * drawn are transformed (visible + 1: each strip joins a ring to its successor), in at most
+     * two runs where the window wraps past the course's last ring. */
+    const uint32_t first=(current_ring+ring_count-2)%ring_count;
+    const uint32_t window=visible+1u<ring_count?visible+1u:ring_count;
+    const uint32_t run1=first+window<=ring_count?window:ring_count-first;
+    sh2z_transform_plan_t plan;
+    if(use_prepared) (void)sh2z_transform_plan_init(&plan,&mesh_view,&view);
+    for(uint32_t run=0;run<2;++run) {
+        const uint32_t start=run?0u:first,count=run?window-run1:run1;
+        if(count==0) continue;
+        if(use_prepared) (void)sh2z_transform_plan_execute_range(transformed+start*4,&plan,start*4,count*4);
+        else for(uint32_t i=start*4;i<(start+count)*4;++i)
             transformed[i]=sh2z_mat34_transform_point(&view,track_mesh[i]);
+        for(uint32_t i=start*4;i<(start+count)*4;++i) {
+            classify(transformed[i],&out_codes[i],&in_codes[i]);
+            if(in_codes[i]==0x3Fu) {
+                vertex_screen(transformed[i],&screen_x[i],&screen_y[i]);
+                depth4[i]=transformed[i].z/4;
+            }
+        }
     }
     frame.count=0;
     frame.speed=pose_valid?pose.speed:(uint32_t)(((int64_t)speed*100)/SH2Z_ONE);
     frame.lap=laps;frame.flags=imported?FZX_FRAME_IMPORTED:0;
-    const uint32_t visible=ring_count<VISIBLE_RINGS?ring_count:VISIBLE_RINGS;
-    /* Include two rings behind the craft so near-plane clipping stays visible. */
     for(uint32_t j=0;j<visible;++j) {
-        uint32_t i=(current_ring+ring_count-2+j)%ring_count,n=(i+1)%ring_count;
-        const sh2z_vec3_t *a=&transformed[i*4],*b=&transformed[n*4];
+        uint32_t i=(first+j)%ring_count,n=(i+1)%ring_count;
+        const uint32_t a=i*4,b=n*4;
         uint16_t road=(i&1u)?RGB(8,9,14):RGB(10,11,17);
         if(i==0) road=RGB(22,23,26);
-        draw_quad(a[0],a[1],b[1],b[0],road);
-        draw_quad(a[2],a[0],b[0],b[2],(i&1u)?RGB(2,28,25):RGB(1,16,18));
-        draw_quad(a[1],a[3],b[3],b[1],(i&1u)?RGB(24,8,29):RGB(13,3,18));
+        draw_window_quad(a+0,a+1,b+1,b+0,road);
+        draw_window_quad(a+2,a+0,b+0,b+2,(i&1u)?RGB(2,28,25):RGB(1,16,18));
+        draw_window_quad(a+1,a+3,b+3,b+1,(i&1u)?RGB(24,8,29):RGB(13,3,18));
     }
     /* Original placeholder craft. This is not Blue Falcon asset data. */
     const sh2z_vec3_t body[6]={
@@ -455,12 +571,16 @@ fzx_render(void)
         scaled_add(scaled_add(car,forward,-FX(1)),left,-FX(3))
     };
     sh2z_vec3_t ship[6];
+    uint8_t so[6],si[6];
     sh2z_mat34_transform_points(ship,&view,body,6);
-    draw_quad(ship[0],ship[1],ship[3],ship[3],RGB(4,20,30));
-    draw_quad(ship[0],ship[3],ship[2],ship[2],RGB(2,11,24));
-    draw_quad(ship[1],ship[2],ship[3],ship[3],RGB(1,6,15));
-    draw_quad(ship[0],ship[4],ship[1],ship[1],RGB(1,27,28));
-    draw_quad(ship[0],ship[2],ship[5],ship[5],RGB(2,15,24));
+    for(uint32_t k=0;k<6;++k) classify(ship[k],&so[k],&si[k]);
+    static const uint8_t faces[5][3]={{0,1,3},{0,3,2},{1,2,3},{0,4,1},{0,2,5}};
+    static const uint16_t colors[5]={RGB(4,20,30),RGB(2,11,24),RGB(1,6,15),RGB(1,27,28),RGB(2,15,24)};
+    for(uint32_t k=0;k<5;++k) {
+        const uint8_t a=faces[k][0],b=faces[k][1],c=faces[k][2];
+        if(so[a]&so[b]&so[c]) continue; /* surely outside one plane: the clipper leaves nothing */
+        draw_quad_inside(ship[a],ship[b],ship[c],ship[c],colors[k],si[a]&si[b]&si[c]);
+    }
     sort_polygons();
     return &frame;
 }

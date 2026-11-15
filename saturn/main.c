@@ -37,17 +37,46 @@ _Static_assert(COMMAND_CAPACITY <= VDP1_VRAM_DEFAULT_CMDT_COUNT,
                "showcase commands must fit Yaul's default VDP1 partition");
 
 /* vdp1_cmdt_t supplies the 32-byte alignment required by the SDK/DMA.
- * A completed VDP1 sync is required before this single buffer is reused. */
-static vdp1_cmdt_t commands[COMMAND_CAPACITY];
-static vdp1_cmdt_list_t command_list;
+ * Two buffers: the CPU builds one while VDP1 takes and draws the other. A buffer is reused only
+ * after the sync that sent it has completed. */
+static vdp1_cmdt_t commands_buf[2][COMMAND_CAPACITY];
+static vdp1_cmdt_list_t command_lists[2];
+static vdp1_cmdt_t *commands = commands_buf[0];
+static vdp1_cmdt_list_t *command_list = &command_lists[0];
 static smpc_peripheral_digital_t digital;
 static volatile uint32_t video_fields;
 static uint16_t pad_down;
+
+/* Frame timing for hardware runs (docs/HARDWARE_TEST.md). The FRT runs free at the master
+ * clock / 32; every figure is a difference of its 16-bit count, so it never needs a reset.
+ * The vblank handler times the field itself, so percentages hold for NTSC, PAL and either
+ * dot clock. Readable over a debugger as well as on screen. */
+typedef struct {
+    uint32_t magic;      /* 'FZXT' once counting */
+    uint32_t loops;      /* main-loop iterations */
+    uint32_t field;      /* FRT counts in the last field */
+    uint32_t cpu;        /* FRT counts of CPU work in the last loop (sim + render + HUD) */
+    uint32_t cpu_max;    /* worst since the last clear */
+    uint32_t sim;        /* FRT counts of the original/proto ticks in the last loop */
+    uint32_t sim_max;
+    uint32_t misses;     /* loops that spanned more than one field since the last clear */
+    uint32_t overload;   /* loops that ran the X+Z negative control */
+    uint32_t publish;    /* FRT counts in the last loop: pose hand-over (orig only) */
+    uint32_t render;     /*   the shared core's render and the VDP1 command build */
+    uint32_t hud;        /*   the text HUD print and flush */
+} fzx_timing_t;
+volatile fzx_timing_t fzx_timing;
+/* Debugger stand-in for holding X+Z (tools/emu/orig_drive.ps1 -Overload). */
+volatile uint32_t fzx_debug_overload;
+static volatile uint16_t vblank_frt;
 
 static void
 vblank_out(void *work)
 {
     (void)work;
+    const uint16_t now = cpu_frt_count_get();
+    fzx_timing.field = (uint16_t)(now - vblank_frt);
+    vblank_frt = now;
     ++video_fields;
     smpc_peripheral_intback_issue();
 }
@@ -83,15 +112,17 @@ commands_init(void)
                                                    FZX_HEIGHT - 1);
     const int16_vec2_t origin = INT16_VEC2_INITIALIZER(0, 0);
 
-    memset(commands, 0, sizeof(commands));
-    command_list.cmdts = commands;
-    command_list.count = 3;
-
-    vdp1_cmdt_system_clip_coord_set(&commands[COMMAND_SYSTEM_CLIP]);
-    vdp1_cmdt_vtx_system_clip_coord_set(&commands[COMMAND_SYSTEM_CLIP], clip);
-    vdp1_cmdt_local_coord_set(&commands[COMMAND_LOCAL_COORD]);
-    vdp1_cmdt_vtx_local_coord_set(&commands[COMMAND_LOCAL_COORD], origin);
-    vdp1_cmdt_end_set(&commands[COMMAND_FIRST_POLYGON]);
+    memset(commands_buf, 0, sizeof(commands_buf));
+    for (uint32_t b = 0; b < 2; ++b) {
+        vdp1_cmdt_t *const c = commands_buf[b];
+        command_lists[b].cmdts = c;
+        command_lists[b].count = 3;
+        vdp1_cmdt_system_clip_coord_set(&c[COMMAND_SYSTEM_CLIP]);
+        vdp1_cmdt_vtx_system_clip_coord_set(&c[COMMAND_SYSTEM_CLIP], clip);
+        vdp1_cmdt_local_coord_set(&c[COMMAND_LOCAL_COORD]);
+        vdp1_cmdt_vtx_local_coord_set(&c[COMMAND_LOCAL_COORD], origin);
+        vdp1_cmdt_end_set(&c[COMMAND_FIRST_POLYGON]);
+    }
 }
 
 static uint32_t
@@ -197,7 +228,7 @@ commands_build(const fzx_frame_t *frame)
     vdp1_cmdt_t *end = &commands[COMMAND_FIRST_POLYGON + count];
     memset(end, 0, sizeof(*end));
     vdp1_cmdt_end_set(end);
-    command_list.count = (uint16_t)(count + 3u);
+    command_list->count = (uint16_t)(count + 3u);
 }
 
 int
@@ -236,24 +267,36 @@ main(void)
                  "\x1b[4;1H SIM %s\n"
 #if FZX_SIM == FZX_SIM_ORIG
                  "\x1b[26;1H D-PAD STEER  A/C GO  B BOOST  Y BRAKE\n"
-                 " L/R LEAN",
+                 " L/R LEAN  X CLEAR  X+Z OVERLOAD TEST",
 #else
                  "\x1b[26;1H D-PAD STEER   A/C GO   B BRAKE\n"
-                 " START RESET",
+                 " START RESET  X CLEAR  X+Z OVERLOAD",
 #endif
                  fzx_sim_id() == FZX_SIM_PROTO ? "PROTO DRIVER, NOT THE PORT"
                  : fzx_sim_id() == FZX_SIM_ORIG ? "ORIGINAL RACE CODE (SOFT FLOAT)"
                                                 : "UNKNOWN");
 
+    cpu_frt_init(CPU_FRT_CLOCK_DIV_32);
+    vblank_frt = cpu_frt_count_get();
+    fzx_timing.magic = 0x465A5854u;
+    uint32_t warmup = 2; /* the first loops still carry the course load */
+
     while (true) {
+        const uint16_t loop_start = cpu_frt_count_get();
         const uint32_t buttons = buttons_read();
         pending_reset |= buttons & FZX_RESET;
         const uint32_t field = video_fields;
         uint32_t elapsed = field - previous_field;
         previous_field = field;
         /* A long pause cannot create an unbounded simulation catch-up loop. */
+        if (warmup != 0) {
+            --warmup;
+        } else if (elapsed > 1) {
+            ++fzx_timing.misses;
+        }
         if (elapsed > MAX_CATCHUP_FIELDS) elapsed = MAX_CATCHUP_FIELDS;
         tick_remainder += elapsed * 60u;
+        const uint16_t sim_start = cpu_frt_count_get();
         while (tick_remainder >= fields_per_second) {
 #if FZX_SIM == FZX_SIM_ORIG
             orig_tick();
@@ -265,26 +308,66 @@ main(void)
             tick_remainder -= fields_per_second;
         }
 
+        const uint16_t publish_start = cpu_frt_count_get();
+        fzx_timing.sim = (uint16_t)(publish_start - sim_start);
+        if (fzx_timing.sim > fzx_timing.sim_max) fzx_timing.sim_max = fzx_timing.sim;
 #if FZX_SIM == FZX_SIM_ORIG
         orig_publish();
 #endif
+        const uint16_t render_start = cpu_frt_count_get();
+        fzx_timing.publish = (uint16_t)(render_start - publish_start);
         const fzx_frame_t *frame = fzx_render();
         commands_build(frame);
-        dbgio_printf("\x1b[2;1H SPEED %04lu   LAP %02lu   POLYS %03lu "
-                     "\x1b[3;1H %s                     ",
-                     (unsigned long)frame->speed,
-                     (unsigned long)frame->lap,
-                     (unsigned long)frame->count,
-                     (frame->flags & FZX_FRAME_IMPORTED) ? "IMPORTED COURSE"
-                                                        : "DEMO COURSE");
-        dbgio_flush();
+        fzx_timing.render = (uint16_t)(cpu_frt_count_get() - render_start);
+        const uint32_t field_counts = fzx_timing.field ? fzx_timing.field : 1u;
 
-        vdp1_sync_cmdt_list_put(&command_list, 0);
+        /* X clears the worst-case figures; X+Z burns 1.25 fields of CPU so the miss counter
+         * must climb (the negative control: a detector that cannot trip proves nothing). */
+        if ((digital.held.raw & PERIPHERAL_DIGITAL_X) && !(pad_down & PERIPHERAL_DIGITAL_Z)) {
+            fzx_timing.cpu_max = 0;
+            fzx_timing.sim_max = 0;
+            fzx_timing.misses = 0;
+        }
+        if (fzx_debug_overload != 0 ||
+            ((pad_down & PERIPHERAL_DIGITAL_X) && (pad_down & PERIPHERAL_DIGITAL_Z))) {
+            const uint32_t burn = field_counts + field_counts / 4u;
+            while ((uint16_t)(cpu_frt_count_get() - loop_start) < burn) {
+            }
+            ++fzx_timing.overload;
+        }
+        fzx_timing.cpu = (uint16_t)(cpu_frt_count_get() - loop_start);
+        if (fzx_timing.cpu > fzx_timing.cpu_max) fzx_timing.cpu_max = fzx_timing.cpu;
+        ++fzx_timing.loops;
+
+        /* Pipelined: this frame was built while VDP1 drew the previous one. Wait for that
+         * sync (the previous list sent and drawn, the HUD transfer done), then send this one
+         * and go straight on to the next frame. */
+        vdp1_sync_wait();
+        vdp2_sync_wait();
+        const uint16_t hud_start = cpu_frt_count_get();
+        /* The text plane is redrawn every fourth loop: printing and uploading it each frame
+         * cost about 7% of a field. */
+        if ((fzx_timing.loops & 3u) == 0) {
+            dbgio_printf("\x1b[2;1H SPEED %04lu   LAP %02lu   POLYS %03lu "
+                         "\x1b[3;1H %s                     ",
+                         (unsigned long)frame->speed,
+                         (unsigned long)frame->lap,
+                         (unsigned long)frame->count,
+                         (frame->flags & FZX_FRAME_IMPORTED) ? "IMPORTED COURSE"
+                                                            : "DEMO COURSE");
+            dbgio_printf("\x1b[5;1H CPU %03lu MAX %03lu SIM %03lu /100 MISS %04lu ",
+                         (unsigned long)(fzx_timing.cpu * 100u / field_counts),
+                         (unsigned long)(fzx_timing.cpu_max * 100u / field_counts),
+                         (unsigned long)(fzx_timing.sim_max * 100u / field_counts),
+                         (unsigned long)fzx_timing.misses);
+            dbgio_flush();
+        }
+        fzx_timing.hud = (uint16_t)(cpu_frt_count_get() - hud_start);
+        vdp1_sync_cmdt_list_put(command_list, 0);
         vdp1_sync_render();
         vdp1_sync();
         vdp2_sync();
-        /* Wait for both the polygon frame and the HUD transfer. */
-        vdp1_sync_wait();
-        vdp2_sync_wait();
+        command_list = &command_lists[command_list == &command_lists[0] ? 1 : 0];
+        commands = command_list->cmdts;
     }
 }

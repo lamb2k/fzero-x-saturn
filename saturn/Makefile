@@ -58,7 +58,7 @@ endif
 
 SH_PROGRAM := fzero-x-saturn
 SH_SRCS := main.c ../src/fzx.c $(FZX_ORIG_SRCS) $(wildcard $(SH2ZAM_ROOT)/saturn/src/*.c)
-SH_CFLAGS += -O2 -std=c11 -Wall -Wextra -I../include \
+SH_CFLAGS += -DFZX_SH2_DIVU=1 -O2 -std=c11 -Wall -Wextra -I../include \
              -I$(SH2ZAM_ROOT)/saturn/include -DSH2Z_REQUIRE_SH2=1
 
 IP_VERSION := V0.100

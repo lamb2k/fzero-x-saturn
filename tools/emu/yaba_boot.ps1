@@ -34,7 +34,7 @@ $exe = $env:FZX_YABA_EXE
 if (-not $exe -or -not (Test-Path -LiteralPath $exe)) { throw 'Set FZX_YABA_EXE to the Yaba Sanshiro MCP build' }
 $Iso = (Resolve-Path -LiteralPath $Iso).Path
 function SymAddr([string]$name) {
-    $l = Get-Content -LiteralPath $Sym | Where-Object { ($_ -split '\s+')[2] -eq $name } | Select-Object -First 1
+    $l = Get-Content -LiteralPath $Sym | Where-Object { ($_ -split '\s+')[2] -match ('^' + [regex]::Escape($name) + '(\.lto_priv\.\d+)?$') } | Select-Object -First 1
     if (-not $l) { throw "symbol $name not in $Sym" }
     return '0x' + ($l -split '\s+')[0]
 }

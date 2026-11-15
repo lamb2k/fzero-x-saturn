@@ -297,6 +297,18 @@ def render_header(course: dict) -> str:
     return "\n".join(lines)
 
 
+def render_receipt(source: bytes, input_kind: str, outputs: list[Path]) -> str:
+    """Generation receipt checked by tools/check_receipt.sh before a build uses the outputs.
+
+    Paths are basenames beside the receipt, so the receipt holds no local paths.
+    """
+    lines = ["# fzx generation receipt v1; regenerate, never edit",
+             f"generator {hashlib.sha256(Path(__file__).read_bytes()).hexdigest()} import_course.py",
+             f"input {hashlib.sha256(source).hexdigest()} {input_kind}"]
+    lines += [f"output {hashlib.sha256(path.read_bytes()).hexdigest()} {path.name}" for path in outputs]
+    return "\n".join(lines) + "\n"
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     inputs = parser.add_mutually_exclusive_group(required=True)
@@ -339,6 +351,9 @@ def main(argv: list[str] | None = None) -> int:
         json_output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(header, encoding="utf-8")
         json_output.write_text(json_text, encoding="utf-8")
+        receipt = args.output.with_suffix(".receipt")
+        # Bytes, so the receipt has LF line ends for the shell check on every host.
+        receipt.write_bytes(render_receipt(data, provenance["input_kind"], [args.output, json_output]).encode())
     except (OSError, CourseImportError) as exc:
         print(f"Course import failed: {exc}", file=sys.stderr)
         return 2

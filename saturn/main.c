@@ -143,9 +143,13 @@ main(void)
     uint32_t tick_remainder = 0;
     uint32_t pending_reset = 0;
 
+    /* The prototype driver must never pass for the port (POC plan, lesson 1). */
     dbgio_printf("\x1b[H\x1b[2J F-ZERO X / SH2ZAM\n"
+                 "\x1b[4;1H SIM %s\n"
                  "\x1b[26;1H D-PAD STEER   A/C GO   B BRAKE\n"
-                 " START RESET");
+                 " START RESET",
+                 fzx_sim_id() == FZX_SIM_PROTO ? "PROTO DRIVER, NOT THE PORT"
+                                               : "UNKNOWN");
 
     while (true) {
         const uint32_t buttons = buttons_read();

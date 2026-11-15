@@ -60,3 +60,13 @@ by one ulp. The four-way check found this.
 
 `fixture_course.py` writes the synthetic course: an authored 8-point oval, not game data.
 No ROM, ROM-derived record or trace taken on a retail course is ever committed.
+
+## Tick cost lane (G1.3)
+
+`ref/cost.sh [OUT]` runs the gcc -O0 and -O2 builds under valgrind callgrind with one dump
+per `ref_tick`, checks each run's hash is unchanged under valgrind, and calls
+`cost_model.py`, which classes every executed binary32 SSE instruction (add, mul, div, sqrt,
+cmp, cvt, neg) and every libm call per function per tick. It writes `cost_table.tsv` and
+`SUMMARY.md` to `OUT` (default `$FZX_EVIDENCE/cost`). Cycles are MODELLED from the SH2ZAM
+math-model costs. Only the synthetic fixture's summary is committed
+([docs/cost/SUMMARY.md](../docs/cost/SUMMARY.md)); a ROM run stays in the evidence folder.

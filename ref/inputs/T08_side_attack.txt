@@ -1,0 +1,26 @@
+# T08: side attacks (double taps of Z and of R).
+520 A
+2 A+Z
+4 A
+2 A+Z
+60 A
+2 A+R
+4 A
+2 A+R
+60 A
+2 A+Z
+4 A
+2 A+Z
+60 A
+2 A+R
+4 A
+2 A+R
+60 A
+2 A+Z
+4 A
+2 A+Z
+60 A
+2 A+R
+4 A
+2 A+R
+60 A

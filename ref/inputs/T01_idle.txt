@@ -1,0 +1,2 @@
+# T01: no input. The countdown runs and the machine sits on the grid.
+900 -

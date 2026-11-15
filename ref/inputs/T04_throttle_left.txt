@@ -1,0 +1,3 @@
+# T04: full throttle, steady left stick.
+460 A
+1200 A -40 0

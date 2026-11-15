@@ -29,6 +29,18 @@ jobs:
           make test CC=gcc BUILD=build/gcc
           make test CC=clang BUILD=build/clang
           make sanitize CC=clang
+  reference:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Decomp submodule (code only; no ROM, no assets)
+        run: |
+          git submodule update --init upstream/G-Diffuser
+          git -C upstream/G-Diffuser submodule update --init decomp
+      - run: sudo apt-get update && sudo apt-get install -y gcc-multilib clang
+      - name: G1.2 reference harness (gcc/clang x -O0/-O2 determinism, regression, control)
+        run: bash ref/check.sh
   saturn:
     runs-on: ubuntu-24.04
     timeout-minutes: 20

@@ -14,7 +14,7 @@ emulator or a console. The importer has only run on synthetic records.
 | Gate | State |
 | --- | --- |
 | 0 Ground rules | Done in CI (see card table) |
-| 1 GO / NO-GO | In progress. G1.1 done; next G1.2 reference harness |
+| 1 GO / NO-GO | In progress. G1.1 and G1.2 done; next G1.3 tick cost model |
 | 2 to 5 | Not started; wait for Gate 1 |
 
 ### Gate 0 cards
@@ -31,10 +31,11 @@ emulator or a console. The importer has only run on synthetic records.
 | Card | State | Evidence |
 | --- | --- | --- |
 | G1.1 closure census | Done | [census/SUMMARY.md](census/SUMMARY.md): 40 TICK functions (4,450 lines), 95 OFFLINE, 8 OUT. Mode `GAMEMODE_TIME_ATTACK`, tick order from `Race_Update`. Control: `--define PORT` finds 91 fork-hook calls in the closure; the stock build finds 0. HOST |
+| G1.2 reference harness | Done | [ref/README.md](../ref/README.md): the original stock race code built natively in binary32 SSE float, driven through the original `Controller_UpdateInputs` and `Racer_Update`. T01 to T10 on the synthetic oval give the same trace hash with gcc and clang at -O0 and -O2, and match `ref/expected/fixture.hashes`. Control: one bit of one machine constant moves the T02 hash. Found on the way: clang needs `-fno-unsafe-math-optimizations` beyond `-fno-fast-math` (1 ulp start-position drift). CI job `reference`. HOST |
 
 ## Evidence tiers held
 
-- HOST: core tests (GCC, Clang, sanitizers), importer and hygiene tests.
+- HOST: core tests (GCC, Clang, sanitizers), importer and hygiene tests, reference harness determinism (ref/check.sh).
 - EMULATOR: none. HARDWARE: UNRUN. MODELLED: none.
 
 ## Owner inputs outstanding

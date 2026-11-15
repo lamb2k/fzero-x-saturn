@@ -1,0 +1,2 @@
+# T02: full throttle from the grid.
+700 A

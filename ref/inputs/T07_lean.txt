@@ -1,0 +1,6 @@
+# T07: leaning: Z, then R, then both, throttle held.
+460 A
+120 A+Z 30 0
+120 A+R -30 0
+60 A+Z+R
+300 A

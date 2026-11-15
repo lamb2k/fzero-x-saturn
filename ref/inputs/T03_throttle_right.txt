@@ -1,0 +1,3 @@
+# T03: full throttle, steady right stick from the start.
+460 A
+1200 A 40 0

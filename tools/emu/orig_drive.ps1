@@ -5,7 +5,8 @@ the image's fzx_debug_n64 hook and sample racer 0's pose (orig_pose) with a scre
   tools/emu/orig_drive.ps1 [-Iso saturn/build-orig/fzero-x-saturn.iso] [-Sym ...yaul/fzero-x-saturn.sym]
                            [-Steps 'A:4','A+R:2',...] [-OutDir DIR]
 
-A step whose buttons include OV also runs the image's overload control (as holding X+Z): the
+A step whose buttons include RS first restarts the race (as pressing Start). A step whose buttons
+include OV also runs the image's overload control (as holding X+Z): the
 miss counter must climb. Each line also prints the frame timing (fzx_timing, FRT counts as a
 percentage of the field): last loop, worst loop, worst ticks, missed fields.
 
@@ -22,7 +23,7 @@ param(
     [int]$Port = 9641
 )
 $ErrorActionPreference = 'Stop'
-$bits = @{ OV = 0; '0' = 0; A = 0x8000; B = 0x4000; Z = 0x2000; S = 0x1000; R = 0x10; CD = 0x4 }
+$bits = @{ RS = 0; OV = 0; '0' = 0; A = 0x8000; B = 0x4000; Z = 0x2000; S = 0x1000; R = 0x10; CD = 0x4 }
 function Sym([string]$n) {
     $l = Get-Content -LiteralPath $Sym | Where-Object { ($_ -split '\s+')[2] -match ('^' + [regex]::Escape($n) + '(\.lto_priv\.\d+)?$') } | Select-Object -First 1
     if (-not $l) { throw "symbol $n not in $Sym" }
@@ -72,6 +73,9 @@ try {
         if ($word -eq 0) { $word = 0x00010000 }
         $ov = if ($f[0] -split '\+' -contains 'OV') { '0x00000001' } else { '0x00000000' }
         Mcp 'memory_write' @{ address = $over; size = 'long'; value = $ov } | Out-Null
+        if ($f[0] -split '\+' -contains 'RS') {
+            Mcp 'memory_write' @{ address = (Sym '_fzx_debug_restart'); size = 'long'; value = '0x00000001' } | Out-Null
+        }
         # The MCP server takes the value as a hex string only.
         $w = Mcp 'memory_write' @{ address = $hook; size = 'long'; value = ('0x{0:X8}' -f $word) }
         if ($w -notmatch '^wrote') { throw "memory_write failed: $w" }

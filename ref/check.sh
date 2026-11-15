@@ -4,7 +4,8 @@
 #   ref/check.sh --update   rewrite ref/expected/fixture.hashes from the gcc -O0 run
 # 1. Determinism: the four builds give the same trace hash for every script.
 # 2. Regression: the hashes equal ref/expected/fixture.hashes.
-# 3. Control: one changed tuning constant (the energy-drain path, through a one-byte change
+# 3. Restart: a restarted race replays as a fresh one.
+# 4. Control: one changed tuning constant (the energy-drain path, through a one-byte change
 #    of the fixture machine) changes the hash of a script that exercises it, so the hash
 #    is not blind to the physics.
 set -euo pipefail
@@ -51,6 +52,17 @@ P
 le=$("$REF/build/gcc-O0/fzx-ref" --course "$TMP/course_le.bin" --byte-order little --inputs "$REF/inputs/T02_full_throttle.txt" | awk '{print $4}')
 be=$(awk '$1=="T02_full_throttle"{print $2}' "$TMP/hashes")
 [ "$le" = "$be" ] && echo "byte order: same hash" || { echo "byte order: DIFFER $le != $be"; fail=1; }
+
+# Restart: a race run, then put back on the grid (ref_race_restart), must replay a script
+# exactly as a fresh race does (the Saturn image restarts this way, without Course_Init).
+for pre in T10_random T06_boost; do
+    for name in T02_full_throttle T05_slalom T08_side_attack; do
+        h=$("$REF/build/gcc-O0/fzx-ref" --course "$TMP/course.bin" --byte-order big             --inputs "$REF/inputs/$name.txt" --prefix "$REF/inputs/$pre.txt" | awk '{print $4}')
+        want=$(awk -v n="$name" '$1==n{print $2}' "$TMP/hashes")
+        [ "$h" = "$want" ] || { echo "restart after $pre: $name DIFFERS $h != $want"; fail=1; }
+    done
+done
+echo "restart: replays as a fresh race"
 
 # Control: a different machine constant must move the hash.
 python3 - "$TMP/rom.bin" <<'P'

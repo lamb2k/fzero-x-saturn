@@ -22,6 +22,12 @@ extern f32 gPlayerEngine[];
 extern s32 gPlayerControlPorts[];
 extern s32 gControllersConnected;
 extern s32 gRaceIntroTimer;
+extern s32 gRandSeed1, gRandSeed2;
+extern u32 gRandMask1, gRandMask2;
+/* The generators as Course_Init left them, before the racer steps: a restart puts them back, so a restarted race
+ * replays exactly as a fresh one (explosion jitter draws on them). */
+static s32 sRaceSeed1, sRaceSeed2;
+static u32 sRaceMask1, sRaceMask2;
 extern OSPiHandle* gCartRomHandle;
 
 extern GfxPool* gGfxPool;
@@ -93,9 +99,22 @@ int ref_race_init(void) {
     if (ref_course_loads != 1) {
         return 1; /* The original loader never asked for the course record. */
     }
+    sRaceSeed1 = gRandSeed1;
+    sRaceSeed2 = gRandSeed2;
+    sRaceMask1 = gRandMask1;
+    sRaceMask2 = gRandMask2;
     func_i3_80116C4C();
     Racer_Init();
     return 0;
+}
+
+void ref_race_restart(void) {
+    gRandSeed1 = sRaceSeed1;
+    gRandSeed2 = sRaceSeed2;
+    gRandMask1 = sRaceMask1;
+    gRandMask2 = sRaceMask2;
+    func_i3_80116C4C();
+    Racer_Init();
 }
 
 void ref_tick(unsigned short buttons, signed char stick_x, signed char stick_y) {

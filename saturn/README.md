@@ -75,7 +75,13 @@ synthetic CI fixture; no ROM is read. Objects and outputs live in
 | Y | C-down, brake |
 | L / R | Z / R, lean |
 | D-pad | Stick, full deflection |
-| Start | Start |
+| Start | Retry: back to the grid (`ref_race_restart`) |
+
+The race HUD shows speed, lap of 3, race time and energy (as a share of the
+start), and says when the craft has retired or finished. Start restarts with
+the racer steps of Race_Init on the course already set up (Course_Init takes
+seconds on the SH-2); `ref/check.sh` proves a restarted race replays exactly as
+a fresh one.
 
 ## Controls
 

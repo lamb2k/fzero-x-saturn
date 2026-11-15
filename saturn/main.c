@@ -149,7 +149,8 @@ buttons_read(void)
 
 #if FZX_SIM == FZX_SIM_ORIG
 /* The Saturn pad as the original code's N64 pad. A/C accelerate (A), B boost (B), Y brake
- * (C-down), L/R lean (Z/R), Start; the D-pad is the stick at full deflection. */
+ * (C-down), L/R lean (Z/R); the D-pad is the stick at full deflection. Start restarts the race
+ * (ref_race_restart), as the game's retry does. */
 /* Test hook for scripted drives over the emulator's debugger (tools/emu/orig_drive.ps1):
  * when non-zero it replaces the pad, as N64 buttons << 16 | stick x << 8 | stick y. */
 volatile uint32_t fzx_debug_n64;
@@ -170,7 +171,6 @@ orig_tick(void)
     if (d & PERIPHERAL_DIGITAL_L) n64 |= 0x2000;
     if (d & PERIPHERAL_DIGITAL_R) n64 |= 0x0010;
     if (d & PERIPHERAL_DIGITAL_Y) n64 |= 0x0004;
-    if (d & PERIPHERAL_DIGITAL_START) n64 |= 0x1000;
     if (d & PERIPHERAL_DIGITAL_LEFT) sx = -63;
     if (d & PERIPHERAL_DIGITAL_RIGHT) sx = 63;
     if (d & PERIPHERAL_DIGITAL_UP) sy = 63;
@@ -187,6 +187,49 @@ pose_vec(const float *v, float scale)
 }
 
 static RefPose orig_pose;
+static float orig_start_energy = 1.0f;
+/* Debugger stand-in for pressing Start (tools/emu/orig_drive.ps1 step RS). */
+volatile uint32_t fzx_debug_restart;
+
+#define RACER_RETIRED (1 << 18)  /* RACER_STATE_RETIRED */
+#define RACER_FINISHED (1 << 25) /* RACER_STATE_FINISHED */
+#define RACE_LAPS 3
+
+static void
+orig_restart(void)
+{
+    ref_race_restart();
+}
+
+/* The race HUD: speed, lap, time, energy and what Start does now. */
+static void
+orig_hud(void)
+{
+    const RefPose *p = &orig_pose;
+    const uint32_t ms = (uint32_t)(p->race_time > 0 ? p->race_time : 0);
+    int lap = p->lap; /* the original counts lapsCompleted from 1 at the start line */
+    if (lap > RACE_LAPS) lap = RACE_LAPS;
+    if (lap < 1) lap = 1;
+    float e = p->energy / orig_start_energy;
+    if (e < 0.0f) e = 0.0f;
+    if (e > 1.0f) e = 1.0f;
+    const uint32_t pct = (uint32_t)(e * 100.0f + 0.5f);
+    char bar[21];
+    const uint32_t fill = (uint32_t)(e * 20.0f + 0.5f);
+    for (uint32_t i = 0; i < 20; ++i) bar[i] = i < fill ? '#' : '.';
+    bar[20] = '\0';
+    const char *status = "                              ";
+    if (p->state_flags & RACER_FINISHED) status = "FINISHED   START: RACE AGAIN  ";
+    else if (p->state_flags & RACER_RETIRED) status = "RETIRED    START: RETRY       ";
+    else if (p->intro > 0) status = "GET READY                     ";
+    dbgio_printf("\x1b[2;1H SPEED %04lu  LAP %d/%d  TIME %lu'%02lu\"%02lu   "
+                 "\x1b[3;1H ENERGY %s %03lu ",
+                 (unsigned long)(p->speed > 0.0f ? p->speed * 21.6f + 0.5f : 0.0f),
+                 lap, RACE_LAPS,
+                 (unsigned long)(ms / 60000u), (unsigned long)(ms / 1000u % 60u),
+                 (unsigned long)(ms / 10u % 100u), bar, (unsigned long)pct);
+    dbgio_printf("\x1b[7;1H %s", status);
+}
 
 static void
 orig_publish(void)
@@ -254,6 +297,7 @@ main(void)
         }
     }
     orig_publish();
+    if (orig_pose.energy > 0.0f) orig_start_energy = orig_pose.energy;
 #endif
 
     const uint32_t fields_per_second =
@@ -267,7 +311,7 @@ main(void)
                  "\x1b[4;1H SIM %s\n"
 #if FZX_SIM == FZX_SIM_ORIG
                  "\x1b[26;1H D-PAD STEER  A/C GO  B BOOST  Y BRAKE\n"
-                 " L/R LEAN  X CLEAR  X+Z OVERLOAD TEST",
+                 " L/R LEAN  START RETRY  X CLR  X+Z LOAD",
 #else
                  "\x1b[26;1H D-PAD STEER   A/C GO   B BRAKE\n"
                  " START RESET  X CLEAR  X+Z OVERLOAD",
@@ -299,8 +343,11 @@ main(void)
         const uint16_t sim_start = cpu_frt_count_get();
         while (tick_remainder >= fields_per_second) {
 #if FZX_SIM == FZX_SIM_ORIG
+            if (pending_reset != 0 || fzx_debug_restart != 0) {
+                fzx_debug_restart = 0;
+                orig_restart();
+            }
             orig_tick();
-            (void)pending_reset;
 #else
             fzx_step((buttons & ~FZX_RESET) | pending_reset);
 #endif
@@ -348,6 +395,9 @@ main(void)
         /* The text plane is redrawn every fourth loop: printing and uploading it each frame
          * cost about 7% of a field. */
         if ((fzx_timing.loops & 3u) == 0) {
+#if FZX_SIM == FZX_SIM_ORIG
+            orig_hud();
+#else
             dbgio_printf("\x1b[2;1H SPEED %04lu   LAP %02lu   POLYS %03lu "
                          "\x1b[3;1H %s                     ",
                          (unsigned long)frame->speed,
@@ -355,6 +405,7 @@ main(void)
                          (unsigned long)frame->count,
                          (frame->flags & FZX_FRAME_IMPORTED) ? "IMPORTED COURSE"
                                                             : "DEMO COURSE");
+#endif
             dbgio_printf("\x1b[5;1H CPU %03lu MAX %03lu SIM %03lu /100 MISS %04lu ",
                          (unsigned long)(fzx_timing.cpu * 100u / field_counts),
                          (unsigned long)(fzx_timing.cpu_max * 100u / field_counts),

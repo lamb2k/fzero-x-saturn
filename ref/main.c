@@ -2,6 +2,10 @@
  * MIT; see ../LICENSE. Host headers only; the game code is behind ref.h.
  *
  *   fzx-ref --course RECORD --byte-order big|little --inputs SCRIPT [--rom ROM] [--ticks N] [--trace OUT]
+ *           [--prefix SCRIPT]
+ *
+ * --prefix runs that script first, untraced, then restarts the race (ref_race_restart) and
+ * traces SCRIPT from tick 0: the hash must equal a fresh run of SCRIPT.
  *
  * ROM is the owner's F-Zero X ROM in any byte order; only its first 4 KB are
  * read (the machine constants). Without it the CI fixture machine is used.
@@ -128,7 +132,7 @@ static void trace_tick(FILE* out, int tick, const Step* in) {
 }
 
 int main(int argc, char** argv) {
-    const char *course = NULL, *order = NULL, *inputs = NULL, *trace = NULL, *rom = NULL;
+    const char *course = NULL, *order = NULL, *inputs = NULL, *trace = NULL, *rom = NULL, *prefix = NULL;
     static Step steps[4096];
     static unsigned char record[REF_COURSE_RECORD_SIZE];
     int nsteps, i, tick = 0, limit = -1;
@@ -142,6 +146,7 @@ int main(int argc, char** argv) {
         else if (strcmp(argv[i], "--trace") == 0) trace = argv[i + 1];
         else if (strcmp(argv[i], "--rom") == 0) rom = argv[i + 1];
         else if (strcmp(argv[i], "--ticks") == 0) limit = atoi(argv[i + 1]);
+        else if (strcmp(argv[i], "--prefix") == 0) prefix = argv[i + 1];
         else die("unknown option");
     }
     if (course == NULL || order == NULL || inputs == NULL ||
@@ -179,6 +184,15 @@ int main(int argc, char** argv) {
     }
     if (ref_load_course(record, strcmp(order, "big") == 0) != 0 || ref_race_init() != 0) {
         die("race set-up failed: the original loader did not request the course record");
+    }
+    if (prefix != NULL) {
+        static Step pre[4096];
+        const int npre = load_script(prefix, pre, 4096);
+        int t;
+        for (i = 0; i < npre; i++) {
+            for (t = 0; t < pre[i].ticks; t++) ref_tick(pre[i].button, pre[i].sx, pre[i].sy);
+        }
+        ref_race_restart();
     }
     if (trace != NULL && (out = fopen(trace, "w")) == NULL) {
         die("cannot write trace");

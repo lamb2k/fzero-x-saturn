@@ -29,6 +29,9 @@ typedef struct {
 int ref_load_course(const unsigned char* record, int big_endian); /* 0 on success */
 void ref_set_rom_boot(const unsigned char* boot); /* big-endian (z64) bytes; NULL = CI fixture */
 int ref_race_init(void);                                    /* 0 on success */
+/* Back to the grid on the course already set up: the racer steps of Race_Init again, without
+ * Course_Init (seconds on the SH-2). check.sh proves a restarted race replays as a fresh one. */
+void ref_race_restart(void);
 void ref_tick(unsigned short buttons, signed char stick_x, signed char stick_y);
 void ref_state(RefState* out);
 void ref_pose(RefPose* out);

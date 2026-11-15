@@ -42,6 +42,13 @@ endif
 SH_CFLAGS += -DFZX_SIM=FZX_SIM_ORIG -I../ref
 SH_LDFLAGS += $(FZX_CLOSURE)
 FZX_ORIG_SRCS := ../generated/course_record.c
+# FZX_ROM_BOOT=1: the machine constants from the owner's ROM (generated/rom_boot.c, local only);
+# 0: the CI fixture pattern (ref/hooks.c). saturn_orig.sh rebuilds main.o when this changes.
+FZX_ROM_BOOT ?= 0
+ifeq ($(FZX_ROM_BOOT),1)
+FZX_ORIG_SRCS += ../generated/rom_boot.c
+SH_CFLAGS += -DFZX_ROM_BOOT=1
+endif
 # Own objects and outputs: Yaul does not rebuild when only the flags change.
 SH_BUILD_DIR := build-orig/yaul
 SH_OUTPUT_DIR := build-orig

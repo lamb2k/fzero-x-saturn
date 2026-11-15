@@ -13,6 +13,7 @@ import io
 import json
 import math
 import os
+import re
 from pathlib import Path
 import shutil
 import struct
@@ -196,6 +197,28 @@ class RomIdentityTests(unittest.TestCase):
         self.assertEqual(record, synthetic_record())
         self.assertEqual(provenance["rom_offset"], 0x2AD1E0)
         self.assertEqual(provenance["course_symbol"], "aCourseMuteCity1")
+
+    def test_boot_output_is_the_normalized_boot_area(self):
+        # A byte-swapped (v64) synthetic image: the boot area must come out in z64 order.
+        v64 = bytearray(len(self.data))
+        v64[0::2], v64[1::2] = self.data[1::2], self.data[0::2]
+        with tempfile.TemporaryDirectory() as tmp, \
+             mock.patch.object(imp, "EXPECTED_ROM_MD5", hashlib.md5(self.data).hexdigest()), \
+             mock.patch.object(imp, "EXPECTED_ROM_SHA1", hashlib.sha1(self.data).hexdigest()):
+            rom, boot = Path(tmp) / "synthetic.v64", Path(tmp) / "rom_boot.c"
+            rom.write_bytes(bytes(v64))
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(imp.main(["--rom", str(rom), "--output", str(Path(tmp) / "course.h"),
+                                           "--boot-output", str(boot)]), 0)
+            text = boot.read_text()
+            values = bytes(int(v, 16) for v in re.findall(r"0x([0-9A-F]{2})", text.split("{", 1)[1]))
+            self.assertEqual(values, self.data[:imp.BOOT_SIZE])
+            self.assertIn("fzx_rom_boot[4096]", text)
+            self.assertIn("rom_boot.c", (Path(tmp) / "course.receipt").read_text())
+
+    def test_boot_output_needs_a_rom(self):
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            imp.main(["--record", "x.bin", "--byte-order", "big", "--output", "c.h", "--boot-output", "b.c"])
 
     def test_wrong_sizes_headers_and_unknown_courses(self):
         for data in (self.data[:-1], b"INVALID" + self.data[7:]):

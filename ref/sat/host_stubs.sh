@@ -6,6 +6,8 @@
 # 2. The host reference relinked with exactly those sizes must keep every hash in
 #    ref/expected/fixture.hashes.
 # Used by ref/sat/build.sh (the probe) and tools/saturn_orig.sh (the game image).
+# REF_STUB_EXTRA_COURSE (a big-endian record) and REF_STUB_ROM: also measure every script on
+# that course with that ROM's machine constants (tools/saturn_orig.sh --rom). Local only.
 set -euo pipefail
 REF=$(cd "$(dirname "$0")/.." && pwd)
 HOST=$REF/build/gcc-O0
@@ -17,6 +19,10 @@ rm -f "$SMALL/extents.txt"
 while read -r name _; do
     REF_STUB_REPORT="$SMALL/extents.txt" "$HOST/fzx-ref" --course "$SMALL/course.bin" --byte-order big \
         --inputs "$REF/inputs/$name.txt" >/dev/null
+    if [ -n "${REF_STUB_EXTRA_COURSE:-}" ]; then
+        REF_STUB_REPORT="$SMALL/extents.txt" "$HOST/fzx-ref" --course "$REF_STUB_EXTRA_COURSE" \
+            --byte-order big --rom "$REF_STUB_ROM" --inputs "$REF/inputs/$name.txt" >/dev/null
+    fi
 done < "$REF/expected/fixture.hashes"
 awk '{ if ($2 > m[$1]) m[$1] = $2; seen[$1] = 1 }
      END { for (k in seen) { s = 2 * m[k]; if (s < 64) s = 64; printf "%s 0x%X\n", k, int((s + 63) / 64) * 64 } }' \

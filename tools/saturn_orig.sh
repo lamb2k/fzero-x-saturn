@@ -16,8 +16,20 @@ IMG=${YAUL_IMAGE:-$HOME/yaul-image}
 OUT=$ROOT/saturn/build-orig
 [ -f "$IMG/yaul-env.sh" ] || { echo "no Yaul image at $IMG: run tools/fetch_yaul.py $IMG" >&2; exit 1; }
 
-"$ROOT/ref/sat/host_stubs.sh"
 mkdir -p "$OUT" "$ROOT/generated"
+if [ "${1:-}" = --rom ]; then
+    # Size the stand-ins on the ROM's course too (the record stays in the git-ignored build folder).
+    python3 - "$ROOT/tools" "$2" "$OUT/course-rom.bin" <<'PY'
+import sys
+sys.path.insert(0, sys.argv[1])
+import import_course
+with open(sys.argv[2], "rb") as rom, open(sys.argv[3], "wb") as out:
+    out.write(import_course.extract_rom_course(rom.read())[0])
+PY
+    REF_STUB_EXTRA_COURSE="$OUT/course-rom.bin" REF_STUB_ROM="$2" "$ROOT/ref/sat/host_stubs.sh"
+else
+    "$ROOT/ref/sat/host_stubs.sh"
+fi
 ROM_BOOT=0
 rm -f "$ROOT/generated/rom_boot.c"
 if [ "${1:-}" = --rom ]; then

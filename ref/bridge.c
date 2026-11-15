@@ -25,6 +25,10 @@ extern s32 gRaceIntroTimer;
 extern OSPiHandle* gCartRomHandle;
 
 extern GfxPool* gGfxPool;
+extern CourseFeaturesInfo gCourseFeaturesInfo;
+extern CourseFeature gCourseFeatures[];
+extern CourseEffectsInfo gCourseEffectsInfo;
+extern CourseEffect gCourseEffects[];
 
 static GfxPool sGfxPool;    /* The frame loop's graphics buffer: the intro camera writes matrices to it. */
 static OSPiHandle sCartRom; /* The boot code opens the cartridge; the harness only needs a handle. */
@@ -69,6 +73,10 @@ int ref_race_init(void) {
 
     /* Boot-time set-up the race code relies on (Game init in sys_gfx.c). */
     Math_SinTableInit();
+    /* func_800742FC (boot) points the feature and effect tables at their storage; a course
+     * with gates, pits or jumps writes through them in Course_Init. */
+    gCourseFeaturesInfo.features = gCourseFeatures;
+    gCourseEffectsInfo.effects = gCourseEffects;
 
     /* One human racer in Time Attack, as the menus leave it. */
     func_8008D33C(); /* Default machines. */

@@ -190,6 +190,8 @@ static RefPose orig_pose;
 static float orig_start_energy = 1.0f;
 /* Debugger stand-in for pressing Start (tools/emu/orig_drive.ps1 step RS). */
 volatile uint32_t fzx_debug_restart;
+/* Video fields the course set-up took (ref_load_course + ref_race_init). */
+volatile uint32_t fzx_init_fields;
 
 #define RACER_RETIRED (1 << 18)  /* RACER_STATE_RETIRED */
 #define RACER_FINISHED (1 << 25) /* RACER_STATE_FINISHED */
@@ -288,6 +290,12 @@ main(void)
     memset((void *)0x00200000, 0,
            (size_t)((uintptr_t)sat_stub_data_end - 0x00200000u));
     ref_set_rom_boot(ORIG_ROM_BOOT);
+    /* Course_Init takes seconds on the SH-2: say so rather than show a blank screen. */
+    dbgio_printf("\x1b[H\x1b[2J\x1b[12;1H           SETTING UP THE COURSE...\n");
+    dbgio_flush();
+    vdp2_sync();
+    vdp2_sync_wait();
+    const uint32_t init_start = video_fields;
     if (ref_load_course(fzx_course_record, fzx_course_record_big_endian) != 0 ||
         ref_race_init() != 0) {
         dbgio_printf("\x1b[H\x1b[2J ORIGINAL RACE INIT FAILED\n");
@@ -296,6 +304,7 @@ main(void)
         for (;;) {
         }
     }
+    fzx_init_fields = video_fields - init_start;
     orig_publish();
     if (orig_pose.energy > 0.0f) orig_start_energy = orig_pose.energy;
 #endif

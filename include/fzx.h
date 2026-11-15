@@ -85,6 +85,10 @@ typedef struct {
     uint32_t speed, lap;
 } fzx_pose_t;
 FZX_EXPORT void fzx_set_pose(const fzx_pose_t *pose);
+/* Test driver only (the Saturn image's debugger autopilot): a stick x in -63..63, negative to
+ * the left as the N64 stick, that turns the pose towards the centreline LOOKAHEAD rings ahead
+ * of the ring it is on. 0 without a pose. */
+FZX_EXPORT int32_t fzx_steer_hint(uint32_t lookahead);
 /* The compiled simulation, as FZX_SIM_*. */
 FZX_EXPORT uint32_t fzx_sim_id(void);
 bool fzx_validate_course(const fzx_course_t *course);

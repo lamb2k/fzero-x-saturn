@@ -307,8 +307,29 @@ test_external_pose_is_followed(void)
                 CHECK(frame->count > 0);
                 ++frames;
             }
+    /* The autopilot hint turns back towards the centreline: off to the right (the left vector
+     * is up x forward), steer left (negative); off to the left, steer right. */
+    {
+        fzx_pose_t pose;
+        sh2z_vec3_t tangent;
+        CHECK(fzx_spline_sample(upload, 0, SH2Z_HALF, &pose.position, &tangent));
+        pose.forward = sh2z_vec3_normalize(tangent);
+        pose.up = (sh2z_vec3_t){0, SH2Z_ONE, 0};
+        pose.speed = 100u;
+        pose.lap = 1u;
+        const sh2z_vec3_t left = sh2z_vec3_normalize(sh2z_vec3_cross(pose.up, pose.forward));
+        const sh2z_vec3_t centre = pose.position;
+        const sh2z_vec3_t offset = sh2z_vec3_scale(left, 3 * SH2Z_ONE);
+        pose.position = sh2z_vec3_sub(centre, offset);
+        fzx_set_pose(&pose);
+        CHECK(fzx_steer_hint(1) < 0);
+        pose.position = sh2z_vec3_add(centre, offset);
+        fzx_set_pose(&pose);
+        CHECK(fzx_steer_hint(1) > 0);
+    }
     /* Without a pose the core is the stepper again, from the start line. */
     fzx_set_pose(NULL);
+    CHECK(fzx_steer_hint(4) == 0);
     fzx_step(FZX_RESET);
     same_frame(&before, fzx_render());
     printf("Followed %u external poses\n", frames);

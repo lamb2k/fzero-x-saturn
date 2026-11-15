@@ -154,6 +154,28 @@ buttons_read(void)
 /* Test hook for scripted drives over the emulator's debugger (tools/emu/orig_drive.ps1):
  * when non-zero it replaces the pad, as N64 buttons << 16 | stick x << 8 | stick y. */
 volatile uint32_t fzx_debug_n64;
+/* Debugger autopilot (tools/emu/orig_drive.ps1 step AP): look-ahead in rings in the low byte,
+ * a coast threshold in the next (throttle off while |stick| reaches it; 0 = never). Steers
+ * towards the centreline ahead (fzx_steer_hint). A test driver for whole races, never a player
+ * aid. */
+volatile uint32_t fzx_debug_autopilot;
+
+/* Every tick's input since the race (re)start, as N64 buttons << 16 | stick x << 8 | stick y:
+ * a debugger reads it back as a host input script, so the host reference can replay a run. */
+#define INPUT_LOG_TICKS 12288u /* 3.4 minutes: a whole race */
+volatile uint32_t fzx_input_log[INPUT_LOG_TICKS];
+volatile uint32_t fzx_input_count;
+
+static void
+logged_tick(uint16_t buttons, int8_t sx, int8_t sy)
+{
+    const uint32_t n = fzx_input_count;
+    if (n < INPUT_LOG_TICKS) {
+        fzx_input_log[n] = (uint32_t)buttons << 16 | (uint32_t)(uint8_t)sx << 8 | (uint8_t)sy;
+        fzx_input_count = n + 1u;
+    }
+    ref_tick(buttons, sx, sy);
+}
 
 static void
 orig_tick(void)
@@ -161,9 +183,17 @@ orig_tick(void)
     const uint16_t d = pad_down;
     uint16_t n64 = 0;
     int8_t sx = 0, sy = 0;
+    if (fzx_debug_autopilot != 0) {
+        const uint32_t ap = fzx_debug_autopilot;
+        const int32_t sx = fzx_steer_hint(ap & 0xFFu);
+        const int32_t coast = (int32_t)((ap >> 8) & 0xFFu);
+        const bool off = coast != 0 && (sx >= coast || sx <= -coast);
+        logged_tick(off ? 0 : 0x8000, (int8_t)sx, 0);
+        return;
+    }
     const uint32_t forced = fzx_debug_n64;
     if (forced != 0) {
-        ref_tick((uint16_t)(forced >> 16), (int8_t)(forced >> 8), (int8_t)forced);
+        logged_tick((uint16_t)(forced >> 16), (int8_t)(forced >> 8), (int8_t)forced);
         return;
     }
     if (d & (PERIPHERAL_DIGITAL_A | PERIPHERAL_DIGITAL_C)) n64 |= 0x8000;
@@ -175,7 +205,7 @@ orig_tick(void)
     if (d & PERIPHERAL_DIGITAL_RIGHT) sx = 63;
     if (d & PERIPHERAL_DIGITAL_UP) sy = 63;
     if (d & PERIPHERAL_DIGITAL_DOWN) sy = -63;
-    ref_tick(n64, sx, sy);
+    logged_tick(n64, sx, sy);
 }
 
 /* Game units to Q16.16 at the course's 1/16 scale, and unit floats to Q16.16. */
@@ -201,6 +231,7 @@ static void
 orig_restart(void)
 {
     ref_race_restart();
+    fzx_input_count = 0;
 }
 
 /* The race HUD: speed, lap, time, energy and what Start does now. */

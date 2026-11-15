@@ -2,7 +2,10 @@
  * MIT; see ../LICENSE. Host headers only; the game code is behind ref.h.
  *
  *   fzx-ref --course RECORD --byte-order big|little --inputs SCRIPT [--rom ROM] [--ticks N] [--trace OUT]
- *           [--prefix SCRIPT]
+ *           [--prefix SCRIPT] [--cpu 1]
+ *
+ * --cpu 1 hands racer 0 to the original CPU driver (as the title demo does): SCRIPT's buttons are
+ * still read but the CPU steers.
  *
  * --prefix runs that script first, untraced, then restarts the race (ref_race_restart) and
  * traces SCRIPT from tick 0: the hash must equal a fresh run of SCRIPT.
@@ -133,9 +136,9 @@ static void trace_tick(FILE* out, int tick, const Step* in) {
 
 int main(int argc, char** argv) {
     const char *course = NULL, *order = NULL, *inputs = NULL, *trace = NULL, *rom = NULL, *prefix = NULL;
-    static Step steps[4096];
+    static Step steps[16384];
     static unsigned char record[REF_COURSE_RECORD_SIZE];
-    int nsteps, i, tick = 0, limit = -1;
+    int nsteps, i, tick = 0, limit = -1, cpu = 0;
     FILE* f;
     FILE* out = NULL;
 
@@ -147,6 +150,7 @@ int main(int argc, char** argv) {
         else if (strcmp(argv[i], "--rom") == 0) rom = argv[i + 1];
         else if (strcmp(argv[i], "--ticks") == 0) limit = atoi(argv[i + 1]);
         else if (strcmp(argv[i], "--prefix") == 0) prefix = argv[i + 1];
+        else if (strcmp(argv[i], "--cpu") == 0) cpu = atoi(argv[i + 1]);
         else die("unknown option");
     }
     if (course == NULL || order == NULL || inputs == NULL ||
@@ -158,7 +162,7 @@ int main(int argc, char** argv) {
         die("course record must be exactly 0x7E0 bytes");
     }
     fclose(f);
-    nsteps = load_script(inputs, steps, 4096);
+    nsteps = load_script(inputs, steps, 16384);
     if (rom != NULL) {
         static unsigned char boot[REF_ROM_BOOT_SIZE];
         int k;
@@ -186,13 +190,16 @@ int main(int argc, char** argv) {
         die("race set-up failed: the original loader did not request the course record");
     }
     if (prefix != NULL) {
-        static Step pre[4096];
-        const int npre = load_script(prefix, pre, 4096);
+        static Step pre[16384];
+        const int npre = load_script(prefix, pre, 16384);
         int t;
         for (i = 0; i < npre; i++) {
             for (t = 0; t < pre[i].ticks; t++) ref_tick(pre[i].button, pre[i].sx, pre[i].sy);
         }
         ref_race_restart();
+    }
+    if (cpu) {
+        ref_set_cpu_driver(1);
     }
     if (trace != NULL && (out = fopen(trace, "w")) == NULL) {
         die("cannot write trace");

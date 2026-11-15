@@ -15,6 +15,13 @@ signed char ref_pad_stick_x, ref_pad_stick_y;
 
 extern Racer gRacers[];
 extern s32 gGameMode;
+extern s32 gTotalLapCount;
+extern s16* D_i3_8013DBE8;
+/* The CPU driver's per-segment speed line. func_i3_80116C4C takes it from the arena, which is a
+ * stub here (NULL); the original fills it from ROM in Cpu_InitRacer, a read the hooks skip, so it
+ * stays zero. Only the CPU driver reads it, and racer 0 becomes CPU-driven when it finishes (the
+ * original's run-out lap): without storage that lap dereferences NULL. */
+static s16 sCpuLine[0x200];
 extern s32 gNumPlayers;
 extern s32 gCourseIndex;
 extern s16 gPlayerCharacters[];
@@ -87,6 +94,7 @@ int ref_race_init(void) {
     /* One human racer in Time Attack, as the menus leave it. */
     func_8008D33C(); /* Default machines. */
     gGameMode = GAMEMODE_TIME_ATTACK;
+    gTotalLapCount = 3; /* game.c's initial value: game.c is not in the closure, so its stand-in is 0 */
     gNumPlayers = 1;
     gCourseIndex = COURSE_MUTE_CITY;
     gPlayerCharacters[0] = CAPTAIN_FALCON; /* Blue Falcon. */
@@ -104,6 +112,9 @@ int ref_race_init(void) {
     sRaceMask1 = gRandMask1;
     sRaceMask2 = gRandMask2;
     func_i3_80116C4C();
+    if (D_i3_8013DBE8 == NULL) {
+        D_i3_8013DBE8 = sCpuLine;
+    }
     Racer_Init();
     return 0;
 }
@@ -114,7 +125,18 @@ void ref_race_restart(void) {
     gRandMask1 = sRaceMask1;
     gRandMask2 = sRaceMask2;
     func_i3_80116C4C();
+    if (D_i3_8013DBE8 == NULL) {
+        D_i3_8013DBE8 = sCpuLine;
+    }
     Racer_Init();
+}
+
+void ref_set_cpu_driver(int on) {
+    if (on) {
+        gRacers[0].stateFlags |= RACER_STATE_CPU_CONTROLLED;
+    } else {
+        gRacers[0].stateFlags &= ~RACER_STATE_CPU_CONTROLLED;
+    }
 }
 
 void ref_tick(unsigned short buttons, signed char stick_x, signed char stick_y) {

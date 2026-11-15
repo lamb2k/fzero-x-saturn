@@ -291,6 +291,27 @@ fzx_set_pose(const fzx_pose_t *p)
     speed=0; laps=p->lap;
 }
 
+FZX_EXPORT int32_t
+fzx_steer_hint(uint32_t lookahead)
+{
+    if (!initialized || !pose_valid || ring_count==0) return 0;
+    const sh2z_vec3_t target=rings[(current_ring+lookahead)%ring_count].center;
+    const sh2z_vec3_t forward=unit_or(pose.forward,rings[current_ring].forward);
+    const sh2z_vec3_t up=unit_or(pose.up,rings[current_ring].up);
+    const sh2z_vec3_t left=unit_or(sh2z_vec3_cross(up,forward),rings[current_ring].left);
+    const int64_t x=(int64_t)target.x-pose.position.x,y=(int64_t)target.y-pose.position.y,
+                  z=(int64_t)target.z-pose.position.z;
+    /* Course units by unit vectors: Q16.16 x Q16.16 >> 16 stays Q16.16. */
+    const int64_t lat=(x*left.x+y*left.y+z*left.z)>>16;
+    int64_t fwd=(x*forward.x+y*forward.y+z*forward.z)>>16;
+    if (fwd<SH2Z_ONE) fwd=SH2Z_ONE;
+    /* Three times the bearing's tangent, in stick units, saturating at full lock. */
+    int64_t sx=-(lat*63*3)/fwd;
+    if (sx>63) sx=63;
+    if (sx<-63) sx=-63;
+    return (int32_t)sx;
+}
+
 FZX_EXPORT void
 fzx_step(uint32_t buttons)
 {

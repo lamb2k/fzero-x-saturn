@@ -1,0 +1,92 @@
+<#
+G1.5 emulator lane: boot a Saturn image on a Yaba Sanshiro build that has the MCP debug server,
+prove its main loop runs, and save a screenshot.
+
+  tools/emu/yaba_boot.ps1 -Iso X.iso -Sym X.sym [-Watch _video_fields] [-OutDir DIR] [-KeepRunning]
+
+Needs $env:FZX_YABA_EXE (a Yaba Sanshiro 1.20.37 build with the MCP debug server enabled in
+%APPDATA%\YabaSanshiro\yabause.ini: Debug\McpServerEnabled=true, port 9640). The ini is shared
+with other projects: it is backed up, set for this run (OpenGL video core 1, 4 MB DRAM cart
+type 7, autostart, an absolute-path cue), and restored on exit.
+Prints one line: "FZX-EMU PASS|FAIL ..." and exits 0 on PASS. PASS means the watched 32-bit
+counter advanced between two reads three seconds apart. Tier: EMULATOR.
+#>
+[CmdletBinding()]
+param(
+    [Parameter(Mandatory)] [string]$Iso,
+    [Parameter(Mandatory)] [string]$Sym,
+    [string]$Watch = '_video_fields',
+    [string]$OutDir = $(if ($env:FZX_EVIDENCE) { Join-Path $env:FZX_EVIDENCE 'emu' } else { Join-Path $HOME 'fzx-evidence\emu' }),
+    [int]$Port = 9640,
+    [switch]$KeepRunning
+)
+$ErrorActionPreference = 'Stop'
+$exe = $env:FZX_YABA_EXE
+if (-not $exe -or -not (Test-Path -LiteralPath $exe)) { throw 'Set FZX_YABA_EXE to the Yaba Sanshiro MCP build' }
+$Iso = (Resolve-Path -LiteralPath $Iso).Path
+$line = Get-Content -LiteralPath $Sym | Where-Object { ($_ -split '\s+')[2] -eq $Watch } | Select-Object -First 1
+if (-not $line) { throw "symbol $Watch not in $Sym" }
+$addr = '0x' + ($line -split '\s+')[0]
+New-Item -ItemType Directory -Force $OutDir | Out-Null
+
+function Mcp([string]$name, [hashtable]$arguments) {
+    $body = @{ jsonrpc = '2.0'; id = 1; method = 'tools/call'; params = @{ name = $name; arguments = $arguments } } |
+        ConvertTo-Json -Depth 6 -Compress
+    try {
+        $r = Invoke-WebRequest -UseBasicParsing -TimeoutSec 30 "http://127.0.0.1:$Port/mcp" -Method Post `
+            -ContentType 'application/json' -Headers @{ Accept = 'application/json, text/event-stream' } -Body $body
+        return (($r.Content | ConvertFrom-Json).result.content | ForEach-Object { $_.text }) -join "`n"
+    } catch { return 'down' }
+}
+function ReadWord { $t = Mcp 'memory_read' @{ address = $addr; length = 4 }
+    if ($t -match ':\s+([0-9A-Fa-f]{2}) ([0-9A-Fa-f]{2}) ([0-9A-Fa-f]{2}) ([0-9A-Fa-f]{2})') {
+        return [Convert]::ToUInt32($Matches[1] + $Matches[2] + $Matches[3] + $Matches[4], 16) }
+    return $null }
+
+if (Get-Process yabasanshiro -ErrorAction SilentlyContinue) { throw 'Yaba Sanshiro is already running; stop it first' }
+$ini = Join-Path $env:APPDATA 'YabaSanshiro\yabause.ini'
+$backup = "$ini.fzx-backup"
+Copy-Item -LiteralPath $ini -Destination $backup -Force
+$proc = $null
+try {
+    # Relative FILE entries resolve against stale process state in this build: use an absolute cue.
+    $cue = Join-Path $env:TEMP 'fzx-emu\fzx.yaba.cue'
+    New-Item -ItemType Directory -Force (Split-Path $cue) | Out-Null
+    Set-Content -LiteralPath $cue -Encoding ASCII -Value @("FILE `"$Iso`" BINARY", '  TRACK 01 MODE1/2048', '    INDEX 01 00:00:00')
+    $s = Get-Content -LiteralPath $ini -Raw
+    $set = [ordered]@{ 'General\CdRom' = '1'; 'General\CdRomISO' = $cue.Replace('\', '/'); 'Cartridge\Type' = '7';
+                       'autostart' = 'true'; 'Video\VideoCore' = '1' }  # core 4 (Vulkan) fails to start on this host
+    foreach ($e in $set.GetEnumerator()) {
+        $pattern = '(?m)^' + [regex]::Escape($e.Key) + '=.*$'
+        if ($s -match $pattern) { $s = $s -replace $pattern, ($e.Key + '=' + $e.Value) }
+        else { $s = $s.TrimEnd() + "`r`n" + $e.Key + '=' + $e.Value + "`r`n" }
+    }
+    Set-Content -LiteralPath $ini -Value $s -NoNewline
+    $proc = Start-Process -FilePath $exe -ArgumentList @('-nb', '-a', '-i', "`"$cue`"") -WorkingDirectory (Split-Path $cue) -PassThru
+
+    $status = 'down'
+    for ($i = 0; $i -lt 60; $i++) {
+        Start-Sleep 2
+        $status = Mcp 'debug_status' @{}
+        if ($status -match 'state: running') { break }
+        if ($proc.HasExited) { break }
+        $title = (Get-Process -Id $proc.Id -ErrorAction SilentlyContinue).MainWindowTitle
+        if ($title -like 'Information*') { $status = 'emulator raised an error dialog (video or BIOS init)'; break }
+    }
+    if ($status -notmatch 'state: running') { Write-Output "FZX-EMU FAIL boot: $status"; exit 1 }
+    Start-Sleep 2
+    $a = ReadWord; Start-Sleep 3; $b = ReadWord
+    $png = Join-Path $OutDir ('boot-' + (Get-Date -Format 'yyyyMMdd-HHmmss') + '.png')
+    $shot = Mcp 'framebuffer_screenshot' @{ path = $png.Replace('\', '/') }
+    $isoHash = (Get-FileHash -LiteralPath $Iso -Algorithm SHA256).Hash.ToLower()
+    $pngHash = if (Test-Path -LiteralPath $png) { (Get-FileHash -LiteralPath $png -Algorithm SHA256).Hash.ToLower() } else { 'none' }
+    $pass = ($null -ne $a) -and ($null -ne $b) -and ($b -ne $a)
+    $game = if ($status -match 'game: (\S+)') { $Matches[1] } else { '?' }
+    Write-Output ("FZX-EMU {0} emulator yaba-1.20.37-mcp game {1} iso {2} watch {3}@{4} {5}->{6} png {7} png_sha256 {8}" -f `
+        $(if ($pass) { 'PASS' } else { 'FAIL' }), $game, $isoHash.Substring(0, 16), $Watch, $addr, $a, $b, $png, $pngHash.Substring(0, 16))
+    if (-not $pass) { exit 1 }
+}
+finally {
+    if ($proc -and -not $KeepRunning -and -not $proc.HasExited) { Stop-Process -Id $proc.Id -Force; Start-Sleep 1 }
+    if (-not $KeepRunning) { Copy-Item -LiteralPath $backup -Destination $ini -Force }
+}

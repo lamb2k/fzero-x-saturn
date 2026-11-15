@@ -6,15 +6,15 @@ Limit: 80 lines. History lives in git. Plan: [POC_PLAN.md](POC_PLAN.md).
 
 Nothing of the original game is playable. The workbench drives a synthetic
 test circuit with the **prototype driver** (`FZX_SIM=proto`), which is not the
-port. The Saturn image builds in CI and **has never been booted**, on an
-emulator or a console. The importer has only run on synthetic records.
+port. The Saturn image builds in CI and boots on an emulator (Yaba Sanshiro,
+EMULATOR tier); it has never run on a console. The importer has only run on synthetic records.
 
 ## Gates
 
 | Gate | State |
 | --- | --- |
 | 0 Ground rules | Done in CI (see card table) |
-| 1 GO / NO-GO | In progress. G1.1, G1.2 done; G1.3 host half done; next G1.5 emulator lane |
+| 1 GO / NO-GO | In progress. G1.1, G1.2, G1.5 done; G1.3 and G1.4 half done; next G1.4 render probe |
 | 2 to 5 | Not started; wait for Gate 1 |
 
 ### Gate 0 cards
@@ -33,12 +33,14 @@ emulator or a console. The importer has only run on synthetic records.
 | G1.1 closure census | Done | [census/SUMMARY.md](census/SUMMARY.md): 40 TICK functions (4,450 lines), 95 OFFLINE, 8 OUT. Mode `GAMEMODE_TIME_ATTACK`, tick order from `Race_Update`. Control: `--define PORT` finds 91 fork-hook calls in the closure; the stock build finds 0. HOST |
 | G1.2 reference harness | Done | [ref/README.md](../ref/README.md): the original stock race code built natively in binary32 SSE float, driven through the original `Controller_UpdateInputs` and `Racer_Update`. T01 to T10 on the synthetic oval give the same trace hash with gcc and clang at -O0 and -O2, and match `ref/expected/fixture.hashes`. Control: one bit of one machine constant moves the T02 hash. Found on the way: clang needs `-fno-unsafe-math-optimizations` beyond `-fno-fast-math` (1 ulp start-position drift). CI job `reference`. HOST |
 | G1.3 tick cost model | In progress | [cost/SUMMARY.md](cost/SUMMARY.md): `ref/cost.sh` counts every binary32 op per tick by kind and function (callgrind, gcc -O0 attribution, -O2 cross-check). Fixture: 539 float ops / 3,570 x86 instrs per live tick; MODELLED with SH2ZAM per-call costs, mean 9.6%, p95 13.5%, max 15.6% of the 8 ms master line (worst tick incl. no-energy ticks 63k float cycles, 28%). `Racer_UpdateFromControls` is 59% of it. HOST counts, MODELLED cycles. Not done: HWRAM vs cartridge microbenchmark and the convert-one-function cross-check, both need the G1.5 emulator lane. Fixture machine has energy on only 775 of 9,987 race ticks; rerun on Mute City 1 at G1.6 |
+| G1.4 first boot and 60 fps render probe | In progress | First boot: CI image `05534805bfc7aa87` (run 43742967214) boots with the 4 MB DRAM cart; HUD shows `SIM PROTO DRIVER, NOT THE PORT` (G0.4 now seen); main loop alive (`_video_fields` advances about 60 per second). Still image kept in `$FZX_EVIDENCE/emu`. Not done: per-field split, VDP1 polygon/fill sweep, the oversized-list assert control. EMULATOR |
+| G1.5 emulator lane | Done | `tools/emu/yaba_boot.ps1`: Yaba Sanshiro 1.20.37 with the MCP debug server (`FZX_YABA_EXE`, port 9640) boots an ISO, reads a symbol's counter twice over MCP, saves a screenshot and prints `FZX-EMU PASS|FAIL`. Runs on the owner's Windows machine, not in CI (needs a GPU window). Vulkan video core fails to start on this host, so the script uses OpenGL. Gives memory reads, breakpoints and screenshots; its timings are MODELLED, not cycle-exact. EMULATOR |
 
 ## Evidence tiers held
 
 - HOST: core tests (GCC, Clang, sanitizers), importer and hygiene tests, reference harness determinism (ref/check.sh), per-tick op counts (ref/cost.sh).
 - MODELLED: G1.3 fixed-point cycles per tick (SH2ZAM model costs; no cache or bus).
-- EMULATOR: none. HARDWARE: UNRUN.
+- EMULATOR: first boot and main-loop liveness of the CI image (G1.4, G1.5). HARDWARE: UNRUN.
 
 ## Owner inputs outstanding
 

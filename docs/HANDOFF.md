@@ -4,31 +4,36 @@ Limit: 50 lines. Replace this file each session; do not append.
 
 ## Last session (2026-11-15)
 
-- G1.2 committed (reference harness, `ref/check.sh` PASS).
-- G1.3 host half: `ref/cost.sh` runs the reference under valgrind callgrind with
-  one dump per `ref_tick`; `ref/cost_model.py` classes each SSE instruction and
-  writes [cost/SUMMARY.md](cost/SUMMARY.md). Simulation looks small next to the
-  8 ms master line (about 10 to 16% modelled on the fixture), but the fixture
-  machine has no energy after a few wall hits, so most race ticks are atypical.
+- G1.2 committed; G1.3 host half (op counts, modelled master cost about 10 to
+  16% of the 8 ms line on the fixture; see [cost/SUMMARY.md](cost/SUMMARY.md)).
+- G1.5 done: `tools/emu/yaba_boot.ps1` boots the CI ISO on the owner's
+  Yaba Sanshiro MCP build and passes. First boot recorded (G1.4 half).
 
 ## Next card
 
-**G1.5 emulator lane**, then finish G1.3 and do G1.4. The local Ymir tree
-(`C:\Game Dev\Emulators\Ymir-baseline-a9f0cdae`, MSVC build in
-`out/build/Full-x86-64-AVX2-MSVC-Release`) has a stub `ymir-headless`.
-ymir-core has what a runner needs: `Saturn::LoadIPL`, `media::LoadDisc` +
-`Saturn::LoadDisc`, `InsertCartridge<cart::DRAM32MbitCartridge>()`, and
-`RendererCallbacks::VDP2DrawFinished`. Plan: a small out-of-tree runner
-(boot ISO, run N frames, write a PNG and read a pass marker from WRAM).
-Ymir is GPL-3: do not vendor it into this MIT repo.
+**G1.4 render probe.** Use the MCP tools (`memory_read`, `breakpoint_add`,
+`framebuffer_burst`, `set_debug_option`) on a probe image:
+1. per-field split (simulation, transform, command build, VDP1 completion):
+   add field-stamped counters to `saturn/main.c` behind a knob and read them.
+2. polygon count and coverage sweep: a probe mode that draws N quads of a set
+   size; find the largest N that VDP1 finishes inside a field.
+3. control: an oversized command list must trip the capacity assert.
+Yaba is not cycle-exact: label every timing MODELLED. The ISO only comes
+from CI (`gh run download <id> -n fzero-x-saturn-native`).
 
-The ISO comes from the CI artifact (no Yaul locally).
+Then finish G1.3: microbenchmark SH2ZAM ops in HWRAM vs cartridge and convert
+one function (`Math_OrthonormalizeAroundUp` is small) as the cross-check.
 
 ## Notes for the next agent
 
-- WSL's default user is root; evidence lives in `/root/fzx-evidence` unless
-  `FZX_EVIDENCE` is set. valgrind is installed in WSL.
-- From Git Bash, call WSL with `MSYS_NO_PATHCONV=1`, or paths get mangled.
-- The cost model's integer part (non-float x86 instructions at one cycle
-  each) is a proxy. The cross-check on one converted function settles it.
-- The Saturn HUD SIM line still has not been seen: check it at first boot.
+- Emulator: set `FZX_YABA_EXE` (owner's local Yaba MCP build; the path is in
+  agent memory, not here). The script edits the shared `yabause.ini` and
+  restores it; never leave it changed. Stop the emulator before rebuilding.
+- The Vulkan video core (4) shows "Cannot initialize Video" on this host;
+  the script uses OpenGL (1). The error dialog hides behind other windows:
+  read it with UI Automation, not by guessing.
+- Without `FZX_EVIDENCE`, evidence goes to `~/fzx-evidence` (WSL runs as
+  root, so the WSL and Windows folders differ). valgrind is installed in WSL.
+- From Git Bash, call WSL with `MSYS_NO_PATHCONV=1`.
+- 3D assets: headless Blender is allowed for conversion and LOD, gated on
+  parity with the source (counts and still pairs); augmentation behind a knob.

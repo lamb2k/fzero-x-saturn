@@ -245,6 +245,7 @@ fzx_use_demo(void)
 }
 
 FZX_EXPORT void fzx_set_transform_mode(uint32_t prepared) { use_prepared=!!prepared; }
+FZX_EXPORT uint32_t fzx_sim_id(void) { return FZX_SIM; }
 
 FZX_EXPORT void
 fzx_step(uint32_t buttons)

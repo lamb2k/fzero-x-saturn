@@ -15,6 +15,17 @@
 #define FZX_RESET 16u
 #define FZX_FRAME_IMPORTED 1u
 
+/* Simulation selector (docs/POC_PLAN.md, lesson 1). PROTO is the prototype
+ * centreline driver, never the port; FIXED (the ported racer physics) arrives
+ * with Gate 3. Every frontend must show the active simulation. */
+#define FZX_SIM_PROTO 0u
+#ifndef FZX_SIM
+#define FZX_SIM FZX_SIM_PROTO
+#endif
+#if FZX_SIM != FZX_SIM_PROTO
+#error "FZX_SIM: only FZX_SIM_PROTO exists until Gate 3"
+#endif
+
 /* Positions and radii are Q16.16, at 1/16 original game scale. Bank is
  * SH2ZAM turns; tension is Q16.16 in [0,2]. This explicit layout is also
  * the browser upload ABI: 32 bytes per point after the 4-byte count. */
@@ -61,6 +72,8 @@ FZX_EXPORT void fzx_use_demo(void);
 /* 0: general exact SH2ZAM transform, 1: prepared SH2ZAM batch (default).
  * This switch makes correctness comparisons possible; it is not a timer. */
 FZX_EXPORT void fzx_set_transform_mode(uint32_t prepared);
+/* The compiled simulation, as FZX_SIM_*. */
+FZX_EXPORT uint32_t fzx_sim_id(void);
 bool fzx_validate_course(const fzx_course_t *course);
 bool fzx_spline_sample(const fzx_course_t *course, uint32_t segment,
                        sh2z_fx_t t, sh2z_vec3_t *position,

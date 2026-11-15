@@ -214,6 +214,48 @@ class RomIdentityTests(unittest.TestCase):
         self.assertGreaterEqual(course["count"], 4)
 
 
+def run_receipt_check(receipt):
+    return subprocess.run(["sh", str(ROOT / "tools/check_receipt.sh"), str(receipt)],
+                          capture_output=True, text=True)
+
+
+@unittest.skipUnless(shutil.which("sh") and shutil.which("sha256sum"), "receipt check needs sh and sha256sum")
+class ReceiptTests(unittest.TestCase):
+    """G0.3: builds must refuse generated files that no longer match their receipt."""
+
+    def generate(self, path):
+        source, output = path / "synthetic.bin", path / "course.h"
+        source.write_bytes(synthetic_record())
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(imp.main(["--record", str(source), "--byte-order", "big", "--output", str(output)]), 0)
+        return output
+
+    def test_fresh_outputs_pass_and_receipt_holds_no_paths(self):
+        with tempfile.TemporaryDirectory() as temp:
+            output = self.generate(Path(temp))
+            receipt = output.with_suffix(".receipt")
+            text = receipt.read_text()
+            self.assertNotIn(temp, text)
+            self.assertIn(f"output {hashlib.sha256(output.read_bytes()).hexdigest()} course.h", text)
+            result = run_receipt_check(receipt)
+            self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_hand_edited_header_is_refused(self):
+        # The control: a valid header edited by hand must stop the build.
+        with tempfile.TemporaryDirectory() as temp:
+            output = self.generate(Path(temp))
+            output.write_text(output.read_text() + "/* edited */\n")
+            result = run_receipt_check(output.with_suffix(".receipt"))
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("stale: course.h", result.stderr)
+
+    def test_missing_receipt_is_refused(self):
+        with tempfile.TemporaryDirectory() as temp:
+            output = self.generate(Path(temp))
+            output.with_suffix(".receipt").unlink()
+            self.assertNotEqual(run_receipt_check(output.with_suffix(".receipt")).returncode, 0)
+
+
 class OutputTests(unittest.TestCase):
     def test_cli_exports_json_abi_and_compilable_header(self):
         with tempfile.TemporaryDirectory() as temp:

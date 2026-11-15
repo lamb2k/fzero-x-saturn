@@ -32,6 +32,13 @@ audio, opponents and game modes remain to be integrated.
 does not establish that it boots correctly or reaches a target frame rate.
 The browser preview is a functional check; it does not estimate console FPS.
 
+## Next
+
+The next milestone is a one-track proof of concept: Mute City 1 with the
+original racer physics in fixed point, then a playable three-lap race at
+60 fps with the 4 MB RAM cartridge. See the [POC plan](docs/POC_PLAN.md) and the
+current [status](docs/STATUS.md).
+
 ## Get the project
 
 ```sh
@@ -103,7 +110,9 @@ python3 tools/import_course.py --rom /path/to/F-Zero-X.z64 \
   --output generated/course.h
 ```
 
-This creates `generated/course.h` and `generated/course.json`. The importer
+This creates `generated/course.h`, `generated/course.json` and a
+`generated/course.receipt` of their hashes; the imported Saturn build refuses
+a header that no longer matches its receipt. The importer
 validates the ROM version, original course checksum, geometry and numeric
 ranges before writing. The supported retail extraction is Mute City 1.
 
@@ -125,6 +134,7 @@ not establish that the retail extraction has been validated end to end.
 ## Test
 
 ```sh
+python3 tools/hygiene_scan.py   # before every push; this repository is public
 make test
 make sanitize
 make web

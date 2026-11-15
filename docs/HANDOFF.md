@@ -2,31 +2,33 @@
 
 Limit: 50 lines. Replace this file each session; do not append.
 
-## Last session (2026-11-14)
+## Last session (2026-11-15)
 
-Gate 0 landed: agent file, state files, hygiene scan with CI job, generation
-receipts with a build-side check, and the visible `FZX_SIM` selector. See
-[STATUS.md](STATUS.md) for each card's evidence.
+- G1.2 committed (reference harness, `ref/check.sh` PASS).
+- G1.3 host half: `ref/cost.sh` runs the reference under valgrind callgrind with
+  one dump per `ref_tick`; `ref/cost_model.py` classes each SSE instruction and
+  writes [cost/SUMMARY.md](cost/SUMMARY.md). Simulation looks small next to the
+  8 ms master line (about 10 to 16% modelled on the fixture), but the fixture
+  machine has no energy after a few wall hits, so most race ticks are atypical.
 
 ## Next card
 
-**G1.1 closure census** (plan section 6, Gate 1; effort high). Needs the
-decomp submodule:
+**G1.5 emulator lane**, then finish G1.3 and do G1.4. The local Ymir tree
+(`C:\Game Dev\Emulators\Ymir-baseline-a9f0cdae`, MSVC build in
+`out/build/Full-x86-64-AVX2-MSVC-Release`) has a stub `ymir-headless`.
+ymir-core has what a runner needs: `Saturn::LoadIPL`, `media::LoadDisc` +
+`Saturn::LoadDisc`, `InsertCartridge<cart::DRAM32MbitCartridge>()`, and
+`RendererCallbacks::VDP2DrawFinished`. Plan: a small out-of-tree runner
+(boot ISO, run N frames, write a PNG and read a pass marker from WRAM).
+Ymir is GPL-3: do not vendor it into this MIT repo.
 
-```sh
-git submodule update --init upstream/G-Diffuser
-git -C upstream/G-Diffuser submodule update --init decomp
-```
-
-Start from `Racer_Update` for one human racer. Split the census by source
-file across subagents; review the merged table yourself.
+The ISO comes from the CI artifact (no Yaul locally).
 
 ## Notes for the next agent
 
-- The Saturn HUD SIM line is built but nobody has seen it: the image has
-  never been booted. Check it at G1.4 first boot.
-- Generated files now need their receipt. An old `generated/course.h` from
-  before Gate 0 has none, so the imported Saturn build refuses it. Re-run the
-  importer.
-- The importer writes the receipt as bytes with LF line ends, so the shell
-  check works on Windows checkouts too. Do not switch it to text mode.
+- WSL's default user is root; evidence lives in `/root/fzx-evidence` unless
+  `FZX_EVIDENCE` is set. valgrind is installed in WSL.
+- From Git Bash, call WSL with `MSYS_NO_PATHCONV=1`, or paths get mangled.
+- The cost model's integer part (non-float x86 instructions at one cycle
+  each) is a proxy. The cross-check on one converted function settles it.
+- The Saturn HUD SIM line still has not been seen: check it at first boot.

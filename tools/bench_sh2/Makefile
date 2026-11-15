@@ -9,9 +9,9 @@ include $(YAUL_INSTALL_ROOT)/share/build.pre.mk
 SH2ZAM_ROOT ?= ../../third_party/SH2ZAM
 
 SH_PROGRAM := fzx-bench-sh2
-SH_SRCS := main.c ../../ref/sat/soft_sqrtf.c $(wildcard $(SH2ZAM_ROOT)/saturn/src/*.c)
+SH_SRCS := main.c ../../ref/sat/soft_sqrtf.c ../../src/sh2float/fzx_float.c $(wildcard $(SH2ZAM_ROOT)/saturn/src/*.c)
 SH_CFLAGS += -O2 -std=gnu11 -Wno-shadow -I$(SH2ZAM_ROOT)/saturn/include -DSH2Z_REQUIRE_SH2=1 \
-             -fno-fast-math -ffp-contract=off
+             -fno-fast-math -ffp-contract=off -DFZX_FLOAT_SH2_DIVU
 
 IP_VERSION := V0.100
 IP_RELEASE_DATE := 20261115

@@ -41,6 +41,14 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y gcc-multilib clang
       - name: G1.2 reference harness (gcc/clang x -O0/-O2 determinism, regression, control)
         run: bash ref/check.sh
+      - name: SH-2 float library, exhaustive conversions and 2.6M operand pairs against SSE
+        run: |
+          make build/host/test-float
+          build/host/test-float 40
+      - name: Correctly rounded sqrtf of the SH-2 reference build, all 2^32 inputs against SSE
+        run: |
+          gcc -O2 -msse2 -fno-builtin -o build/test-sqrtf ref/sat/test_soft_sqrtf.c ref/sat/soft_sqrtf.c
+          build/test-sqrtf
   saturn:
     runs-on: ubuntu-24.04
     timeout-minutes: 20

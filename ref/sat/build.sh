@@ -49,6 +49,6 @@ mountpoint -q "$IMG/work" || mount --bind "$ROOT" "$IMG/work"
 mountpoint -q "$IMG/proc" || mount -t proc proc "$IMG/proc"
 mountpoint -q "$IMG/dev" || mount --bind /dev "$IMG/dev"
 chroot "$IMG" /bin/bash -c "source /yaul-env.sh && export PATH=\"\$YAUL_INSTALL_ROOT/bin:\$PATH\" && \
-    bash /work/ref/sat/inner.sh /work/ref/sat/build/$SCRIPT"
+    FZX_FASTFLOAT=${FZX_FASTFLOAT:-0} bash /work/ref/sat/inner.sh /work/ref/sat/build/$SCRIPT"
 echo "$want" > "$OUT/expected_hash.txt"
 echo "built $OUT/fzx-ref-sat.iso (host hash $want)"

@@ -12,15 +12,18 @@
 
 #include <sh2zam/sh2zam.h>
 
+#include "../../src/sh2float/fzx_float.h"
+
 #define N 256
 #define CART_BASE ((volatile uint8_t*) 0x22400000) /* 4 MB DRAM cartridge, cache-through */
 
 float fzx_soft_sqrtf(float x);
 
 enum { K_COPY, K_FADD, K_FSUB, K_FMUL, K_FDIV, K_FCMP, K_FTOI, K_ITOF, K_FSQRT,
-       K_XADD, K_XMUL, K_XDIV, K_XSQRT, K_COUNT };
+       K_XADD, K_XMUL, K_XDIV, K_XSQRT, K_QADD, K_QMUL, K_QDIV, K_QCMP, K_QTOI, K_QITOF, K_COUNT };
 static const char* const kNames[K_COUNT] = { "copy", "f add", "f sub", "f mul", "f div", "f cmp", "f->i",
-                                             "i->f", "f sqrt", "x add", "x mul", "x div", "x sqrt" };
+                                             "i->f", "f sqrt", "x add", "x mul", "x div", "x sqrt",
+                                             "q add", "q mul", "q div", "q cmp", "q f->i", "q i->f" };
 
 typedef struct {
     uint32_t magic;          /* 'FZXB' when done */
@@ -71,6 +74,12 @@ static uint32_t run(int kind, const float* fa, const float* fb, float* fo, const
     case K_XMUL: for (i = 0; i < N; i++) xo[i] = sh2z_mul(xa[i], xb[i]); break;
     case K_XDIV: for (i = 0; i < N; i++) xo[i] = sh2z_div(xa[i], xb[i]); break;
     case K_XSQRT: for (i = 0; i < N; i++) xo[i] = sh2z_sqrt(xa[i] < 0 ? -xa[i] : xa[i]); break;
+    case K_QADD: for (i = 0; i < N; i++) fo[i] = fzx_fadd(fa[i], fb[i]); break;
+    case K_QMUL: for (i = 0; i < N; i++) fo[i] = fzx_fmul(fa[i], fb[i]); break;
+    case K_QDIV: for (i = 0; i < N; i++) fo[i] = fzx_fdiv(fa[i], fb[i]); break;
+    case K_QCMP: for (i = 0; i < N; i++) fo[i] = fzx_fcmp(fa[i], fb[i]) < 0 ? fa[i] : fb[i]; break;
+    case K_QTOI: for (i = 0; i < N; i++) xo[i] = fzx_ftoi(fa[i]); break;
+    case K_QITOF: for (i = 0; i < N; i++) fo[i] = fzx_itof(xa[i]); break;
     }
     t = cpu_frt_count_get();
     return t;

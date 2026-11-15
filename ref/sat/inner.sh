@@ -30,11 +30,18 @@ for s in bridge hooks; do
     objs="$objs $OBJ/ref_$s.o"
 done
 $CC -m2 -mb -O2 -w -c "$W/ref/sat/soft_sqrtf.c" -o "$OBJ/soft_sqrtf.o"
+# FZX_FASTFLOAT=1: replace libgcc's generic soft-float with src/sh2float (bit-exact with SSE;
+# tests/test_fzx_float.c). Default off: the knob-off image must keep its hash.
+extra=""
+if [ "${FZX_FASTFLOAT:-0}" = 1 ]; then
+    $CC -m2 -mb -O2 -Wall -Wextra -DFZX_FLOAT_LIBGCC -DFZX_FLOAT_SH2_DIVU -c "$W/src/sh2float/fzx_float.c" -o "$OBJ/fzx_float.o"
+    extra="$OBJ/fzx_float.o"
+fi
 $CC -m2 -mb -O0 -w -c "$OUT/sat_stubs.c" -o "$OBJ/sat_stubs.o"
 $CC -m2 -mb -O2 -w -c "$OUT/sat_data.c" -o "$OBJ/sat_data.o"
 $CC -m2 -mb -c "$OUT/sat_stubs_data.s" -o "$OBJ/sat_stubs_data.o"
 "$YAUL_ARCH_SH_PREFIX-ld" -r -o "$OUT/ref_closure.o" $objs "$OBJ/soft_sqrtf.o" "$OBJ/sat_stubs.o" \
-    "$OBJ/sat_data.o" "$OBJ/sat_stubs_data.o"
+    "$OBJ/sat_data.o" "$OBJ/sat_stubs_data.o" $extra
 # Yaul does not track SAT_CLOSURE as a link input: clear the outputs so the image relinks.
 rm -rf "$OUT/yaul" "$OUT"/fzx-ref-sat.*
 make -C "$W/ref/sat" SAT_OUT="$OUT" SAT_CLOSURE="$OUT/ref_closure.o"

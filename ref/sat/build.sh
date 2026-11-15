@@ -17,29 +17,9 @@ OUT=$REF/sat/build/$SCRIPT
 [ -x "$HOST/fzx-ref" ] || "$REF/build.sh" gcc -O0 >/dev/null
 mkdir -p "$OUT"
 
-# 1a. Measure: the full-size host reference reports the highest non-zero byte of every data
-#     stand-in over T01 to T10. Each gets twice that (64 bytes minimum).
+# 1. Stand-in sizes measured and proved on the host (ref/sat/host_stubs.sh).
 SMALL=$REF/sat/build/host-small
-mkdir -p "$SMALL"
-python3 "$REF/fixture_course.py" "$SMALL/course.bin"
-rm -f "$SMALL/extents.txt"
-while read -r name _; do
-    REF_STUB_REPORT="$SMALL/extents.txt" "$HOST/fzx-ref" --course "$SMALL/course.bin" --byte-order big \
-        --inputs "$REF/inputs/$name.txt" >/dev/null
-done < "$REF/expected/fixture.hashes"
-awk '{ if ($2 > m[$1]) m[$1] = $2; seen[$1] = 1 }
-     END { for (k in seen) { s = 2 * m[k]; if (s < 64) s = 64; printf "%s 0x%X\n", k, int((s + 63) / 64) * 64 } }' \
-    "$SMALL/extents.txt" | sort > "$SMALL/sizes.txt"
-# 1b. Prove: the host reference relinked with exactly those sizes keeps every fixture hash.
-objs=$(ls "$HOST"/*.o | grep -v '/stubs.o$')
-REF_STUB_SIZES="$SMALL/sizes.txt" python3 "$REF/gen_stubs.py" "$SMALL/stubs.c" "$HOST"/*.i -- $objs >/dev/null
-gcc -m32 -fno-pic -O0 -w -c "$SMALL/stubs.c" -o "$SMALL/stubs.o"
-gcc -m32 -no-pie $objs "$SMALL/stubs.o" -lm -o "$SMALL/fzx-ref"
-while read -r name want; do
-    got=$("$SMALL/fzx-ref" --course "$SMALL/course.bin" --byte-order big --inputs "$REF/inputs/$name.txt" | awk '{print $4}')
-    [ "$got" = "$want" ] || { echo "sized stubs change $name: $got != $want" >&2; exit 1; }
-done < "$REF/expected/fixture.hashes"
-echo "host: measured stand-in sizes keep all fixture hashes ($(awk '{s += strtonum($2)} END {print s}' "$SMALL/sizes.txt") bytes)"
+"$REF/sat/host_stubs.sh"
 want=$(awk -v n="$SCRIPT" '$1 == n {print $2}' "$REF/expected/fixture.hashes")
 
 # 2. Data, then the SH-2 build in the Yaul image.

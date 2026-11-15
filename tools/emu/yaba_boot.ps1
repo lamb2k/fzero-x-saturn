@@ -4,9 +4,8 @@ prove its main loop runs, and save a screenshot.
 
   tools/emu/yaba_boot.ps1 -Iso X.iso -Sym X.sym [-Watch _video_fields] [-WaitSeconds N]
                           [-Dump _sym:len,...] [-OutDir DIR] [-KeepRunning]
-
-Needs $env:FZX_YABA_EXE (a Yaba Sanshiro 1.20.37 build with the MCP debug server enabled in
-%APPDATA%\YabaSanshiro\yabause.ini: Debug\McpServerEnabled=true, port 9640). The ini is shared
+Needs $env:FZX_YABA_EXE (a Yaba Sanshiro 1.20.37 build with the MCP debug server). Each run
+sets Debug\McpServerEnabled and Debug\McpServerPort (-Port, 9641) in %APPDATA%\YabaSanshiro\yabause.ini. The ini is shared
 with other projects: it is backed up, set for this run (OpenGL video core 1, 4 MB DRAM cart
 type 7, autostart, an absolute-path cue), and restored on exit.
 Prints one line: "FZX-EMU PASS|FAIL ..." and exits 0 on PASS. PASS means the watched 32-bit
@@ -27,7 +26,7 @@ param(
     [uint32]$UntilValue = 1,
     [int]$TimeoutSeconds = 300,
     [string]$OutDir = $(if ($env:FZX_EVIDENCE) { Join-Path $env:FZX_EVIDENCE 'emu' } else { Join-Path $HOME 'fzx-evidence\emu' }),
-    [int]$Port = 9640,
+    [int]$Port = 9641,
     [switch]$KeepRunning
 )
 $ErrorActionPreference = 'Stop'
@@ -56,7 +55,10 @@ function ReadWord { $t = Mcp 'memory_read' @{ address = $addr; length = 4 }
         return [Convert]::ToUInt32($Matches[1] + $Matches[2] + $Matches[3] + $Matches[4], 16) }
     return $null }
 
-if (Get-Process yabasanshiro -ErrorAction SilentlyContinue) { throw 'Yaba Sanshiro is already running; stop it first' }
+# Other projects run their own Yaba builds (and their own MCP ports) beside this one: only
+# another copy of this build is a conflict.
+if (Get-Process yabasanshiro -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq (Resolve-Path -LiteralPath $exe).Path }) {
+    throw 'This Yaba Sanshiro build is already running; stop it first' }
 $ini = Join-Path $env:APPDATA 'YabaSanshiro\yabause.ini'
 $backup = "$ini.fzx-backup"
 Copy-Item -LiteralPath $ini -Destination $backup -Force
@@ -68,7 +70,8 @@ try {
     Set-Content -LiteralPath $cue -Encoding ASCII -Value @("FILE `"$Iso`" BINARY", '  TRACK 01 MODE1/2048', '    INDEX 01 00:00:00')
     $s = Get-Content -LiteralPath $ini -Raw
     $set = [ordered]@{ 'General\CdRom' = '1'; 'General\CdRomISO' = $cue.Replace('\', '/'); 'Cartridge\Type' = '7';
-                       'autostart' = 'true'; 'Video\VideoCore' = '1' }  # core 4 (Vulkan) fails to start on this host
+                       'autostart' = 'true'; 'Video\VideoCore' = '1';  # core 4 (Vulkan) fails to start on this host
+                       'Debug\McpServerEnabled' = 'true'; 'Debug\McpServerPort' = "$Port" }
     foreach ($e in $set.GetEnumerator()) {
         $pattern = '(?m)^' + [regex]::Escape($e.Key) + '=.*$'
         if ($s -match $pattern) { $s = $s -replace $pattern, ($e.Key + '=' + $e.Value) }

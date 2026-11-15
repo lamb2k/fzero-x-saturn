@@ -26,17 +26,31 @@ else ifneq ($(FZX_IMPORTED),0)
 $(error FZX_IMPORTED must be 0 for the demo or 1 for the imported course)
 endif
 
-# Simulation selector, shown on the HUD. Only the prototype driver exists;
-# `fixed` (the ported racer physics) arrives with Gate 3 of docs/POC_PLAN.md.
+# Simulation selector, shown on the HUD. proto: the prototype driver.
+# orig: the original race code drives the craft (build it with tools/saturn_orig.sh,
+# which makes FZX_CLOSURE from the decompilation and imports the course).
 FZX_SIM ?= proto
 ifeq ($(FZX_SIM),proto)
 SH_CFLAGS += -DFZX_SIM=FZX_SIM_PROTO
+else ifeq ($(FZX_SIM),orig)
+ifneq ($(FZX_IMPORTED),1)
+$(error FZX_SIM=orig needs FZX_IMPORTED=1: the original code and the renderer share the course)
+endif
+ifeq ($(wildcard $(FZX_CLOSURE)),)
+$(error FZX_SIM=orig needs FZX_CLOSURE (ref_closure.o); use tools/saturn_orig.sh)
+endif
+SH_CFLAGS += -DFZX_SIM=FZX_SIM_ORIG -I../ref
+SH_LDFLAGS += $(FZX_CLOSURE)
+FZX_ORIG_SRCS := ../generated/course_record.c
+# Own objects and outputs: Yaul does not rebuild when only the flags change.
+SH_BUILD_DIR := build-orig/yaul
+SH_OUTPUT_DIR := build-orig
 else
-$(error FZX_SIM must be proto; the fixed simulation does not exist yet)
+$(error FZX_SIM must be proto or orig)
 endif
 
 SH_PROGRAM := fzero-x-saturn
-SH_SRCS := main.c ../src/fzx.c $(wildcard $(SH2ZAM_ROOT)/saturn/src/*.c)
+SH_SRCS := main.c ../src/fzx.c $(FZX_ORIG_SRCS) $(wildcard $(SH2ZAM_ROOT)/saturn/src/*.c)
 SH_CFLAGS += -O2 -std=c11 -Wall -Wextra -I../include \
              -I$(SH2ZAM_ROOT)/saturn/include -DSH2Z_REQUIRE_SH2=1
 
@@ -45,7 +59,12 @@ IP_RELEASE_DATE := 20261113
 IP_AREAS := JTUBKAEL
 IP_PERIPHERALS := J
 IP_TITLE := F-Zero X Saturn port foundation
+ifeq ($(FZX_SIM),orig)
+# The original race code's frames are deep: stack at the top of high work RAM, as the probe.
+IP_MASTER_STACK_ADDR := 0x06100000
+else
 IP_MASTER_STACK_ADDR := 0x06004000
+endif
 IP_SLAVE_STACK_ADDR := 0x06001E00
 IP_1ST_READ_ADDR := 0x06004000
 IP_1ST_READ_SIZE := 0

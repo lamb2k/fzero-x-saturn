@@ -13,7 +13,7 @@ param(
     [int]$Samples = 2000,
     [int]$Top = 25,
     [string]$Cpu = 'master',
-    [int]$Port = 9640
+    [int]$Port = 9641
 )
 $ErrorActionPreference = 'Stop'
 $funcs = Get-Content -LiteralPath $Sym | ForEach-Object {

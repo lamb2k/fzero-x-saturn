@@ -52,6 +52,31 @@ between the demo and imported modes because compiler-flag changes alone do
 not make Make rebuild every object. The HUD identifies the selected course
 as `DEMO COURSE` or `IMPORTED COURSE`.
 
+### Original race code (`FZX_SIM=orig`)
+
+```sh
+tools/saturn_orig.sh            # -> saturn/build-orig/fzero-x-saturn.iso
+```
+
+The decompilation's race code (the same closure `ref/sat/` proves STRICT
+against the host reference) is compiled for the master SH-2 with the bit-exact
+float library and linked into the game image. Each 1/60 s tick the frontend
+maps the pad to the original N64 inputs and calls `ref_tick`; the renderer
+then draws from the craft's own position and attitude (`fzx_set_pose`). The
+HUD says `ORIGINAL RACE CODE (SOFT FLOAT)`. With no argument the course is the
+synthetic CI fixture; no ROM is read. Objects and outputs live in
+`saturn/build-orig/`, apart from the proto build. The default stays
+`FZX_SIM=proto` until the owner decides on soft-float (docs/POC_PLAN.md 4.2).
+
+| Saturn pad | Original input |
+|---|---|
+| A or C | A, accelerate |
+| B | B, boost |
+| Y | C-down, brake |
+| L / R | Z / R, lean |
+| D-pad | Stick, full deflection |
+| Start | Start |
+
 ## Controls
 
 | Saturn controller, port 1 | Action |

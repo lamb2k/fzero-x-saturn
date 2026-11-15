@@ -278,6 +278,42 @@ test_laps_clipping_and_exact_transform_modes(void)
     printf("Compared %u driven frames exactly; reached lap %u\n", compared_frames, previous_lap);
 }
 
+static void
+test_external_pose_is_followed(void)
+{
+    fzx_course_t *upload = fzx_course_buffer();
+    *upload = square_course();
+    CHECK(fzx_activate_course() == 1);
+    const fzx_frame_t before = *fzx_render();
+    unsigned frames = 0;
+    /* A pose that walks the centreline twice, as FZX_SIM_ORIG hands it over. */
+    for (uint32_t lap = 0; lap < 2; ++lap)
+        for (uint32_t seg = 0; seg < upload->count; ++seg)
+            for (uint32_t k = 0; k < 16; ++k) {
+                fzx_pose_t pose;
+                sh2z_vec3_t tangent;
+                CHECK(fzx_spline_sample(upload, seg, (sh2z_fx_t)(k * SH2Z_ONE / 16),
+                                        &pose.position, &tangent));
+                pose.position.y += SH2Z_ONE;
+                pose.forward = sh2z_vec3_normalize(tangent);
+                pose.up = (sh2z_vec3_t){0, SH2Z_ONE, 0};
+                pose.speed = 300u + k; /* check_frame bounds speed by the proto maximum */
+                pose.lap = lap + 1u;
+                fzx_set_pose(&pose);
+                const fzx_frame_t *frame = fzx_render();
+                check_frame(frame);
+                CHECK(frame->speed == pose.speed);
+                CHECK(frame->lap == pose.lap);
+                CHECK(frame->count > 0);
+                ++frames;
+            }
+    /* Without a pose the core is the stepper again, from the start line. */
+    fzx_set_pose(NULL);
+    fzx_step(FZX_RESET);
+    same_frame(&before, fzx_render());
+    printf("Followed %u external poses\n", frames);
+}
+
 int
 main(void)
 {
@@ -285,6 +321,7 @@ main(void)
     test_controls_reset_and_determinism();
     test_course_activation_is_transactional();
     test_laps_clipping_and_exact_transform_modes();
+    test_external_pose_is_followed();
     printf("Core tests passed: %u checks (active with NDEBUG)\n", checks);
     return EXIT_SUCCESS;
 }

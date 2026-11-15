@@ -16,12 +16,22 @@ typedef struct {
     int segment, lap, laps_completed, race_time, state_flags, boost_timer;
 } RefState;
 
+/* Where racer 0 is drawn after a tick (not traced): Racer.modelPos and Racer.modelBasis, rows
+ * x, y, z of the original's Mtx3F (forward, up, left), plus what a HUD shows. */
+typedef struct {
+    float pos[3];
+    float basis[3][3];
+    float speed, energy;
+    int intro, lap, laps_completed, race_time, state_flags;
+} RefPose;
+
 /* Bridge side. */
 int ref_load_course(const unsigned char* record, int big_endian); /* 0 on success */
 void ref_set_rom_boot(const unsigned char* boot); /* big-endian (z64) bytes; NULL = CI fixture */
 int ref_race_init(void);                                    /* 0 on success */
 void ref_tick(unsigned short buttons, signed char stick_x, signed char stick_y);
 void ref_state(RefState* out);
+void ref_pose(RefPose* out);
 
 /* Shared between bridge.c and hooks.c. */
 extern int ref_course_ready;

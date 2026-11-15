@@ -121,3 +121,25 @@ void ref_state(RefState* s) {
     s->state_flags = r->stateFlags;
     s->boost_timer = r->boostTimer;
 }
+
+void ref_pose(RefPose* p) {
+    const Racer* r = &gRacers[0];
+    const Vec3f* rows[3] = { &r->modelBasis.x, &r->modelBasis.y, &r->modelBasis.z };
+    s32 i;
+
+    p->pos[0] = r->modelPos.x;
+    p->pos[1] = r->modelPos.y;
+    p->pos[2] = r->modelPos.z;
+    for (i = 0; i < 3; i++) {
+        p->basis[i][0] = rows[i]->x;
+        p->basis[i][1] = rows[i]->y;
+        p->basis[i][2] = rows[i]->z;
+    }
+    p->speed = r->speed;
+    p->energy = r->energy;
+    p->intro = gRaceIntroTimer;
+    p->lap = r->lap;
+    p->laps_completed = r->lapsCompleted;
+    p->race_time = r->raceTime;
+    p->state_flags = r->stateFlags;
+}

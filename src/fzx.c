@@ -32,6 +32,9 @@ static fzx_poly_t sort_scratch[FZX_MAX_POLYGONS];
 static uint32_t ring_count, current_ring, laps, imported, use_prepared = 1;
 static sh2z_fx_t travel, speed, lateral;
 static bool initialized;
+/* FZX_SIM_ORIG: the pose last handed over, and whether current_ring tracks it. */
+static fzx_pose_t pose;
+static bool pose_valid, pose_tracked;
 
 static sh2z_vec3_t
 scaled_add(sh2z_vec3_t a, sh2z_vec3_t b, sh2z_fx_t scale)
@@ -207,7 +210,7 @@ build_track(void)
         }
     }
     (void)sh2z_mesh_view_init(&mesh_view,track_mesh,ring_count*4u);
-    current_ring=0; travel=0; speed=0; lateral=0; laps=1;
+    current_ring=0; travel=0; speed=0; lateral=0; laps=1; pose_tracked=false;
 }
 
 FZX_EXPORT void
@@ -246,6 +249,40 @@ fzx_use_demo(void)
 
 FZX_EXPORT void fzx_set_transform_mode(uint32_t prepared) { use_prepared=!!prepared; }
 FZX_EXPORT uint32_t fzx_sim_id(void) { return FZX_SIM; }
+
+static int64_t
+distance2(sh2z_vec3_t a, sh2z_vec3_t b)
+{
+    const int64_t x=(int64_t)a.x-b.x, y=(int64_t)a.y-b.y, z=(int64_t)a.z-b.z;
+    /* Q16.16 squared, scaled down so a ±8192-unit course cannot overflow. */
+    return (x>>8)*(x>>8)+(y>>8)*(y>>8)+(z>>8)*(z>>8);
+}
+
+FZX_EXPORT void
+fzx_set_pose(const fzx_pose_t *p)
+{
+    if (!initialized) fzx_init();
+    if (!p) { pose_valid=false; return; }
+    pose=*p; pose_valid=true;
+    /* The ring nearest the craft: everywhere once, then near the last one
+     * (a craft moves far less than 16 rings in one tick). */
+    const uint32_t span=pose_tracked && ring_count>32u ? 16u : ring_count;
+    const uint32_t first=pose_tracked ? current_ring+ring_count-(span<ring_count?span:0u) : 0u;
+    const uint32_t tries=span<ring_count ? 2u*span+1u : ring_count;
+    uint32_t best=current_ring; int64_t best_d=INT64_MAX;
+    for (uint32_t n=0;n<tries;++n) {
+        const uint32_t i=(first+n)%ring_count;
+        const int64_t d=distance2(rings[i].center,p->position);
+        if (d<best_d) { best_d=d; best=i; }
+    }
+    /* The craft lies between the nearest ring and its successor or
+     * predecessor: draw from the earlier one. */
+    const uint32_t prev=(best+ring_count-1)%ring_count;
+    const sh2z_vec3_t to=sh2z_vec3_sub(p->position,rings[best].center);
+    if (sh2z_vec3_dot(to,rings[best].forward)<0) best=prev;
+    current_ring=best; pose_tracked=true;
+    speed=0; laps=p->lap;
+}
 
 FZX_EXPORT void
 fzx_step(uint32_t buttons)
@@ -361,12 +398,22 @@ fzx_render(void)
 {
     if(!initialized) fzx_init();
     const ring_t *r=&rings[current_ring],*next=&rings[(current_ring+1)%ring_count];
-    const sh2z_fx_t progress=sh2z_div(travel,r->length);
-    const sh2z_vec3_t forward=unit_or(sh2z_vec3_lerp(r->forward,next->forward,progress),r->forward);
-    const sh2z_vec3_t up=unit_or(sh2z_vec3_lerp(r->up,next->up,progress),r->up);
-    const sh2z_vec3_t left=sh2z_vec3_normalize(sh2z_vec3_cross(up,forward));
-    sh2z_vec3_t car=scaled_add(sh2z_vec3_lerp(r->center,next->center,progress),left,lateral);
-    car=scaled_add(car,up,SH2Z_ONE);
+    sh2z_vec3_t forward,up,left,car;
+    if (pose_valid) {
+        /* The original code's craft: its own position and attitude. */
+        forward=unit_or(pose.forward,r->forward);
+        up=unit_or(pose.up,r->up);
+        left=unit_or(sh2z_vec3_cross(up,forward),r->left);
+        up=sh2z_vec3_normalize(sh2z_vec3_cross(forward,left));
+        car=pose.position;
+    } else {
+        const sh2z_fx_t progress=sh2z_div(travel,r->length);
+        forward=unit_or(sh2z_vec3_lerp(r->forward,next->forward,progress),r->forward);
+        up=unit_or(sh2z_vec3_lerp(r->up,next->up,progress),r->up);
+        left=sh2z_vec3_normalize(sh2z_vec3_cross(up,forward));
+        car=scaled_add(sh2z_vec3_lerp(r->center,next->center,progress),left,lateral);
+        car=scaled_add(car,up,SH2Z_ONE);
+    }
     const sh2z_vec3_t camera=scaled_add(scaled_add(car,forward,-FX(12)),up,FX(7));
     const sh2z_vec3_t view_forward=sh2z_vec3_normalize(sh2z_vec3_sub(scaled_add(car,forward,FX(20)),camera));
     const sh2z_vec3_t view_right=sh2z_vec3_normalize(sh2z_vec3_cross(view_forward,up));
@@ -384,7 +431,8 @@ fzx_render(void)
         for(uint32_t i=0;i<ring_count*4;++i)
             transformed[i]=sh2z_mat34_transform_point(&view,track_mesh[i]);
     }
-    frame.count=0;frame.speed=(uint32_t)(((int64_t)speed*100)/SH2Z_ONE);
+    frame.count=0;
+    frame.speed=pose_valid?pose.speed:(uint32_t)(((int64_t)speed*100)/SH2Z_ONE);
     frame.lap=laps;frame.flags=imported?FZX_FRAME_IMPORTED:0;
     const uint32_t visible=ring_count<VISIBLE_RINGS?ring_count:VISIBLE_RINGS;
     /* Include two rings behind the craft so near-plane clipping stays visible. */

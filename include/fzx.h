@@ -16,14 +16,18 @@
 #define FZX_FRAME_IMPORTED 1u
 
 /* Simulation selector (docs/POC_PLAN.md, lesson 1). PROTO is the prototype
- * centreline driver, never the port; FIXED (the ported racer physics) arrives
- * with Gate 3. Every frontend must show the active simulation. */
+ * centreline driver, never the port. ORIG is the original race code (the
+ * decompilation, compiled for the SH-2 with bit-exact binary32 soft-float,
+ * tools/saturn_orig.sh): the frontend steps it and hands the core a pose.
+ * FIXED (a fixed-point port of the racer physics) would come with Gate 3.
+ * Every frontend must show the active simulation. */
 #define FZX_SIM_PROTO 0u
+#define FZX_SIM_ORIG 2u
 #ifndef FZX_SIM
 #define FZX_SIM FZX_SIM_PROTO
 #endif
-#if FZX_SIM != FZX_SIM_PROTO
-#error "FZX_SIM: only FZX_SIM_PROTO exists until Gate 3"
+#if FZX_SIM != FZX_SIM_PROTO && FZX_SIM != FZX_SIM_ORIG
+#error "FZX_SIM: FZX_SIM_PROTO or FZX_SIM_ORIG"
 #endif
 
 /* Positions and radii are Q16.16, at 1/16 original game scale. Bank is
@@ -72,6 +76,15 @@ FZX_EXPORT void fzx_use_demo(void);
 /* 0: general exact SH2ZAM transform, 1: prepared SH2ZAM batch (default).
  * This switch makes correctness comparisons possible; it is not a timer. */
 FZX_EXPORT void fzx_set_transform_mode(uint32_t prepared);
+/* FZX_SIM_ORIG: racer 0 as the original code left it after a tick. Position
+ * Q16.16 at 1/16 game scale (the course's scale); forward and up are unit
+ * Q16.16 vectors (the original's basis rows x and y). speed is km/h, as the
+ * original HUD shows it. The renderer follows this pose; fzx_step is unused. */
+typedef struct {
+    sh2z_vec3_t position, forward, up;
+    uint32_t speed, lap;
+} fzx_pose_t;
+FZX_EXPORT void fzx_set_pose(const fzx_pose_t *pose);
 /* The compiled simulation, as FZX_SIM_*. */
 FZX_EXPORT uint32_t fzx_sim_id(void);
 bool fzx_validate_course(const fzx_course_t *course);

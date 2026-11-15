@@ -2,6 +2,7 @@
 """Write the data side of the reference-on-SH-2 probe.
 
     gen_sat.py OUT_DIR SCRIPT.txt HOST_STUBS_C
+    gen_sat.py --stubs OUT_DIR HOST_STUBS_C      (stand-ins only: the game image's closure)
 
 OUT_DIR/sat_data.c: the synthetic fixture course record (big-endian, from fixture_course.py)
 and the input script as an array. OUT_DIR/sat_stubs.c and sat_stubs_data.s: the stand-ins of
@@ -20,6 +21,11 @@ BUTTONS = {"A": 0x8000, "B": 0x4000, "Z": 0x2000, "S": 0x1000, "L": 0x0020, "R":
 
 
 def main():
+    if sys.argv[1] == "--stubs":
+        out, host_stubs = sys.argv[2:4]
+        os.makedirs(out, exist_ok=True)
+        write_stubs(out, host_stubs)
+        return
     out, script, host_stubs = sys.argv[1:4]
     os.makedirs(out, exist_ok=True)
     course = os.path.join(out, "course.bin")
@@ -51,6 +57,10 @@ def main():
         for t, m, sx, sy in steps:
             fh.write("    { %d, 0x%04X, %d, %d },\n" % (t, m, sx, sy))
         fh.write("};\nconst unsigned int sat_step_count = %d;\n" % len(steps))
+    write_stubs(out, host_stubs)
+
+
+def write_stubs(out, host_stubs):
     # Function stand-ins stay C. Data stand-ins become fixed addresses in low work RAM
     # (0x00200000, 1 MB, otherwise unused by the probe); main_sat.c zeroes that range first.
     funcs, datas = [], []

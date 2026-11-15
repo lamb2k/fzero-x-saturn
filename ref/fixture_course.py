@@ -6,13 +6,20 @@ road throughout, with one segment of a different road type: the original
 chunk builder needs at least one change of shape or type around the loop
 (with none, every segment is "continuous" and Course_Init never returns).
 Feature arrays are empty (-1). The derived flags (form, joins, continuity)
-are left for the original init code to compute.
+are left for the original init code to compute. The stored checksum is the one
+the original game computes (tools/import_course.py), so the importer accepts
+the record and the Saturn image can load the same course into both the original
+course code and the renderer.
 
 Usage: fixture_course.py OUT.bin
 """
 import math
+import os
 import struct
 import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "tools"))
+from import_course import record_checksum  # noqa: E402
 
 RECORD_SIZE = 0x7E0
 TRACK_SHAPE_WALLED_ROAD = 0x40
@@ -31,6 +38,7 @@ def record() -> bytes:
         struct.pack_into(">h", buf, 0x520 + i * 2, (0, 4, 8, 4, 0, -4, -8, -4)[i])
     for offset in range(0x5A0, RECORD_SIZE, 0x40):
         buf[offset:offset + 64] = b"\xff" * 64
+    struct.pack_into(">I", buf, 4, record_checksum(bytes(buf), "big"))
     return bytes(buf)
 
 

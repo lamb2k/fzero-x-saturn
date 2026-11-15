@@ -42,8 +42,11 @@ int ref_load_course(const unsigned char* record, int big_endian) {
     s32 i;
 
     _Static_assert(sizeof(CourseDataDisk) == REF_COURSE_RECORD_SIZE, "CourseDataDisk layout");
+    const u16 probe = 1;
+    const int host_big = *(const u8*) &probe == 0;
+
     memcpy(ref_course_bytes, record, REF_COURSE_RECORD_SIZE);
-    if (big_endian) { /* The same fields the fork's CourseData_FromRom swaps. */
+    if (big_endian != host_big) { /* The same fields the fork's CourseData_FromRom swaps. */
         c->checksum = swap32(c->checksum);
         for (i = 0; i < 64; i++) {
             u32* pos = (u32*) &c->controlPoint[i].pos;

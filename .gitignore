@@ -15,3 +15,15 @@ __pycache__/
 *.o2r
 baserom*
 /ref/build/
+/ref/sat/build/
+/saturn/cd/
+/tools/bench_sh2/build/
+/tools/bench_sh2/cd/
+/tools/bench_sh2/*.iso
+/tools/bench_sh2/*.cue
+/tools/bench_sh2/*.bin
+/tools/bench_sh2/*.txt
+/tools/bench_sh2/audio-tracks/
+/ref/sat/audio-tracks/
+/ref/sat/cd/
+/saturn/audio-tracks/

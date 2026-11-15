@@ -25,6 +25,9 @@
 
 static uint64_t hash = 0xCBF29CE484222325ull;
 
+/* Generated in stubs.c (gen_stubs.py): reports how much of each data stand-in was used. */
+void ref_stub_report(const char* path) __attribute__((weak));
+
 static void mix(const void* data, size_t size) {
     const unsigned char* p = data;
     while (size--) {
@@ -195,6 +198,9 @@ int main(int argc, char** argv) {
     if (out != NULL) {
         fprintf(out, "hash\t%016llx\n", (unsigned long long) hash);
         fclose(out);
+    }
+    if (ref_stub_report != NULL && getenv("REF_STUB_REPORT") != NULL) {
+        ref_stub_report(getenv("REF_STUB_REPORT"));
     }
     printf("ticks %d hash %016llx\n", tick, (unsigned long long) hash);
     return 0;

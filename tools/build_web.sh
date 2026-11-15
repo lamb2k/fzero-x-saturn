@@ -16,6 +16,7 @@ test -f "$SH2ZAM_DIR/saturn/include/sh2zam/sh2zam.h" || {
   -Wl,--export=fzx_init -Wl,--export=fzx_step -Wl,--export=fzx_render \
   -Wl,--export=fzx_course_buffer -Wl,--export=fzx_activate_course \
   -Wl,--export=fzx_use_demo -Wl,--export=fzx_set_transform_mode \
+  -Wl,--export=fzx_sim_id \
   -o web/fzero.wasm
 python3 - <<'PY'
 import base64,hashlib,json,pathlib

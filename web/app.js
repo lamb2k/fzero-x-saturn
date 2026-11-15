@@ -299,10 +299,14 @@
       const result = await WebAssembly.instantiate(bytes, {});
       api = result.instance.exports;
       memory = api.memory;
-      for (const name of ['fzx_init', 'fzx_step', 'fzx_render', 'fzx_course_buffer', 'fzx_activate_course', 'fzx_use_demo', 'fzx_set_transform_mode']) {
+      for (const name of ['fzx_init', 'fzx_step', 'fzx_render', 'fzx_course_buffer', 'fzx_activate_course', 'fzx_use_demo', 'fzx_set_transform_mode', 'fzx_sim_id']) {
         if (typeof api[name] !== 'function') throw new Error(`Missing shared-core export: ${name}`);
       }
       api.fzx_init();
+      // The active simulation comes from the core, never from page text.
+      const sims = { 0: 'proto (prototype driver, not the port)' };
+      const sim = api.fzx_sim_id() >>> 0;
+      $('sim').textContent = sims[sim] || `unknown (${sim})`;
       api.fzx_set_transform_mode(1);
       ready = true;
       document.querySelectorAll('button, select, input').forEach(control => { control.disabled = false; });

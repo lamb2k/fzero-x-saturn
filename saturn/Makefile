@@ -16,9 +16,23 @@ ifeq ($(FZX_IMPORTED),1)
 ifeq ($(wildcard ../generated/course.h),)
 $(error FZX_IMPORTED=1 requires ../generated/course.h from the course importer)
 endif
+# Refuse a stale or hand-edited header (the importer writes the receipt).
+FZX_RECEIPT_RESULT := $(shell sh ../tools/check_receipt.sh ../generated/course.receipt 2>&1; echo "rc=$$?")
+ifeq ($(findstring rc=0,$(FZX_RECEIPT_RESULT)),)
+$(error Generated course is not current: $(FZX_RECEIPT_RESULT))
+endif
 SH_CFLAGS += -DFZX_USE_IMPORTED_COURSE=1
 else ifneq ($(FZX_IMPORTED),0)
 $(error FZX_IMPORTED must be 0 for the demo or 1 for the imported course)
+endif
+
+# Simulation selector, shown on the HUD. Only the prototype driver exists;
+# `fixed` (the ported racer physics) arrives with Gate 3 of docs/POC_PLAN.md.
+FZX_SIM ?= proto
+ifeq ($(FZX_SIM),proto)
+SH_CFLAGS += -DFZX_SIM=FZX_SIM_PROTO
+else
+$(error FZX_SIM must be proto; the fixed simulation does not exist yet)
 endif
 
 SH_PROGRAM := fzero-x-saturn

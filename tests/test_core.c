@@ -161,6 +161,7 @@ static void
 test_controls_reset_and_determinism(void)
 {
     fzx_init();
+    CHECK(fzx_sim_id() == FZX_SIM_PROTO); /* Only the prototype driver exists. */
     fzx_use_demo();
     fzx_frame_t initial = *fzx_render();
     CHECK(initial.speed == 0 && initial.lap == 1 && initial.flags == 0);

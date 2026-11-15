@@ -9,6 +9,15 @@ concurrency:
   group: fzero-${{ github.ref }}
   cancel-in-progress: true
 jobs:
+  hygiene:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Publication hygiene scan of every tracked file
+        run: python3 tools/hygiene_scan.py
+      - name: Scan controls (planted ROM stub, ROM header, home paths must fail)
+        run: python3 -m unittest tests/test_hygiene.py -v
   host:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -42,6 +51,20 @@ jobs:
             grep -q "sh2" saturn/elf-header.txt
             sha256sum saturn/fzero-x-saturn.iso > saturn/image-sha256.txt
           '
+      - name: A hand-edited generated course must stop the build (G0.3 control)
+        run: |
+          set -euo pipefail
+          python3 -c "import sys; sys.path.insert(0, 'tests'); import test_import_course as t; open('/tmp/fixture.bin', 'wb').write(t.synthetic_record())"
+          python3 tools/import_course.py --record /tmp/fixture.bin --byte-order big --output generated/course.h
+          sh tools/check_receipt.sh generated/course.receipt
+          echo '/* edited */' >> generated/course.h
+          if docker run --rm -v "$PWD:/work" -w /work ijacquez/yaul@sha256:b6d272204767cd0a734139dd3a2ab298ef5912fb7b7224b78e6d9fac1a7825a6 \
+               /bin/bash -c 'export PATH="$YAUL_INSTALL_ROOT/bin:$PATH"; make -C saturn FZX_IMPORTED=1' > /tmp/stale.log 2>&1; then
+            cat /tmp/stale.log; echo "FAIL: the stale header was accepted"; exit 1
+          fi
+          cat /tmp/stale.log
+          grep -q "stale: course.h" /tmp/stale.log
+          rm -f generated/course.h generated/course.json generated/course.receipt
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -90,7 +113,7 @@ jobs:
           path: build/site
   pages:
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
-    needs: [host, saturn, web]
+    needs: [hygiene, host, saturn, web]
     runs-on: ubuntu-24.04
     permissions:
       pages: write

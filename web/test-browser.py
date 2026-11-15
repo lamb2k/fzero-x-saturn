@@ -69,6 +69,7 @@ def run(url, output):
         page.wait_for_selector('html[data-ready="true"]')
         expect(page.locator("#failure")).to_be_hidden()
         expect(page.locator("#play-state")).to_have_text("Ready")
+        expect(page.locator("#sim")).to_have_text("proto (prototype driver, not the port)")
         assert int(page.locator("#polygons").inner_text()) > 0, "Initial track must render"
         initial = pixels(page)
 

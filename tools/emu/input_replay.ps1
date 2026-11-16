@@ -16,6 +16,7 @@ param(
     [string]$SourceCameraTrace = '',
     [switch]$SourceRoad,
     [switch]$SourceSky,
+    [switch]$SourceSkyline,
     [int[]]$HoldTicks = @()
 )
 $ErrorActionPreference = 'Stop'
@@ -47,6 +48,8 @@ if (@($targets | Where-Object { $_ -lt 1 -or $_ -gt $words.Count }).Count) { thr
 $cameraSamples = @()
 $roadSamples = @()
 $skySamples = @()
+$skylineSamples = @()
+if ($SourceSkyline -and -not $SourceSky) {throw 'Skyline capture requires the source sky frame gate'}
 if ($SourceSky -and -not $SourceCameraTrace) { throw 'Sky captures require the matching source camera trace' }
 function Addr([uint32]$a) { '0x{0:X8}' -f $a }
 function S([string]$name) {
@@ -119,6 +122,9 @@ try {
             if ($SourceSky -and (ReadWord (S '_fzx_sky_status')) -ge 2) {
                 throw "Sky renderer fault while advancing to tick $target"
             }
+            if ($SourceSkyline -and (ReadWord (S '_fzx_skyline_status')) -ge 2) {
+                throw "Skyline fault while advancing to tick $target"
+            }
         } while ($done -ne $target -and (Get-Date) -lt $deadline)
         if ($done -ne $target) { throw "Replay did not reach exact tick $target (at $done)" }
         # Simulation is held at N; display remains active for settled capture.
@@ -130,7 +136,8 @@ try {
             $snapshotReady=$false
             for ($attempt=0;$attempt -lt 100;++$attempt) {
                 Mcp pause @{} | Out-Null
-                if ((ReadWord (S '_fzx_sky_busy')) -eq 0) {$snapshotReady=$true;break}
+                if ((ReadWord (S '_fzx_sky_busy')) -eq 0 -and
+                    (-not $SourceSkyline -or (ReadWord (S '_fzx_skyline_busy')) -eq 0)) {$snapshotReady=$true;break}
                 if ((ReadWord (S '_fzx_sky_status')) -ge 2) {throw 'Sky fault while capturing'}
                 Mcp resume @{} | Out-Null
                 Start-Sleep -Milliseconds 37
@@ -190,6 +197,17 @@ try {
                 heap_prefix_bytes=(ReadWord (S '_fzx_sky_heap_prefix'));heap_before=$heapBefore;heap_after=$heapAfter}
             $skySamples | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $OutDir 'sky-samples.json')
             Write-Output "FZX-SKY tick=$target stable-packet=424 status=1"
+            if ($SourceSkyline) {
+                $skylineHex=Hex (Mcp memory_read @{address=(Addr (S '_fzx_source_skyline'));length=580})
+                $skylineStats=Hex (Mcp memory_read @{address=(Addr (S '_fzx_skyline_stats'));length=12})
+                if ((ReadWord (S '_fzx_skyline_status')) -ne 1 -or $skylineHex.Length -ne 1160 -or
+                    $skylineHex.Substring(0,16) -ne '0000000000000006' -or $skylineStats.Length -ne 24 -or
+                    $skylineStats.Substring(16,8) -ne '00000000') {throw 'Invalid skyline packet or draw status'}
+                $skylineSamples+=@{tick=$target;packet_hex=$skylineHex;stats_hex=$skylineStats;
+                    skyline_ticks=(ReadWord (S '_fzx_skyline_ticks'));field_ticks=(ReadWord ((S '_fzx_timing')+8))}
+                $skylineSamples | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $OutDir 'skyline-samples.json')
+                Write-Output "FZX-SKYLINE tick=$target state=6-placements draw=valid"
+            }
             Mcp resume @{} | Out-Null
         }
     }

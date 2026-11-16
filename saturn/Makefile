@@ -10,6 +10,7 @@ FZX_SIM ?= proto
 FZX_SOURCE_HUD ?= 0
 FZX_SOURCE_CAMERA ?= 0
 FZX_SOURCE_SKY ?= 0
+FZX_SOURCE_SKYLINE ?= 0
 FZX_SKY_SIMPLIFY ?= 0
 ifneq ($(filter $(FZX_SKY_SIMPLIFY),0 1),$(FZX_SKY_SIMPLIFY))
 $(error FZX_SKY_SIMPLIFY must be 0 or 1)
@@ -37,6 +38,11 @@ ifeq ($(FZX_SOURCE_SKY),1)
 SH_BUILD_DIR := build-orig-sky/yaul
 SH_OUTPUT_DIR := build-orig-sky
 IMAGE_DIRECTORY := build-orig-sky/cd
+endif
+ifeq ($(FZX_SOURCE_SKYLINE),1)
+SH_BUILD_DIR := build-orig-skyline/yaul
+SH_OUTPUT_DIR := build-orig-skyline
+IMAGE_DIRECTORY := build-orig-skyline/cd
 endif
 include $(YAUL_INSTALL_ROOT)/share/build.pre.mk
 
@@ -110,6 +116,20 @@ SH_CFLAGS += -DFZX_SKY_SIMPLIFY=$(FZX_SKY_SIMPLIFY)
 FZX_SKY_SRCS := ../src/fzx_sky.c sky_native.c
 else ifneq ($(FZX_SOURCE_SKY),0)
 $(error FZX_SOURCE_SKY must be 0 or 1)
+endif
+
+ifeq ($(FZX_SOURCE_SKYLINE),1)
+ifneq ($(FZX_SIM):$(FZX_SOURCE_CAMERA):$(FZX_SOURCE_SKY):$(FZX_ROM_BOOT),orig:1:1:1)
+$(error FZX_SOURCE_SKYLINE=1 requires original simulation, camera, sky and local retail content)
+endif
+FZX_SKYLINE_RECEIPT := $(shell sh ../tools/check_receipt.sh ../generated/skyline/skyline.receipt 2>&1; echo "rc=$$?")
+ifeq ($(findstring rc=0,$(FZX_SKYLINE_RECEIPT)),)
+$(error Source skyline is not current: $(FZX_SKYLINE_RECEIPT))
+endif
+SH_CFLAGS += -DFZX_SOURCE_SKYLINE=1 -I../generated/skyline
+FZX_SKY_SRCS += ../src/fzx_skyline.c skyline_native.c
+else ifneq ($(FZX_SOURCE_SKYLINE),0)
+$(error FZX_SOURCE_SKYLINE must be 0 or 1)
 endif
 
 # Partial native HUD integration; source scene/audio gates remain open.

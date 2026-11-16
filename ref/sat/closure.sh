@@ -12,6 +12,9 @@ STUB=$W/ref/build/gcc-O0/stub
 CAMERA=${FZX_SOURCE_CAMERA:-0}
 PLAN=${FZX_ROAD_PLAN:-0}
 SKY=${FZX_SOURCE_SKY:-0}
+SKYLINE=${FZX_SOURCE_SKYLINE:-0}
+[ "$SKYLINE" = 0 ] || [ "$SKYLINE:$CAMERA" = 1:1 ] || { echo "skyline requires source camera" >&2; exit 1; }
+if [ "$SKYLINE" = 1 ]; then bash "$W/tools/check_receipt.sh" "$W/generated/skyline/skyline.receipt"; fi
 [ "$SKY" = 0 ] || [ "$SKY:$CAMERA" = 1:1 ] || { echo "sky requires source camera" >&2; exit 1; }
 if [ "$SKY" = 1 ]; then bash "$W/tools/check_receipt.sh" "$W/generated/sky/sky.receipt"; fi
 [ "$PLAN" = 0 ] || [ "$PLAN:$CAMERA" = 1:1 ] || { echo "road planner requires source camera" >&2; exit 1; }
@@ -63,6 +66,10 @@ done
 if [ "$SKY" = 1 ]; then
     $CC $CFLAGS -I"$D/src/overlays/ovl_i3" -c "$W/generated/sky/sky_state.c" -o "$OBJ/sky_state.o"
     objs="$objs $OBJ/sky_state.o"
+fi
+if [ "$SKYLINE" = 1 ]; then
+    $CC $CFLAGS -I"$D/src/overlays/ovl_i3" -c "$W/generated/skyline/skyline_state.c" -o "$OBJ/skyline_state.o"
+    objs="$objs $OBJ/skyline_state.o"
 fi
 $CC -m2 -mb -O2 -w -DFZX_SQRT_SH2_DIVU -c "$W/ref/sat/soft_sqrtf.c" -o "$OBJ/soft_sqrtf.o"
 # FZX_FASTFLOAT=1: replace libgcc's generic soft-float with src/sh2float (bit-exact with SSE;

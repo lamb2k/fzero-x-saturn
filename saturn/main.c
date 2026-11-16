@@ -8,6 +8,13 @@
 #include <string.h>
 
 #include "fzx.h"
+#ifndef FZX_SOURCE_SKYLINE
+#define FZX_SOURCE_SKYLINE 0
+#endif
+#if FZX_SOURCE_SKYLINE
+#include "skyline_native.h"
+static void *skyline_vram;
+#endif
 #ifndef FZX_SOURCE_SKY
 #define FZX_SOURCE_SKY 0
 #endif
@@ -298,6 +305,9 @@ static void
 orig_restart(void)
 {
     ref_race_restart();
+#if FZX_SOURCE_SKYLINE
+    fzx_skyline_restart();
+#endif
 #if FZX_SOURCE_SKY
     fzx_sky_restart();
 #endif
@@ -375,6 +385,12 @@ orig_publish(void)
         for(;;) {}
     }
     fzx_set_camera(&fzx_native_view);
+#if FZX_SOURCE_SKYLINE
+    if(!fzx_skyline_publish(fzx_input_count)) {
+        dbgio_printf("\x1b[H\x1b[2J SOURCE SKYLINE STATE FAILED\n");
+        dbgio_flush();vdp2_sync();for(;;) {}
+    }
+#endif
 #if FZX_SOURCE_SKY
     if(!fzx_sky_publish()) {
         dbgio_printf("\x1b[H\x1b[2J SOURCE SKY STATE FAILED\n");
@@ -410,6 +426,18 @@ commands_build(const fzx_frame_t *frame)
             dbgio_printf("\x1b[H\x1b[2J SOURCE SKY DRAW FAILED %lu\n",(unsigned long)fzx_sky_stats.fault);
             dbgio_flush();vdp2_sync();for(;;) {}
         }
+    }
+#endif
+
+#if FZX_SOURCE_SKYLINE
+    if(fzx_input_count) {
+        uint32_t skyline_count=0;
+        if(!fzx_skyline_native(&commands[COMMAND_FIRST_POLYGON+first],FZX_MAX_POLYGONS-count-first,
+                               &fzx_native_view,skyline_vram,&skyline_count)) {
+            dbgio_printf("\x1b[H\x1b[2J SOURCE SKYLINE DRAW FAILED %lu\n",(unsigned long)fzx_skyline_stats.fault);
+            dbgio_flush();vdp2_sync();for(;;) {}
+        }
+        first+=skyline_count;
     }
 #endif
 
@@ -476,6 +504,14 @@ main(void)
         dbgio_printf("\x1b[H\x1b[2J SOURCE SKY EXCEEDS VDP1 MEMORY\n");
         dbgio_flush();vdp2_sync();for(;;) {}
     }
+#if FZX_SOURCE_SKYLINE
+    const uint32_t skyline_offset=sky_shade_offset+FZX_SKY_VRAM_BYTES;
+    skyline_vram=(void *)((uintptr_t)sky_partitions.texture_base+skyline_offset);
+    if(skyline_offset+FZX_SKYLINE_VRAM_BYTES>sky_partitions.texture_size || !fzx_skyline_load(skyline_vram)) {
+        dbgio_printf("\x1b[H\x1b[2J SOURCE SKYLINE LOAD FAILED\n");
+        dbgio_flush();vdp2_sync();for(;;) {}
+    }
+#endif
 #endif
     commands_init();
     fzx_init();

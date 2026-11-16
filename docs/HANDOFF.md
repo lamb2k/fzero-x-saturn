@@ -17,21 +17,21 @@ Limit: 50 lines. Replace this file each session; history lives in git.
   Replay finishes in 121,814 ms; source camera and partial HUD are integrated.
 - Source Blue Falcon assets and pose/light state are extracted. Palette appearance
   and native model cost need work. Road drawing is not yet within budget.
-- Source backdrop/skyline state pass 256 SH-2 probes. Native sky is admitted:
-  original geometry and colors, optional offline gradient-span simplification.
-  HOST exact path unchanged; adapted path reduces the synthetic maximum 110->6
-  polygons. Isolated replay passes 19 views and the full race; stack guard 20,856 bytes.
-- Sky-only held-view cost is 1.34–1.88 ms (MODELLED). This is not whole-scene timing.
-  HARDWARE and full source-reference appearance acceptance remain open.
-- Boot/selection, source floor/cloud/skyline, complete HUD/results/effects and audio
+- Source sky and skyline now draw natively. Original skyline images remain 64x64
+  CI4; tint and ordered alpha coverage are prebaked. No per-frame conversion.
+- Isolated native replay passes 19 views / 114 original skyline placements and
+  finishes three laps in 121,814 ms. Stack guard is 6,908 bytes; high RAM is tight.
+- Skyline drawing costs 0.82-0.99 ms (MODELLED); sky costs about 1.34-1.88 ms.
+  Neither is whole-scene timing. HARDWARE and final visual acceptance remain open.
+- Boot/selection, source floor/cloud, complete HUD/results/effects and audio
   remain incomplete. Placeholder road/craft still prevent playable-port acceptance.
 
 ## Next work
 
-1. Native sky is gated; retain its explicit candidate flags. Preserve the owned
-   changes and mixed-file staging: older road/hitch/divider WIP stays local.
-2. Integrate original floor/cloud/skyline assets through Saturn-native rendering.
-   Prebake conversions; avoid per-frame texture conversion or software shading.
+1. Native sky/skyline are gated. Preserve older road/hitch/divider WIP locally.
+   Before more embedded assets, address high-RAM residency (end 0x060fd0d4).
+2. Integrate original floor/cloud assets through Saturn-native rendering. Prebake
+   conversions; avoid per-frame texture conversion or software shading.
 3. Use shared native road textures/subdivision; whole-patch bake exceeded VRAM.
    Improve source machine palettes/rendering, then original entry/selection/audio.
 4. Measure the combined content-bearing route, all memory pools and stack, then

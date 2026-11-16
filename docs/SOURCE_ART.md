@@ -34,7 +34,7 @@ tree, after resolving symlinks; tracked repository destinations are refused.
 | Blue Falcon, five authored LODs | Verified retail export, eight texture slots and bounded race-setup decoder gates pass | Open: native reflection/lighting, source model pose and texture submission |
 | Basic speed/time/lap/energy HUD sheets | Verified retail RGBA16 export; 14,080-byte native atlas | Timer/speed/lap/energy and lap flash draw on VDP1; countdown/results and source-reference comparison open |
 | Mute City road materials | Verified retail MIO0 decode and seven RGBA16 surfaces | Open: source cross sections, material selection, UV seams and ordered traversal |
-| Mute City floor, skyline, clouds, sky | Eleven source texture/palette objects verified; six skyline instances retain source bindings | State packets pass HOST/SH-2 probes; drawing, blending and source-reference comparisons open |
+| Mute City floor, skyline, clouds, sky | Eleven source texture/palette objects verified; six skyline instances retain source bindings | Native sky/skyline admitted; floor/cloud drawing and complete source-reference comparison remain open |
 | Dash/pit, other effects, countdown and finish | Source coverage incomplete | Open |
 | Source camera | Original race closure and native view/scissor integration, default off | Source-reference visuals, broader mode coverage and performance remain open |
 | Entry/results UI and audio | Not integrated | Open |
@@ -805,3 +805,47 @@ changes prevent treating it as a whole-frame A/B result. Whole-scene 60 fps,
 complete source-reference appearance, all other memory pools and HARDWARE remain
 open. Private evidence folders are `emu/source-sky-clean`,
 `emu/source-sky-simplified` and `emu/source-sky-safe-stack` under FZX_EVIDENCE.
+
+## Native original skyline (EMULATOR; drawing cost MODELLED)
+
+`FZX_SOURCE_SKYLINE=1` adds the four original 64x64 CI4 skyline images at their six
+source placements, alongside source sky/camera/HUD. `tools/skyline_assets.py`
+prebakes the source tint into the original 16-entry palettes and converts the
+vertical vertex-alpha fade to 4x4 ordered coverage. Image dimensions and surviving
+palette indices are unchanged; source files remain intact. This is a documented
+Saturn transparency adaptation, not replacement artwork. No texture conversion or
+palette construction occurs during drawing. Static pixels/palettes upload once.
+
+Source matrix and visibility state is reused, with repeated held-tick publication
+cached. Native distorted sprites use source-corner ordering and a source scissor.
+The clipping setup follows [Sega technical bulletin 15](https://antime.kapsi.fi/sega/files/Sattechs.pdf):
+the enable bit is 10 and the inside/outside selector is 9. Near-plane or command
+coordinate cases outside the bounded renderer fail visibly instead of dropping art.
+
+HOST GCC/Clang/repeat and undefined-behavior checks cover projection, four texture
+bindings, side/behind-camera rejection, command capacity and callback failure.
+Translation/binding mutations fail; alpha/tint/invalid-palette checks pass, and a
+stale pixel-header control is rejected. All twelve staged source files match the
+isolated tree used for native compilation; older local performance WIP is excluded.
+
+EMULATOR: all 19 held views match the original camera and skyline state (114 source
+placements; inactive stale matrices are excluded). Drawing has no reported faults.
+The 9,907-input replay finishes three laps in 121,814 ms, with the same final pose as
+HOST. Native screenshots show the original skyline; the patterned fade is visible.
+Image SHA-256: `80378d814d8f47fad108ec04cb9580a51db7d07922d0f3342e75442c8200fd7f`.
+Private evidence: `emu/source-skyline-first` under FZX_EVIDENCE.
+
+| Skyline / combined image allocation | Value |
+| --- | --- |
+| Four CI4 textures + four RGB1555 palettes | 8,192 + 128 bytes, main RAM and VDP1 |
+| Native geometry submission | At most six sprites plus one user-clip command |
+| High work RAM end / stack top | 0x060fd0d4 / 0x06100000 |
+| Untouched painted stack guard after full replay | 6,908 bytes |
+| Original low-work-RAM stand-ins end | 0x0026b0c0 |
+| Held-view skyline draw cost | 0.82–0.99 ms; mean 0.94 ms, MODELLED |
+
+This cost excludes state publication and other scene work. Whole-frame 60 fps,
+complete source-reference visual acceptance and HARDWARE are still open. High work
+RAM is now tight: further content needs explicit residency/loading work instead of
+continuing to embed texture arrays there. Floor/clouds, source road/craft and the
+entry/results/audio flow remain incomplete.

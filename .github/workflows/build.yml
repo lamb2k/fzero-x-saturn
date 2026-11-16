@@ -36,6 +36,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Decomp submodule (code only; no ROM, no assets)
         run: |
+          git submodule update --init third_party/SH2ZAM
           git submodule update --init upstream/G-Diffuser
           git -C upstream/G-Diffuser submodule update --init decomp
           git -C upstream/G-Diffuser submodule update --init libultraship
@@ -56,6 +57,17 @@ jobs:
             set -euo pipefail
             export PATH="$YAUL_INSTALL_ROOT/bin:$PATH"
             bash ref/sat/camera_build.sh camera_controls
+          '
+      - name: Build original race with source-camera renderer on synthetic content
+        run: |
+          FZX_SOURCE_CAMERA=1 REF_CAMERA_ART=fixture bash ref/sat/host_stubs.sh
+          python3 tools/import_course.py --record ref/sat/build/host-small-camera-fixture/course.bin --byte-order big --output generated/course.h --record-output generated/course_record.c
+          python3 ref/sat/gen_sat.py --stubs saturn/build-orig-camera ref/sat/build/host-small-camera-fixture/stubs.c
+          docker run --rm -v "$PWD:/work" -w /work ijacquez/yaul@sha256:b6d272204767cd0a734139dd3a2ab298ef5912fb7b7224b78e6d9fac1a7825a6 /bin/bash -c '
+            set -euo pipefail
+            export PATH="$YAUL_INSTALL_ROOT/bin:$PATH"
+            FZX_FASTFLOAT=1 FZX_SOURCE_CAMERA=1 REF_CAMERA_ART=fixture bash ref/sat/closure.sh /work/saturn/build-orig-camera
+            make -C saturn FZX_SIM=orig FZX_IMPORTED=1 FZX_SOURCE_CAMERA=1 FZX_CLOSURE=/work/saturn/build-orig-camera/ref_closure.o
           '
       - name: SH-2 float library, exhaustive conversions and 2.6M operand pairs against SSE
         run: |

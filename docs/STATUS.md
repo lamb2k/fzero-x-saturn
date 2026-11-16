@@ -70,11 +70,11 @@ ROM found and verified; FZX_TEST_ROM saved locally. Native models/materials, sou
 road/scenery/camera, full HUD/UI/audio and full-game coverage remain incomplete.
 ## Source-art extraction and camera probes
 
-Five Blue Falcon LODs, eight model texture slots and 22 textures exported. HOST:
-51 tests pass, no skips; HUD/flash/setup/material oracles and overflow controls.
+Five Blue Falcon LODs and 22 textures exported; isolated HOST suite: 58 pass/1 skip.
 FZX_SOURCE_HUD=1 draws timer/speed/lap/energy art and source-timed lap flashes.
 Stale assets fail the build. EMULATOR: 9,907 fixed inputs finish in 121,814 ms,
 equal to host on isolated 86ea5d3. Source-reference visuals and HARDWARE unrun.
-Blue Falcon: 72 moving native pose/light checks pass; palette appearance and
-CPU cost need work. Source camera passes HOST/all 11 SH-2 scenarios; view integration next.
+Blue Falcon: 72 pose/light checks pass; palette appearance and CPU cost remain open.
+Source-camera view integration: 19 held SH-2 packets match; view/look-back replay
+finishes in 121,814 ms. Default-off, over budget; placeholder world remains.
 [Ledger/memory](SOURCE_ART.md). G2.6/G5.3 remain open.

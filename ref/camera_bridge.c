@@ -1,8 +1,12 @@
 /* Source-camera bridge. Source owns camera state; no reimplementation here. */
 #include "global.h"
 #include "fzx_camera.h"
+#include "fzx_game.h"
 #include "ref.h"
 #include "viewports.h"
+
+extern s32 gGameMode;
+extern s32 gNumPlayers;
 
 _Static_assert(sizeof(RefCamera) == 252, "camera trace ABI");
 static unsigned int camera_faults;
@@ -66,5 +70,18 @@ int ref_camera_read(unsigned int index, RefCamera* out) {
     memcpy(out->view, &c->viewMtx, sizeof(out->view));
     memcpy(out->projection, &c->projectionMtx, sizeof(out->projection));
     out->faults = camera_faults;
+    return 1;
+}
+
+int ref_camera_draw_scissor(float out[4]) {
+    const Camera* c=&gCameras[0];
+    if(!out || gNumPlayers!=1 || gGameMode!=GAMEMODE_TIME_ATTACK) return 0;
+    if(c->vpTransitionState==CAMERA_VP_TRANSITION_ACTIVE) {
+        out[0]=c->currentScissorLeft; out[1]=c->currentScissorTop;
+        out[2]=c->currentScissorRight; out[3]=c->currentScissorBottom;
+    } else {
+        /* camera.c Camera_Draw, single-player race override. */
+        out[0]=12.0f; out[1]=16.0f; out[2]=308.0f; out[3]=224.0f;
+    }
     return 1;
 }

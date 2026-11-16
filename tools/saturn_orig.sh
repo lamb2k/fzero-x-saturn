@@ -14,6 +14,16 @@ set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 IMG=${YAUL_IMAGE:-$HOME/yaul-image}
 OUT=$ROOT/saturn/build-orig
+CAMERA=${FZX_SOURCE_CAMERA:-0}
+STUB_DIR=$ROOT/ref/sat/build/host-small
+ART=fixture
+if [ "$CAMERA" = 1 ]; then
+    if [ "${1:-}" = --rom ]; then ART=retail; export FZX_TEST_ROM="$2"; fi
+    export FZX_SOURCE_CAMERA=1 REF_CAMERA_ART=$ART
+    python3 "$ROOT/tools/camera_assets.py" --art "$ART"
+    OUT=$ROOT/saturn/build-orig-camera
+    STUB_DIR=$STUB_DIR-camera-$ART
+fi
 [ -f "$IMG/yaul-env.sh" ] || { echo "no Yaul image at $IMG: run tools/fetch_yaul.py $IMG" >&2; exit 1; }
 
 mkdir -p "$OUT" "$ROOT/generated"
@@ -46,12 +56,20 @@ else
     python3 "$ROOT/tools/import_course.py" --record "$1" "${@:2}" \
         --output "$ROOT/generated/course.h" --record-output "$ROOT/generated/course_record.c" >/dev/null
 fi
-python3 "$ROOT/ref/sat/gen_sat.py" --stubs "$OUT" "$ROOT/ref/sat/build/host-small/stubs.c"
+python3 "$ROOT/ref/sat/gen_sat.py" --stubs "$OUT" "$STUB_DIR/stubs.c"
 
 mkdir -p "$IMG/work" "$IMG/proc" "$IMG/dev"
 mountpoint -q "$IMG/work" || mount --bind "$ROOT" "$IMG/work"
 mountpoint -q "$IMG/proc" || mount -t proc proc "$IMG/proc"
 mountpoint -q "$IMG/dev" || mount --bind /dev "$IMG/dev"
+if [ "$CAMERA" = 1 ]; then
+    chroot "$IMG" /bin/bash -c "source /yaul-env.sh && export PATH=\"\$YAUL_INSTALL_ROOT/bin:\$PATH\" && \
+        FZX_FASTFLOAT=1 FZX_SOURCE_CAMERA=1 REF_CAMERA_ART=$ART bash /work/ref/sat/closure.sh /work/saturn/build-orig-camera && \
+        make -B -C /work/saturn FZX_SIM=orig FZX_IMPORTED=1 FZX_SOURCE_CAMERA=1 \
+          FZX_CLOSURE=/work/saturn/build-orig-camera/ref_closure.o FZX_ROM_BOOT=$ROM_BOOT FZX_SOURCE_HUD=${FZX_SOURCE_HUD:-0}"
+    echo "built source-camera original-race image"
+    exit 0
+fi
 # Yaul does not track the closure as a link input: drop the linked outputs so the image relinks.
 chroot "$IMG" /bin/bash -c "source /yaul-env.sh && export PATH=\"\$YAUL_INSTALL_ROOT/bin:\$PATH\" && \
     FZX_FASTFLOAT=1 bash /work/ref/sat/closure.sh /work/saturn/build-orig && \

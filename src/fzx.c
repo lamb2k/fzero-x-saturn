@@ -42,6 +42,14 @@ static bool initialized;
 /* FZX_SIM_ORIG: the pose last handed over, and whether current_ring tracks it. */
 static fzx_pose_t pose;
 static bool pose_valid, pose_tracked;
+#if FZX_SOURCE_CAMERA
+static fzx_view_t source_view;
+static bool source_view_valid;
+void fzx_set_camera(const fzx_view_t *v) {
+    if(v) { source_view=*v; source_view_valid=true; }
+    else source_view_valid=false;
+}
+#endif
 
 static sh2z_vec3_t
 scaled_add(sh2z_vec3_t a, sh2z_vec3_t b, sh2z_fx_t scale)
@@ -336,6 +344,12 @@ fzx_step(uint32_t buttons)
 static int64_t
 clip_distance(sh2z_vec3_t v, unsigned plane)
 {
+#if FZX_SOURCE_CAMERA
+    if(source_view_valid) {
+        const int32_t p[3]={v.x,v.y,v.z};
+        return fzx_view_plane(&source_view,p,plane);
+    }
+#endif
     switch(plane) {
     case 0: return (int64_t)v.z-SH2Z_ONE;
     case 1: return (int64_t)FX(480)-v.z;
@@ -354,6 +368,15 @@ static void
 classify(sh2z_vec3_t v,uint8_t *out,uint8_t *in)
 {
     uint8_t o=0,n=0;
+#if FZX_SOURCE_CAMERA
+    if(source_view_valid) {
+        for(unsigned p=0;p<6;++p) {
+            if(clip_distance(v,p)<0)o|=(uint8_t)(1u<<p);
+            else n|=(uint8_t)(1u<<p);
+        }
+        *out=o;*in=n;return;
+    }
+#endif
     if(v.z<SH2Z_ONE) o|=1u; else n|=1u;
     if(v.z>FX(480)) o|=2u; else n|=2u;
     const int32_t x=v.x>>8,y=v.y>>8,z=v.z>>8;
@@ -397,6 +420,20 @@ project(sh2z_fx_t a, sh2z_fx_t z)
 static void
 vertex_screen(sh2z_vec3_t q,int16_t *sx,int16_t *sy)
 {
+#if FZX_SOURCE_CAMERA
+    if(source_view_valid) {
+        const int32_t p[3]={q.x,q.y,q.z};int32_t xy[2];
+        if(!fzx_view_project(&source_view,p,xy)) {
+            frame.flags|=FZX_FRAME_OVERFLOW;*sx=0;*sy=0;return;
+        }
+        int32_t x=xy[0]/65536,y=xy[1]/65536;
+        if(x<source_view.clip[0])x=source_view.clip[0];
+        if(x>=source_view.clip[2])x=source_view.clip[2]-1;
+        if(y<source_view.clip[1])y=source_view.clip[1];
+        if(y>=source_view.clip[3])y=source_view.clip[3]-1;
+        *sx=(int16_t)x;*sy=(int16_t)y;return;
+    }
+#endif
     const int32_t x=160+project(q.x,q.z);
     const int32_t y=112-project(q.y,q.z);
     *sx=(int16_t)(x<0?0:(x>=FZX_WIDTH?FZX_WIDTH-1:x));
@@ -418,7 +455,12 @@ commit_polygon(fzx_poly_t *p)
 static void
 emit_polygon(const sh2z_vec3_t *v,uint32_t n,uint16_t color)
 {
-    if(frame.count>=FZX_MAX_POLYGONS) return;
+    if(frame.count>=FZX_MAX_POLYGONS) {
+#if FZX_SOURCE_CAMERA
+        frame.flags|=FZX_FRAME_OVERFLOW;
+#endif
+        return;
+    }
     fzx_poly_t *p=&frame.polys[frame.count];
     p->color=color; p->flags=0; p->depth=0;
     for(uint32_t i=0;i<4;++i) {
@@ -436,6 +478,23 @@ emit_polygon(const sh2z_vec3_t *v,uint32_t n,uint16_t color)
 static void
 draw_quad_inside(sh2z_vec3_t a,sh2z_vec3_t b,sh2z_vec3_t c,sh2z_vec3_t d,uint16_t color,unsigned inside)
 {
+#if FZX_SOURCE_CAMERA
+    if(source_view_valid) {
+        const int32_t in[4][3]={{a.x,a.y,a.z},{b.x,b.y,b.z},{c.x,c.y,c.z},{d.x,d.y,d.z}};
+        int32_t out[10][3];
+        const int n=fzx_view_clip(&source_view,in,4,out);
+        if(n<0) { frame.flags|=FZX_FRAME_OVERFLOW;return; }
+        if(n<3)return;
+        sh2z_vec3_t vertices[10];
+        for(int i=0;i<n;++i)vertices[i]=(sh2z_vec3_t){out[i][0],out[i][1],out[i][2]};
+        if(n<=4)emit_polygon(vertices,(uint32_t)n,color);
+        else for(int i=1;i+1<n;++i) {
+            const sh2z_vec3_t triangle[3]={vertices[0],vertices[i],vertices[i+1]};
+            emit_polygon(triangle,3,color);
+        }
+        return;
+    }
+#endif
     sh2z_vec3_t buffers[2][CLIP_CAP];
     buffers[0][0]=a; buffers[0][1]=b; buffers[0][2]=c; buffers[0][3]=d;
     uint32_t count=4; unsigned source=0;
@@ -475,7 +534,12 @@ draw_window_quad(uint32_t a,uint32_t b,uint32_t c,uint32_t d,uint16_t color)
 {
     if(out_codes[a]&out_codes[b]&out_codes[c]&out_codes[d]) return;
     if((in_codes[a]&in_codes[b]&in_codes[c]&in_codes[d])==0x3Fu) {
-        if(frame.count>=FZX_MAX_POLYGONS) return;
+        if(frame.count>=FZX_MAX_POLYGONS) {
+#if FZX_SOURCE_CAMERA
+        frame.flags|=FZX_FRAME_OVERFLOW;
+#endif
+        return;
+    }
         fzx_poly_t *p=&frame.polys[frame.count];
         const uint32_t k[4]={a,b,c,d};
         p->color=color; p->flags=0; p->depth=0;
@@ -547,11 +611,20 @@ fzx_render(void)
         {view_up.x,view_up.y,view_up.z,-sh2z_vec3_dot(view_up,camera)},
         {view_forward.x,view_forward.y,view_forward.z,-sh2z_vec3_dot(view_forward,camera)}
     }};
-    const uint32_t visible=ring_count<VISIBLE_RINGS?ring_count:VISIBLE_RINGS;
+    frame.count=0;
+    frame.speed=pose_valid?pose.speed:(uint32_t)(((int64_t)speed*100)/SH2Z_ONE);
+    frame.lap=laps;frame.flags=imported?FZX_FRAME_IMPORTED:0;
+    uint32_t visible=ring_count<VISIBLE_RINGS?ring_count:VISIBLE_RINGS;
+#if FZX_SOURCE_CAMERA
+    if(source_view_valid)visible=ring_count;
+#endif
     /* Include two rings behind the craft so near-plane clipping stays visible. Only the rings
      * drawn are transformed (visible + 1: each strip joins a ring to its successor), in at most
      * two runs where the window wraps past the course's last ring. */
-    const uint32_t first=(current_ring+ring_count-2)%ring_count;
+    uint32_t first=(current_ring+ring_count-2)%ring_count;
+#if FZX_SOURCE_CAMERA
+    if(source_view_valid)first=0;
+#endif
     const uint32_t window=visible+1u<ring_count?visible+1u:ring_count;
     const uint32_t run1=first+window<=ring_count?window:ring_count-first;
     sh2z_transform_plan_t plan;
@@ -559,6 +632,17 @@ fzx_render(void)
     for(uint32_t run=0;run<2;++run) {
         const uint32_t start=run?0u:first,count=run?window-run1:run1;
         if(count==0) continue;
+#if FZX_SOURCE_CAMERA
+        if(source_view_valid) {
+            for(uint32_t i=start*4;i<(start+count)*4;++i) {
+                const int32_t p[3]={track_mesh[i].x,track_mesh[i].y,track_mesh[i].z};int32_t q[3];
+                if(!fzx_view_transform(&source_view,p,q)) {
+                    frame.count=0;frame.flags|=FZX_FRAME_OVERFLOW;return &frame;
+                }
+                transformed[i]=(sh2z_vec3_t){q[0],q[1],q[2]};
+            }
+        } else
+#endif
         if(use_prepared) (void)sh2z_transform_plan_execute_range(transformed+start*4,&plan,start*4,count*4);
         else for(uint32_t i=start*4;i<(start+count)*4;++i)
             transformed[i]=sh2z_mat34_transform_point(&view,track_mesh[i]);
@@ -570,9 +654,6 @@ fzx_render(void)
             }
         }
     }
-    frame.count=0;
-    frame.speed=pose_valid?pose.speed:(uint32_t)(((int64_t)speed*100)/SH2Z_ONE);
-    frame.lap=laps;frame.flags=imported?FZX_FRAME_IMPORTED:0;
     for(uint32_t j=0;j<visible;++j) {
         uint32_t i=(first+j)%ring_count,n=(i+1)%ring_count;
         const uint32_t a=i*4,b=n*4;
@@ -593,6 +674,17 @@ fzx_render(void)
     };
     sh2z_vec3_t ship[6];
     uint8_t so[6],si[6];
+#if FZX_SOURCE_CAMERA
+    if(source_view_valid) {
+        for(unsigned i=0;i<6;++i) {
+            const int32_t p[3]={body[i].x,body[i].y,body[i].z};int32_t q[3];
+            if(!fzx_view_transform(&source_view,p,q)) {
+                frame.count=0;frame.flags|=FZX_FRAME_OVERFLOW;return &frame;
+            }
+            ship[i]=(sh2z_vec3_t){q[0],q[1],q[2]};
+        }
+    } else
+#endif
     sh2z_mat34_transform_points(ship,&view,body,6);
     for(uint32_t k=0;k<6;++k) classify(ship[k],&so[k],&si[k]);
     static const uint8_t faces[5][3]={{0,1,3},{0,3,2},{1,2,3},{0,4,1},{0,2,5}};

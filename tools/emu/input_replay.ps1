@@ -12,7 +12,9 @@ param(
     [Parameter(Mandatory)] [string]$Sym,
     [Parameter(Mandatory)] [string]$OutDir,
     [int]$Port = 9641,
-    [int]$TimeoutSeconds = 240
+    [int]$TimeoutSeconds = 240,
+    [string]$SourceCameraTrace = '',
+    [int[]]$HoldTicks = @()
 )
 $ErrorActionPreference = 'Stop'
 $repo = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..')) + [IO.Path]::DirectorySeparatorChar
@@ -30,6 +32,17 @@ if ($words.Count -lt 1 -or $words.Count -gt 12288 -or
     throw 'Input log must contain 1..12288 hex words'
 }
 $all = ($words -join '').ToUpperInvariant()
+$cameraExpected = @{}
+if ($SourceCameraTrace) {
+    foreach ($line in Get-Content -LiteralPath $SourceCameraTrace) {
+        $parts = $line -split '\s+'
+        if ($parts.Count -ne 65) { throw 'Invalid source camera trace schema' }
+        if ($parts[1] -eq '0') { $cameraExpected[[int]$parts[0]+1] = ($parts[2..64] -join '').ToUpperInvariant() }
+    }
+}
+$targets = @(@($HoldTicks)+@($words.Count) | Sort-Object -Unique)
+if (@($targets | Where-Object { $_ -lt 1 -or $_ -gt $words.Count }).Count) { throw 'Hold tick outside replay' }
+$cameraSamples = @()
 function Addr([uint32]$a) { '0x{0:X8}' -f $a }
 function S([string]$name) {
     $line = Get-Content -LiteralPath $Sym | Where-Object {
@@ -80,18 +93,38 @@ try {
     }
     WriteWord (S '_fzx_debug_autopilot') 0
     WriteWord (S '_fzx_debug_n64') 0
-    WriteWord (S '_fzx_debug_replay_count') $words.Count
+    WriteWord (S '_fzx_debug_replay_count') $targets[0]
     WriteWord (S '_fzx_debug_restart') 1
     Mcp resume @{} | Out-Null
-    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
     $count = S '_fzx_input_count'
-    do {
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    foreach ($target in $targets) {
+        WriteWord (S '_fzx_debug_replay_count') $target
+        do {
+            Start-Sleep -Seconds 1
+            $done = ReadWord $count
+            if ($SourceCameraTrace -and (ReadWord (S '_fzx_camera_status')) -ge 2) {
+                throw "Camera renderer fault while advancing to tick $target"
+            }
+        } while ($done -ne $target -and (Get-Date) -lt $deadline)
+        if ($done -ne $target) { throw "Replay did not reach exact tick $target (at $done)" }
+        # Simulation is held at N; display remains active for settled capture.
         Start-Sleep -Seconds 1
-        $done = ReadWord $count
-    } while ($done -ne $words.Count -and (Get-Date) -lt $deadline)
-    if ($done -ne $words.Count) { throw 'Replay did not reach the exact input count' }
-    # Simulation is held at N; keep the display active through several complete frames.
-    Start-Sleep -Seconds 1
+        if ($SourceCameraTrace) {
+            $cameraHex = Hex (Mcp memory_read @{address=(Addr (S '_fzx_source_camera'));length=252})
+            $cameraStatus = ReadWord (S '_fzx_camera_status')
+            $overflows = ReadWord (S '_fzx_camera_overflows')
+            if ($cameraStatus -ne 1 -or $overflows -ne 0) { throw "Camera render fault: status=$cameraStatus overflow=$overflows" }
+            if (-not $cameraExpected.ContainsKey([int]$target) -or $cameraHex.ToUpperInvariant() -ne $cameraExpected[[int]$target]) {
+                throw "Source camera differs from host at tick $target"
+            }
+            $viewHex = Hex (Mcp memory_read @{address=(Addr (S '_fzx_native_view'));length=80})
+            $cameraSamples += @{tick=$target;camera_hex=$cameraHex;view_hex=$viewHex;status=$cameraStatus;overflows=$overflows}
+            $cameraSamples | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $OutDir 'camera-samples.json')
+            Mcp framebuffer_screenshot @{path=(Join-Path $OutDir "camera-$target.png").Replace('\','/')} | Out-Null
+            Write-Output "FZX-VIEW tick=$target source-camera=match overflow=0"
+        }
+    }
     $pose = Hex (Mcp memory_read @{address=(Addr (S '_orig_pose'));length=76})
     $stateFlags = [Convert]::ToUInt32($pose.Substring(144,8),16)
     $raceTime = [Convert]::ToUInt32($pose.Substring(136,8),16)

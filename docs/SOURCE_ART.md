@@ -36,7 +36,8 @@ tree, after resolving symlinks; tracked repository destinations are refused.
 | Mute City road materials | Verified retail MIO0 decode and seven RGBA16 surfaces | Open: source cross sections, material selection, UV seams and ordered traversal |
 | Mute City floor, skyline, clouds, sky | Source locations identified | Open |
 | Dash/pit, other effects, countdown and finish | Source coverage incomplete | Open |
-| Source camera, entry/results and audio | Not integrated | Open |
+| Source camera | Original race closure and native view/scissor integration, default off | Source-reference visuals, broader mode coverage and performance remain open |
+| Entry/results UI and audio | Not integrated | Open |
 | Remaining courses, machines, modes, rivals and persistence | Gate 6 ledger required | Open |
 
 ## Source details that matter
@@ -112,7 +113,7 @@ The isolated image repeats the 9,907-input, 121,814 ms finish and has SHA256
 Its unchanged reference closure was reused, SHA256
 `a3994f200d0fa9c291c47ba27b7d131bce6684dff83d353e1225e00972cf3149`.
 
-Current local memory footprint (SH-2 link map, not hardware high-water evidence):
+Earlier HUD-only memory footprint (SH-2 link map, not hardware high-water evidence):
 
 | Region | Footprint |
 | --- | --- |
@@ -383,3 +384,56 @@ its camera-control program is byte-identical to the emulator-tested program,
 SHA-256 `0425b1c179d0b411c4208226f40ade4051f01935de5658806bfa121dbfef4a39`.
 Changing a contributing input schedule fails the receipt check. Default-off host
 reference gates pass. No renderer feature or performance switch is promoted.
+
+
+## Native source camera integration (default off)
+
+`FZX_SOURCE_CAMERA=1` now supplies the original view/projection matrices to the
+race renderer. The adapter transposes source row-vector matrices, reverses camera
+Z, retains the course's 1/16 world scale, uses both source focal factors and
+projection offsets, and crops eight source pixels from the top. It preserves
+`Camera_Draw`'s effective single-player Time Attack scissor, including the ordinary
+12/16/308/224 override rather than just the camera's stored rectangle. Native
+coordinates are 12/8/308/216, half-open. X changes view; Z looks back.
+
+The initial racer publication waits for the first ordinary source tick before
+reading camera matrices; no extra simulation tick is inserted. Rotation uses
+Q2.30, positions Q16.16. Clipped intersections use Q0.32 fractions and inward
+integer rounding so no output vertex remains outside an already processed plane.
+The renderer considers every course ring, then clips it, instead of retaining
+only the old forward window. Capacity/range errors set a sticky debugger fault.
+This still draws the temporary road/craft; it is not the source track renderer.
+
+HOST: 16,000 distant-world point projections stay within 1/16 pixel of the
+independent source matrix equation. A 12,000-polygon crossing corpus stays inside
+all six planes; the actual render path respects half-open screen bounds and
+flags command overflow. Wrong transpose, crop, focal scale, omitted inward
+rounding and restored forward-window controls fail. GCC/Clang and ASan/UBSan
+pass. Knob-off frame corpus remains `0027e206`. The isolated suite has 59 tests:
+58 pass, with only the checkout-metadata hygiene test skipped in the archive;
+the real checkout hygiene scan passes separately. All four compiler/optimization
+camera streams and restart controls still pass.
+
+EMULATOR: the isolated source-only image replays 9,907 fixed inputs, including
+four view switches and a held look-back, and finishes in 121,814 ms, equal to the
+host. Nineteen held camera packets match the host bit for bit across intro, race,
+view changes, look-back, finish and spectate. All nineteen native adapter packets
+also match independent binary32 conversion, and a wrong focal-byte control fails.
+No renderer overflow occurs. A prior unmodified-input run has the same finish
+and eleven matching held packets. The final program SHA256 is
+`3d761af2e3f4c6326692d1a289e54f30ca74d352f71bcb544629934c490302b8`.
+The synthetic-content original-race camera image also builds in the CI recipe.
+
+| Source-camera race memory (link map only) | Footprint |
+| --- | --- |
+| ELF text / data / BSS | 247,268 / 12,096 / 735,648 bytes |
+| High-work-RAM end / stack top | 0x060f6ed4 / 0x06100000; 37,164-byte gap, not measured stack use |
+| Measured stand-in allocation in low work RAM | 438,464 bytes |
+| HUD atlas / CPU command buffers | 14,080 VDP1 bytes / 37,056 bytes, unchanged |
+
+Frame cost is over budget. The game's legacy 16-bit phase timers can wrap on this
+slower path, so their maxima are not a valid performance qualification. The
+previous corrected camera-closure probe timings remain the available MODELLED
+simulation-plus-camera evidence. Source-scene geometry/materials, source-reference
+moving visuals, fractional viewport transitions, full mode coverage, stack
+high-water measurement and HARDWARE acceptance remain open. No 60 fps claim.

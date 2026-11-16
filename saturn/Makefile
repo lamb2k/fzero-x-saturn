@@ -8,6 +8,7 @@ endif
 SH_PROGRAM := fzero-x-saturn
 FZX_SIM ?= proto
 FZX_SOURCE_HUD ?= 0
+FZX_SOURCE_CAMERA ?= 0
 ifeq ($(FZX_SIM),orig)
 ifeq ($(FZX_SOURCE_HUD),1)
 SH_BUILD_DIR := build-orig-hud/yaul
@@ -16,6 +17,10 @@ else
 SH_BUILD_DIR := build-orig/yaul
 SH_OUTPUT_DIR := build-orig
 endif
+endif
+ifeq ($(FZX_SOURCE_CAMERA),1)
+SH_BUILD_DIR := build-orig-camera/yaul
+SH_OUTPUT_DIR := build-orig-camera
 endif
 include $(YAUL_INSTALL_ROOT)/share/build.pre.mk
 
@@ -66,6 +71,16 @@ else
 $(error FZX_SIM must be proto or orig)
 endif
 
+ifeq ($(FZX_SOURCE_CAMERA),1)
+ifneq ($(FZX_SIM),orig)
+$(error FZX_SOURCE_CAMERA=1 requires the original simulation)
+endif
+SH_CFLAGS += -DFZX_SOURCE_CAMERA=1
+FZX_CAMERA_SRCS := ../src/fzx_view.c
+else ifneq ($(FZX_SOURCE_CAMERA),0)
+$(error FZX_SOURCE_CAMERA must be 0 or 1)
+endif
+
 # Partial native HUD integration; source scene/audio gates remain open.
 ifeq ($(FZX_SOURCE_HUD),1)
 ifneq ($(FZX_SIM),orig)
@@ -83,7 +98,7 @@ FZX_HUD_SRCS := ../src/fzx_hud.c hud_native.c
 else ifneq ($(FZX_SOURCE_HUD),0)
 $(error FZX_SOURCE_HUD must be 0 or 1)
 endif
-SH_SRCS := main.c ../src/fzx.c $(FZX_ORIG_SRCS) $(FZX_HUD_SRCS) $(wildcard $(SH2ZAM_ROOT)/saturn/src/*.c)
+SH_SRCS := main.c ../src/fzx.c $(FZX_ORIG_SRCS) $(FZX_HUD_SRCS) $(FZX_CAMERA_SRCS) $(wildcard $(SH2ZAM_ROOT)/saturn/src/*.c)
 SH_CFLAGS += -DFZX_SH2_DIVU=1 -O2 -std=c11 -Wall -Wextra -I../include \
              -I$(SH2ZAM_ROOT)/saturn/include -DSH2Z_REQUIRE_SH2=1
 

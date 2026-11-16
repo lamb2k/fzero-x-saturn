@@ -12,6 +12,15 @@ set -euo pipefail
 REF=$(cd "$(dirname "$0")/.." && pwd)
 HOST=$REF/build/gcc-O0
 SMALL=$REF/sat/build/host-small
+CAMERA=${FZX_SOURCE_CAMERA:-0}
+CAMERA_ARGS=()
+if [ "$CAMERA" = 1 ]; then
+    ART=${REF_CAMERA_ART:-fixture}
+    HOST=$HOST-camera-$ART
+    SMALL=$SMALL-camera-$ART
+    "$REF/build.sh" gcc -O0 >/dev/null
+    CAMERA_ARGS=(--camera-trace "$SMALL/reference-camera.txt")
+fi
 [ -x "$HOST/fzx-ref" ] || "$REF/build.sh" gcc -O0 >/dev/null
 mkdir -p "$SMALL"
 python3 "$REF/fixture_course.py" "$SMALL/course.bin"
@@ -24,15 +33,31 @@ while read -r name _; do
             --byte-order big --rom "$REF_STUB_ROM" --inputs "$REF/inputs/$name.txt" >/dev/null
     fi
 done < "$REF/expected/fixture.hashes"
+if [ -n "${REF_STUB_EXTRA_INPUTS:-}" ]; then
+    [ -n "${REF_STUB_EXTRA_COURSE:-}" ] && [ -n "${REF_STUB_ROM:-}" ] || {
+        echo "extra replay requires local course and ROM" >&2; exit 1;
+    }
+    REF_STUB_REPORT="$SMALL/extents.txt" "$HOST/fzx-ref" --course "$REF_STUB_EXTRA_COURSE" \
+        --byte-order big --rom "$REF_STUB_ROM" --inputs "$REF_STUB_EXTRA_INPUTS" \
+        --trace "$SMALL/reference-race.txt" "${CAMERA_ARGS[@]}" >/dev/null
+fi
 awk '{ if ($2 > m[$1]) m[$1] = $2; seen[$1] = 1 }
      END { for (k in seen) { s = 2 * m[k]; if (s < 64) s = 64; printf "%s 0x%X\n", k, int((s + 63) / 64) * 64 } }' \
     "$SMALL/extents.txt" | sort > "$SMALL/sizes.txt"
 objs=$(ls "$HOST"/*.o | grep -v '/stubs.o$')
-REF_STUB_SIZES="$SMALL/sizes.txt" python3 "$REF/gen_stubs.py" "$SMALL/stubs.c" "$HOST"/*.i -- $objs >/dev/null
+REF_STUB_CALLS=0 REF_STUB_SIZES="$SMALL/sizes.txt" python3 "$REF/gen_stubs.py" "$SMALL/stubs.c" "$HOST"/*.i -- $objs >/dev/null
 gcc -m32 -fno-pic -O0 -w -c "$SMALL/stubs.c" -o "$SMALL/stubs.o"
 gcc -m32 -no-pie $objs "$SMALL/stubs.o" -lm -o "$SMALL/fzx-ref"
 while read -r name want; do
     got=$("$SMALL/fzx-ref" --course "$SMALL/course.bin" --byte-order big --inputs "$REF/inputs/$name.txt" | awk '{print $4}')
     [ "$got" = "$want" ] || { echo "sized stubs change $name: $got != $want" >&2; exit 1; }
 done < "$REF/expected/fixture.hashes"
+if [ -n "${REF_STUB_EXTRA_INPUTS:-}" ]; then
+    CAMERA_ARGS=()
+    if [ "$CAMERA" = 1 ]; then CAMERA_ARGS=(--camera-trace "$SMALL/small-camera.txt"); fi
+    "$SMALL/fzx-ref" --course "$REF_STUB_EXTRA_COURSE" --byte-order big --rom "$REF_STUB_ROM" \
+        --inputs "$REF_STUB_EXTRA_INPUTS" --trace "$SMALL/small-race.txt" "${CAMERA_ARGS[@]}" >/dev/null
+    cmp "$SMALL/reference-race.txt" "$SMALL/small-race.txt"
+    if [ "$CAMERA" = 1 ]; then cmp "$SMALL/reference-camera.txt" "$SMALL/small-camera.txt"; fi
+fi
 echo "host: measured stand-in sizes keep all fixture hashes ($(awk '{s += strtonum($2)} END {print s}' "$SMALL/sizes.txt") bytes)"

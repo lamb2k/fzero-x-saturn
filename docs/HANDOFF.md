@@ -19,8 +19,8 @@ Limit: 50 lines. Replace this file each session; do not append.
   Whole-race finish time matches a host input replay. HARDWARE is UNRUN.
 - Verified retail export: five Blue Falcon LODs and 22 textures, all local.
   Native timer/speed/lap/energy and lap flashes run under FZX_SOURCE_HUD=1.
-  HOST: 51 Python tests; HUD/flash/setup/material oracles, overflow/mutation controls.
-  EMULATOR: isolated 86ea5d3, 9,907 inputs finish in 121,814 ms, equal to host.
+  Source-camera view/scissor integration is default-off; 19 held SH-2 packets match.
+  A 9,907-input replay with view/look-back controls finishes in 121,814 ms, as on host.
 - Local performance WIP adds bounded hitch logs and corrects MISS to elapsed-1.
   Rendering peaks at the same section each lap (up to 88% of a field before changes).
 - FZX_CLIP_DIVU defaults off. HOST frame corpus hash 0027e206 is unchanged;
@@ -35,10 +35,10 @@ Limit: 50 lines. Replace this file each session; do not append.
 1. FZX_TEST_ROM is saved locally for Windows; forward it privately into WSL.
    Moving Blue Falcon now passes 72 host/SH-2 pose/light checks. Native palettes
    still differ visually and are slow. Exact reuse is gated default-off; source
-   camera passes HOST/all 11 SH-2 scenarios; worst tick is 17.6 ms MODELLED.
-2. Connect source camera matrices, effective scissor and visibility; then road/audio.
-   Re-measure the source-art scene. For clip WIP, use fixed recorded pad inputs
-   before promotion: the live diagnostic autopilot depends on render/catch-up cadence.
+   camera/view passes HOST and SH-2; source-scene performance remains over budget.
+2. Replace the temporary road/craft with source content, then source scenery/audio.
+   Measure stack high water (37,164-byte static gap) and source-scene cost. Use fixed inputs
+   for comparisons; the live diagnostic autopilot depends on render/catch-up cadence.
 3. Cut 18.5 s setup, load the CPU run-out racing line from ROM, rerun all 10 SH-2
    probes after closure changes, then prepare the owner console run.
 4. Expand the faithful slice through Gate 6's content/mode coverage ledger.

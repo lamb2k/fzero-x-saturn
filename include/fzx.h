@@ -14,6 +14,13 @@
 #define FZX_BRAKE 8u
 #define FZX_RESET 16u
 #define FZX_FRAME_IMPORTED 1u
+#define FZX_FRAME_OVERFLOW 2u
+#ifndef FZX_SOURCE_CAMERA
+#define FZX_SOURCE_CAMERA 0
+#endif
+#if FZX_SOURCE_CAMERA
+#include "fzx_view.h"
+#endif
 
 /* Simulation selector (docs/POC_PLAN.md, lesson 1). PROTO is the prototype
  * centreline driver, never the port. ORIG is the original race code (the
@@ -85,6 +92,10 @@ typedef struct {
     uint32_t speed, lap;
 } fzx_pose_t;
 FZX_EXPORT void fzx_set_pose(const fzx_pose_t *pose);
+#if FZX_SOURCE_CAMERA
+/* Native view already converted from source camera matrices. NULL clears it. */
+void fzx_set_camera(const fzx_view_t *view);
+#endif
 /* Test driver only (the Saturn image's debugger autopilot): a stick x in -63..63, negative to
  * the left as the N64 stick, that turns the pose towards the centreline LOOKAHEAD rings ahead
  * of the ring it is on. 0 without a pose. */

@@ -241,6 +241,10 @@ orig_tick(void)
     if (d & PERIPHERAL_DIGITAL_L) n64 |= 0x2000;
     if (d & PERIPHERAL_DIGITAL_R) n64 |= 0x0010;
     if (d & PERIPHERAL_DIGITAL_Y) n64 |= 0x0004;
+#if FZX_SOURCE_CAMERA
+    if (d & PERIPHERAL_DIGITAL_X) n64 |= 0x0001; /* source C-right: view */
+    if (d & PERIPHERAL_DIGITAL_Z) n64 |= 0x0008; /* source C-up: look back */
+#endif
     if (d & PERIPHERAL_DIGITAL_LEFT) sx = -63;
     if (d & PERIPHERAL_DIGITAL_RIGHT) sx = 63;
     if (d & PERIPHERAL_DIGITAL_UP) sy = 63;
@@ -257,6 +261,12 @@ pose_vec(const float *v, float scale)
 }
 
 static RefPose orig_pose;
+#if FZX_SOURCE_CAMERA
+RefCamera fzx_source_camera;
+fzx_view_t fzx_native_view;
+volatile uint32_t fzx_camera_status; /* 1 valid, 2 bad source view, 3 renderer capacity/range */
+volatile uint32_t fzx_camera_overflows;
+#endif
 static float orig_start_energy = 1.0f;
 /* Debugger stand-in for pressing Start (tools/emu/orig_drive.ps1 step RS). */
 volatile uint32_t fzx_debug_restart;
@@ -324,6 +334,26 @@ orig_publish(void)
     p.speed = (uint32_t)(orig_pose.speed > 0.0f ? orig_pose.speed * 21.6f + 0.5f : 0.0f);
     p.lap = (uint32_t)(orig_pose.lap > 0 ? orig_pose.lap : 0);
     fzx_set_pose(&p);
+#if FZX_SOURCE_CAMERA
+    /* Camera matrices are produced by the first ordinary source tick, not init.
+     * Publishing the initial racer/energy must not advance the simulation. */
+    if(!fzx_input_count) {
+        fzx_set_camera(NULL);fzx_camera_status=0;return;
+    }
+    float scissor[4];
+    ref_camera(&fzx_source_camera);
+    if(fzx_source_camera.faults || !ref_camera_draw_scissor(scissor) ||
+       !fzx_view_from_source(&fzx_native_view,
+           (const float(*)[4])fzx_source_camera.view,
+           (const float(*)[4])fzx_source_camera.projection,
+           fzx_source_camera.viewport,scissor,fzx_source_camera.near_plane,
+           fzx_source_camera.far_plane)) {
+        fzx_camera_status=2;
+        for(;;) {}
+    }
+    fzx_set_camera(&fzx_native_view);
+    if(fzx_camera_status!=3)fzx_camera_status=1;
+#endif
 }
 #endif
 
@@ -495,10 +525,16 @@ main(void)
         const uint16_t render_start = cpu_frt_count_get();
         fzx_timing.publish = (uint16_t)(render_start - publish_start);
         const fzx_frame_t *frame = fzx_render();
+#if FZX_SOURCE_CAMERA
+        if(frame->flags&FZX_FRAME_OVERFLOW) {
+            fzx_camera_status=3;++fzx_camera_overflows;
+        }
+#endif
         commands_build(frame);
         fzx_timing.render = (uint16_t)(cpu_frt_count_get() - render_start);
         const uint32_t field_counts = fzx_timing.field ? fzx_timing.field : 1u;
 
+#if !FZX_SOURCE_CAMERA
         /* X clears the worst-case figures; X+Z burns 1.25 fields of CPU so the miss counter
          * must climb (the negative control: a detector that cannot trip proves nothing). */
         if ((digital.held.raw & PERIPHERAL_DIGITAL_X) && !(pad_down & PERIPHERAL_DIGITAL_Z)) {
@@ -506,8 +542,12 @@ main(void)
             fzx_timing.sim_max = 0;
             fzx_timing.misses = 0;
         }
-        if (fzx_debug_overload != 0 ||
-            ((pad_down & PERIPHERAL_DIGITAL_X) && (pad_down & PERIPHERAL_DIGITAL_Z))) {
+#endif
+        if (fzx_debug_overload != 0
+#if !FZX_SOURCE_CAMERA
+            || ((pad_down & PERIPHERAL_DIGITAL_X) && (pad_down & PERIPHERAL_DIGITAL_Z))
+#endif
+            ) {
             const uint32_t burn = field_counts + field_counts / 4u;
             while ((uint16_t)(cpu_frt_count_get() - loop_start) < burn) {
             }

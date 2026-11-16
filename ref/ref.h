@@ -50,6 +50,9 @@ void ref_camera_tick(void);
 void ref_camera(RefCamera* out);
 unsigned int ref_camera_count(void);
 int ref_camera_read(unsigned int index, RefCamera* out);
+/* Effective Camera_Draw scissor for the primary single-player Time Attack view.
+ * The draw-time override differs from Camera.currentScissor outside transitions. */
+int ref_camera_draw_scissor(float out[4]);
 #endif
 
 /* Bridge side. */

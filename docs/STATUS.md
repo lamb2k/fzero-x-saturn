@@ -4,17 +4,19 @@ Limit: 80 lines. History lives in git. Plan: [POC_PLAN.md](POC_PLAN.md).
 
 ## Playable extent
 
-Nothing of the original game is playable. The workbench drives a synthetic
-test circuit with the **prototype driver** (`FZX_SIM=proto`), which is not the
-port. The Saturn image builds in CI and boots on an emulator (Yaba Sanshiro,
-EMULATOR tier); it has never run on a console. The importer has only run on synthetic records.
+Locally, with the owner's ROM: a Time Attack race on Mute City 1, original race code
+(`FZX_SIM=orig`, soft float) on the master SH-2, original placeholder visuals, race HUD,
+Start retries. A whole 3-lap race on the emulator matches the host reference to the ms
+(EMULATOR). 60 fps with rare hitches (38 missed fields in 9,455), course set-up about
+18.5 s (MODELLED). Never run on a console. CI images use the synthetic fixture and the
+prototype driver (`FZX_SIM=proto`) by default.
 
 ## Gates
 
 | Gate | State |
 | --- | --- |
 | 0 Ground rules | Done in CI (see card table) |
-| 1 GO / NO-GO | In progress. G1.1, G1.2, G1.5 done; G1.3 and G1.4 half done; next G1.4 render probe |
+| 1 GO / NO-GO | In progress. G1.1, G1.2, G1.5 done; G1.3 and G1.4 mostly; next cards in [HANDOFF.md](HANDOFF.md) |
 | 2 to 5 | Not started; wait for Gate 1 |
 
 ### Gate 0 cards
@@ -40,11 +42,14 @@ EMULATOR tier); it has never run on a console. The importer has only run on synt
 
 - HOST: core tests (GCC, Clang, sanitizers), importer and hygiene tests, reference harness determinism (ref/check.sh), per-tick op counts (ref/cost.sh).
 - MODELLED: G1.3 fixed-point cycles per tick (SH2ZAM model costs; no cache or bus).
-- EMULATOR: first boot and main-loop liveness of the CI image (G1.4, G1.5). HARDWARE: UNRUN.
+- EMULATOR: boot (G1.4, G1.5); SH-2 probes T01 to T10 STRICT; a whole Mute City race equal
+  to the host reference; frame timing from on-screen counters (overload control trips).
+  HARDWARE: UNRUN.
 
 ## Owner inputs outstanding
 
-- `FZX_TEST_ROM` location, needed before G1.6 (plan section 7, item 1).
+- Soft-float route vs POC_PLAN 4.2 (the CI default stays `proto` until decided).
+- A console run on the owner's flash cart (docs/HARDWARE_TEST.md).
 
 ## Blockers
 

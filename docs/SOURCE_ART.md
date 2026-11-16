@@ -34,7 +34,7 @@ tree, after resolving symlinks; tracked repository destinations are refused.
 | Blue Falcon, five authored LODs | Verified retail export, eight texture slots and bounded race-setup decoder gates pass | Open: native reflection/lighting, source model pose and texture submission |
 | Basic speed/time/lap/energy HUD sheets | Verified retail RGBA16 export; 14,080-byte native atlas | Timer/speed/lap/energy and lap flash draw on VDP1; countdown/results and source-reference comparison open |
 | Mute City road materials | Verified retail MIO0 decode and seven RGBA16 surfaces | Open: source cross sections, material selection, UV seams and ordered traversal |
-| Mute City floor, skyline, clouds, sky | Eleven source texture/palette objects verified; six skyline instances retain source bindings | Native sky/skyline admitted; floor/cloud drawing and complete source-reference comparison remain open |
+| Mute City floor, skyline, clouds, sky | Eleven source texture/palette objects verified; six skyline instances retain source bindings | Native sky/skyline admitted; original floor/cloud draw through a full race, but their cost and final source-reference quality remain open |
 | Dash/pit, other effects, countdown and finish | Source coverage incomplete | Open |
 | Source camera | Original race closure and native view/scissor integration, default off | Source-reference visuals, broader mode coverage and performance remain open |
 | Entry/results UI and audio | Not integrated | Open |
@@ -932,3 +932,68 @@ Private evidence: `emu/hud-cd` under FZX_EVIDENCE. This is a residency improveme
 whole-frame 60 fps and HARDWARE remain unproven. The recovered RAM makes room for
 original floor/cloud rendering; source road/craft, entry/selection and complete
 race presentation/audio still remain to be integrated.
+
+
+## Native original floor/cloud experiment (EMULATOR; cost blocked)
+
+`FZX_SOURCE_PLANES=1` draws the original Mute City floor and cloud textures on
+VDP1 from the original backdrop vertices and camera. It requires the source sky,
+skyline and both CD asset arms; it defaults off. `tools/plane_assets.py` verifies
+the original backdrop receipt and bindings, then prebakes a 262,144-byte
+`PLANES.PAK`. Both original 64x32 images are retained as the starting material:
+eight fog/fade variants and four subtile levels are laid out offline. No pixels
+are converted during racing. The pack loads directly into VDP1 RAM at boot.
+
+The floor source combiner is `(primitive - texel) * shade + texel`; the primitive
+is the original course fog color. Native fog uses eight prebaked levels and a
+mean-color Gouraud correction. Clouds retain original IA8 intensity/alpha through
+eight fade levels and 4x4 ordered coverage. Affine mapping, quantized fog/coverage
+and minimum-cell guard clipping are Saturn adaptations. A clipped 8x4-texel cell
+with more than four corners is decomposed into a convex fan; its source subtile
+is remapped to each piece rather than dropping geometry. Final look acceptance,
+particularly the magnified cloud/skyline coverage pattern, remains open.
+
+Cloud wind is fixed at source-valid speeds +0.0015/-0.002 instead of consuming
+simulation RNG. Original `Background_Update` advances it on each source input
+tick (two cloud-half updates per tick). All 19 held scroll states match this
+explicit policy. Original camera, skyline, floor and sky state remain unchanged.
+
+HOST GCC/Clang/repeat and undefined-behavior checks pass. Synthetic controls for
+material binding, capacity, callback failure, clipped five-corner cells and wide
+cloud UV derivatives fail as intended. All 9,907 recorded source views pass the
+sanitized geometry walk: maximum 298/640 commands and five adapted cells in a
+view. The previous native failure at input 1,173 now passes. A stale pack copy is
+rejected by its receipt. Flipping one byte of PLANES.PAK on a private disc copy
+yields plane load status 2 and integrity status 8 before race initialization. The default-off game binary remains byte-identical to
+the preceding HUD-CD candidate: 1,004,148 bytes, SHA-256
+`d842e075ef8a508a4fbfdfbb93b3a9ddb7a9e23e8b686e7ac1e5da6ba66304f7`.
+
+The isolated native candidate finishes 9,907 inputs and three laps in 121,814 ms
+with the same final pose and all 19 camera/skyline packets matching the baseline.
+All 19 native geometry hashes match HOST. Floor/sky vertices and unaffected
+background state also match. Both low-RAM scratch guards remain intact; the
+painted stack retains 12,612 untouched bytes. Local views at start and a banked
+lap-two position show the original floor content; temporary road/craft and debug
+text still prevent playable-port acceptance.
+
+| Allocation / measurement | Combined floor/cloud candidate |
+| --- | --- |
+| High work RAM end | 0x060fb2f4; 8,320 bytes above preceding HUD-CD arm |
+| VDP1 floor/cloud bank | 262,144 bytes |
+| Reserved plane Gouraud tables | 10,240 bytes |
+| Shared low-RAM boot scratch | 0x0026b0c0..0x0026bac0; 2,560 bytes |
+| Untouched stack guard after full replay | 12,612 bytes |
+| Plane drawing, 19 held views | 28.90-103.62 ms; mean 70.61 ms, MODELLED |
+
+This approach fails the 60 fps budget. Restricting the tile walk to the visible
+plane and using bounded native projection division reduced earlier costs, but
+did not make it affordable. Do not enable this arm as a performance-qualified
+recipe. Unblock it with a measured cheaper native plane path on the same content
+and views, then verify the combined scene's full-route budget. Reuse projected
+vertices or evaluate Saturn rotation backgrounds before further low-level work.
+Meanwhile native shared-texture road and machine integration can proceed.
+
+Image SHA-256: `5fc2593ccc5044c6f3df45de3c9e78bc0baeeb9cfada59332c11c2f6bd8971d2`.
+Private evidence: `emu/planes-fan` under FZX_EVIDENCE, including source-file hashes,
+full replay, geometry comparisons, memory guards and the knob-off identity.
+HARDWARE, whole-frame 60 fps and complete scene visual acceptance remain open.

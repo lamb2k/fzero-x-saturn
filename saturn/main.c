@@ -8,6 +8,16 @@
 #include <string.h>
 
 #include "fzx.h"
+#ifndef FZX_SOURCE_PLANES
+#define FZX_SOURCE_PLANES 0
+#endif
+#if FZX_SOURCE_PLANES
+#include "planes_native.h"
+static void *planes_vram,*planes_shades;
+#define FZX_SCENE_CAPACITY (FZX_MAX_POLYGONS+FZX_PLANE_MAX_DRAWS+1u)
+#else
+#define FZX_SCENE_CAPACITY FZX_MAX_POLYGONS
+#endif
 #ifndef FZX_SOURCE_SKYLINE
 #define FZX_SOURCE_SKYLINE 0
 #endif
@@ -72,7 +82,7 @@ enum {
     COMMAND_SYSTEM_CLIP = 0,
     COMMAND_LOCAL_COORD = 1,
     COMMAND_FIRST_POLYGON = 2,
-    COMMAND_CAPACITY = FZX_MAX_POLYGONS + 3u
+    COMMAND_CAPACITY = FZX_SCENE_CAPACITY + 3u
 #if FZX_SOURCE_HUD
         + FZX_HUD_MAX_DRAWS
 #endif
@@ -86,7 +96,14 @@ _Static_assert(COMMAND_CAPACITY <= VDP1_VRAM_DEFAULT_CMDT_COUNT,
 /* vdp1_cmdt_t supplies the 32-byte alignment required by the SDK/DMA.
  * Two buffers: the CPU builds one while VDP1 takes and draws the other. A buffer is reused only
  * after the sync that sent it has completed. */
-static vdp1_cmdt_t commands_buf[2][COMMAND_CAPACITY];
+/* One larger command bank avoids duplicating the new backdrop capacity.
+ * Wait for its prior draw before writing commands or Gouraud tables. */
+#if FZX_SOURCE_PLANES
+#define COMMAND_BUFFER_COUNT 1u
+#else
+#define COMMAND_BUFFER_COUNT 2u
+#endif
+static vdp1_cmdt_t commands_buf[COMMAND_BUFFER_COUNT][COMMAND_CAPACITY];
 static vdp1_cmdt_list_t command_lists[2];
 static vdp1_cmdt_t *commands = commands_buf[0];
 static vdp1_cmdt_list_t *command_list = &command_lists[0];
@@ -160,7 +177,7 @@ commands_init(void)
     const int16_vec2_t origin = INT16_VEC2_INITIALIZER(0, 0);
 
     memset(commands_buf, 0, sizeof(commands_buf));
-    for (uint32_t b = 0; b < 2; ++b) {
+    for (uint32_t b = 0; b < COMMAND_BUFFER_COUNT; ++b) {
         vdp1_cmdt_t *const c = commands_buf[b];
         command_lists[b].cmdts = c;
         command_lists[b].count = 3;
@@ -431,7 +448,7 @@ commands_build(const fzx_frame_t *frame)
         const unsigned bank=command_list==&command_lists[0]?0u:1u;
         void *shades=(void *)((uintptr_t)sky_partitions.texture_base+sky_shade_offset+
                              bank*FZX_SKY_MAX_COMMANDS*8u);
-        if(!fzx_sky_native(&commands[COMMAND_FIRST_POLYGON],FZX_MAX_POLYGONS-count,
+        if(!fzx_sky_native(&commands[COMMAND_FIRST_POLYGON],FZX_SCENE_CAPACITY-count,
                            &fzx_native_view,shades,&first)) {
             dbgio_printf("\x1b[H\x1b[2J SOURCE SKY DRAW FAILED %lu\n",(unsigned long)fzx_sky_stats.fault);
             dbgio_flush();vdp2_sync();for(;;) {}
@@ -442,7 +459,7 @@ commands_build(const fzx_frame_t *frame)
 #if FZX_SOURCE_SKYLINE
     if(fzx_input_count) {
         uint32_t skyline_count=0;
-        if(!fzx_skyline_native(&commands[COMMAND_FIRST_POLYGON+first],FZX_MAX_POLYGONS-count-first,
+        if(!fzx_skyline_native(&commands[COMMAND_FIRST_POLYGON+first],FZX_SCENE_CAPACITY-count-first,
                                &fzx_native_view,skyline_vram,&skyline_count)) {
             dbgio_printf("\x1b[H\x1b[2J SOURCE SKYLINE DRAW FAILED %lu\n",(unsigned long)fzx_skyline_stats.fault);
             dbgio_flush();vdp2_sync();for(;;) {}
@@ -451,6 +468,17 @@ commands_build(const fzx_frame_t *frame)
     }
 #endif
 
+#if FZX_SOURCE_PLANES
+    if(fzx_input_count) {
+        uint32_t plane_count=0;const uint32_t before=video_fields;
+        if(!fzx_planes_native(&commands[COMMAND_FIRST_POLYGON+first],FZX_SCENE_CAPACITY-count-first,
+            &fzx_native_view,&fzx_source_backdrop,planes_vram,planes_shades,&plane_count)) {
+            dbgio_printf("\x1b[H\x1b[2J SOURCE PLANES DRAW FAILED %lu\n",(unsigned long)fzx_plane_stats.fault);
+            dbgio_flush();vdp2_sync();for(;;) {}
+        }
+        fzx_plane_fields=video_fields-before;first+=plane_count;
+    }
+#endif
     /* The core supplies clipped polygons in painter order, far to near. */
     for (uint32_t i = 0; i < count; ++i) {
         const fzx_poly_t *p = &frame->polys[i];
@@ -522,6 +550,16 @@ main(void)
         dbgio_flush();vdp2_sync();for(;;) {}
     }
 #endif
+#endif
+#if FZX_SOURCE_PLANES
+    const uint32_t plane_offset=sky_shade_offset+FZX_SKY_VRAM_BYTES+FZX_SKYLINE_VRAM_BYTES;
+    planes_vram=(void *)((uintptr_t)sky_partitions.texture_base+plane_offset);
+    planes_shades=(void *)((uintptr_t)planes_vram+FZX_PLANE_PACK_BYTES);
+    if(plane_offset+FZX_PLANE_PACK_BYTES+FZX_PLANE_SHADE_BYTES>sky_partitions.texture_size ||
+       !fzx_planes_load(planes_vram)) {
+        dbgio_printf("\x1b[H\x1b[2J SOURCE PLANES LOAD FAILED\n");
+        dbgio_flush();vdp2_sync();for(;;) {}
+    }
 #endif
     commands_init();
     fzx_init();
@@ -654,6 +692,9 @@ main(void)
 #endif
         const uint16_t render_start = cpu_frt_count_get();
         fzx_timing.publish = (uint16_t)(render_start - publish_start);
+#if FZX_SOURCE_PLANES
+        vdp1_sync_wait();vdp2_sync_wait();
+#endif
         const fzx_frame_t *frame = fzx_render();
 #if FZX_SOURCE_CAMERA
         if(frame->flags&FZX_FRAME_OVERFLOW) {
@@ -724,7 +765,9 @@ main(void)
         vdp1_sync_render();
         vdp1_sync();
         vdp2_sync();
+#if !FZX_SOURCE_PLANES
         command_list = &command_lists[command_list == &command_lists[0] ? 1 : 0];
+#endif
         commands = command_list->cmdts;
     }
 }

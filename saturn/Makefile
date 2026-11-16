@@ -12,6 +12,7 @@ FZX_HUD_CD ?= 0
 FZX_SOURCE_CAMERA ?= 0
 FZX_SOURCE_SKY ?= 0
 FZX_SOURCE_SKYLINE ?= 0
+FZX_SOURCE_PLANES ?= 0
 FZX_SKYLINE_CD ?= 0
 FZX_SKY_SIMPLIFY ?= 0
 ifneq ($(filter $(FZX_SKY_SIMPLIFY),0 1),$(FZX_SKY_SIMPLIFY))
@@ -172,11 +173,24 @@ SH_CFLAGS += -DFZX_HUD_CD=1 -I../generated/hud_cd
 else ifneq ($(FZX_HUD_CD),0)
 $(error FZX_HUD_CD must be 0 or 1)
 endif
-ifneq ($(filter 1,$(FZX_SKYLINE_CD) $(FZX_HUD_CD)),)
+ifneq ($(filter 1,$(FZX_SKYLINE_CD) $(FZX_HUD_CD) $(FZX_SOURCE_PLANES)),)
 FZX_SKY_SRCS += texture_cd.c
 ifneq ($(FZX_SOURCE_ROAD),1)
 FZX_SKY_SRCS += road_cd.c
 endif
+endif
+ifeq ($(FZX_SOURCE_PLANES),1)
+ifneq ($(FZX_SOURCE_SKY):$(FZX_SOURCE_SKYLINE):$(FZX_SKYLINE_CD):$(FZX_HUD_CD),1:1:1:1)
+$(error FZX_SOURCE_PLANES=1 requires source sky/skyline and both CD asset arms)
+endif
+FZX_PLANES_RECEIPT := $(shell sh ../tools/check_receipt.sh ../generated/planes/planes.receipt 2>&1; echo "rc=$$?")
+ifeq ($(findstring rc=0,$(FZX_PLANES_RECEIPT)),)
+$(error Source plane pack is not current: $(FZX_PLANES_RECEIPT))
+endif
+SH_CFLAGS += -DFZX_SOURCE_PLANES=1 -I../generated/planes
+FZX_SKY_SRCS += ../src/fzx_planes.c planes_native.c
+else ifneq ($(FZX_SOURCE_PLANES),0)
+$(error FZX_SOURCE_PLANES must be 0 or 1)
 endif
 ifeq ($(FZX_SOURCE_ROAD),1)
 ifneq ($(FZX_SIM):$(FZX_SOURCE_CAMERA):$(FZX_ROM_BOOT),orig:1:1)
@@ -235,4 +249,12 @@ pre-build-iso: stage-hud-pack
 stage-hud-pack:
 	mkdir -p $(IMAGE_DIRECTORY)
 	cp ../generated/hud_cd/HUD.PAK $(IMAGE_DIRECTORY)/HUD.PAK
+endif
+ifeq ($(FZX_SOURCE_PLANES),1)
+$(SH_OUTPUT_PATH)/$(SH_PROGRAM).iso: ../generated/planes/PLANES.PAK
+pre-build-iso: stage-plane-pack
+.PHONY: stage-plane-pack
+stage-plane-pack:
+	mkdir -p $(IMAGE_DIRECTORY)
+	cp ../generated/planes/PLANES.PAK $(IMAGE_DIRECTORY)/PLANES.PAK
 endif

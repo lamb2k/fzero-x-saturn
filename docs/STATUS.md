@@ -30,20 +30,25 @@ performance for the content-bearing port. HARDWARE remains UNRUN.
 | Source HUD | Timer, speed, lap, energy and lap flashes integrated under FZX_SOURCE_HUD=1; countdown/results/effects remain open |
 | Source camera | 19 held SH-2 packets match; view/look-back replay finishes correctly |
 | Source road | 300 chunks / 4,966 triangles, 146,120 cartridge bytes admitted. Materials/planner pass HOST gates; software rendering costs 132-165 fields/view and whole-patch baking exceeds VRAM |
-| Source scene | Backdrop/skyline state pass 256 SH-2 probes. Native sky supports original geometry/colors and an offline-selected smooth gradient; original skyline drawing is admitted; floor/cloud drawing remains open |
+| Source scene | Backdrop/skyline state pass 256 SH-2 probes. Native sky/skyline and original floor/cloud draw; floor/cloud full replay passes but its 28.90-103.62 ms MODELLED cost is blocked |
 | Gates 2-5 | Native scene, entry/results/audio, pad-only acceptance, full-route cost/memory and final soak remain incomplete |
 | Gate 6 | Full-game content/modes/opponents/progression/persistence remain planned |
 
 ## Current card
 
-Original HUD and skyline both load their identical native pixel bytes from CD
-behind default-off flags. The shared loader verifies receipts, size/hash and VRAM
-readback; corrupted packs stop before race initialization. HOST controls pass.
-HUD knob-off binary is identical. The combined image finishes 9,907 inputs in
-121,814 ms with matching pose and all 19 camera/backdrop/skyline packets.
-High-RAM end is 0x060f9274 (another 14,016 bytes recovered); stack guard is 22,872.
-The 2,560-byte low-RAM scratch follows original variables; both guards pass the
-full race. Original HUD appearance was reviewed locally. See SOURCE_ART.md.
+Original floor/cloud assets are prebaked and boot-loaded into VDP1 behind
+FZX_SOURCE_PLANES=1 (default off). Full 9,907-input replay finishes at 121,814 ms;
+19 geometry hashes match HOST, and camera/skyline/floor/sky state match baseline.
+Cloud scroll follows original update rules with fixed source-valid wind, without
+consuming simulation RNG. Both low-RAM guards pass; stack guard is 12,612 bytes.
+High-RAM end: 0x060fb2f4. Pack: 262,144 VDP1 bytes plus 10,240 reserved shade bytes.
+GCC/Clang/repeat, sanitized full-route geometry and failing controls pass.
+Knob-off binary is identical. See SOURCE_ART.md for adaptations and evidence.
+
+Cost blocker: plane drawing alone takes 28.90-103.62 ms in 19 held views (MODELLED).
+Visible tile bounds and native projection division did not reach the budget.
+Unblock with a cheaper native plane path preserving content, then combined-route
+60 fps qualification. Final cloud/skyline fade quality also remains open.
 
 ## Local experiments retained
 
@@ -53,7 +58,8 @@ No release, ROM-derived publication, SD write or physical acceptance occurred.
 
 ## Next
 
-Implement original floor/cloud drawing using the recovered RAM and boot-loaded
-texture packs. Use shared native road textures instead of per-frame software
-conversion. Then integrate the original
-machine, entry/selection, race presentation/audio and full-course acceptance.
+Integrate source road with shared native textures and bounded subdivision;
+software pixel conversion and whole-patch baking are already cost/capacity blocked.
+Then integrate the original machine, entry/selection and race presentation/audio.
+Return to plane cost with projected-vertex reuse or Saturn rotation backgrounds;
+measure the complete content-bearing route before claiming 60 fps.

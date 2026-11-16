@@ -17,6 +17,7 @@ param(
     [switch]$SourceRoad,
     [switch]$SourceSky,
     [switch]$SourceSkyline,
+    [switch]$SourcePlanes,
     [switch]$TextureCd,
     [ValidateRange(4,524288)] [int]$TextureCdBytes = 8320,
     [int[]]$HoldTicks = @()
@@ -51,6 +52,7 @@ $cameraSamples = @()
 $roadSamples = @()
 $skySamples = @()
 $skylineSamples = @()
+$planeSamples = @()
 if ($SourceSkyline -and -not $SourceSky) {throw 'Skyline capture requires the source sky frame gate'}
 if ($SourceSky -and -not $SourceCameraTrace) { throw 'Sky captures require the matching source camera trace' }
 function Addr([uint32]$a) { '0x{0:X8}' -f $a }
@@ -91,7 +93,7 @@ Copy-Item -LiteralPath $ini -Destination $iniSnapshot -Force
 try {
     $launched = $true
     & (Join-Path $PSScriptRoot 'yaba_boot.ps1') -Iso $Iso -Sym $Sym -Port $Port `
-        -Until '_fzx_timing:0' -UntilValue 0x465A5854 -TimeoutSeconds 45 `
+        -Until '_fzx_timing:0' -UntilValue 0x465A5854 -TimeoutSeconds $(if ($SourcePlanes) {120} else {45}) `
         -KeepRunning -Visible -OutDir $OutDir | Out-Null
     Mcp pause @{} | Out-Null
     $log = S '_fzx_input_log'
@@ -124,6 +126,17 @@ try {
             if ($SourceSky -and (ReadWord (S '_fzx_sky_status')) -ge 2) {
                 throw "Sky renderer fault while advancing to tick $target"
             }
+            if ($SourcePlanes -and (ReadWord (S '_fzx_plane_status')) -ge 2) {
+                Mcp pause @{} | Out-Null
+                $planeFault=@{tick=(ReadWord $count);target=$target;
+                    status=(ReadWord (S '_fzx_plane_status'));
+                    stats_hex=(Hex (Mcp memory_read @{address=(Addr (S '_fzx_plane_stats'));length=28}));
+                    view_hex=(Hex (Mcp memory_read @{address=(Addr (S '_fzx_native_view'));length=80}));
+                    backdrop_hex=(Hex (Mcp memory_read @{address=(Addr (S '_fzx_source_backdrop'));length=424}))}
+                $planeFault | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $OutDir 'plane-fault.json')
+                Mcp framebuffer_screenshot @{path=(Join-Path $OutDir 'plane-fault.png').Replace('\','/')} | Out-Null
+                throw "Floor/cloud renderer fault at tick $($planeFault.tick)"
+            }
             if ($SourceSkyline -and (ReadWord (S '_fzx_skyline_status')) -ge 2) {
                 throw "Skyline fault while advancing to tick $target"
             }
@@ -139,7 +152,8 @@ try {
             for ($attempt=0;$attempt -lt 100;++$attempt) {
                 Mcp pause @{} | Out-Null
                 if ((ReadWord (S '_fzx_sky_busy')) -eq 0 -and
-                    (-not $SourceSkyline -or (ReadWord (S '_fzx_skyline_busy')) -eq 0)) {$snapshotReady=$true;break}
+                    (-not $SourceSkyline -or (ReadWord (S '_fzx_skyline_busy')) -eq 0) -and
+                    (-not $SourcePlanes -or (ReadWord (S '_fzx_plane_busy')) -eq 0)) {$snapshotReady=$true;break}
                 if ((ReadWord (S '_fzx_sky_status')) -ge 2) {throw 'Sky fault while capturing'}
                 Mcp resume @{} | Out-Null
                 Start-Sleep -Milliseconds 37
@@ -209,6 +223,16 @@ try {
                     skyline_ticks=(ReadWord (S '_fzx_skyline_ticks'));field_ticks=(ReadWord ((S '_fzx_timing')+8))}
                 $skylineSamples | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $OutDir 'skyline-samples.json')
                 Write-Output "FZX-SKYLINE tick=$target state=6-placements draw=valid"
+            }
+            if ($SourcePlanes) {
+                $planeHex=Hex (Mcp memory_read @{address=(Addr (S '_fzx_plane_stats'));length=28})
+                if ((ReadWord (S '_fzx_plane_status')) -ne 1 -or $planeHex.Length -ne 56 -or
+                    $planeHex.Substring(40,8) -ne '00000000') {throw 'Invalid floor/cloud draw status'}
+                $planeSamples+=@{tick=$target;stats_hex=$planeHex;
+                    draw_ticks=(ReadWord (S '_fzx_plane_ticks'));draw_fields=(ReadWord (S '_fzx_plane_fields'));
+                    field_ticks=(ReadWord ((S '_fzx_timing')+8))}
+                $planeSamples | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $OutDir 'plane-samples.json')
+                Write-Output "FZX-PLANES tick=$target draw=valid"
             }
             Mcp resume @{} | Out-Null
         }

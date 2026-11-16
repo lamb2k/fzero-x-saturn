@@ -36,15 +36,38 @@ void fzx_sky_stack_paint(void) {
     if(fzx_sky_heap_before!=fzx_sky_heap_after){fzx_sky_status=6;for(;;) {}}
 }
 static bool ready;
+#ifndef FZX_SOURCE_PLANES
+#define FZX_SOURCE_PLANES 0
+#endif
+#if FZX_SOURCE_PLANES
+extern volatile uint32_t fzx_input_count;
+static uint32_t backdrop_tick;
+#endif
 typedef struct {vdp1_cmdt_t *commands;uint16_t *shades;unsigned count;} submit_t;
 
 void fzx_sky_restart(void){ready=false;fzx_sky_status=0;}
 bool fzx_sky_publish(void) {
+#if FZX_SOURCE_PLANES
+    if(ready && backdrop_tick==fzx_input_count)return fzx_sky_status==1;
+    fzx_sky_busy=1;
+    /* Fixed source-valid wind is a deterministic presentation adaptation.
+     * It consumes no simulation RNG and advances only on source logic ticks. */
+    if(!ready) {
+        if(ref_backdrop_init(3*0.0005f,-4*0.0005f)){fzx_sky_status=2;return false;}
+        backdrop_tick=0;ready=true;
+        ref_backdrop_tick(&fzx_source_backdrop,0,1);
+    }
+    if(fzx_input_count<backdrop_tick || fzx_input_count-backdrop_tick>12288){fzx_sky_status=3;return false;}
+    while(backdrop_tick<fzx_input_count) {
+        ref_backdrop_tick(&fzx_source_backdrop,0,0);++backdrop_tick;
+    }
+#else
     fzx_sky_busy=1;
     /* Sky is independent of cloud velocity and scroll. These explicit zero
      * inputs neither consume game RNG nor claim cloud lifecycle integration. */
     if(!ready){if(ref_backdrop_init(0.0f,0.0f)){fzx_sky_status=2;return false;}ready=true;}
     ref_backdrop_tick(&fzx_source_backdrop,0,1);
+#endif
     if(fzx_source_backdrop.faults || fzx_source_backdrop.count!=20){fzx_sky_status=3;return false;}
     fzx_sky_status=1;fzx_sky_busy=0;return true;
 }

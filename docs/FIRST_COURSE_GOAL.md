@@ -44,7 +44,7 @@ plan, but are not prerequisites for this first-course milestone.
 
 | Card | Current state / next exit |
 | --- | --- |
-| Native backdrop and skyline | Native sky/skyline draw original assets; 19 held views and full race pass. Floor/cloud drawing and complete scene review remain open |
+| Native backdrop and skyline | Original sky/skyline/floor/cloud draw through a full race; plane cost is blocked at 28.90-103.62 ms MODELLED and final scene review remains open |
 | Native road within budget | Software masked draw is cost-blocked; whole-patch textures exceed VRAM. Evaluate shared texture tiles/native subdivision on actual source geometry |
 | Native Blue Falcon | Five LODs and pose/light state extracted; fix palette appearance and measure the moving native model |
 | Source entry and selection | Integrate the bounded original boot/menu/selection path into the slice; pad-driven transitions required |

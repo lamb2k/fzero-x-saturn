@@ -33,6 +33,7 @@
 #if FZX_BACKDROP_STATE
 #include "backdrop_state.h"
 #include "skyline_state.h"
+#include "scene_probe.h"
 int ref_backdrop_check(RefBackdrop*,unsigned int,int);
 int ref_backdrop_branch_check(void);
 int ref_skyline_check(RefSkyline*,unsigned int);
@@ -217,6 +218,17 @@ static void trace_tick(FILE* out, int tick, const Step* in) {
 }
 
 int main(int argc, char** argv) {
+#if FZX_BACKDROP_STATE
+    if(argc==2 && strcmp(argv[1],"--scene-probe")==0) {
+        unsigned int frame,hashes[2];
+        if(ref_scene_probe_init())return 3;
+        for(frame=0;frame<REF_SCENE_PROBE_CASES;++frame) {
+            if(ref_scene_probe_step(frame,hashes))return 3;
+            printf("%u %08x %08x\n",frame,hashes[0],hashes[1]);
+        }
+        return 0;
+    }
+#endif
     const char *course = NULL, *order = NULL, *inputs = NULL, *trace = NULL, *rom = NULL, *prefix = NULL;
 #if FZX_SOURCE_CAMERA
     const char* camera_path = NULL;

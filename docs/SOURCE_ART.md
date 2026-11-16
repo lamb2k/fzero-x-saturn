@@ -34,7 +34,7 @@ tree, after resolving symlinks; tracked repository destinations are refused.
 | Blue Falcon, five authored LODs | Verified retail export, eight texture slots and bounded race-setup decoder gates pass | Open: native reflection/lighting, source model pose and texture submission |
 | Basic speed/time/lap/energy HUD sheets | Verified retail RGBA16 export; 14,080-byte native atlas | Timer/speed/lap/energy and lap flash draw on VDP1; countdown/results and source-reference comparison open |
 | Mute City road materials | Verified retail MIO0 decode and seven RGBA16 surfaces | Open: source cross sections, material selection, UV seams and ordered traversal |
-| Mute City floor, skyline, clouds, sky | Eleven source texture/palette objects verified; six skyline instances retain source bindings | Native geometry, cloud alpha, skyline fade and source-reference comparisons open |
+| Mute City floor, skyline, clouds, sky | Eleven source texture/palette objects verified; six skyline instances retain source bindings | State packets pass HOST/SH-2 probes; drawing, blending and source-reference comparisons open |
 | Dash/pit, other effects, countdown and finish | Source coverage incomplete | Open |
 | Source camera | Original race closure and native view/scissor integration, default off | Source-reference visuals, broader mode coverage and performance remain open |
 | Entry/results UI and audio | Not integrated | Open |
@@ -736,3 +736,29 @@ fail; the four prior backdrop faults still fail. Changed source bindings are rej
 Native submission, blending, source-reference visuals and HARDWARE remain unrun.
 Next: SH-2 state admission and native scene submission, retaining initialization/RNG
 ordering as an explicit open gate before integration into the ordinary race lifecycle.
+
+## SH-2 scene-state probe (EMULATOR)
+
+`tools/scene_probe` checks 256 authored synthetic camera states against the HOST
+source oracle. Both backdrop and skyline packets match under the existing exact
+soft-float implementation. The control flips one backdrop hash bit and produces
+256/256 differences; rebuilding the normal arm restores 256/256 matches. The
+wrapper validates completion, case count, first difference and final packet hashes.
+The stale-header control is rejected before native compilation. HOST preparation
+also rejects changed build inputs instead of blessing an older oracle executable.
+
+Host corpus SHA-256: `f3ea9a8386f44038d7c7299e12f4350aaa5a09d6b49d429772d2e767b5a57b0d`.
+Restored probe ISO: `5ca35d82ee532d9fc621246d56d34ce5fbda178e550c2fe6dc6c87ea93b2a86b`.
+Control ISO: `6f445a9cc87e1d6745a70b457d0dc4bdd9cb2bc94383393287179625943046f1`.
+Emulator: Yaba 1.20.37 MCP, executable SHA prefix `da2ffb341532f108`.
+
+| Standalone probe memory | Link-map allocation |
+| --- | --- |
+| Text / read-only data | 43,432 / 13,932 bytes |
+| Data / BSS | 184 / 62,736 bytes |
+| High work RAM end / stack top | 0x060216c4 / 0x06100000 |
+| Source scene VRAM allocation | None; only the diagnostic text screen is drawn |
+
+These are numeric probes, not a scene renderer or a game performance result.
+No current game memory layout or recipe changed. Runtime submission, fractional
+alpha, source-reference visuals, full-scene cost and HARDWARE remain open.

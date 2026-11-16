@@ -79,6 +79,7 @@ if [ "$BACKDROP" = 1 ]; then
     # loader compile. No texture bytes or loader behavior are mocked by the gate.
     CFLAGS="-I$D/src/overlays/ovl_i3 -DREF_BACKDROP_ORACLE -D_aCloudTex_WIDTH=64 -D_aCloudTex_HEIGHT=32 -D_D_F2207C8_WIDTH=8 -D_D_F2207C8_HEIGHT=8 $CFLAGS"
     SOURCES="$SOURCES src/overlays/ovl_i3/background.c"
+    BRIDGES="$BRIDGES scene_probe"
 fi
 if [ "$CAMERA" = 1 ]; then
     CFLAGS="$CFLAGS -DFZX_SOURCE_CAMERA=1 -I$ASSETS"
@@ -114,4 +115,10 @@ OBJS="$OBJS $OUT/ref_main.o"
 python3 "$ROOT/ref/gen_stubs.py" "$OUT/stubs.c" "$OUT"/*.i -- $OBJS
 $CC -m32 -fno-pic -O0 -w -c "$OUT/stubs.c" -o "$OUT/stubs.o"
 $CC -m32 -no-pie $OBJS "$OUT/stubs.o" -lm -o "$OUT/fzx-ref"
+if [ "$BACKDROP" = 1 ]; then
+    # prepare.py must not stamp a new expected header from an old host oracle.
+    sha256sum "$ROOT/ref/scene_probe.c" "$ROOT/ref/scene_probe.h" "$ROOT/ref/main.c" \
+        "$ROOT/ref/build.sh" "$D/src/sys/math.c" "$OUT/background.c" "$OUT/stubs.c" \
+        "$OUT/fzx-ref" > "$OUT/scene-build.sha256"
+fi
 echo "built $OUT/fzx-ref"

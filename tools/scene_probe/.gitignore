@@ -1,0 +1,6 @@
+/build/
+/cd/
+/audio-tracks/
+/*.iso
+/*.cue
+/*.bin

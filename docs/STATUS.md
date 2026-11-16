@@ -76,4 +76,4 @@ Source-camera view integration: 19 held SH-2 packets match; view/look-back repla
 finishes in 121,814 ms. Road pack: 300 chunks/4,966 triangles; 146,120 cartridge bytes
 match in EMULATOR. Native fog/clock and 19 draw-plan packets match HOST; material and masked-chart HOST gates pass.
 [Ledger/memory](SOURCE_ART.md). Software road draw: 132–165 fields/view (MODELLED).
-Full-detail patch baking exceeds VRAM; shared tiles remain open. Backdrop/skyline pass HOST; SH-2/native scene next.
+Full-detail patch baking exceeds VRAM; shared tiles remain open. Backdrop/skyline pass 256 SH-2 probes; native scene drawing next.

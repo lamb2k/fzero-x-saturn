@@ -1080,3 +1080,72 @@ Private evidence: `emu/road-tiles-reuse11` plus matched `road-tiles-fog`,
 `road-tiles-reuse10` and `road-tiles-reuse01` under FZX_EVIDENCE. The final source
 manifest distinguishes the compiled C from later build-flag validation, forwarding
 and host-test changes, which do not alter the candidate's executable.
+
+## Original Blue Falcon in the race
+
+`FZX_SOURCE_MACHINE=1` is default off and requires the source-camera/native-road
+recipe. `tools/machine_pack.py` creates receipt-bound CD packs from the original
+model and texture export. The native path replaces the temporary craft, using a
+read-only source snapshot rather than calling the source drawing routine.
+It retains actual model position/basis/scale, visibility, live body color,
+ambient and tunnel lighting, packed light/reflection directions and source fog.
+The outside fog record is extracted explicitly because this closure does not run
+Background_Init. Snapshot tests establish that source simulation is not mutated.
+
+The near model retains 261 source vertex records and all 132 triangles; 68 unique
+positions and 133 normals are computed once per draw. Original LOD 4 retains 24 triangles
+and LOD 5 retains 11. Source LODs 2/3 use the original near model to bound resident
+chart storage. Source LOD 6 contains 9 vertices/3 triangles; it uses original LOD 5,
+not an empty/invisible replacement. This is a documented LOD adaptation.
+
+Original UV/material bindings produce point-sampled CI4 triangle charts capped
+at 16 x 16 offline. Raw-texel palettes permit live body/environment changes. Native
+Gouraud shading approximates multiplicative lighting; painter order, affine
+mapping and fixed-point lighting introduce differences. The source normal basis
+mapping is preserved; integer light normalization can increase outside lighting
+about 0.42%. A clipped source triangle uses its shaded palette mean as a bounded
+fallback. No route snapshot exercised that fallback; synthetic near-plane tests do.
+The current path also submits back-facing triangles. Restoring the source back-face
+cull setting is an open performance and appearance check, with source winding to verify.
+
+HOST GCC/Clang outputs match; source snapshot nonmutation, bad geometry/metadata,
+capacity/callback refusal and body/pose/alias mutation controls pass. All 9,907
+actual source camera/model snapshots pass under UBSan with at most 132 draw commands.
+The full EMULATOR replay completes three laps at source race time 121,814 ms with the same final
+pose, 19 matching machine-state/draw checks and unchanged source-camera, road and
+background packets. CD/low-RAM guards remain intact; stack retains 18,224 bytes.
+Corrupt machine metadata produces machine status 3/integrity status 8 before race
+initialization. Disabling the feature reproduces the prior combined-road binary.
+Invalid flag/dependency profiles are rejected. An initial full replay stalled in
+a debugger-only hold at input 624 and remains incomplete. A second run continued
+after a CPU-core change/window restore; it remains diagnostic. The completed
+replacement run audits one CPU core and restores only its own minimized window.
+
+Four same-camera local comparisons against a software renderer of original
+geometry/materials preserve recognizable silhouette, cockpit and side markings.
+They show texture/filter/lighting differences and the higher-model LOD mapping.
+The software reference retains the bottom viewport rows cropped by the native
+single-player scissor. This is engineering review, not a running source-game
+screenshot comparison or final owner acceptance.
+
+| Allocation | Added machine / combined image |
+| --- | --- |
+| Low work RAM metadata / working cache | 15,164 / 7,044 bytes, separate boundary guards |
+| VDP1 indexed pixels / CLUT+Gouraud | 16,064 / 5,280 bytes |
+| Combined texture partition | 433,728 of 442,336 bytes; 8,608 remain |
+| High work RAM end | 0x060f9cf4 |
+
+Machine-only cost across 19 held views is 0.67-59.93 ms, mean 45.74 ms,
+p95 59.93 ms, MODELLED. This fails the scene budget and does not establish a
+combined frame rate. The minimum is an invisible-body view. Road and floor/cloud
+remain much too expensive as well. These timings are unwrapped using video fields;
+the existing 16-bit whole-frame HUD timer wraps on these long frames and is not
+complete-scene timing evidence.
+Next measure their phases and remove repeated work or move suitable planes to
+Saturn background hardware. Retain source geometry/appearance through explicit
+native adaptations. Entry/results/effects/audio, pad-only flow, final look and
+HARDWARE remain open.
+
+Image SHA-256: `ce52a6c5a6edff297aaa07139b7389059bd4efcb9602be553063681ce815636c`.
+Private evidence: `emu/machine-clean` and `host/machine-state`; earlier partial
+capture in `emu/machine-integration`. Only source code and counts are published.

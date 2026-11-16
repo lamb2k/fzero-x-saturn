@@ -667,6 +667,7 @@ fzx_render(void)
         draw_window_quad(a+2,a+0,b+0,b+2,(i&1u)?RGB(2,28,25):RGB(1,16,18));
         draw_window_quad(a+1,a+3,b+3,b+1,(i&1u)?RGB(24,8,29):RGB(13,3,18));
     }
+#if !defined(FZX_SOURCE_MACHINE) || !FZX_SOURCE_MACHINE
     /* Original placeholder craft. This is not Blue Falcon asset data. */
     const sh2z_vec3_t body[6]={
         scaled_add(car,forward,FX(3)),
@@ -698,6 +699,7 @@ fzx_render(void)
         if(so[a]&so[b]&so[c]) continue; /* surely outside one plane: the clipper leaves nothing */
         draw_quad_inside(ship[a],ship[b],ship[c],ship[c],colors[k],si[a]&si[b]&si[c]);
     }
+#endif
     sort_polygons();
     return &frame;
 }

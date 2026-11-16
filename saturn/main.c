@@ -8,6 +8,14 @@
 #include <string.h>
 
 #include "fzx.h"
+#ifndef FZX_SOURCE_MACHINE
+#define FZX_SOURCE_MACHINE 0
+#endif
+#if FZX_SOURCE_MACHINE
+#include "machine_native.h"
+#include "machine_identity.h"
+static void *machine_pixels,*machine_shades;
+#endif
 #ifndef FZX_SOURCE_ROAD_TILES
 #define FZX_SOURCE_ROAD_TILES 0
 #endif
@@ -513,6 +521,17 @@ commands_build(const fzx_frame_t *frame)
         fzx_road_tile_fields=video_fields-before;first+=road_count;
     }
 #endif
+#if FZX_SOURCE_MACHINE
+    if(fzx_input_count) {
+        uint32_t machine_count=0;const uint32_t before=video_fields;
+        if(!fzx_machine_native(&commands[COMMAND_FIRST_POLYGON+first],FZX_SCENE_CAPACITY-count-first,
+            &fzx_native_view,machine_pixels,machine_shades,&machine_count)) {
+            dbgio_printf("\x1b[H\x1b[2J SOURCE MACHINE DRAW FAILED %lu/%lu\n",(unsigned long)fzx_machine_status,(unsigned long)fzx_machine_stats.fault);
+            dbgio_flush();vdp2_sync();for(;;) {}
+        }
+        fzx_machine_fields=video_fields-before;first+=machine_count;
+    }
+#endif
     /* The core supplies clipped polygons in painter order, far to near. */
     for (uint32_t i = 0; i < count; ++i) {
         const fzx_poly_t *p = &frame->polys[i];
@@ -617,6 +636,14 @@ main(void)
     if(road_tile_offset+FZX_ROAD_TILE_TEXTURE_BYTES+FZX_ROAD_TILE_SHADE_BYTES>sky_partitions.texture_size ||
        !fzx_road_tiles_load(road_tile_pixels)) {
         dbgio_printf("\x1b[H\x1b[2J SOURCE ROAD TILES LOAD FAILED\n");dbgio_flush();vdp2_sync();for(;;) {}
+    }
+#endif
+#if FZX_SOURCE_MACHINE
+    machine_pixels=(void *)((uintptr_t)road_tile_shades+FZX_ROAD_TILE_SHADE_BYTES);
+    machine_shades=(void *)((uintptr_t)machine_pixels+FZX_MACHINE_TEXTURE_BYTES);
+    if((uintptr_t)machine_shades+FZX_MACHINE_SHADE_BYTES>(uintptr_t)sky_partitions.texture_base+sky_partitions.texture_size ||
+       !fzx_machine_load(machine_pixels)) {
+        dbgio_printf("\x1b[H\x1b[2J SOURCE MACHINE LOAD FAILED\n");dbgio_flush();vdp2_sync();for(;;) {}
     }
 #endif
 #if FZX_SOURCE_HUD
@@ -820,7 +847,13 @@ main(void)
            fzx_input_count==fzx_debug_replay_count) {
             vdp1_sync_wait();vdp2_sync_wait();
             fzx_debug_frame_ready=fzx_input_count;
-            while(FRAME_HOLD) { /* Interrupts keep display/pad active. */ }
+            while(FRAME_HOLD) {
+#if FZX_SOURCE_MACHINE
+                /* A VBlank wait lets the emulator observe debugger releases;
+                 * a tight idle loop can remain parked after an external write. */
+                vdp2_sync();vdp2_sync_wait();
+#endif
+            }
             fzx_debug_frame_ready=0;
         }
 #endif

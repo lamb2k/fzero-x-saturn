@@ -6,66 +6,61 @@ Active goal: [first-course boot, selection and race completion](FIRST_COURSE_GOA
 
 Preserve F-Zero X on Saturn using original assets, prebaked into compatible formats.
 Similar-quality rendering and behavior adaptations are authorized where exactness
-is impractical. Preserve identity and playability; record meaningful differences.
+is impractical. Preserve identity and playability; document meaningful differences.
 Source assets stay private. Placeholders and missing content do not satisfy completion.
 
 ## Playable extent
 
-The original Time Attack race code runs Mute City 1 on the master SH-2 with binary32
-soft float. Full input replays finish three laps in 121,814 ms, matching HOST.
-The image has original native road content locally; the craft and debug overlay
-remain temporary, with incomplete presentation.
-Source camera, partial original HUD and native sky are available behind explicit flags.
-Boot/menu/selection/results/audio and the remaining source scene are not complete.
-The old placeholder baseline missed 38 fields in 9,455 (MODELLED); it does not establish
-performance for the content-bearing port. HARDWARE remains UNRUN.
+Original Time Attack code runs Mute City 1 on the master SH-2 with binary32 soft float.
+The original camera, Blue Falcon, road, sky/skyline/floor/cloud and partial HUD now
+render together behind explicit local build flags. Three-lap input replays finish
+at source race time 121,814 ms. This is an integration experiment, far over the 60 fps budget.
+Boot/selection/results/audio and remaining effects are incomplete; debug UI remains.
+Pad-only end-to-end acceptance, final look approval and HARDWARE remain unrun.
 
 ## Gates and evidence
 
 | Area | Current evidence / remaining work |
 | --- | --- |
-| Gate 0 | Repository hygiene, receipt rejection, evidence boundaries and visible simulation selector established |
-| Gate 1 | Closure census, deterministic HOST reference and SH-2 emulator lane established; complete scene timing and capacity remain open |
-| Simulation | Original race closure and 9,907-input source-camera replay finish at 121,814 ms; fixed-point conversion is not required to move presentation forward |
-| Source models | Five Blue Falcon LODs and 22 textures exported; 72 pose/light checks pass. Native palette appearance and cost remain open |
-| Source HUD | Timer, speed, lap, energy and lap flashes integrated under FZX_SOURCE_HUD=1; countdown/results/effects remain open |
-| Source camera | 19 held SH-2 packets match; view/look-back replay finishes correctly |
-| Source road | Native shared tiles retain all 300 chunks / 4,966 triangles and finish the full replay; 19 held views cost 72.99-244.16 ms MODELLED, so performance remains blocked |
-| Source scene | Backdrop/skyline state pass 256 SH-2 probes. Native sky/skyline and original floor/cloud draw; floor/cloud full replay passes but its 28.90-103.62 ms MODELLED cost is blocked |
-| Gates 2-5 | Native scene, entry/results/audio, pad-only acceptance, full-route cost/memory and final soak remain incomplete |
-| Gate 6 | Full-game content/modes/opponents/progression/persistence remain planned |
+| Gate 0 | Source-only publication hygiene, receipt rejection and private evidence boundaries established |
+| Simulation | Original race closure; complete 9,907-input native replay preserves final pose/time and source state |
+| Source camera/HUD | 19 held camera packets match; timer/speed/lap/energy integrated; countdown/results remain open |
+| Source Blue Falcon | Original near model retains 132 triangles, with resident source-derived textures and live pose/body/lighting; full replay and guards pass; performance and final visual acceptance remain open |
+| Source road | All 300 chunks / 4,966 triangles retained; 19-view cost 72.99-244.16 ms MODELLED after two reuse experiments |
+| Source backdrop | Original sky/skyline/floor/cloud draw; plane-only cost 28.90-103.62 ms MODELLED remains blocked |
+| Gates 2-5 | Entry/results/effects/audio, native rendering budget, pad-only flow and final soak incomplete |
+| Gate 6 | Full-game content, modes, opponents, progression and persistence remain planned |
 
 ## Current card
 
-Source road integration and two reuse arms are gated. The default-off
-`FZX_SOURCE_ROAD_TILES` path retains all 300 chunks / 4,966 source triangles,
-pairs them into native quads and loads 108,384 texture bytes plus 43,088 metadata
-bytes from guarded CD packs. The source road replaces the temporary ribbon.
+`FZX_SOURCE_MACHINE=1` integrates the original Blue Falcon into the actual race.
+The read-only source snapshot retains live body color, tunnel lights, reflection,
+pose and visibility. Source LODs 1-3 use original LOD 1; LOD 4 stays 4; LODs 5-6 use 5.
+The 16x16 chart cap, native palette/Gouraud lighting and LOD mapping are adaptations.
+The temporary craft is disabled only when the original-machine path is enabled.
 
-HOST GCC/Clang/repeat, rejection controls and all 9,907 UBSan views pass, including
-both reuse arms; at most 599/768 commands. Clipped-fan fog now follows actual clipped
-depths and fan indices. Independent broken-depth/fan/reuse controls fail.
-
-EMULATOR: corrected control and single reuse arms each pass 13 held views, with
-unchanged scene packets and HOST geometry hashes. Projection-based culling changes
-mean road draw cost from 153.89 to 129.56 ms; endpoint reuse alone to 150.23 ms,
-MODELLED. These are 13 held views, not full-route performance acceptance.
-The combined reuse image finishes all 9,907 inputs at 121,814 ms with the same pose,
-19 matching hashes and unchanged scene packets. Low-RAM guards pass; stack retains
-26,700 bytes. Held-view mean 123.25 ms, maximum 244.16 ms MODELLED. Earlier control
-timeout at 9,883 remains incomplete. The control repeat matches; corrupt metadata
-is rejected before race initialization. Road cost remains blocked after both arms.
+HOST: GCC/Clang, source nonmutation, authored failure controls and all 9,907
+sanitized camera/model views pass. EMULATOR: full race, 19 source-state/draw hashes,
+unchanged road/background packets and low-RAM guards pass. Stack retains 18,224 bytes.
+Machine-only cost is 0.67-59.93 ms, mean 45.74 ms across 19 held views,
+MODELLED. These are subsystem samples, not combined frame-rate acceptance.
+Corrupt machine metadata fails before race initialization. Machine-off binary
+matches the prior admitted road image. Local same-camera software source-model
+comparisons preserve recognizable shape/markings; they are not source-game captures.
+Earlier input 624 capture stall and a minimized-window/core-change diagnostic are
+retained separately. The replacement run audits one CPU core and window visibility.
 
 ## Local experiments retained
 
-Hitch diagnostics, clip-divider and software-road WIP remain local/unpromoted.
+Unrelated hitch, clip-divider and software-road WIP remain local and unstaged.
 Use fixed-input replay for comparisons; live autopilot depends on render cadence.
 No release, ROM-derived publication, SD write or physical acceptance occurred.
 
 ## Next
 
-Integrate the original Blue Falcon with bounded resident source texture charts,
-actual race pose/camera and live lighting/body state. Then entry/selection and
-race presentation/audio. Road budget remains blocked after two reuse experiments.
-Return to plane cost with projected-vertex reuse or Saturn rotation backgrounds;
-measure the complete content-bearing route before claiming 60 fps.
+Prioritize rendering architecture: measure exclusive road phases on pinned views,
+then eliminate repeated transforms/traversal and evaluate source-derived distance
+meshes. Prototype the original floor/cloud content on Saturn background hardware.
+Keep original vehicle geometry and resident textures; measure its expensive phases.
+Then finish entry/selection, race audio/results/effects and pad-driven retry.
+The complete content-bearing route must meet the unchanged 60 fps target.

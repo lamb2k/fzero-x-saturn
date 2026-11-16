@@ -22,6 +22,7 @@ if [ "${FZX_SOURCE_ROAD_TILES:-0}" = 1 ]; then
     export FZX_INPUT_LOG_LOW_RAM=1
     python3 "$ROOT/tools/road_tiles.py"
 fi
+if [ "${FZX_SOURCE_MACHINE:-0}" = 1 ]; then python3 "$ROOT/tools/machine_pack.py"; fi
 if [ "${FZX_SOURCE_PLANES:-0}" = 1 ]; then python3 "$ROOT/tools/plane_assets.py"; fi
 if [ "${FZX_HUD_CD:-0}" = 1 ]; then python3 "$ROOT/tools/hud_cd_assets.py"; fi
 if [ "$SKYLINE" = 1 ]; then python3 "$ROOT/tools/skyline_assets.py"; fi
@@ -76,9 +77,9 @@ mountpoint -q "$IMG/proc" || mount -t proc proc "$IMG/proc"
 mountpoint -q "$IMG/dev" || mount --bind /dev "$IMG/dev"
 if [ "$CAMERA" = 1 ]; then
     chroot "$IMG" /bin/bash -c "source /yaul-env.sh && export PATH=\"\$YAUL_INSTALL_ROOT/bin:\$PATH\" && \
-        FZX_FASTFLOAT=1 FZX_SOURCE_CAMERA=1 FZX_ROAD_PLAN=$PLAN FZX_SOURCE_SKY=$SKY FZX_SOURCE_SKYLINE=$SKYLINE REF_CAMERA_ART=$ART bash /work/ref/sat/closure.sh /work/saturn/build-orig-camera && \
+        FZX_FASTFLOAT=1 FZX_SOURCE_CAMERA=1 FZX_SOURCE_MACHINE=${FZX_SOURCE_MACHINE:-0} FZX_ROAD_PLAN=$PLAN FZX_SOURCE_SKY=$SKY FZX_SOURCE_SKYLINE=$SKYLINE REF_CAMERA_ART=$ART bash /work/ref/sat/closure.sh /work/saturn/build-orig-camera && \
         make -B -C /work/saturn FZX_SIM=orig FZX_IMPORTED=1 FZX_SOURCE_CAMERA=1 FZX_SOURCE_ROAD=$PLAN \
-          FZX_CLOSURE=/work/saturn/build-orig-camera/ref_closure.o FZX_ROM_BOOT=$ROM_BOOT FZX_SOURCE_HUD=${FZX_SOURCE_HUD:-0} FZX_SOURCE_SKY=$SKY FZX_SKY_SIMPLIFY=${FZX_SKY_SIMPLIFY:-0} FZX_SOURCE_SKYLINE=$SKYLINE FZX_SKYLINE_CD=${FZX_SKYLINE_CD:-0} FZX_HUD_CD=${FZX_HUD_CD:-0} FZX_SOURCE_PLANES=${FZX_SOURCE_PLANES:-0} FZX_SOURCE_ROAD_TILES=${FZX_SOURCE_ROAD_TILES:-0} FZX_ROAD_TILE_PROJECT_CULL=${FZX_ROAD_TILE_PROJECT_CULL:-0} FZX_ROAD_TILE_EDGE_REUSE=${FZX_ROAD_TILE_EDGE_REUSE:-0}"
+          FZX_CLOSURE=/work/saturn/build-orig-camera/ref_closure.o FZX_ROM_BOOT=$ROM_BOOT FZX_SOURCE_MACHINE=${FZX_SOURCE_MACHINE:-0} FZX_SOURCE_HUD=${FZX_SOURCE_HUD:-0} FZX_SOURCE_SKY=$SKY FZX_SKY_SIMPLIFY=${FZX_SKY_SIMPLIFY:-0} FZX_SOURCE_SKYLINE=$SKYLINE FZX_SKYLINE_CD=${FZX_SKYLINE_CD:-0} FZX_HUD_CD=${FZX_HUD_CD:-0} FZX_SOURCE_PLANES=${FZX_SOURCE_PLANES:-0} FZX_SOURCE_ROAD_TILES=${FZX_SOURCE_ROAD_TILES:-0} FZX_ROAD_TILE_PROJECT_CULL=${FZX_ROAD_TILE_PROJECT_CULL:-0} FZX_ROAD_TILE_EDGE_REUSE=${FZX_ROAD_TILE_EDGE_REUSE:-0}"
     echo "built source-camera original-race image"
     exit 0
 fi

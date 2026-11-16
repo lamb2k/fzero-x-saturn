@@ -8,9 +8,9 @@ An experimental native Sega Saturn port foundation using
 
 **Target: the real F-Zero X on Saturn, preserving its original art and gameplay.**
 The local `FZX_SIM=orig` build runs the original one-racer code on Mute City 1,
-including a three-lap race and retry. A local option now draws the original timer,
-speed and lap artwork. The road/craft and remaining presentation are unfinished,
-so this is not the finished game. Original models, textures,
+including a three-lap race and retry. Local experimental options draw the original
+Blue Falcon, road, backdrop and partial race HUD. Rendering is far over budget, and entry/results/audio/effects
+remain incomplete, so this is not the finished game. Original models, textures,
 scenery, effects, HUD/fonts, menus and audio are required port content.
 The public default circuit and craft remain synthetic test fixtures.
 
@@ -28,15 +28,15 @@ The public default circuit and craft remain synthetic test fixtures.
 | Native geometry | Sampled flat road ribbons, a chase camera, six-plane polygon clipping, depth ordering and VDP1 polygon commands. |
 | Prototype driving | Fixed-step acceleration, braking, lateral steering, boundary slowdown, laps and reset. These are new test controls, not the original game's handling. |
 | Original race route | `FZX_SIM=orig` links the original racer code with binary32 software float; local owner-ROM builds supply Mute City 1 and machine constants. Emulator whole-race finish times have matched host replays. Source-art integration remains open. |
-| Source-art pipeline | Local verified export of five Blue Falcon LODs and 21 textures; native timer/speed/lap HUD under `FZX_SOURCE_HUD=1`. [Coverage and build details](docs/SOURCE_ART.md). |
+| Source-art pipeline | Local verified export of five Blue Falcon LODs and 22 textures; native machine, road, backdrop and partial HUD behind explicit flags. [Coverage and build details](docs/SOURCE_ART.md). |
 | Saturn platform | Yaul build, VDP1 drawing, VDP2 HUD, digital pad input and PAL/NTSC tick scheduling. |
 | Web preview | The same C core compiled to WebAssembly, with keyboard/touch controls and local imported-course loading. |
 | Validation | Independent spline oracle, driving/reset/ordering checks, exact prepared/general transform comparisons, importer checks, sanitizers and browser interaction tests. |
 
-**Hardware performance is unmeasured.** The original-race image boots in the
-emulator and has completed races, with frame hitches still under investigation.
-Those timings are MODELLED and use placeholder rendering; they do not establish
-console performance or the budget of the final source-art scene.
+**Hardware performance is unmeasured.** The content-bearing original-race image completes
+emulator replays, but individual road, plane and machine draws exceed the entire
+16.7 ms frame budget. These measurements are MODELLED; complete-scene and physical
+60 fps acceptance remain open.
 
 ## Next
 

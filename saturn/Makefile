@@ -10,6 +10,7 @@ FZX_SIM ?= proto
 FZX_SOURCE_HUD ?= 0
 FZX_HUD_CD ?= 0
 FZX_SOURCE_CAMERA ?= 0
+FZX_SOURCE_MACHINE ?= 0
 FZX_SOURCE_SKY ?= 0
 FZX_SOURCE_SKYLINE ?= 0
 FZX_SOURCE_PLANES ?= 0
@@ -231,7 +232,20 @@ FZX_ROAD_SRCS += ../src/fzx_road_tiles.c road_tiles_native.c
 else ifneq ($(FZX_SOURCE_ROAD_TILES),0)
 $(error FZX_SOURCE_ROAD_TILES must be 0 or 1)
 endif
-SH_SRCS := main.c ../src/fzx.c $(FZX_ORIG_SRCS) $(FZX_HUD_SRCS) $(FZX_CAMERA_SRCS) $(FZX_ROAD_SRCS) $(FZX_SKY_SRCS) $(wildcard $(SH2ZAM_ROOT)/saturn/src/*.c)
+ifeq ($(FZX_SOURCE_MACHINE),1)
+ifneq ($(FZX_SOURCE_CAMERA):$(FZX_SOURCE_ROAD_TILES),1:1)
+$(error Source machine requires source camera and native road tiles)
+endif
+FZX_MACHINE_RECEIPT := $(shell sh ../tools/check_receipt.sh ../generated/machine/machine.receipt 2>&1; echo "rc=$$?")
+ifeq ($(findstring rc=0,$(FZX_MACHINE_RECEIPT)),)
+$(error Source machine assets are stale: $(FZX_MACHINE_RECEIPT))
+endif
+SH_CFLAGS += -DFZX_SOURCE_MACHINE=1 -I../generated/machine
+FZX_MACHINE_SRCS := machine_native.c ../src/fzx_machine_draw.c ../src/fzx_machine.c ../src/fzx_material.c
+else ifneq ($(FZX_SOURCE_MACHINE),0)
+$(error FZX_SOURCE_MACHINE must be 0 or 1)
+endif
+SH_SRCS := main.c ../src/fzx.c $(FZX_ORIG_SRCS) $(FZX_HUD_SRCS) $(FZX_CAMERA_SRCS) $(FZX_ROAD_SRCS) $(FZX_SKY_SRCS) $(FZX_MACHINE_SRCS) $(wildcard $(SH2ZAM_ROOT)/saturn/src/*.c)
 SH_CFLAGS += -DFZX_SH2_DIVU=1 -O2 -std=c11 -Wall -Wextra -I../include \
              -I$(SH2ZAM_ROOT)/saturn/include -DSH2Z_REQUIRE_SH2=1
 
@@ -292,4 +306,13 @@ pre-build-iso: stage-road-tiles
 stage-road-tiles:
 	mkdir -p $(IMAGE_DIRECTORY)
 	cp ../generated/road_tiles/ROADTL.PAK ../generated/road_tiles/ROADTX.PAK $(IMAGE_DIRECTORY)/
+endif
+
+ifeq ($(FZX_SOURCE_MACHINE),1)
+$(SH_OUTPUT_PATH)/$(SH_PROGRAM).iso: ../generated/machine/MACHINE.PAK ../generated/machine/MACHTX.PAK
+pre-build-iso: stage-machine-pack
+.PHONY: stage-machine-pack
+stage-machine-pack:
+	mkdir -p $(IMAGE_DIRECTORY)
+	cp ../generated/machine/MACHINE.PAK ../generated/machine/MACHTX.PAK $(IMAGE_DIRECTORY)/
 endif

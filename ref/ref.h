@@ -34,6 +34,36 @@ typedef struct {
 #ifndef FZX_SOURCE_CAMERA
 #define FZX_SOURCE_CAMERA 0
 #endif
+#ifndef FZX_SOURCE_MACHINE
+#define FZX_SOURCE_MACHINE 0
+#endif
+#if FZX_SOURCE_MACHINE
+#if !FZX_SOURCE_CAMERA
+#error Source machine state requires the source camera
+#endif
+/* Read-only stock Blue Falcon / single-player Time Attack draw state.
+ * Directions are the source packed values, not normalized native vectors.
+ * Scale is source X/Y/Z: local X uses basis.z*scale[2], local Y basis.y*scale[1],
+ * local Z basis.x*scale[0]. All existing trace and RefPose layouts are unchanged. */
+typedef struct {
+    float model_pos[3], model_basis[3][3], model_scale[3], shifted_distance;
+    unsigned int state_flags, faults;
+    int character, custom_type, source_lod, normal_body_visible;
+    unsigned char body[3], ambient[3], light_rgb[3], fog[3];
+    signed char light_dir[3];
+    unsigned char reserved;
+    short reflection[3];
+    unsigned short reserved2;
+} RefMachine;
+enum {
+    REF_MACHINE_UNSUPPORTED = 1, REF_MACHINE_STATE = 2,
+    REF_MACHINE_NONFINITE = 3, REF_MACHINE_LIGHT = 4,
+    REF_MACHINE_PROJECTION = 5
+};
+/* Returns 1 for a valid snapshot (possibly invisible), 0 on fault. Outside fog
+ * is receipt-bound source data: this closure does not run Background_Init. */
+int ref_machine(RefMachine* out, const unsigned char outside_fog[3]);
+#endif
 #if FZX_SOURCE_CAMERA
 /* Source camera, after Camera_Update. Source game units and row-vector matrices;
  * native presentation must explicitly adapt its viewport and clipping. */

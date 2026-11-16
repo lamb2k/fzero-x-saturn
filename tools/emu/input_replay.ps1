@@ -16,6 +16,8 @@ param(
     [string]$SourceCameraTrace = '',
     [switch]$SourceRoad,
     [switch]$SourceRoadTiles,
+    [switch]$SourceMachine,
+    [string]$SourceMachineTrace = '',
     [switch]$SourceSky,
     [switch]$SourceSkyline,
     [switch]$SourcePlanes,
@@ -57,6 +59,9 @@ $skySamples = @()
 $skylineSamples = @()
 $planeSamples = @()
 $roadTileSamples = @()
+$machineSamples = @()
+if ($SourceMachine -and (-not $SourceRoadTiles -or -not $SourceMachineTrace)) {throw "Machine capture requires native road and source-machine trace"}
+$machineExpected = if ($SourceMachine) {[IO.File]::ReadAllBytes($SourceMachineTrace)} else {$null}
 if ($SourceRoadTiles -and (-not $SourceRoad -or -not $SourceSky)) {throw "Native road capture requires road and sky gates"}
 if ($SourceSkyline -and -not $SourceSky) {throw 'Skyline capture requires the source sky frame gate'}
 if ($SourceSky -and -not $SourceCameraTrace) { throw 'Sky captures require the matching source camera trace' }
@@ -92,6 +97,42 @@ function WriteWord([uint32]$a,[uint32]$v) {
 }
 $ini = Join-Path $env:APPDATA 'YabaSanshiro\yabause.ini'
 $launched = $false
+$runtimeAudit = @()
+$windowRestores = @()
+$ownedProcess = $null
+# This OpenGL emulator stops advancing when minimized. Restore only this run's
+# window; do not change focus/visibility of unrelated emulator instances.
+if (-not ('FzxReplayWindow' -as [type])) {
+    Add-Type @'
+using System;
+using System.Runtime.InteropServices;
+public static class FzxReplayWindow {
+    [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr window);
+    [DllImport("user32.dll")] public static extern bool ShowWindowAsync(IntPtr window, int command);
+}
+'@
+}
+function MaintainReplayWindow {
+    if ($ownedProcess) {
+        $ownedProcess.Refresh()
+        if ($ownedProcess.HasExited) { throw 'Owned emulator exited during replay' }
+        if ([FzxReplayWindow]::IsIconic($ownedProcess.MainWindowHandle)) {
+            [FzxReplayWindow]::ShowWindowAsync($ownedProcess.MainWindowHandle,9) | Out-Null
+            $script:windowRestores += @{time=(Get-Date).ToString('o');pid=$ownedProcess.Id}
+            ConvertTo-Json -InputObject @($script:windowRestores) |
+                Set-Content -LiteralPath (Join-Path $OutDir 'window-restores.json')
+        }
+    }
+}
+function AuditReplayCore([int]$tick) {
+    $status = Mcp debug_status @{}
+    if ($status -notmatch '(?m)^sh2 core: ([^\r\n]+)') { throw 'Missing emulator CPU core identity' }
+    $core = $Matches[1]
+    $script:runtimeAudit += @{tick=$tick;core=$core}
+    ConvertTo-Json -InputObject @($script:runtimeAudit) |
+        Set-Content -LiteralPath (Join-Path $OutDir 'runtime-audit.json')
+    if ($core -ne $script:runtimeAudit[0].core) { throw 'Emulator CPU core changed during replay' }
+}
 New-Item -ItemType Directory -Force $OutDir | Out-Null
 $iniSnapshot = Join-Path $OutDir 'yabause.ini.before'
 Copy-Item -LiteralPath $ini -Destination $iniSnapshot -Force
@@ -100,6 +141,10 @@ try {
     & (Join-Path $PSScriptRoot 'yaba_boot.ps1') -Iso $Iso -Sym $Sym -Port $Port `
         -Until '_fzx_timing:0' -UntilValue 0x465A5854 -TimeoutSeconds $(if ($SourceRoadTiles) {180} elseif ($SourcePlanes) {120} else {45}) `
         -KeepRunning -Visible -OutDir $OutDir | Out-Null
+    $ownedProcess = Get-Process yabasanshiro | Where-Object { $_.Path -eq $exe } | Select-Object -First 1
+    if (-not $ownedProcess) { throw 'Owned emulator process missing after boot' }
+    MaintainReplayWindow
+    AuditReplayCore 0
     Mcp pause @{} | Out-Null
     $log = S '_fzx_input_log'
     for ($offset=0; $offset -lt $all.Length; $offset+=2048) {
@@ -120,13 +165,15 @@ try {
     $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
     foreach ($target in $targets) {
         if ($SourceRoadTiles -and $target -ne $targets[0]) {
+            $releaseDeadline = (Get-Date).AddSeconds(15)
             do { Start-Sleep -Milliseconds 50; $released=ReadWord (S '_fzx_debug_frame_ready') }
-            while ($released -ne 0 -and (Get-Date) -lt $deadline)
+            while ($released -ne 0 -and (Get-Date) -lt $releaseDeadline -and (Get-Date) -lt $deadline)
             if ($released -ne 0) {throw 'Previous display capture did not release'}
         }
         WriteWord (S '_fzx_debug_replay_count') $target
         if ($SourceRoadTiles) { WriteWord (S '_fzx_debug_frame_hold') 1 }
         do {
+            MaintainReplayWindow
             Start-Sleep -Seconds 1
             $done = ReadWord $count
             if ($SourceCameraTrace -and (ReadWord (S '_fzx_camera_status')) -ge 2) {
@@ -149,6 +196,15 @@ try {
                 Mcp framebuffer_screenshot @{path=(Join-Path $OutDir 'road-tile-fault.png').Replace('\','/')} | Out-Null
                 throw "Native road tile renderer fault at tick $done"
             }
+            if ($SourceMachine -and (ReadWord (S '_fzx_machine_status')) -ge 2) {
+                Mcp pause @{} | Out-Null
+                @{tick=(ReadWord $count);target=$target;status=(ReadWord (S '_fzx_machine_status'));
+                    stats_hex=(Hex (Mcp memory_read @{address=(Addr (S '_fzx_machine_stats'));length=40}));
+                    view_hex=(Hex (Mcp memory_read @{address=(Addr (S '_fzx_native_view'));length=80}));
+                    machine_hex=(Hex (Mcp memory_read @{address=(Addr (S '_fzx_source_machine'));length=112}))} |
+                    ConvertTo-Json | Set-Content -LiteralPath (Join-Path $OutDir 'machine-fault.json')
+                throw "Native machine renderer fault at tick $done"
+            }
             if ($SourcePlanes -and (ReadWord (S '_fzx_plane_status')) -ge 2) {
                 Mcp pause @{} | Out-Null
                 $planeFault=@{tick=(ReadWord $count);target=$target;
@@ -165,6 +221,7 @@ try {
             }
         } while ($done -ne $target -and (Get-Date) -lt $deadline)
         if ($done -ne $target) { throw "Replay did not reach exact tick $target (at $done)" }
+        AuditReplayCore $target
         if ($SourceRoadTiles) {
             do { Start-Sleep -Milliseconds 100; $ready=ReadWord (S '_fzx_debug_frame_ready') }
             while ($ready -ne $target -and (Get-Date) -lt $deadline)
@@ -209,6 +266,22 @@ try {
                 draw_fields=(ReadWord (S '_fzx_road_tile_fields'));field_ticks=(ReadWord ((S '_fzx_timing')+8))}
             $roadTileSamples | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $OutDir 'road-tile-samples.json')
             Write-Output "FZX-ROAD-TILES tick=$target draw=valid"
+        }
+        if ($SourceMachine) {
+            $machineHex=Hex (Mcp memory_read @{address=(Addr (S '_fzx_source_machine'));length=112})
+            $machineStats=Hex (Mcp memory_read @{address=(Addr (S '_fzx_machine_stats'));length=40})
+            if ((ReadWord (S '_fzx_machine_status')) -ne 1 -or $machineHex.Length -ne 224 -or $machineStats.Length -ne 80 -or $machineStats.Substring(48,8) -ne '00000000') {throw 'Native machine draw failed'}
+            $offset=($target-1)*364+252
+            if ($offset+112 -gt $machineExpected.Length) {throw 'Source machine trace too short'}
+            $expected=New-Object System.Text.StringBuilder
+            for($j=0;$j -lt 88;$j+=4){for($k=3;$k -ge 0;$k--){[void]$expected.Append($machineExpected[$offset+$j+$k].ToString('X2'))}}
+            for($j=88;$j -lt 104;$j++){[void]$expected.Append($machineExpected[$offset+$j].ToString('X2'))}
+            for($j=104;$j -lt 112;$j+=2){[void]$expected.Append($machineExpected[$offset+$j+1].ToString('X2'));[void]$expected.Append($machineExpected[$offset+$j].ToString('X2'))}
+            if($machineHex.ToUpperInvariant() -ne $expected.ToString()) {throw "Source machine differs from host at tick $target"}
+            $machineSamples+=@{tick=$target;packet_hex=$machineHex;stats_hex=$machineStats;draw_ticks=(ReadWord (S '_fzx_machine_ticks'));
+                draw_fields=(ReadWord (S '_fzx_machine_fields'));field_ticks=(ReadWord ((S '_fzx_timing')+8))}
+            $machineSamples | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $OutDir 'machine-samples.json')
+            Write-Output "FZX-MACHINE tick=$target source-state=match draw=valid"
         }
         if ($SourceCameraTrace) {
             $cameraHex = Hex (Mcp memory_read @{address=(Addr (S '_fzx_source_camera'));length=252})
@@ -331,6 +404,15 @@ try {
         }
         @{tier='EMULATOR';low_start=$start;low_end=$end;guards_intact=$true} | ConvertTo-Json |
             Set-Content -LiteralPath (Join-Path $OutDir 'road-tile-memory.json')
+    }
+    if ($SourceMachine) {
+        $start=ReadWord (S '_fzx_machine_low_start');$end=ReadWord (S '_fzx_machine_low_end')
+        if ($start -lt (ReadWord (S '_fzx_road_tile_low_end'))+64 -or $end+32 -gt 0x00300000 -or $end -le $start) {throw 'Native machine low-RAM bounds failed'}
+        foreach ($address in @(($start-32),$end)) {
+            if ((Hex (Mcp memory_read @{address=(Addr $address);length=32})) -ne ('5AC71E39'*8)) {throw 'Native machine low-RAM guard changed'}
+        }
+        @{tier='EMULATOR';low_start=$start;low_end=$end;guards_intact=$true} | ConvertTo-Json |
+            Set-Content -LiteralPath (Join-Path $OutDir 'machine-memory.json')
     }
     Write-Output "FZX-REPLAY $(if ($DiagnosticOnly) {'DIAGNOSTIC'} else {'PASS'}) words=$done lap=$lap finish_ms=$raceTime"
 } finally {

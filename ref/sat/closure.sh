@@ -13,6 +13,8 @@ CAMERA=${FZX_SOURCE_CAMERA:-0}
 PLAN=${FZX_ROAD_PLAN:-0}
 SKY=${FZX_SOURCE_SKY:-0}
 SKYLINE=${FZX_SOURCE_SKYLINE:-0}
+MACHINE=${FZX_SOURCE_MACHINE:-0}
+[ "$MACHINE" = 0 ] || [ "$MACHINE:$CAMERA" = 1:1 ] || { echo "machine requires source camera" >&2; exit 1; }
 [ "$SKYLINE" = 0 ] || [ "$SKYLINE:$CAMERA" = 1:1 ] || { echo "skyline requires source camera" >&2; exit 1; }
 if [ "$SKYLINE" = 1 ]; then bash "$W/tools/check_receipt.sh" "$W/generated/skyline/skyline.receipt"; fi
 [ "$SKY" = 0 ] || [ "$SKY:$CAMERA" = 1:1 ] || { echo "sky requires source camera" >&2; exit 1; }
@@ -47,6 +49,7 @@ if [ "$CAMERA" = 1 ]; then
     SOURCES="$SOURCES src/game/camera.c"
     BRIDGES="$BRIDGES camera_bridge"
 fi
+if [ "$MACHINE" = 1 ]; then CFLAGS="$CFLAGS -DFZX_SOURCE_MACHINE=1"; fi
 OBJ=$OUT/obj
 mkdir -p "$OBJ"
 objs=""

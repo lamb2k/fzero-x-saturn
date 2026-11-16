@@ -23,6 +23,7 @@ import sys
 from import_course import (DECOMP_COMMIT, UPSTREAM_COMMIT, extract_rom_course,
                            normalize_rom)
 from hud_assets import HUD_SHEETS, header as hud_header
+from model_assets import header as model_header, source_probe_state
 
 ROOT = Path(__file__).resolve().parents[1]
 DECOMP = ROOT / "upstream/G-Diffuser/decomp"
@@ -302,6 +303,7 @@ class SourceArt:
         self.inputs[DRAW] = sha(self.draw)
         self.inputs["src/game/racer.c"] = sha((decomp / "src/game/racer.c").read_bytes())
         self.inputs["src/overlays/ovl_i3/hud.c"] = sha((decomp / "src/overlays/ovl_i3/hud.c").read_bytes())
+        self.inputs["src/overlays/ovl_i3/background.c"] = sha((decomp / "src/overlays/ovl_i3/background.c").read_bytes())
 
     def texture(self, symbol: str) -> dict:
         row = self.rows[symbol]
@@ -312,7 +314,7 @@ class SourceArt:
         raw = bounded(self.segments[row["family"]], row["offset"], size)
         rgba = decode_texture(raw, fmt, w, h)
         return dict(symbol=symbol, family=row["family"], offset=row["offset"],
-                    format=fmt, width=w, height=h, source_sha256=sha(raw), rgba=rgba)
+                    format=fmt, width=w, height=h, source_sha256=sha(raw), rgba=rgba, texels=raw)
 
     def model(self, lod: int) -> dict:
         if lod not in range(1, 6):
@@ -435,10 +437,13 @@ def export(rom: bytes, out: Path, decomp: Path = DECOMP) -> dict:
     models = [source.model(lod) for lod in range(1, 6)]
     names = list(dict.fromkeys([b["symbol"] for b in bindings if b["symbol"]] +
                               list(HUD) + [f"D_A00{i:X}000_235130" for i in range(7)]))
-    outputs, textures = {}, []
+    outputs, textures, raw_textures = {}, [], {}
     for name in names:
         texture = source.texture(name)
         rgba = texture.pop("rgba")
+        raw_textures[name] = texture.pop("texels")
+        texture["raw_file"] = name + ".texels"
+        outputs[texture["raw_file"]] = raw_textures[name]
         texture["rgba_file"] = name + ".rgba"
         outputs[texture["rgba_file"]] = rgba
         if texture["format"] == "RGBA16":
@@ -447,6 +452,9 @@ def export(rom: bytes, out: Path, decomp: Path = DECOMP) -> dict:
             outputs[texture["native_file"]] = native
         textures.append(texture)
     outputs["hud.h"] = hud_header({name: outputs[name + ".rgb1555"] for name in HUD})
+    lut, body, fog = source_probe_state((decomp / "src/game/racer.c").read_text(),
+                                        (decomp / "src/overlays/ovl_i3/background.c").read_text())
+    outputs["model_probe.h"] = model_header(models, bindings, textures, raw_textures, lut, body, fog)
     manifest = dict(schema=1, source_commit=UPSTREAM_COMMIT, decomp_commit=DECOMP_COMMIT,
                     rom_sha256=provenance["normalized_rom_sha256"], source_inputs=source.inputs,
                     model_scale_game_units=[0.1, 0.1, 0.1], uv_fraction_bits=5,
@@ -457,7 +465,7 @@ def export(rom: bytes, out: Path, decomp: Path = DECOMP) -> dict:
     outputs["source_art.json"] = (json.dumps(manifest, indent=2) + "\n").encode()
     out.mkdir(parents=True, exist_ok=True)
     receipt = ["# fzx generation receipt v1"]
-    for filename in ("import_source_art.py", "import_course.py", "hud_assets.py"):
+    for filename in ("import_source_art.py", "import_course.py", "hud_assets.py", "model_assets.py"):
         receipt.append(f"generator {sha((ROOT / 'tools' / filename).read_bytes())} {filename}")
     for filename, digest in source.inputs.items():
         receipt.append(f"generator {digest} ../upstream/G-Diffuser/decomp/{filename}")

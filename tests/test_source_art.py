@@ -283,6 +283,13 @@ class RecipeTests(unittest.TestCase):
                     self.assertEqual(hashlib.sha256((output / name).read_bytes()).hexdigest(), digest)
             manifest = json.loads((output / "source_art.json").read_text())
             self.assertEqual(len(manifest["models"]), 5)
+            model = (output / "model_probe.h").read_text()
+            self.assertIn("#define FZX_MODEL_FIXTURE 0", model)
+            self.assertIn("#define FZX_MODEL_VIEW_COUNT 8u", model)
+            self.assertEqual(model.count("static const fzx_model_view_t"), 1)
+            for texture in manifest["textures"]:
+                self.assertEqual(hashlib.sha256((output / texture["raw_file"]).read_bytes()).hexdigest(),
+                                 texture["source_sha256"])
 
 
 if __name__ == "__main__":

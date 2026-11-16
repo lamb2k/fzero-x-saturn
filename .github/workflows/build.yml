@@ -38,7 +38,13 @@ jobs:
         run: |
           git submodule update --init upstream/G-Diffuser
           git -C upstream/G-Diffuser submodule update --init decomp
+          git -C upstream/G-Diffuser submodule update --init libultraship
       - run: sudo apt-get update && sudo apt-get install -y gcc-multilib clang
+      - name: Required source shader material gate and mutation controls
+        run: |
+          test -f upstream/G-Diffuser/libultraship/src/fast/shaders/opengl/default.shader.glsl
+          python3 -m unittest discover -s tests -p test_material.py -v
+          FZX_TEST_CFLAGS='-fsanitize=address,undefined -fno-omit-frame-pointer' python3 -m unittest discover -s tests -p test_material.py -v
       - name: G1.2 reference harness (gcc/clang x -O0/-O2 determinism, regression, control)
         run: bash ref/check.sh
       - name: SH-2 float library, exhaustive conversions and 2.6M operand pairs against SSE
@@ -59,11 +65,14 @@ jobs:
         run: |
           set -euo pipefail
           docker pull ijacquez/yaul@sha256:b6d272204767cd0a734139dd3a2ab298ef5912fb7b7224b78e6d9fac1a7825a6
+          python3 tools/model_probe/make_fixture.py
           docker run --rm -v "$PWD:/work" -w /work ijacquez/yaul@sha256:b6d272204767cd0a734139dd3a2ab298ef5912fb7b7224b78e6d9fac1a7825a6 /bin/bash -c '
             set -euo pipefail
             export PATH="$YAUL_INSTALL_ROOT/bin:$PATH"
             "${YAUL_ARCH_SH_PREFIX}-gcc" --version > saturn/toolchain.txt
             make -C saturn
+            make -C tools/model_probe FZX_MODEL_ART=fixture
+            make -C tools/model_probe FZX_MODEL_ART=fixture FZX_MODEL_DIVU=1
             "${YAUL_ARCH_SH_PREFIX}-readelf" -h saturn/build/fzero-x-saturn.elf > saturn/elf-header.txt
             "${YAUL_ARCH_SH_PREFIX}-size" saturn/build/fzero-x-saturn.elf > saturn/size.txt
             "${YAUL_ARCH_SH_PREFIX}-nm" saturn/build/fzero-x-saturn.elf > saturn/symbols.txt

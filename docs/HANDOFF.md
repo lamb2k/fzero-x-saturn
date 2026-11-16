@@ -19,7 +19,7 @@ Limit: 50 lines. Replace this file each session; do not append.
   Whole-race finish time matches a host input replay. HARDWARE is UNRUN.
 - Verified retail export: five Blue Falcon LODs and 22 textures, all local.
   Native timer/speed/lap/energy and lap flashes run under FZX_SOURCE_HUD=1.
-  HOST: 49 Python tests; HUD/flash/setup oracles and mutation/stale-asset controls.
+  HOST: 51 Python tests; HUD/flash/setup/material oracles, overflow/mutation controls.
   EMULATOR: isolated 86ea5d3, 9,907 inputs finish in 121,814 ms, equal to host.
 - Local performance WIP adds bounded hitch logs and corrects MISS to elapsed-1.
   Rendering peaks at the same section each lap (up to 88% of a field before changes).
@@ -33,8 +33,8 @@ Limit: 50 lines. Replace this file each session; do not append.
 ## Next work
 
 1. FZX_TEST_ROM is saved locally for Windows; forward it privately into WSL.
-   Implement native Blue Falcon materials/lighting (tile-zero extraction resolved;
-   FLX retains authored UVs), source road/camera, remaining HUD/audio and comparisons.
+   Blue Falcon software probe now matches eight host/SH-2 views; 10-32 fields/draw
+   with divider is too slow. Next: native drawing path, source camera/road and audio.
 2. Re-measure the source-art scene. For clip WIP, replay fixed recorded pad inputs
    before promotion: the live diagnostic autopilot depends on render/catch-up cadence.
 3. Cut 18.5 s setup, load the CPU run-out racing line from ROM, rerun all 10 SH-2

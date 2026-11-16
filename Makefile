@@ -17,9 +17,12 @@ $(BUILD)/test-core: tests/test_core.c $(CORE) $(HEADERS) | $(BUILD)
 # The SH-2 float library, checked bit for bit against the host's SSE binary32 (x86 hosts).
 $(BUILD)/test-float: tests/test_fzx_float.c src/sh2float/fzx_float.c src/sh2float/fzx_float.h | $(BUILD)
 	$(CC) -Isrc/sh2float $(CFLAGS) -std=c11 -Wall -Wextra -Werror -msse2 -fno-fast-math -ffp-contract=off 		tests/test_fzx_float.c src/sh2float/fzx_float.c $(LDFLAGS) -o $@
-test: $(BUILD)/test-core $(BUILD)/test-float
+$(BUILD)/test-model: tests/test_model.c src/fzx_model.c src/fzx_material.c include/fzx_model.h include/fzx_material.h | $(BUILD)
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(WARNINGS) tests/test_model.c src/fzx_model.c src/fzx_material.c $(LDFLAGS) -o $@
+test: $(BUILD)/test-core $(BUILD)/test-float $(BUILD)/test-model
 	$(BUILD)/test-core
 	$(BUILD)/test-float 2 65537
+	$(BUILD)/test-model
 	$(PYTHON) -m unittest discover -s tests -p 'test_*.py' -v
 sanitize:
 	$(MAKE) test BUILD=build/sanitize CFLAGS='-O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer' LDFLAGS='-fsanitize=address,undefined'

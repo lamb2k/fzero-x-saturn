@@ -194,3 +194,38 @@ race LookAtY vector plus `D_800CE3D0` lookup table for vertex reflection alpha.
 This is an HLE implementation reference, not instruction-level RSP validation:
 [pinned implementation](https://github.com/Zorkats/libultraship/blob/7c2354576a4a0ded4e83a31b558c7165cddc1ecb/src/fast/interpreter.cpp#L2954).
 Native lighting/reflection and source-reference motion comparison remain open.
+
+
+## Native machine material probe
+
+A standalone SH-2 probe now draws all eight fixed views of the original Blue
+Falcon: four highest-LOD angles plus source LODs 2-5 (132/96/64/24/11 triangles).
+It preserves signed authored UVs, source texture scale/addressing, three-point
+filtering, material color equations and reflection-to-fog blending. Projection
+and HLE-inspired lighting are diagnostic offline poses, not the source race camera
+or accepted dynamic lighting. Double-sided drawing is intentional for this probe.
+
+HOST: 51 Python tests pass with the verified local ROM. GCC/Clang strict builds,
+ASan/UBSan raster checks and the pinned shader sampler oracle pass. Three material
+mutations fail (UV scale, filter diagonal, reflection blend); removing the numeric
+plane guard fails under UBSan. CI initializes the pinned renderer for this gate.
+A pre-existing non-UTF-8 comment in the core was made ASCII so Clang can compile it.
+
+EMULATOR: eight views, four measured draws each, match host RGB1555 hashes with
+`FZX_MODEL_DIVU=0` and `=1`; the second divider run repeats all hashes. A changed
+expected hash is rejected. Captures were inspected locally. These compare the
+native host implementation to SH-2, not to a running source-game screenshot.
+All source assets, raw pixels, captures and detailed rows remain local.
+
+MODELLED: same emulator binary and 128x128 target, FRT divide-by-32 with overflow
+extension. Software division: mean 201,822-579,451 FRT ticks across the eight views;
+hardware divider: about 144,745-459,097 ticks. The exact divider saves 20-28%,
+but even this arm needs about 10-32 fields per draw. This software raster is a
+reference/diagnostic path and is not integrated into the race. It does not meet
+the 60 fps budget. No physical Saturn or source-reference visual acceptance.
+
+Probe-only footprint: software ELF text/data/BSS 81,872/148/140,736 bytes; divider
+text 81,808 with data/BSS unchanged. CPU image/depth arrays total 98,304 bytes;
+VDP1 image is 32,768 bytes. Divider high-RAM end is 0x0603a5f4, stack top 0x06100000.
+These are static sizes, not stack high-water or the full race-scene memory budget.
+The game ELF and game recipe are untouched by this standalone diagnostic.

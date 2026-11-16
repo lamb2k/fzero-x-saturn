@@ -261,7 +261,7 @@ static int64_t
 distance2(sh2z_vec3_t a, sh2z_vec3_t b)
 {
     const int64_t x=(int64_t)a.x-b.x, y=(int64_t)a.y-b.y, z=(int64_t)a.z-b.z;
-    /* Q16.16 squared, scaled down so a ±8192-unit course cannot overflow. */
+    /* Q16.16 squared, scaled down so a +/-8192-unit course cannot overflow. */
     return (x>>8)*(x>>8)+(y>>8)*(y>>8)+(z>>8)*(z>>8);
 }
 

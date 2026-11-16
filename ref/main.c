@@ -32,25 +32,31 @@
 #include "ref.h"
 #if FZX_BACKDROP_STATE
 #include "backdrop_state.h"
+#include "skyline_state.h"
 int ref_backdrop_check(RefBackdrop*,unsigned int,int);
 int ref_backdrop_branch_check(void);
+int ref_skyline_check(RefSkyline*,unsigned int);
+int ref_skyline_branch_check(void);
 static FILE *backdrop_trace;
+static FILE *skyline_trace;
 static void backdrop_gate(int tick) {
     RefBackdrop packet;
+    RefSkyline skyline;
     RefState before,after;
     RefCamera camera_before,camera_after;
     unsigned int i;
     ref_state(&before);ref_camera(&camera_before);
-    if(tick==0 && ref_backdrop_branch_check()) {
+    if(tick==0 && (ref_backdrop_branch_check() || ref_skyline_branch_check())) {
         fprintf(stderr,"backdrop branch control failed\n");exit(3);
     }
     /* Repeat pool selections and paused presentation frames independently of
      * the running simulation, to cover retained source vertex-pool contents. */
     const int result=ref_backdrop_check(&packet,((unsigned int)tick/3)&1,tick%31==7);
+    const int skyline_result=ref_skyline_check(&skyline,((unsigned int)tick/3)&1);
     ref_state(&after);ref_camera(&camera_after);
-    if(result || memcmp(&before,&after,sizeof(before)) ||
+    if(result || skyline_result || memcmp(&before,&after,sizeof(before)) ||
        memcmp(&camera_before,&camera_after,sizeof(camera_before))) {
-        fprintf(stderr,"backdrop failed at tick %d: %d\n",tick,result);exit(3);
+        fprintf(stderr,"backdrop failed at tick %d: %d skyline %d\n",tick,result,skyline_result);exit(3);
     }
     if(backdrop_trace) {
         fprintf(backdrop_trace,"%d",tick);
@@ -59,6 +65,14 @@ static void backdrop_gate(int tick) {
             fprintf(backdrop_trace," %08x",word);
         }
         fputc('\n',backdrop_trace);
+    }
+    if(skyline_trace) {
+        fprintf(skyline_trace,"%d",tick);
+        for(i=0;i<sizeof(skyline)/4;++i) {
+            uint32_t word;memcpy(&word,(const unsigned char*)&skyline+4*i,4);
+            fprintf(skyline_trace," %08x",word);
+        }
+        fputc('\n',skyline_trace);
     }
 }
 #endif
@@ -299,6 +313,8 @@ int main(int argc, char** argv) {
 #if FZX_BACKDROP_STATE
     if(getenv("REF_BACKDROP_TRACE") && !(backdrop_trace=fopen(getenv("REF_BACKDROP_TRACE"),"w")))
         die("cannot write backdrop trace");
+    if(getenv("REF_SKYLINE_TRACE") && !(skyline_trace=fopen(getenv("REF_SKYLINE_TRACE"),"w")))
+        die("cannot write skyline trace");
 #endif
     for (i = 0; i < nsteps && (limit < 0 || tick < limit); i++) {
         int t;
@@ -356,6 +372,7 @@ int main(int argc, char** argv) {
     printf("ticks %d hash %016llx\n", tick, (unsigned long long) hash);
 #if FZX_BACKDROP_STATE
     if(backdrop_trace)fclose(backdrop_trace);
+    if(skyline_trace)fclose(skyline_trace);
 #endif
 #if FZX_ROAD_PLAN
     if(road_plan_trace)fclose(road_plan_trace);

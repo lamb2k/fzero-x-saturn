@@ -716,3 +716,23 @@ stale output. No runtime, visual, timing or HARDWARE acceptance follows.
 
 Next: original skyline placement/tint/fade and initialization order, then native
 scene submission and held-camera/source look checks within the memory/field budget.
+
+## Source skyline state (HOST)
+
+The backdrop probe also extracts the six original Mute City billboard instances.
+Its 580-byte skyline packet preserves source IDs, positions, rounded 16.16 matrices,
+primitive tint and the original quad vertices/UVs/vertical alpha fade. It follows
+the source's camera-relative placement and inclusive +/-23,000 visibility bounds.
+Original initialization/update run in separate pools for comparison; null texture
+loaders in that HOST oracle do not qualify retail asset loading or native blending.
+
+All ten synthetic scripts match under GCC/Clang, with simulation hashes unchanged.
+All 9,907 packets of the local view-control race match across both compilers and a
+repeat; the source race remains identical and finishes in 121,814 ms. Skyline trace
+SHA-256: `309ed8513c6241b0910e04a02d1d2c146be0637af986d3bdbbbee2f70afb1743`.
+Tests cover each visibility edge, repeated pools and a vertical-facing fallback.
+Four new compiled faults (culling edge, facing sign, tint and missing alpha fade)
+fail; the four prior backdrop faults still fail. Changed source bindings are rejected.
+Native submission, blending, source-reference visuals and HARDWARE remain unrun.
+Next: SH-2 state admission and native scene submission, retaining initialization/RNG
+ordering as an explicit open gate before integration into the ordinary race lifecycle.

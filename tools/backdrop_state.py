@@ -116,12 +116,15 @@ void ref_backdrop_tick(RefBackdrop* out,unsigned int pool,int paused) {
 
 
 def generate(source_path, output):
+    import skyline_state
     source = source_path.read_text()
-    result = source+'\n'+native(source)
+    result = source+'\n'+native(source)+'\n'+skyline_state.native(source)
     result += '\n#ifdef REF_BACKDROP_ORACLE\n#include "backdrop_oracle.inc"\n#endif\n'
+    result += '\n#ifdef REF_BACKDROP_ORACLE\n#include "skyline_oracle.inc"\n#endif\n'
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_bytes(result.encode())
     files = [Path(__file__), source_path, source_path.with_suffix('.h'), ROOT/'ref/backdrop_state.h', ROOT/'ref/backdrop_oracle.inc']
+    files += [ROOT/'tools/skyline_state.py', ROOT/'ref/skyline_state.h', ROOT/'ref/skyline_oracle.inc']
     digest = lambda p: hashlib.sha256(p.read_bytes()).hexdigest()
     receipt = ['# fzx generation receipt v1; regenerate, never edit']
     receipt += ['generator %s %s'%(digest(p), os.path.relpath(p, ROOT/'tools')) for p in files]

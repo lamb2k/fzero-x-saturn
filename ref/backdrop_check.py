@@ -28,6 +28,7 @@ def main():
     run([sys.executable, ROOT/'ref/fixture_course.py', course])
     hashes = {}
     trace_hashes = {}
+    skyline_hashes = {}
     for config in CONFIGS:
         build = ROOT/'ref/build'/(config+'-camera-fixture-backdrop')
         baseline = ROOT/'ref/build'/(config+'-camera-fixture')/'fzx-ref'
@@ -35,7 +36,9 @@ def main():
         for script in sorted((ROOT/'ref/inputs').glob('T*.txt')):
             args = ['--course', course, '--byte-order', 'big', '--inputs', script]
             trace = OUT/(config+'-'+script.stem+'.trace')
-            result = run([build/'fzx-ref', *args], env={**os.environ, 'REF_BACKDROP_TRACE': str(trace)})
+            skyline = OUT/(config+'-'+script.stem+'.skyline')
+            result = run([build/'fzx-ref', *args], env={**os.environ, 'REF_BACKDROP_TRACE': str(trace),
+                                                      'REF_SKYLINE_TRACE': str(skyline)})
             off = run([baseline, *args])
             if result.stdout != off.stdout:
                 raise ValueError('Backdrop changed simulation: '+config+' '+script.stem)
@@ -44,6 +47,10 @@ def main():
             if script.stem in trace_hashes and digest != trace_hashes[script.stem]:
                 raise ValueError('Backdrop compiler divergence: '+script.stem)
             trace_hashes[script.stem] = digest
+            skyline_digest = hashlib.sha256(skyline.read_bytes()).hexdigest()
+            if script.stem in skyline_hashes and skyline_digest != skyline_hashes[script.stem]:
+                raise ValueError('Skyline compiler divergence: '+script.stem)
+            skyline_hashes[script.stem] = skyline_digest
         hashes[config] = current
         if current != hashes[CONFIGS[0]]:
             raise ValueError('Simulation compiler divergence')
@@ -58,6 +65,13 @@ def main():
         'cloud_height': ('cloudHeightAboveEye == 0.0f', 'cloudHeightAboveEye <= 0.0f'),
         'sky_uv': ('((u16*)((vtx)->v.tc))[0] = ((s) & 0xFFFF);',
                    '((u16*)((vtx)->v.tc))[0] = ((s + 32) & 0xFFFF);'),
+        'skyline_cull': ('vec.x <= 23000.0f', 'vec.x < 23000.0f'),
+        'skyline_facing': ('lookAt.x = 0.0f - gCameras[playerIndex].basis.x.x;',
+                            'lookAt.x = gCameras[playerIndex].basis.x.x;'),
+        'skyline_tint': ('native_skyline_tint[4] = {200,130,240,255}',
+                         'native_skyline_tint[4] = {200,131,240,255}'),
+        'skyline_fade': ('(&native_skyline_vertices[i][2])->v.cn[3] = 0;',
+                         '(&native_skyline_vertices[i][2])->v.cn[3] = 255;'),
     }
     results = {}
     flags = ['-m32', '-msse2', '-mfpmath=sse', '-fno-fast-math', '-fno-unsafe-math-optimizations',
@@ -79,10 +93,10 @@ def main():
         if result.returncode != 3 or 'backdrop' not in result.stderr:
             raise ValueError('Mutation was not rejected: '+name)
         results[name] = result.stderr.strip()
-    report = {'tier': 'HOST', 'scripts': hashes, 'packet_sha256': trace_hashes,
+    report = {'tier': 'HOST', 'scripts': hashes, 'packet_sha256': trace_hashes, 'skyline_sha256': skyline_hashes,
               'controls': results, 'hardware': 'UNRUN', 'native_render': 'UNRUN'}
     (OUT/'report.json').write_text(json.dumps(report, sort_keys=True, indent=2)+'\n')
-    print('HOST backdrop: 10 scripts x 2 compilers, knob-off simulation identity, 4 mutations PASS')
+    print('HOST backdrop/skyline: 10 scripts x 2 compilers, knob-off simulation identity, 8 mutations PASS')
 
 
 if __name__ == '__main__':

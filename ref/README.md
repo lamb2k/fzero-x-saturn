@@ -21,15 +21,20 @@ Build both camera-only baselines without `FZX_BACKDROP_STATE`, then run
 `python3 ref/backdrop_check.py`. The switch defaults off and is HOST-only.
 The gate compares the extracted update with the original function in separate
 storage on all ten synthetic scripts, checks simulation identity, and compiles
-four deliberately wrong native updates which must fail. Generated files stay
+eight deliberately wrong native updates which must fail. Generated files stay
 ignored and receipted. `REF_BACKDROP_TRACE` optionally writes local state packets.
 
 The packet preserves 20 source vertices, UVs, colors and background state.
 Pool selection and pause are explicit; the source advances cloud scroll twice
 per update and retains a pool's cloud vertices at exact cloud height. The gate
 covers those branches, scroll wrap and all 44 source speed/sign combinations.
-Cloud speed is an explicit input: source initialization/RNG ordering, skyline
-sprites, native rendering and field cost are separate, unfinished gates.
+The skyline packet preserves all six source IDs/placements, fixed-point billboard
+matrices, source tint and four authored vertices including the vertical alpha fade.
+`REF_SKYLINE_TRACE` writes those packets. Visibility edges at both signs of 23,000
+and the degenerate facing-vector fallback are checked against original storage.
+Cloud speed is an explicit input: source initialization/RNG ordering, native
+rendering and field cost are separate, unfinished gates. Skyline asset loading
+is covered by the converter gate; the HOST state oracle uses null texture loaders.
 
 ## What runs
 

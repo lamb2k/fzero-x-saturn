@@ -8,8 +8,9 @@ An experimental native Sega Saturn port foundation using
 
 **Target: the real F-Zero X on Saturn, preserving its original art and gameplay.**
 The local `FZX_SIM=orig` build runs the original one-racer code on Mute City 1,
-including a three-lap race and retry. It still uses temporary placeholder visuals
-and a debug HUD, so it is not the finished game. Original models, textures,
+including a three-lap race and retry. A local option now draws the original timer,
+speed and lap artwork. The road/craft and remaining presentation are unfinished,
+so this is not the finished game. Original models, textures,
 scenery, effects, HUD/fonts, menus and audio are required port content.
 The public default circuit and craft remain synthetic test fixtures.
 
@@ -27,6 +28,7 @@ The public default circuit and craft remain synthetic test fixtures.
 | Native geometry | Sampled flat road ribbons, a chase camera, six-plane polygon clipping, depth ordering and VDP1 polygon commands. |
 | Prototype driving | Fixed-step acceleration, braking, lateral steering, boundary slowdown, laps and reset. These are new test controls, not the original game's handling. |
 | Original race route | `FZX_SIM=orig` links the original racer code with binary32 software float; local owner-ROM builds supply Mute City 1 and machine constants. Emulator whole-race finish times have matched host replays. Source-art integration remains open. |
+| Source-art pipeline | Local verified export of five Blue Falcon LODs and 21 textures; native timer/speed/lap HUD under `FZX_SOURCE_HUD=1`. [Coverage and build details](docs/SOURCE_ART.md). |
 | Saturn platform | Yaul build, VDP1 drawing, VDP2 HUD, digital pad input and PAL/NTSC tick scheduling. |
 | Web preview | The same C core compiled to WebAssembly, with keyboard/touch controls and local imported-course loading. |
 | Validation | Independent spline oracle, driving/reset/ordering checks, exact prepared/general transform comparisons, importer checks, sanitizers and browser interaction tests. |
@@ -132,10 +134,9 @@ present. Generated data and ROM/archive formats are ignored by Git.
 Course features are preserved as import metadata, but pits, boosts, hazards,
 tubes, cylinders and scenery are not implemented by this first road renderer.
 
-No retail ROM was available during the initial implementation. Tests use
-explicitly synthetic records; the real-ROM integration test is skipped unless
-`FZX_TEST_ROM` points to a user-supplied ROM. A successful synthetic test does
-not establish that the retail extraction has been validated end to end.
+Retail extraction has been tested locally on a verified owner-supplied ROM.
+Public CI uses synthetic records; retail tests skip unless `FZX_TEST_ROM` is
+configured locally. Extraction checks do not establish full visual fidelity.
 
 ## Test
 

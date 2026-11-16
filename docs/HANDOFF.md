@@ -20,7 +20,7 @@ Limit: 50 lines. Replace this file each session; do not append.
 - Verified retail export: five Blue Falcon LODs and 21 textures, all local.
   Native timer/speed/lap atlas and VDP1 submission run under FZX_SOURCE_HUD=1.
   HOST: 46 Python tests, 10,010 source-layout cases; wrong glyph/stale asset fail.
-  EMULATOR: 9,907 fixed inputs finish in 121,814 ms, equal to host. Final rerun pending.
+  EMULATOR: isolated 98c7263, 9,907 inputs finish in 121,814 ms, equal to host.
 - Local performance WIP adds bounded hitch logs and corrects MISS to elapsed-1.
   Rendering peaks at the same section each lap (up to 88% of a field before changes).
 - FZX_CLIP_DIVU defaults off. HOST frame corpus hash 0027e206 is unchanged;

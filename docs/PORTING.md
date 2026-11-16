@@ -20,8 +20,9 @@ is `Zorkats/fzerox` at `b944a4135409d24979f5c74b001befab8345761a`.
 The public default uses a synthetic circuit and prototype driver. The local
 `FZX_SIM=orig` route compiles the original race closure for the master SH-2 with
 binary32 software float. With the owner's ROM it has completed a three-lap
-Mute City 1 race and matched a host replay's finish time. Retry and the timing HUD
-exist; source-art presentation and original audio remain unimplemented.
+Mute City 1 race and matched a host replay's finish time. Retry, timing diagnostics
+and an optional native source timer/speed/lap HUD exist. Source scene presentation,
+the remaining HUD/UI and original audio remain unimplemented.
 
 The temporary renderer samples a flat ribbon, follows the source racer pose,
 clips/sorts polygons and submits native VDP1 commands. This establishes an

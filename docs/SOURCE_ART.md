@@ -101,6 +101,16 @@ run; that is not used as a fidelity result. `tools/emu/input_replay.ps1` uploads
 and reads back every word, restarts, then holds source state at the exact end
 while presentation runs. All input/state/image evidence remains outside git.
 
+The final source snapshot is `98c7263`: 100 archived tracked files matched their
+Git blob identities before building. It excludes the local hitch/clip experiments.
+The isolated original-race HUD image and the default synthetic image both build.
+The archived Python run passes 45 tests and skips only the hygiene test requiring
+a `.git` directory; the actual checkout passes all 46 plus its hygiene scan.
+The isolated image repeats the 9,907-input, 121,814 ms finish and has SHA256
+`640d63140206f7aeee0f8aca57b0669f5ecb57ea2e4fa8488f4f5939a0daa436`.
+Its unchanged reference closure was reused, SHA256
+`a3994f200d0fa9c291c47ba27b7d131bce6684dff83d353e1225e00972cf3149`.
+
 Current local memory footprint (SH-2 link map, not hardware high-water evidence):
 
 | Region | Footprint |
@@ -108,8 +118,8 @@ Current local memory footprint (SH-2 link map, not hardware high-water evidence)
 | HUD texture atlas, resident VDP1 | 14,080 bytes of the default 442,336-byte texture partition |
 | Two CPU command buffers | 539 commands each, 34,496 bytes total; includes 24 reserved HUD draws |
 | HUD draw count | At most 19 of 24 reserved commands |
-| Whole candidate ELF | text 222,400; data 11,376; BSS 740,032 bytes (final check pending) |
-| High-work-RAM end / stack top | 0x060f1bf4 / 0x06100000 (58,380-byte gap, not measured stack use) |
+| Isolated source 98c7263 ELF | text 222,272; data 11,376; BSS 728,768 bytes |
+| High-work-RAM end / stack top | 0x060eef74 / 0x06100000 (69,772-byte gap, not measured stack use) |
 
 Source-reference still/motion comparisons, full scene budgets and physical Saturn
 acceptance are unrun. The next art work is the remaining HUD state plus native

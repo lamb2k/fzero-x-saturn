@@ -34,7 +34,7 @@ tree, after resolving symlinks; tracked repository destinations are refused.
 | Blue Falcon, five authored LODs | Verified retail export, eight texture slots and bounded race-setup decoder gates pass | Open: native reflection/lighting, source model pose and texture submission |
 | Basic speed/time/lap/energy HUD sheets | Verified retail RGBA16 export; 14,080-byte native atlas | Timer/speed/lap/energy and lap flash draw on VDP1; countdown/results and source-reference comparison open |
 | Mute City road materials | Verified retail MIO0 decode and seven RGBA16 surfaces | Open: source cross sections, material selection, UV seams and ordered traversal |
-| Mute City floor, skyline, clouds, sky | Source locations identified | Open |
+| Mute City floor, skyline, clouds, sky | Eleven source texture/palette objects verified; six skyline instances retain source bindings | Native geometry, cloud alpha, skyline fade and source-reference comparisons open |
 | Dash/pit, other effects, countdown and finish | Source coverage incomplete | Open |
 | Source camera | Original race closure and native view/scissor integration, default off | Source-reference visuals, broader mode coverage and performance remain open |
 | Entry/results UI and audio | Not integrated | Open |
@@ -666,3 +666,30 @@ Unblock: shared native tiles/subdivision must retain source topology, UVs and
 sampling while fitting the scene's measured memory and field budgets; source
 look and full-route gates follow. No downsampling or dropped-content arm is
 accepted. Next independent card: source backdrop extraction and bindings.
+
+## Mute City backdrop extraction (HOST)
+
+`python3 tools/backdrop_assets.py` reads the locally configured ROM and writes
+only ignored/private outputs. It selects the source venue/skybox and numeric
+skyline enum/table bindings, retaining all six instances and four shared images.
+The export contains eleven source objects: RGBA16 sky/floor, IA8 clouds and four
+CI4 images with their sixteen-entry RGBA5551 palettes. Raw source payloads total
+14,592 bytes. Every decoded RGBA byte matches the pinned visual-oracle decoder.
+The RGB1555 previews total 37,120 bytes, including palette previews; these are
+not a runtime allocation or an admitted rendering format for the whole scene.
+
+All sixteen cloud-alpha levels survive. Cloud conversion to binary-transparent
+RGB1555 is deliberately rejected. The manifest distinguishes the zero racer-fog
+override from its effective course-fog fallback, and retains source skyline tint.
+Thirty-three generated outputs and all converter/source inputs are receipted.
+
+Six synthetic tests pass on Windows and WSL: exhaustive IA8 values, CI4 indices
+and row padding, source bindings/layout, deterministic export, bounds and receipts.
+Wrong nibble order, palette endianness/pointer, binary alpha, changed bindings and
+stale-output controls fail their checks. The existing source-art suite also passes
+14 tests, with its optional retail-export test skipped in that ROM-free invocation.
+The separate local retail export and all eleven oracle comparisons pass.
+
+This card does not change the Saturn image. Source background geometry/camera,
+the two cloud-scroll advances per source update, skyline tint/fade, sky/floor
+render state and scene integration remain open. No EMULATOR/HARDWARE promotion.

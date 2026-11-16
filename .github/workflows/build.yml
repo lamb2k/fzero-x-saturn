@@ -50,6 +50,8 @@ jobs:
         run: |
           python3 -m unittest discover -s tests -p test_road_material.py -v
           FZX_TEST_CFLAGS='-fsanitize=undefined -fno-sanitize-recover=all' python3 -m unittest discover -s tests -p test_road_material.py -v
+      - name: Source backdrop bindings, palette and fractional-alpha controls
+        run: python3 -m unittest discover -s tests -p test_backdrop_assets.py -v
       - name: G1.2 reference harness (gcc/clang x -O0/-O2 determinism, regression, control)
         run: bash ref/check.sh
       - name: Source camera closure, two-camera traces and failure controls

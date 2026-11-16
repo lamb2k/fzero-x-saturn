@@ -15,6 +15,7 @@ param(
     [int]$TimeoutSeconds = 240,
     [string]$SourceCameraTrace = '',
     [switch]$SourceRoad,
+    [switch]$SourceSky,
     [int[]]$HoldTicks = @()
 )
 $ErrorActionPreference = 'Stop'
@@ -45,6 +46,8 @@ $targets = @(@($HoldTicks)+@($words.Count) | Sort-Object -Unique)
 if (@($targets | Where-Object { $_ -lt 1 -or $_ -gt $words.Count }).Count) { throw 'Hold tick outside replay' }
 $cameraSamples = @()
 $roadSamples = @()
+$skySamples = @()
+if ($SourceSky -and -not $SourceCameraTrace) { throw 'Sky captures require the matching source camera trace' }
 function Addr([uint32]$a) { '0x{0:X8}' -f $a }
 function S([string]$name) {
     $line = Get-Content -LiteralPath $Sym | Where-Object {
@@ -113,10 +116,27 @@ try {
             if ($SourceRoad -and (ReadWord (S '_fzx_road_plan_status')) -ge 2) {
                 throw "Road planner fault while advancing to tick $target"
             }
+            if ($SourceSky -and (ReadWord (S '_fzx_sky_status')) -ge 2) {
+                throw "Sky renderer fault while advancing to tick $target"
+            }
         } while ($done -ne $target -and (Get-Date) -lt $deadline)
         if ($done -ne $target) { throw "Replay did not reach exact tick $target (at $done)" }
         # Simulation is held at N; display remains active for settled capture.
         Start-Sleep -Seconds 1
+        if ($SourceSky) {
+            # Backdrop publication clears its output before rebuilding it, and
+            # renderer statistics are filled during list generation. Stop only
+            # outside both writers; two live reads alone can capture torn data.
+            $snapshotReady=$false
+            for ($attempt=0;$attempt -lt 100;++$attempt) {
+                Mcp pause @{} | Out-Null
+                if ((ReadWord (S '_fzx_sky_busy')) -eq 0) {$snapshotReady=$true;break}
+                if ((ReadWord (S '_fzx_sky_status')) -ge 2) {throw 'Sky fault while capturing'}
+                Mcp resume @{} | Out-Null
+                Start-Sleep -Milliseconds 37
+            }
+            if (-not $snapshotReady) {throw 'Could not capture completed sky publication and draw'}
+        }
         if ($SourceRoad) {
             $sequence = ReadWord (S '_fzx_road_plan_sequence')
             $roadHex = Hex (Mcp memory_read @{address=(Addr (S '_fzx_source_road_plan'));length=796})
@@ -144,6 +164,34 @@ try {
             Mcp framebuffer_screenshot @{path=(Join-Path $OutDir "camera-$target.png").Replace('\','/')} | Out-Null
             Write-Output "FZX-VIEW tick=$target source-camera=match overflow=0"
         }
+        if ($SourceSky) {
+            $skyHex = Hex (Mcp memory_read @{address=(Addr (S '_fzx_source_backdrop'));length=424})
+            $skyStats = Hex (Mcp memory_read @{address=(Addr (S '_fzx_sky_stats'));length=16})
+            $skyStatus = ReadWord (S '_fzx_sky_status')
+            if ($skyStatus -ne 1 -or $skyHex.Length -ne 848 -or $skyStats.Length -ne 32 -or
+                $skyStats.Substring(24,8) -ne '00000000' -or
+                $skyHex -ne (Hex (Mcp memory_read @{address=(Addr (S '_fzx_source_backdrop'));length=424}))) {
+                throw "Unstable or failed sky at tick $target"
+            }
+            $guardStart=ReadWord (S '_fzx_sky_stack_start')
+            $guardEnd=ReadWord (S '_fzx_sky_stack_end')
+            $heapBefore=ReadWord (S '_fzx_sky_heap_before')
+            $heapAfter=ReadWord (S '_fzx_sky_heap_after')
+            if ($heapBefore -ne $heapAfter) {throw 'Stack paint changed allocator metadata'}
+            if ($guardStart -lt 0x06004000 -or $guardEnd -gt 0x06100000 -or $guardEnd-$guardStart -lt 256) {
+                throw 'Invalid stack guard bounds'
+            }
+            $guardHex=Hex (Mcp memory_read @{address=(Addr $guardStart);length=256})
+            if ($guardHex -ne ('A55AA55A'*64)) {throw "Stack guard changed at tick $target"}
+            $skySamples += @{tick=$target;backdrop_hex=$skyHex;stats_hex=$skyStats;
+                sky_ticks=(ReadWord (S '_fzx_sky_ticks'));field_ticks=(ReadWord ((S '_fzx_timing')+8));
+                max_commands=(ReadWord (S '_fzx_sky_count_max'));status=$skyStatus;
+                stack_guard_start=$guardStart;stack_guard_end=$guardEnd;first_guard_bytes=256;
+                heap_prefix_bytes=(ReadWord (S '_fzx_sky_heap_prefix'));heap_before=$heapBefore;heap_after=$heapAfter}
+            $skySamples | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $OutDir 'sky-samples.json')
+            Write-Output "FZX-SKY tick=$target stable-packet=424 status=1"
+            Mcp resume @{} | Out-Null
+        }
     }
     $pose = Hex (Mcp memory_read @{address=(Addr (S '_orig_pose'));length=76})
     $stateFlags = [Convert]::ToUInt32($pose.Substring(144,8),16)
@@ -157,6 +205,26 @@ try {
         finished=([bool]($stateFlags -band 0x02000000));pose_hex=$pose;timing_hex=$timingHex}
     $receipt | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $OutDir 'replay.json')
     if (-not $receipt.finished) { throw 'Replay reached its end without finishing the race' }
+    if ($SourceSky) {
+        Mcp pause @{} | Out-Null
+        $start=ReadWord (S '_fzx_sky_stack_start');$end=ReadWord (S '_fzx_sky_stack_end')
+        if ($start -lt 0x06004000 -or $end -gt 0x06100000 -or $end -le $start -or ($start -band 3) -or ($end -band 3)) {
+            throw 'Invalid stack paint bounds'
+        }
+        $firstChanged=$end
+        for ($at=$start;$at -lt $end;$at+=1024) {
+            $size=[Math]::Min(1024,$end-$at)
+            $data=Hex (Mcp memory_read @{address=(Addr $at);length=$size})
+            if ($data.Length -ne $size*2) { throw 'Short stack read' }
+            for ($i=0;$i -lt $data.Length;$i+=8) {
+                if ($data.Substring($i,8) -ne 'A55AA55A' -and $at+$i/2 -lt $firstChanged) {$firstChanged=$at+$i/2}
+            }
+        }
+        @{tier='EMULATOR';paint_start=$start;paint_end=$end;first_changed=$firstChanged;
+            untouched_guard_bytes=$firstChanged-$start;hardware='UNRUN'} |
+            ConvertTo-Json | Set-Content -LiteralPath (Join-Path $OutDir 'sky-stack.json')
+        if ($firstChanged -le $start) {throw 'Sky candidate exhausted its painted stack guard'}
+    }
     Write-Output "FZX-REPLAY PASS words=$done lap=$lap finish_ms=$raceTime"
 } finally {
     if ($launched) {

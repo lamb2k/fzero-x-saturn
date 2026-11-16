@@ -762,3 +762,46 @@ Emulator: Yaba 1.20.37 MCP, executable SHA prefix `da2ffb341532f108`.
 These are numeric probes, not a scene renderer or a game performance result.
 No current game memory layout or recipe changed. Runtime submission, fractional
 alpha, source-reference visuals, full-scene cost and HARDWARE remain open.
+
+## Native source sky (EMULATOR; drawing cost MODELLED)
+
+`FZX_SOURCE_SKY=1` draws the original sky triangles through the source camera.
+The local converter retains all 64 original RGB1555 samples (128 bytes); it does
+not rewrite the source asset. `FZX_SKY_SIMPLIFY=1` optionally selects gradient
+boundaries offline with at most one RGB5 unit of texture-space error per channel.
+The Mute City gradient fits its original endpoints. Native Gouraud interpolation
+and span reduction are explicit Saturn presentation adaptations authorized by the
+owner; geometry, camera relationship and original gradient colors remain intact.
+Both flags default off. Floor, clouds and skyline are not drawn by this card.
+
+HOST: GCC/Clang/repeat and undefined-behavior checks pass 25,728 synthetic pixel
+checks. Exact-path hash `c1737b5b` is unchanged; the adapted path is `0223f577`.
+Synthetic worst-case command count drops from 110 to 6. UV, clamp, triangle-order
+and traversal-dependent shared-edge mutations fail; stale generated output fails.
+The approximation has its own declared error allowance; exact-path tests retain
+their original tolerance. Unequal-depth clipping includes shared-edge coverage.
+
+An isolated staged-source build excludes the local hitch/clip/road experiments.
+It rebuilt the original closure and native image with source camera/HUD/sky and
+sky simplification enabled. All 19 held source-camera packets match, sky state is
+stable with zero faults, and the 9,907-input replay finishes three laps in
+121,814 ms with the same final pose as HOST. This is debugger replay, not pad-only
+or console acceptance. Image SHA-256:
+`4915c4f8ad483e9a66d4be98d41ffabefd0dcccb919d5076377d330f3cf5553a`.
+
+| Native sky allocation / observation | Value |
+| --- | --- |
+| Original gradient samples | 128 bytes |
+| Optional offline boundary table | 2 bytes for this source gradient |
+| Double-buffered VDP1 shade banks | 3,072 bytes reserved |
+| Native commands across held source views | At most 5 |
+| Isolated game high work RAM end / stack top | 0x060f9a54 / 0x06100000 |
+| Untouched painted stack guard after full replay | 20,856 bytes; allocator prefix preserved |
+
+Sky-only cost across the 19 held views is about 1.34–1.88 ms (MODELLED). The
+prior unsimplified sky ranged about 1.34–19.76 ms with identical source camera
+and backdrop packets. This comparison isolates the sky timer; debug/HUD recipe
+changes prevent treating it as a whole-frame A/B result. Whole-scene 60 fps,
+complete source-reference appearance, all other memory pools and HARDWARE remain
+open. Private evidence folders are `emu/source-sky-clean`,
+`emu/source-sky-simplified` and `emu/source-sky-safe-stack` under FZX_EVIDENCE.

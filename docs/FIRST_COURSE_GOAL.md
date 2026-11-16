@@ -9,6 +9,8 @@ Approximate behavior or similar quality is acceptable when exact source behavior
 is impractical. Use source content and preserve recognizable handling, presentation
 and race rules; document meaningful differences. Exact parity is a useful baseline,
 not a blocker to an otherwise faithful playable Saturn implementation.
+Assets remain original or are converted offline for Saturn compatibility; rendering
+and behavior approximations do not authorize newly designed replacement assets.
 
 The first course is Mute City 1. The current Time Attack / Blue Falcon integration
 is the starting slice. The entry and selection flow must use the original game's

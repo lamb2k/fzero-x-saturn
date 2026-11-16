@@ -9,6 +9,11 @@ SH_PROGRAM := fzero-x-saturn
 FZX_SIM ?= proto
 FZX_SOURCE_HUD ?= 0
 FZX_SOURCE_CAMERA ?= 0
+FZX_SOURCE_SKY ?= 0
+FZX_SKY_SIMPLIFY ?= 0
+ifneq ($(filter $(FZX_SKY_SIMPLIFY),0 1),$(FZX_SKY_SIMPLIFY))
+$(error FZX_SKY_SIMPLIFY must be 0 or 1)
+endif
 FZX_SOURCE_ROAD ?= 0
 ifeq ($(FZX_SIM),orig)
 ifeq ($(FZX_SOURCE_HUD),1)
@@ -27,6 +32,11 @@ ifeq ($(FZX_SOURCE_ROAD),1)
 SH_BUILD_DIR := build-orig-road/yaul
 SH_OUTPUT_DIR := build-orig-road
 IMAGE_DIRECTORY := build-orig-road/cd
+endif
+ifeq ($(FZX_SOURCE_SKY),1)
+SH_BUILD_DIR := build-orig-sky/yaul
+SH_OUTPUT_DIR := build-orig-sky
+IMAGE_DIRECTORY := build-orig-sky/cd
 endif
 include $(YAUL_INSTALL_ROOT)/share/build.pre.mk
 
@@ -87,6 +97,21 @@ else ifneq ($(FZX_SOURCE_CAMERA),0)
 $(error FZX_SOURCE_CAMERA must be 0 or 1)
 endif
 
+ifeq ($(FZX_SOURCE_SKY),1)
+ifneq ($(FZX_SIM):$(FZX_SOURCE_CAMERA):$(FZX_ROM_BOOT),orig:1:1)
+$(error FZX_SOURCE_SKY=1 requires original simulation, source camera and local retail content)
+endif
+FZX_SKY_RECEIPT := $(shell sh ../tools/check_receipt.sh ../generated/sky/sky.receipt 2>&1; echo "rc=$$?")
+ifeq ($(findstring rc=0,$(FZX_SKY_RECEIPT)),)
+$(error Source sky is not current: $(FZX_SKY_RECEIPT))
+endif
+SH_CFLAGS += -DFZX_SOURCE_SKY=1 -I../generated/sky
+SH_CFLAGS += -DFZX_SKY_SIMPLIFY=$(FZX_SKY_SIMPLIFY)
+FZX_SKY_SRCS := ../src/fzx_sky.c sky_native.c
+else ifneq ($(FZX_SOURCE_SKY),0)
+$(error FZX_SOURCE_SKY must be 0 or 1)
+endif
+
 # Partial native HUD integration; source scene/audio gates remain open.
 ifeq ($(FZX_SOURCE_HUD),1)
 ifneq ($(FZX_SIM),orig)
@@ -117,7 +142,7 @@ FZX_ROAD_SRCS := road_native.c road_cd.c ../src/fzx_road_pack.c
 else ifneq ($(FZX_SOURCE_ROAD),0)
 $(error FZX_SOURCE_ROAD must be 0 or 1)
 endif
-SH_SRCS := main.c ../src/fzx.c $(FZX_ORIG_SRCS) $(FZX_HUD_SRCS) $(FZX_CAMERA_SRCS) $(FZX_ROAD_SRCS) $(wildcard $(SH2ZAM_ROOT)/saturn/src/*.c)
+SH_SRCS := main.c ../src/fzx.c $(FZX_ORIG_SRCS) $(FZX_HUD_SRCS) $(FZX_CAMERA_SRCS) $(FZX_ROAD_SRCS) $(FZX_SKY_SRCS) $(wildcard $(SH2ZAM_ROOT)/saturn/src/*.c)
 SH_CFLAGS += -DFZX_SH2_DIVU=1 -O2 -std=c11 -Wall -Wextra -I../include \
              -I$(SH2ZAM_ROOT)/saturn/include -DSH2Z_REQUIRE_SH2=1
 

@@ -8,6 +8,14 @@
 #include <string.h>
 
 #include "fzx.h"
+#ifndef FZX_SOURCE_SKY
+#define FZX_SOURCE_SKY 0
+#endif
+#if FZX_SOURCE_SKY
+#include "sky_native.h"
+static vdp1_vram_partitions_t sky_partitions;
+static uint32_t sky_shade_offset;
+#endif
 #ifndef FZX_SOURCE_ROAD
 #define FZX_SOURCE_ROAD 0
 #endif
@@ -290,6 +298,9 @@ static void
 orig_restart(void)
 {
     ref_race_restart();
+#if FZX_SOURCE_SKY
+    fzx_sky_restart();
+#endif
 #if FZX_SOURCE_ROAD
     fzx_road_restart();
 #endif
@@ -364,6 +375,12 @@ orig_publish(void)
         for(;;) {}
     }
     fzx_set_camera(&fzx_native_view);
+#if FZX_SOURCE_SKY
+    if(!fzx_sky_publish()) {
+        dbgio_printf("\x1b[H\x1b[2J SOURCE SKY STATE FAILED\n");
+        dbgio_flush();vdp2_sync();for(;;) {}
+    }
+#endif
 #if FZX_SOURCE_ROAD
     if(!fzx_road_publish()) {
         dbgio_printf("\x1b[H\x1b[2J SOURCE ROAD PLAN FAILED\n");
@@ -382,10 +399,24 @@ commands_build(const fzx_frame_t *frame)
     const uint32_t count = frame->count <= FZX_MAX_POLYGONS
                          ? frame->count : FZX_MAX_POLYGONS;
 
+    uint32_t first=0;
+#if FZX_SOURCE_SKY
+    if(fzx_input_count) {
+        const unsigned bank=command_list==&command_lists[0]?0u:1u;
+        void *shades=(void *)((uintptr_t)sky_partitions.texture_base+sky_shade_offset+
+                             bank*FZX_SKY_MAX_COMMANDS*8u);
+        if(!fzx_sky_native(&commands[COMMAND_FIRST_POLYGON],FZX_MAX_POLYGONS-count,
+                           &fzx_native_view,shades,&first)) {
+            dbgio_printf("\x1b[H\x1b[2J SOURCE SKY DRAW FAILED %lu\n",(unsigned long)fzx_sky_stats.fault);
+            dbgio_flush();vdp2_sync();for(;;) {}
+        }
+    }
+#endif
+
     /* The core supplies clipped polygons in painter order, far to near. */
     for (uint32_t i = 0; i < count; ++i) {
         const fzx_poly_t *p = &frame->polys[i];
-        vdp1_cmdt_t *cmd = &commands[COMMAND_FIRST_POLYGON + i];
+        vdp1_cmdt_t *cmd = &commands[COMMAND_FIRST_POLYGON + first + i];
         const rgb1555_t color = { .raw = p->color };
 
         /* polygon_set also removes a previous draw-END bit at this slot. */
@@ -398,7 +429,7 @@ commands_build(const fzx_frame_t *frame)
         cmd->cmd_xd = p->x[3]; cmd->cmd_yd = p->y[3];
     }
 
-    uint32_t draw_count = count;
+    uint32_t draw_count = first+count;
 #if FZX_SOURCE_HUD
     /* Racer_InitRacer sets energy=maxEnergy, and maxEnergy is immutable
      * in this source race closure. Capture its initial value before any ticks. */
@@ -413,7 +444,7 @@ commands_build(const fzx_frame_t *frame)
         !hud_clock.visible
     };
     if (!fzx_hud_build(&fzx_hud_atlas, &state, &hud_draws) ||
-        !fzx_hud_vdp1(&commands[COMMAND_FIRST_POLYGON+count], FZX_HUD_MAX_DRAWS,
+        !fzx_hud_vdp1(&commands[COMMAND_FIRST_POLYGON+draw_count], FZX_HUD_MAX_DRAWS,
                       &hud_draws, hud_partitions.texture_base)) {
         fzx_source_hud_status = 3;
         for (;;) {}
@@ -430,9 +461,22 @@ int
 main(void)
 {
     cpu_intc_mask_set(0);
+#if FZX_SOURCE_SKY
+    fzx_sky_stack_paint();
+#endif
     dbgio_init();
     dbgio_dev_default_init(DBGIO_DEV_VDP2_ASYNC);
     dbgio_dev_font_load();
+#if FZX_SOURCE_SKY
+    vdp1_vram_partitions_get(&sky_partitions);
+#if FZX_SOURCE_HUD
+    sky_shade_offset=(sizeof(fzx_hud_pixels)+7u)&~7u;
+#endif
+    if(sky_shade_offset+FZX_SKY_VRAM_BYTES>sky_partitions.texture_size) {
+        dbgio_printf("\x1b[H\x1b[2J SOURCE SKY EXCEEDS VDP1 MEMORY\n");
+        dbgio_flush();vdp2_sync();for(;;) {}
+    }
+#endif
     commands_init();
     fzx_init();
 #if FZX_SOURCE_ROAD

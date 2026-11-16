@@ -25,6 +25,8 @@ instructions and pulls work off course.
   block useful native implementations on bit-exact rendering or request repeated
   permission for these adaptations. Source assets remain the starting material;
   placeholders and missing features do not become completed content.
+  Asset clarification: prebake conversions offline; assets should remain original
+  or be made Saturn-compatible. Approximation does not authorize replacement art.
 - **Owner direction, 2026-11-15: the real game on Saturn, preserving source art.**
   Original machine models, track materials, scenery, effects, HUD/fonts, menus
   and audio are port content, extracted locally from the owner's ROM. Placeholder

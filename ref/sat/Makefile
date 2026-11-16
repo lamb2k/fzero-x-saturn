@@ -14,6 +14,9 @@ SH_OUTPUT_DIR := $(SAT_OUT)
 SH_PROGRAM := fzx-ref-sat
 SH_SRCS := main_sat.c
 SH_CFLAGS += -O2 -std=gnu11 -Wno-shadow
+ifeq ($(FZX_SOURCE_CAMERA),1)
+SH_CFLAGS += -DFZX_SOURCE_CAMERA=1
+endif
 SH_LDFLAGS += $(SAT_CLOSURE)
 
 IP_VERSION := V0.100

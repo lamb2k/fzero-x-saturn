@@ -1,0 +1,12 @@
+# Synthetic camera-only input schedule; no retail trace.
+500 -
+1 CR
+40 -
+1 CR
+40 -
+1 CR
+40 -
+1 CR
+40 -
+20 CU
+30 -

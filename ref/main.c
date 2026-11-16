@@ -24,6 +24,7 @@
  * binary32 hex, then a few in decimal for reading), and a final "hash" line:
  * FNV-1a 64 over every traced value and input. */
 #include <stdint.h>
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -136,6 +137,10 @@ static void trace_tick(FILE* out, int tick, const Step* in) {
 
 int main(int argc, char** argv) {
     const char *course = NULL, *order = NULL, *inputs = NULL, *trace = NULL, *rom = NULL, *prefix = NULL;
+#if FZX_SOURCE_CAMERA
+    const char* camera_path = NULL;
+    FILE* camera_out = NULL;
+#endif
     static Step steps[16384];
     static unsigned char record[REF_COURSE_RECORD_SIZE];
     int nsteps, i, tick = 0, limit = -1, cpu = 0;
@@ -151,6 +156,9 @@ int main(int argc, char** argv) {
         else if (strcmp(argv[i], "--ticks") == 0) limit = atoi(argv[i + 1]);
         else if (strcmp(argv[i], "--prefix") == 0) prefix = argv[i + 1];
         else if (strcmp(argv[i], "--cpu") == 0) cpu = atoi(argv[i + 1]);
+#if FZX_SOURCE_CAMERA
+        else if (strcmp(argv[i], "--camera-trace") == 0) camera_path = argv[i + 1];
+#endif
         else die("unknown option");
     }
     if (course == NULL || order == NULL || inputs == NULL ||
@@ -208,11 +216,39 @@ int main(int argc, char** argv) {
         fprintf(out, "# fzx-trace v1\n# tick\tintro\tbutton\tsx\tsy\tposx\tposy\tposz\tvelx\tvely\tvelz\tspeed\tenergy"
                      "\tlapdist\tsegt\theight\tsegment\tlap\tlapsdone\tracetime\tflags\tboost\tx\ty\tz\tspeed_f\n");
     }
+#if FZX_SOURCE_CAMERA
+    if (camera_path && !(camera_out = fopen(camera_path, "w"))) die("cannot write camera trace");
+#endif
     for (i = 0; i < nsteps && (limit < 0 || tick < limit); i++) {
         int t;
         for (t = 0; t < steps[i].ticks && (limit < 0 || tick < limit); t++) {
             ref_tick(steps[i].button, steps[i].sx, steps[i].sy);
             trace_tick(out, tick, &steps[i]);
+#if FZX_SOURCE_CAMERA
+            RefCamera camera;
+            unsigned camera_index;
+            if (ref_camera_count() != 2) die("Time Attack camera count changed");
+            for (camera_index = 0; camera_index < ref_camera_count(); ++camera_index) {
+                unsigned j;
+                if (!ref_camera_read(camera_index, &camera) || camera.faults)
+                    die("unmapped source camera viewport");
+                /* RefCamera has four leading integers, then 58 binary32 values. */
+                for (j = 4; j < 62; ++j) {
+                    float value;
+                    memcpy(&value, (const unsigned char*)&camera + 4*j, 4);
+                    if (!isfinite(value)) die("nonfinite source camera value");
+                }
+                if (camera_out) {
+                    fprintf(camera_out, "%d %u", tick, camera_index);
+                    for (j = 0; j < sizeof(camera) / 4; ++j) {
+                        uint32_t word;
+                        memcpy(&word, (const unsigned char*)&camera + 4*j, 4);
+                        fprintf(camera_out, " %08x", word);
+                    }
+                    fputc('\n', camera_out);
+                }
+            }
+#endif
             tick++;
         }
     }
@@ -220,6 +256,13 @@ int main(int argc, char** argv) {
         fprintf(out, "hash\t%016llx\n", (unsigned long long) hash);
         fclose(out);
     }
+#if FZX_SOURCE_CAMERA
+    if (camera_out) fclose(camera_out);
+    if (getenv("REF_STUB_CALL_REPORT")) {
+        extern void ref_stub_call_report(const char* path);
+        ref_stub_call_report(getenv("REF_STUB_CALL_REPORT"));
+    }
+#endif
     if (ref_stub_report != NULL && getenv("REF_STUB_REPORT") != NULL) {
         ref_stub_report(getenv("REF_STUB_REPORT"));
     }

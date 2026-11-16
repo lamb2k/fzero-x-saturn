@@ -6,9 +6,18 @@
 # OUT/sat_data.c (the probe's fixture and script) is linked in when present.
 set -euo pipefail
 OUT=$1
-W=/work
+W=$(cd "$(dirname "$0")/../.." && pwd)
 D=$W/upstream/G-Diffuser/decomp
 STUB=$W/ref/build/gcc-O0/stub
+CAMERA=${FZX_SOURCE_CAMERA:-0}
+[ "$CAMERA" = 0 ] || [ "$CAMERA" = 1 ] || { echo "invalid FZX_SOURCE_CAMERA" >&2; exit 1; }
+if [ "$CAMERA" = 1 ]; then
+    ART=${REF_CAMERA_ART:-fixture}
+    case "$ART" in fixture|retail) ;; *) echo "invalid REF_CAMERA_ART" >&2; exit 1;; esac
+    STUB=$W/ref/build/gcc-O0-camera-$ART/stub
+    ASSETS=$W/generated/camera_$ART
+    bash "$W/tools/check_receipt.sh" "$ASSETS/viewports.receipt"
+fi
 CC="$YAUL_ARCH_SH_PREFIX-gcc"
 # Same defines and float discipline as ref/build.sh; the SH-2 has no FPU, so float is libgcc
 # soft-float (IEEE binary32, round to nearest). sqrtf is ref/sat/soft_sqrtf.c (Yaul has no
@@ -20,6 +29,12 @@ CFLAGS="-m2 -mb -O2 -fno-fast-math -fno-unsafe-math-optimizations -ffp-contract=
  -D_MIPS_SZLONG=32 -D_MIPS_SZINT=32 -I$D/include -I$D/include/libultra -I$D/include/libc -I$D -I$D/src
  -I$W/ref -I$STUB -include $W/ref/overrides.h -include $STUB/asset_syms.h"
 SOURCES="src/game/racer.c src/game/course.c src/game/course_gadgets.c src/sys/math.c src/game/EA90.c src/game/common.c src/sys/controller.c src/overlays/ovl_i2/course_context.c src/overlays/ovl_i3/cpu.c src/game/game_context.c src/game/course_gadget_context.c"
+BRIDGES="bridge hooks"
+if [ "$CAMERA" = 1 ]; then
+    CFLAGS="$CFLAGS -DFZX_SOURCE_CAMERA=1 -I$ASSETS"
+    SOURCES="$SOURCES src/game/camera.c"
+    BRIDGES="$BRIDGES camera_bridge"
+fi
 OBJ=$OUT/obj
 mkdir -p "$OBJ"
 objs=""
@@ -28,7 +43,7 @@ for s in $SOURCES; do
     $CC $CFLAGS -c "$D/$s" -o "$o"
     objs="$objs $o"
 done
-for s in bridge hooks; do
+for s in $BRIDGES; do
     $CC $CFLAGS -c "$W/ref/$s.c" -o "$OBJ/ref_$s.o"
     objs="$objs $OBJ/ref_$s.o"
 done

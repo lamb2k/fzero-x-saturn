@@ -8,6 +8,16 @@ OPT=${2:--O0}
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 D=$ROOT/upstream/G-Diffuser/decomp
 OUT=$ROOT/ref/build/${CC}${OPT}
+CAMERA=${FZX_SOURCE_CAMERA:-0}
+[ "$CAMERA" = 0 ] || [ "$CAMERA" = 1 ] || { echo "invalid FZX_SOURCE_CAMERA" >&2; exit 1; }
+if [ "$CAMERA" = 1 ]; then
+    export REF_STUB_CALLS=1
+    ART=${REF_CAMERA_ART:-fixture}
+    case "$ART" in fixture|retail) ;; *) echo "invalid REF_CAMERA_ART" >&2; exit 1;; esac
+    OUT=$OUT-camera-$ART
+    ASSETS=$ROOT/generated/camera_$ART
+    bash "$ROOT/tools/check_receipt.sh" "$ASSETS/viewports.receipt"
+fi
 STUB=$OUT/stub
 [ -f "$D/src/game/racer.c" ] || { echo "decomp submodule missing: git submodule update --init upstream/G-Diffuser && git -C upstream/G-Diffuser submodule update --init decomp" >&2; exit 1; }
 mkdir -p "$STUB"
@@ -45,19 +55,25 @@ compile() { # Generated asset headers and asset symbols get empty stand-ins unti
     return 1
 }
 
+BRIDGES="bridge hooks"
+if [ "$CAMERA" = 1 ]; then
+    CFLAGS="$CFLAGS -DFZX_SOURCE_CAMERA=1 -I$ASSETS"
+    SOURCES="$SOURCES src/game/camera.c"
+    BRIDGES="$BRIDGES camera_bridge"
+fi
 OBJS=""
 for s in $SOURCES; do
     o=$OUT/$(basename "$s" .c).o
     compile "$D/$s" "$o"
     OBJS="$OBJS $o"
 done
-for s in bridge hooks; do  # Bridge side: decomp headers.
+for s in $BRIDGES; do  # Bridge side: decomp headers.
     o=$OUT/ref_$s.o
     compile "$ROOT/ref/$s.c" "$o"
     OBJS="$OBJS $o"
 done
 # Driver side: host headers only.
-$CC -m32 -fno-pic -O2 -g -std=c11 -Wall -Wextra -Werror -I"$ROOT/ref" -c "$ROOT/ref/main.c" -o "$OUT/ref_main.o"
+$CC -m32 -fno-pic -O2 -g -std=c11 -Wall -Wextra -Werror -I"$ROOT/ref" -DFZX_SOURCE_CAMERA=$CAMERA -c "$ROOT/ref/main.c" -o "$OUT/ref_main.o"
 OBJS="$OBJS $OUT/ref_main.o"
 python3 "$ROOT/ref/gen_stubs.py" "$OUT/stubs.c" "$OUT"/*.i -- $OBJS
 $CC -m32 -fno-pic -O0 -w -c "$OUT/stubs.c" -o "$OUT/stubs.o"

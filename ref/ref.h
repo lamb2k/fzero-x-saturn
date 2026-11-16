@@ -31,6 +31,27 @@ typedef struct {
     int lap, race_time, lap_times[3];
 } RefHud;
 
+#ifndef FZX_SOURCE_CAMERA
+#define FZX_SOURCE_CAMERA 0
+#endif
+#if FZX_SOURCE_CAMERA
+/* Source camera, after Camera_Update. Source game units and row-vector matrices;
+ * native presentation must explicitly adapt its viewport and clipping. */
+typedef struct {
+    int mode, setting, timer, look_back;
+    float eye[3], at[3], basis[3][3];
+    float fov, near_plane, far_plane;
+    float viewport[4], scissor[4]; /* scale X/Y, translate X/Y; L/T/R/B */
+    float view[4][4], projection[4][4];
+    unsigned int faults;
+} RefCamera;
+void ref_camera_init(int cold);
+void ref_camera_tick(void);
+void ref_camera(RefCamera* out);
+unsigned int ref_camera_count(void);
+int ref_camera_read(unsigned int index, RefCamera* out);
+#endif
+
 /* Bridge side. */
 int ref_load_course(const unsigned char* record, int big_endian); /* 0 on success */
 void ref_set_rom_boot(const unsigned char* boot); /* big-endian (z64) bytes; NULL = CI fixture */

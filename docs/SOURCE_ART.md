@@ -324,3 +324,62 @@ image identities are in private comparison.json. The preliminary A/B/A agrees on
 the direction of the gain. The reuse caches add 14,336 B BSS. This is a bounded
 probe-phase improvement, not a full-race or console frame-rate result; palette
 appearance, scene cost and source-reference visual acceptance remain open.
+
+
+## Source race camera closure
+
+`FZX_SOURCE_CAMERA=1` adds the pinned source `camera.c` after `Racer_Update`, with
+`Camera_StartInit` at cold boot and `Camera_Init` after racer init/restart. It
+exports float view/projection matrices, source viewport/scissor and camera state.
+This is the reference/SH-2 closure; the game still draws its temporary chase view.
+It does not mark G5.3 or source-scene integration complete. Default is zero.
+
+The thirteen viewport records are decoded from the verified ROM's compressed
+course graphics segment into a separate local, receipted pack. Host and SH-2 byte
+order are explicit. Only these objects are mapped; there is no segment or graphics
+interpreter. Synthetic tests have their own viewport fixtures. Extraction rejects
+changed layout, truncated records, invalid scales and edited generated output.
+
+HOST: GCC/Clang at O0/O2 match both cameras across ten existing scenarios plus a
+view-switch/look-back sequence. Racer hashes remain unchanged. Three restart
+comparisons match; nonfinite, missing-dependency and missing-input controls fail.
+Time Attack's secondary records-entry camera has finite matrices but intentionally
+no viewport until the source records UI draws it; the race harness leaves it so.
+The only called camera stub is the unimplemented audio-pan sink.
+
+The qualified local 9,907-input replay preserves every traced racer field and
+finishes in 121,814 ms. Camera modes change at ticks 300 (race), 7,728 (success)
+and 8,173 (spectate). Both cameras remain finite. Spectate calls the shared source
+random generator; later scenarios must preserve that call, not force indefinite
+camera-off identity. A different same-length input log falls in both arms and is
+retained separately; the qualified replay was selected by its saved input hash.
+
+EMULATOR: the 714-tick camera-control probe and ten existing synthetic scenarios
+match both complete camera streams and racer state. The first sweep exposed a
+pending-overflow race in the timer reader; its timing summary is invalid. The
+corrected reader masks interrupts, samples the pending flag and counter coherently,
+and retains 32-bit per-tick durations. The corrected repeat passes all 11 scenarios,
+15,291 ticks with no timer underflow. MODELLED simulation plus both cameras averages
+6,486..7,339 FRT/32 ticks per scenario (about 7.2..8.2 ms); worst tick 15,737
+(about 17.6 ms), before rendering. This exceeds the proposed 8 ms master budget.
+Hashing is excluded. These are not hardware or full-frame results. Retail
+finish/spectate is HOST evidence, not SH-2 retail acceptance.
+
+Probe generation rebuilds the host reference, verifies the committed camera hashes,
+and receipts its actual source/header dependencies plus all input schedules. This
+prevents a stale host binary from minting a receipt for newer source.
+
+Native presentation must consume the exported float matrices. The upstream packed
+matrix helper unconditionally swaps column halves for its little-endian port;
+those packed matrices are not a valid big-endian Saturn presentation interface.
+Next: connect the source projection/viewport to native rendering, then integrate
+the source road and moving-machine presentation. Preserve the draw-time single-player
+scissor override (source 12,16..308,224) and camera-dependent road visibility; the
+stored camera scissor and existing forward-only ring window are insufficient.
+
+
+Isolated source-only tree `247cd477`: all camera HOST gates and SH-2 build pass;
+its camera-control program is byte-identical to the emulator-tested program,
+SHA-256 `0425b1c179d0b411c4208226f40ade4051f01935de5658806bfa121dbfef4a39`.
+Changing a contributing input schedule fails the receipt check. Default-off host
+reference gates pass. No renderer feature or performance switch is promoted.

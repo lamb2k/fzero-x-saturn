@@ -116,6 +116,9 @@ int ref_race_init(void) {
         D_i3_8013DBE8 = sCpuLine;
     }
     Racer_Init();
+#if FZX_SOURCE_CAMERA
+    ref_camera_init(1);
+#endif
     return 0;
 }
 
@@ -129,6 +132,9 @@ void ref_race_restart(void) {
         D_i3_8013DBE8 = sCpuLine;
     }
     Racer_Init();
+#if FZX_SOURCE_CAMERA
+    ref_camera_init(0);
+#endif
 }
 
 void ref_set_cpu_driver(int on) {
@@ -145,6 +151,9 @@ void ref_tick(unsigned short buttons, signed char stick_x, signed char stick_y) 
     ref_pad_stick_y = stick_y;
     Controller_UpdateInputs();
     Racer_Update();
+#if FZX_SOURCE_CAMERA
+    ref_camera_tick();
+#endif
 }
 
 void ref_state(RefState* s) {

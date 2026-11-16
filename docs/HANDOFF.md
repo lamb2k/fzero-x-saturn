@@ -8,7 +8,7 @@ Limit: 50 lines. Replace this file each session; do not append.
   on the game's art/look is superseded. Original models, textures/materials,
   scenery, effects, HUD/fonts, menus and audio are required. Placeholders are tests.
 - POC_PLAN section 4.7 defines the source-art gate; Gate 6 covers the complete game.
-  A Mute City slice is an intermediate milestone, not completion of the port.
+  A Mute City slice is an intermediate milestone, not completion.
 - ROM-derived assets, packs, traces, stills and images stay local/ignored. Public
   source contains converters, runtime code and synthetic fixtures only.
 
@@ -35,13 +35,13 @@ Limit: 50 lines. Replace this file each session; do not append.
 1. FZX_TEST_ROM is saved locally for Windows; forward it privately into WSL.
    Moving Blue Falcon now passes 72 host/SH-2 pose/light checks. Native palettes
    still differ visually and are slow. Exact reuse is gated default-off; source
-   camera, road and audio are next.
-2. Re-measure the source-art scene. For clip WIP, replay fixed recorded pad inputs
+   camera passes HOST/all 11 SH-2 scenarios; worst tick is 17.6 ms MODELLED.
+2. Connect source camera matrices, effective scissor and visibility; then road/audio.
+   Re-measure the source-art scene. For clip WIP, use fixed recorded pad inputs
    before promotion: the live diagnostic autopilot depends on render/catch-up cadence.
 3. Cut 18.5 s setup, load the CPU run-out racing line from ROM, rerun all 10 SH-2
    probes after closure changes, then prepare the owner console run.
 4. Expand the faithful slice through Gate 6's content/mode coverage ledger.
-
 ## Working notes
 - Soft-float versus fixed-point is open; CI default remains `proto`.
 - Use FZX_YABA_EXE and FZX_TEST_ROM locally; never publish private paths. Emulator

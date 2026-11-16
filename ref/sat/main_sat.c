@@ -38,16 +38,71 @@ typedef struct {
     uint32_t frt_max_tick;
     uint32_t frt_race_sum, race_ticks; /* ticks after the intro (intro == 0) */
     uint32_t frt_race_max;
+#if FZX_SOURCE_CAMERA
+    uint32_t camera_hash, camera_faults, camera_count;
+#endif
 } SatResult;
 
 SatResult fzx_sat_result;
+#if FZX_SOURCE_CAMERA
+uint32_t fzx_sat_frt[MAX_TICKS];
+#else
 uint16_t fzx_sat_frt[MAX_TICKS];
+#endif
 /* Debug window: the race state right after init and after each of the first 16 ticks. */
 int32_t fzx_sat_init_intro;
 /* The probe waits up to 600 fields for a debugger (MCP memory_write) to set this non-zero,
  * so breakpoints and the CPU core can be chosen before the race is initialised. */
 volatile uint32_t fzx_sat_go;
 RefState fzx_sat_states[16];
+
+#if FZX_SOURCE_CAMERA
+static volatile uint32_t timer_high;
+static void timer_overflow(void) { timer_high += 65536u; }
+static uint32_t timer_now(void) {
+    volatile cpu_ioregs_t* const io=(volatile cpu_ioregs_t*)CPU_IOREG_BASE;
+    const uint32_t mask=cpu_intc_mask_get();
+    uint32_t value;
+    uint8_t before, after, high, low, high2;
+    cpu_intc_mask_set(15);
+    /* OVF can be pending before the handler extends the timer. Read both
+     * the pending flag and the bytewise counter coherently under the mask. */
+    do {
+        before=io->ftcsr&2u;
+        high=io->frch; low=io->frcl; high2=io->frch;
+        after=io->ftcsr&2u;
+    } while(before!=after || high!=high2);
+    value=timer_high+(after ? 65536u : 0u)+((uint32_t)high<<8)+low;
+    cpu_intc_mask_set(mask);
+    return value;
+}
+static uint32_t camera_hash = 2166136261u;
+RefCamera fzx_sat_camera[2];
+uint32_t fzx_sat_camera_blocks[MAX_TICKS/64];
+static void camera_word(uint32_t word) {
+    unsigned int i;
+    for (i=0; i<4; ++i) { camera_hash=(camera_hash^(uint8_t)word)*16777619u; word>>=8; }
+}
+static void mix_camera(uint32_t tick) {
+    unsigned int i,j;
+    const unsigned int count=ref_camera_count();
+    fzx_sat_result.camera_count=count;
+    if(count!=2) { ++fzx_sat_result.camera_faults; return; }
+    for(i=0;i<count;++i) {
+        RefCamera* c=&fzx_sat_camera[i];
+        if(!ref_camera_read(i,c)) { ++fzx_sat_result.camera_faults; return; }
+        camera_word(tick); camera_word(i);
+        for(j=0;j<sizeof(*c)/4;++j) {
+            uint32_t word;
+            memcpy(&word,(const unsigned char*)c+4*j,4);
+            if(j>=4 && j<62 && (word&0x7F800000u)==0x7F800000u) ++fzx_sat_result.camera_faults;
+            camera_word(word);
+        }
+        fzx_sat_result.camera_faults+=c->faults;
+    }
+    if((tick&63)==63) fzx_sat_camera_blocks[tick/64]=camera_hash;
+}
+#endif
 
 static uint64_t hash = 0xCBF29CE484222325ull;
 
@@ -139,14 +194,26 @@ int main(void) {
         fzx_sat_init_intro = s0.intro;
     }
     cpu_frt_init(CPU_FRT_CLOCK_DIV_32);
+#if FZX_SOURCE_CAMERA
+    cpu_intc_mask_set(0);
+    cpu_frt_ovi_set(timer_overflow);
+    cpu_frt_interrupt_priority_set(12);
+#endif
     for (i = 0; i < sat_step_count; i++) {
         for (t = 0; t < sat_steps[i].ticks && tick < MAX_TICKS; t++) {
             RefState s;
+#if FZX_SOURCE_CAMERA
+            uint32_t c, start=timer_now();
+#else
             uint16_t c;
-
             cpu_frt_count_set(0);
+#endif
             ref_tick(sat_steps[i].button, sat_steps[i].sx, sat_steps[i].sy);
+#if FZX_SOURCE_CAMERA
+            c = timer_now()-start;
+#else
             c = cpu_frt_count_get();
+#endif
             fzx_sat_frt[tick] = c;
             r->frt_sum += c;
             if (c > r->frt_max) {
@@ -154,6 +221,9 @@ int main(void) {
                 r->frt_max_tick = tick;
             }
             mix_state((int) tick, &sat_steps[i]);
+#if FZX_SOURCE_CAMERA
+            mix_camera(tick);
+#endif
             ref_state(&s);
             if (tick < 16) fzx_sat_states[tick] = s;
             if (s.intro == 0) {
@@ -167,7 +237,13 @@ int main(void) {
     r->ticks = tick;
     r->hash_hi = (uint32_t) (hash >> 32);
     r->hash_lo = (uint32_t) hash;
+#if FZX_SOURCE_CAMERA
+    r->camera_hash=camera_hash;
+    if(r->camera_faults) r->state=3;
+    else r->state=1;
+#else
     r->state = 1;
+#endif
     r->magic = 0x465A5852;
 
     dbgio_printf(" TICKS %lu\n HASH %08lx%08lx\n", (unsigned long) tick, (unsigned long) r->hash_hi,

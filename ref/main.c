@@ -30,6 +30,41 @@
 #include <string.h>
 
 #include "ref.h"
+#if FZX_ROAD_PLAN
+#include "road_plan.h"
+int ref_road_plan_check(RefRoadPlan *out,unsigned int draw_frame,const unsigned char fog[3]);
+int ref_road_plan_branch_check(void);
+static FILE *road_plan_trace;
+static void road_plan_gate(int tick) {
+    RefRoadPlan plan;
+    RefState before,after;
+    RefCamera camera_before,camera_after;
+    unsigned int i;
+    ref_state(&before); ref_camera(&camera_before);
+    if(tick==0 && ref_road_plan_branch_check()) {
+        fprintf(stderr,"road plan branch control failed\n");exit(3);
+    }
+    /* Deliberately unequal synthetic channels exercise the source transition
+     * math. These are a test input, never a substitute retail environment. */
+    static const unsigned char fog[3]={203,137,61};
+    const int result=ref_road_plan_check(&plan,(unsigned int)tick,fog);
+    ref_state(&after); ref_camera(&camera_after);
+    if(result || memcmp(&before,&after,sizeof(before)) ||
+       memcmp(&camera_before,&camera_after,sizeof(camera_before))) {
+        fprintf(stderr,"road plan failed at tick %d: %d\n",tick,result);exit(3);
+    }
+    if(road_plan_trace) {
+        fprintf(road_plan_trace,"%d %u %u %u %d",tick,plan.count,plan.visible_chunks,plan.outer,plan.fog_start);
+        for(i=0;i<4;++i)fprintf(road_plan_trace," %u",plan.fog[i]);
+        for(i=0;i<4;++i)fprintf(road_plan_trace," %u",plan.primitive[i]);
+        for(i=0;i<plan.count;++i) {
+            unsigned int depth;memcpy(&depth,&plan.groups[i].average_depth,4);
+            fprintf(road_plan_trace," %u,%u,%d,%08x",plan.groups[i].start,plan.groups[i].end,plan.groups[i].direction,depth);
+        }
+        fputc('\n',road_plan_trace);
+    }
+}
+#endif
 
 static uint64_t hash = 0xCBF29CE484222325ull;
 
@@ -219,11 +254,18 @@ int main(int argc, char** argv) {
 #if FZX_SOURCE_CAMERA
     if (camera_path && !(camera_out = fopen(camera_path, "w"))) die("cannot write camera trace");
 #endif
+#if FZX_ROAD_PLAN
+    if(getenv("REF_ROAD_PLAN_TRACE") && !(road_plan_trace=fopen(getenv("REF_ROAD_PLAN_TRACE"),"w")))
+        die("cannot write road plan trace");
+#endif
     for (i = 0; i < nsteps && (limit < 0 || tick < limit); i++) {
         int t;
         for (t = 0; t < steps[i].ticks && (limit < 0 || tick < limit); t++) {
             ref_tick(steps[i].button, steps[i].sx, steps[i].sy);
             trace_tick(out, tick, &steps[i]);
+#if FZX_ROAD_PLAN
+            road_plan_gate(tick);
+#endif
 #if FZX_SOURCE_CAMERA
             RefCamera camera;
             unsigned camera_index;
@@ -267,5 +309,8 @@ int main(int argc, char** argv) {
         ref_stub_report(getenv("REF_STUB_REPORT"));
     }
     printf("ticks %d hash %016llx\n", tick, (unsigned long long) hash);
+#if FZX_ROAD_PLAN
+    if(road_plan_trace)fclose(road_plan_trace);
+#endif
     return 0;
 }

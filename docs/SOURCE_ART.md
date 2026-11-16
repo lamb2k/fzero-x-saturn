@@ -518,3 +518,28 @@ traversal, moving source-reference visuals, final scene cost and hardware remain
 Final source audit `b5403b39` matches all 170 staged source files to the reviewed
 tree and the tested program. Editing `ROAD.PAK` also stops the Saturn build at
 its receipt check; restoring the original bytes makes that check pass.
+
+## Source road draw planner (HOST; native drawing pending)
+
+`tools/road_plan.py` derives the planner from the pinned stock `Course_Draw`.
+It retains camera culling, group construction, far-to-near selection, the
+racer's interior/join predicate and fog interpolation. Presentation commands
+become a bounded 796-byte packet of group endpoints/directions/depths and
+material state. No display-list interpretation or runtime vertex baking occurs.
+Source edits require a new review; the generator refuses a changed source hash.
+
+The race-only closure omits `Background_Init` and the graphics main loop, so its
+fog and graphics-frame stand-ins are zero. The planner explicitly requires a
+course fog color and graphics-frame phase. Binding them to the native game is
+still pending; the HOST oracle uses named synthetic color inputs. It temporarily
+binds those same inputs to the original draw routine and compares its actual
+commands, then restores the source globals.
+
+`python3 ref/road_plan_check.py` passes three synthetic courses, 2,000 ticks each,
+GCC/Clang at O0/O2, exact repeats and 24 injected interior/join states. Four
+mutations fail: reversed group direction, wrong rail clock, wrong interior fog
+scale and inverted outer-face selection. The source racer/camera remain unchanged.
+The local 9,907-input route also matches the source planner on every tick, with
+up to 19 groups and 3..62 visible chunks; both interior states, 59 synthetic fog
+colors and all 32 rail-color phases occur. Its race trace remains byte-identical.
+This is planner equivalence, not source-scene visual or performance acceptance.

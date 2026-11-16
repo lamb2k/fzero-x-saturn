@@ -10,6 +10,8 @@ D=$ROOT/upstream/G-Diffuser/decomp
 OUT=$ROOT/ref/build/${CC}${OPT}
 CAMERA=${FZX_SOURCE_CAMERA:-0}
 ROAD=${FZX_ROAD_EXPORT:-0}
+PLAN=${FZX_ROAD_PLAN:-0}
+[ "$PLAN" = 0 ] || [ "$PLAN:$CAMERA:$ROAD" = 1:1:0 ] || { echo "road planner requires source camera and no offline export" >&2; exit 1; }
 [ "$ROAD" = 0 ] || [ "$ROAD" = 1 ] || { echo "invalid FZX_ROAD_EXPORT" >&2; exit 1; }
 [ "$ROAD:$CAMERA" != 1:1 ] || { echo "road export is an offline tool, not a camera race" >&2; exit 1; }
 [ "$ROAD" = 0 ] || OUT=$OUT-road
@@ -21,6 +23,10 @@ if [ "$CAMERA" = 1 ]; then
     OUT=$OUT-camera-$ART
     ASSETS=$ROOT/generated/camera_$ART
     bash "$ROOT/tools/check_receipt.sh" "$ASSETS/viewports.receipt"
+fi
+if [ "$PLAN" = 1 ]; then
+    OUT=$OUT-plan
+    python3 "$ROOT/tools/road_plan.py" --output "$OUT/road_plan_course.c"
 fi
 STUB=$OUT/stub
 [ -f "$D/src/game/racer.c" ] || { echo "decomp submodule missing: git submodule update --init upstream/G-Diffuser && git -C upstream/G-Diffuser submodule update --init decomp" >&2; exit 1; }
@@ -60,6 +66,7 @@ compile() { # Generated asset headers and asset symbols get empty stand-ins unti
 }
 
 BRIDGES="bridge hooks"
+if [ "$PLAN" = 1 ]; then CFLAGS="-I$D/src/game -DREF_ROAD_PLAN_ORACLE $CFLAGS"; fi
 if [ "$CAMERA" = 1 ]; then
     CFLAGS="$CFLAGS -DFZX_SOURCE_CAMERA=1 -I$ASSETS"
     SOURCES="$SOURCES src/game/camera.c"
@@ -68,7 +75,11 @@ fi
 OBJS=""
 for s in $SOURCES; do
     o=$OUT/$(basename "$s" .c).o
-    compile "$D/$s" "$o"
+    if [ "$PLAN:$s" = 1:src/game/course.c ]; then
+        compile "$OUT/road_plan_course.c" "$o"
+    else
+        compile "$D/$s" "$o"
+    fi
     OBJS="$OBJS $o"
 done
 if [ "$ROAD" = 1 ]; then
@@ -83,7 +94,7 @@ done
 # Driver side: host headers only.
 DRIVER=main
 [ "$ROAD" = 0 ] || DRIVER=road_main
-$CC -m32 -fno-pic -O2 -g -std=c11 -Wall -Wextra -Werror -I"$ROOT/ref" -DFZX_SOURCE_CAMERA=$CAMERA -c "$ROOT/ref/$DRIVER.c" -o "$OUT/ref_main.o"
+$CC -m32 -fno-pic -O2 -g -std=c11 -Wall -Wextra -Werror -I"$ROOT/ref" -DFZX_SOURCE_CAMERA=$CAMERA -DFZX_ROAD_PLAN=$PLAN -c "$ROOT/ref/$DRIVER.c" -o "$OUT/ref_main.o"
 OBJS="$OBJS $OUT/ref_main.o"
 python3 "$ROOT/ref/gen_stubs.py" "$OUT/stubs.c" "$OUT"/*.i -- $OBJS
 $CC -m32 -fno-pic -O0 -w -c "$OUT/stubs.c" -o "$OUT/stubs.o"

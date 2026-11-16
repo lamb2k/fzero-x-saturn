@@ -31,10 +31,10 @@ tree, after resolving symlinks; tracked repository destinations are refused.
 
 | Required content | Extraction | Native rendering / acceptance |
 | --- | --- | --- |
-| Blue Falcon, five authored LODs | Verified retail export, eight texture slots and bounded race-setup decoder gates pass | Open: native reflection/lighting, source model pose and texture submission |
+| Blue Falcon, five authored LODs | Verified retail export, eight texture slots and bounded race-setup decoder gates pass | Original near model, live source pose/body/lighting and resident charts complete the race; performance and final look remain open |
 | Basic speed/time/lap/energy HUD sheets | Verified retail RGBA16 export; 14,080-byte native atlas | Timer/speed/lap/energy and lap flash draw on VDP1; countdown/results and source-reference comparison open |
 | Mute City road materials | Verified retail MIO0 decode and seven RGBA16 surfaces | Native shared strips and source geometry complete a full replay locally; performance and final source-reference look remain open |
-| Mute City floor, skyline, clouds, sky | Eleven source texture/palette objects verified; six skyline instances retain source bindings | Native sky/skyline admitted; original floor/cloud draw through a full race, but their cost and final source-reference quality remain open |
+| Mute City floor, skyline, clouds, sky | Eleven source texture/palette objects verified; six skyline instances retain source bindings | Native sky/skyline admitted; original floor uses RBG0 with source-derived fog, clouds remain sprites; full replay passes, scene budget and final look remain open |
 | Dash/pit, other effects, countdown and finish | Source coverage incomplete | Open |
 | Source camera | Original race closure and native view/scissor integration, default off | Source-reference visuals, broader mode coverage and performance remain open |
 | Entry/results UI and audio | Not integrated | Open |
@@ -1176,3 +1176,13 @@ mean road CPU reduction (125.92 to 112.04 ms MODELLED), still far over budget.
 Cache-off restores the exact admitted machine binary. No geometry or art was
 changed; this short diagnostic is not a new full native race acceptance.
 See [road measurements](ROAD_PERFORMANCE.md) for scope and private evidence.
+
+## VDP2 original floor integration
+
+The default-off RBG0 floor retains every original native pixel and source geometry/UVs.
+Finite coverage, reciprocal perspective and eight fog bands replace repeated floor
+tile submission. Full replay, HOST/native packets, synchronized table readback,
+memory guards and corrupt-asset rejection pass. See [floor measurements](FLOOR_PERFORMANCE.md)
+for quantified adaptations, A/B/A CPU cost and the new 152,544-byte VDP2 allocation.
+The prior VDP1 floor atlas remains allocated; final source-reference appearance,
+whole-scene 60 fps and physical hardware acceptance remain open.

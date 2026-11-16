@@ -14,6 +14,7 @@ FZX_SOURCE_MACHINE ?= 0
 FZX_SOURCE_SKY ?= 0
 FZX_SOURCE_SKYLINE ?= 0
 FZX_SOURCE_PLANES ?= 0
+FZX_SOURCE_FLOOR_RBG ?= 0
 FZX_SOURCE_ROAD_TILES ?= 0
 FZX_ROAD_TILE_PROJECT_CULL ?= 0
 FZX_ROAD_TILE_EDGE_REUSE ?= 0
@@ -220,6 +221,19 @@ FZX_SKY_SRCS += ../src/fzx_planes.c planes_native.c
 else ifneq ($(FZX_SOURCE_PLANES),0)
 $(error FZX_SOURCE_PLANES must be 0 or 1)
 endif
+ifeq ($(FZX_SOURCE_FLOOR_RBG),1)
+ifneq ($(FZX_SOURCE_PLANES):$(FZX_SOURCE_ROAD_TILES),1:1)
+$(error FZX_SOURCE_FLOOR_RBG=1 requires original planes and native road tiles)
+endif
+FZX_FLOOR_RECEIPT := $(shell sh ../tools/check_receipt.sh ../generated/floor_rbg/floor_rbg.receipt 2>&1; echo "rc=$$?")
+ifeq ($(findstring rc=0,$(FZX_FLOOR_RECEIPT)),)
+$(error Source floor rotation bank is not current: $(FZX_FLOOR_RECEIPT))
+endif
+SH_CFLAGS += -DFZX_SOURCE_FLOOR_RBG=1 -I../generated/floor_rbg
+FZX_SKY_SRCS += ../src/fzx_floor_rbg.c floor_rbg_native.c
+else ifneq ($(FZX_SOURCE_FLOOR_RBG),0)
+$(error FZX_SOURCE_FLOOR_RBG must be 0 or 1)
+endif
 ifeq ($(FZX_SOURCE_ROAD),1)
 ifneq ($(FZX_SIM):$(FZX_SOURCE_CAMERA):$(FZX_ROM_BOOT),orig:1:1)
 $(error FZX_SOURCE_ROAD=1 requires original simulation, source camera and local retail content)
@@ -319,6 +333,15 @@ pre-build-iso: stage-plane-pack
 stage-plane-pack:
 	mkdir -p $(IMAGE_DIRECTORY)
 	cp ../generated/planes/PLANES.PAK $(IMAGE_DIRECTORY)/PLANES.PAK
+endif
+
+ifeq ($(FZX_SOURCE_FLOOR_RBG),1)
+$(SH_OUTPUT_PATH)/$(SH_PROGRAM).iso: ../generated/floor_rbg/FLOORCHR.BIN ../generated/floor_rbg/FLOORMAP.BIN ../generated/floor_rbg/FLOORKOF.BIN
+pre-build-iso: stage-floor-rbg
+.PHONY: stage-floor-rbg
+stage-floor-rbg:
+	mkdir -p $(IMAGE_DIRECTORY)
+	cp ../generated/floor_rbg/FLOORCHR.BIN ../generated/floor_rbg/FLOORMAP.BIN ../generated/floor_rbg/FLOORKOF.BIN $(IMAGE_DIRECTORY)/
 endif
 
 ifeq ($(FZX_SOURCE_ROAD_TILES),1)

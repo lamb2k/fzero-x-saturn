@@ -23,6 +23,7 @@ param(
     [switch]$SourceSky,
     [switch]$SourceSkyline,
     [switch]$SourcePlanes,
+    [switch]$SourceFloorRbg,
     [switch]$TextureCd,
     [ValidateRange(4,524288)] [int]$TextureCdBytes = 8320,
     [int[]]$HoldTicks = @(),
@@ -31,6 +32,7 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 if (($RoadTileProfile -or $RoadTileVertexCache) -and -not $SourceRoadTiles) { throw 'Road tile diagnostics require SourceRoadTiles' }
+if ($SourceFloorRbg -and (-not $SourcePlanes -or -not $SourceRoadTiles)) {throw 'Rotation floor diagnostics require SourcePlanes and SourceRoadTiles'}
 $repo = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..')) + [IO.Path]::DirectorySeparatorChar
 if (([IO.Path]::GetFullPath($OutDir) + [IO.Path]::DirectorySeparatorChar).StartsWith(
         $repo, [StringComparison]::OrdinalIgnoreCase)) {
@@ -61,6 +63,7 @@ $roadSamples = @()
 $skySamples = @()
 $skylineSamples = @()
 $planeSamples = @()
+$floorSamples = @()
 $roadTileSamples = @()
 $machineSamples = @()
 if ($SourceMachine -and (-not $SourceRoadTiles -or -not $SourceMachineTrace)) {throw "Machine capture requires native road and source-machine trace"}
@@ -219,6 +222,16 @@ try {
                 Mcp framebuffer_screenshot @{path=(Join-Path $OutDir 'plane-fault.png').Replace('\','/')} | Out-Null
                 throw "Floor/cloud renderer fault at tick $($planeFault.tick)"
             }
+            if ($SourceFloorRbg -and (ReadWord (S '_fzx_floor_status')) -ge 2) {
+                Mcp pause @{} | Out-Null
+                @{tick=(ReadWord $count);status=(ReadWord (S '_fzx_floor_status'));
+                    packet_hex=(Hex (Mcp memory_read @{address=(Addr (S '_fzx_floor_rbg'));length=1016}));
+                    view_hex=(Hex (Mcp memory_read @{address=(Addr (S '_fzx_native_view'));length=80}));
+                    backdrop_hex=(Hex (Mcp memory_read @{address=(Addr (S '_fzx_source_backdrop'));length=424}))} |
+                    ConvertTo-Json | Set-Content -LiteralPath (Join-Path $OutDir 'floor-fault.json')
+                Mcp framebuffer_screenshot @{path=(Join-Path $OutDir 'floor-fault.png').Replace('\','/')} | Out-Null
+                throw "Rotation floor renderer fault while advancing to tick $target"
+            }
             if ($SourceSkyline -and (ReadWord (S '_fzx_skyline_status')) -ge 2) {
                 throw "Skyline fault while advancing to tick $target"
             }
@@ -355,6 +368,27 @@ try {
                     field_ticks=(ReadWord ((S '_fzx_timing')+8))}
                 $planeSamples | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $OutDir 'plane-samples.json')
                 Write-Output "FZX-PLANES tick=$target draw=valid"
+            }
+            if ($SourceFloorRbg) {
+                $floorHex=Hex (Mcp memory_read @{address=(Addr (S '_fzx_floor_rbg'));length=1016})
+                $presented=ReadWord (S '_fzx_floor_presented')
+                $pending=ReadWord (S '_fzx_floor_pending')
+                $rpHex=Hex (Mcp memory_read @{address='0x25E20000';length=96})
+                $windowHex=Hex (Mcp memory_read @{address='0x25E60000';length=896})
+                $floorSamples+=@{tick=$target;status=(ReadWord (S '_fzx_floor_status'));
+                    pending=$pending;presented=$presented;commits=(ReadWord (S '_fzx_floor_commits'));
+                    upload_ticks=(ReadWord (S '_fzx_floor_upload_ticks'));upload_blanking=(ReadWord (S '_fzx_floor_upload_blanking'));
+                    draw_ticks=(ReadWord (S '_fzx_floor_ticks'));field_ticks=(ReadWord ((S '_fzx_timing')+8));
+                    packet_hex=$floorHex;rp_hex=$rpHex;window_hex=$windowHex;
+                    registers_hex=((Mcp memory_read @{address='0x25F80000';length=288;format='u16'}) -replace '\s+','')}
+                $floorSamples | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $OutDir 'floor-samples.json')
+                if ($floorSamples[-1].status -ne 1 -or $presented -ne $target -or $pending -ne 0 -or
+                    $floorSamples[-1].upload_blanking -ne 3 -or
+                    $floorHex.Length -ne 2032 -or $floorHex.Substring(1984,8) -ne '00000000' -or
+                    $rpHex -ne $floorHex.Substring(0,192) -or $windowHex -ne $floorHex.Substring(192,1792)) {
+                    throw 'Floor preparation/presentation table mismatch'
+                }
+                Write-Output "FZX-FLOOR tick=$target state=presented tables=matched"
             }
             if ($SourceRoadTiles -and $target -ne $words.Count) { WriteWord (S '_fzx_debug_frame_hold') 0 }
             Mcp resume @{} | Out-Null

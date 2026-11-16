@@ -29,7 +29,7 @@ The public default circuit and craft remain synthetic test fixtures.
 | Prototype driving | Fixed-step acceleration, braking, lateral steering, boundary slowdown, laps and reset. These are new test controls, not the original game's handling. |
 | Original race route | `FZX_SIM=orig` links the original racer code with binary32 software float; local owner-ROM builds supply Mute City 1 and machine constants. Emulator whole-race finish times have matched host replays. Source-art integration remains open. |
 | Source-art pipeline | Local verified export of five Blue Falcon LODs and 22 textures; native machine, road, backdrop and partial HUD behind explicit flags. [Coverage and build details](docs/SOURCE_ART.md). |
-| Saturn platform | Yaul build, VDP1 drawing, VDP2 HUD, digital pad input and PAL/NTSC tick scheduling. |
+| Saturn platform | Yaul build, VDP1 drawing, VDP2 backgrounds, digital pad input and PAL/NTSC tick scheduling. |
 | Web preview | The same C core compiled to WebAssembly, with keyboard/touch controls and local imported-course loading. |
 | Validation | Independent spline oracle, driving/reset/ordering checks, exact prepared/general transform comparisons, importer checks, sanitizers and browser interaction tests. |
 
@@ -37,6 +37,11 @@ The public default circuit and craft remain synthetic test fixtures.
 emulator replays, but individual road, plane and machine draws exceed the entire
 16.7 ms frame budget. These measurements are MODELLED; complete-scene and physical
 60 fps acceptance remain open.
+
+The latest [original-floor experiment](docs/FLOOR_PERFORMANCE.md) moves it onto
+VDP2 RBG0. A/B/A held-view checks reduce floor/cloud CPU work from 74.12 to
+56.62 ms MODELLED, while the complete 9,907-input replay retains its finish state.
+The rendering budget and final appearance review remain open.
 
 ## Next
 

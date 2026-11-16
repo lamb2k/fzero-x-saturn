@@ -28,6 +28,12 @@ volatile uint32_t fzx_debug_frame_hold,fzx_debug_frame_ready;
 /* Debugger writes bypass the SH-2 cache; poll its request through the alias. */
 #define FRAME_HOLD (*(volatile uint32_t *)((uintptr_t)&fzx_debug_frame_hold | CPU_CACHE_THROUGH))
 #endif
+#ifndef FZX_SOURCE_FLOOR_RBG
+#define FZX_SOURCE_FLOOR_RBG 0
+#endif
+#if FZX_SOURCE_FLOOR_RBG
+#include "floor_rbg_native.h"
+#endif
 #ifndef FZX_SOURCE_PLANES
 #define FZX_SOURCE_PLANES 0
 #endif
@@ -509,6 +515,17 @@ commands_build(const fzx_frame_t *frame)
     }
 #endif
 
+#if FZX_SOURCE_FLOOR_RBG
+    if(fzx_input_count) {
+        uint32_t floor_count=0;
+        if(!fzx_floor_native(&commands[COMMAND_FIRST_POLYGON+first],FZX_SCENE_CAPACITY-count-first,
+            &fzx_native_view,&fzx_source_backdrop,&floor_count)) {
+            dbgio_printf("\x1b[H\x1b[2J SOURCE FLOOR DRAW FAILED %lu\n",(unsigned long)fzx_floor_rbg.fault);
+            dbgio_flush();vdp2_sync();for(;;) {}
+        }
+        first+=floor_count;
+    }
+#endif
 #if FZX_SOURCE_PLANES
     if(fzx_input_count) {
         uint32_t plane_count=0;const uint32_t before=video_fields;
@@ -631,6 +648,12 @@ main(void)
     if(plane_offset+FZX_PLANE_PACK_BYTES+FZX_PLANE_SHADE_BYTES>sky_partitions.texture_size ||
        !fzx_planes_load(planes_vram)) {
         dbgio_printf("\x1b[H\x1b[2J SOURCE PLANES LOAD FAILED\n");
+        dbgio_flush();vdp2_sync();for(;;) {}
+    }
+#endif
+#if FZX_SOURCE_FLOOR_RBG
+    if(!fzx_floor_load()) {
+        dbgio_printf("\x1b[H\x1b[2J SOURCE FLOOR LOAD FAILED\n");
         dbgio_flush();vdp2_sync();for(;;) {}
     }
 #endif

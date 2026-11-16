@@ -225,7 +225,10 @@ bool fzx_planes_draw(const fzx_view_t *view,const RefBackdrop *source,
         return false;
     }
     plane_t p={.view=view,.fog=fog,.mean=mean,.capacity=capacity,.emit=emit,.context=context,.stats=stats};
+
+#if !FZX_SOURCE_FLOOR_RBG
     if(!layer(&p,source->vertices))return false;
+#endif
     p.layer=1;
     return layer(&p,source->vertices+12);
 }

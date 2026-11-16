@@ -44,7 +44,7 @@ plan, but are not prerequisites for this first-course milestone.
 
 | Card | Current state / next exit |
 | --- | --- |
-| Native backdrop and skyline | Original sky/skyline/floor/cloud draw through a full race; plane cost is blocked at 28.90-103.62 ms MODELLED and final scene review remains open |
+| Native backdrop and skyline | Original floor now uses RBG0 through a full race; 13-view floor/cloud mean 74.12 -> 56.62 ms MODELLED with A/B/A. Clouds, scene budget and final look remain open |
 | Native road within budget | Native shared tiles finish the original race. Shared vertex cache preserves 9,907 HOST views and 13 native scene checks; road mean 125.92 -> 112.04 ms MODELLED, A/B/A confirmed. Budget remains blocked; pursue larger rendering and source-derived asset adjustments |
 | Native Blue Falcon | Original model now completes the actual race with live pose/body/lighting and guarded resident packs; 0.67-59.93 ms held-view cost MODELLED remains over budget; final appearance acceptance open |
 | Source entry and selection | Integrate the bounded original boot/menu/selection path into the slice; pad-driven transitions required |
@@ -52,9 +52,9 @@ plan, but are not prerequisites for this first-course milestone.
 | Combined scene and performance | Measure actual scene, improve the largest cost, qualify memory/stack and deterministic gameplay on the combined image |
 | First-course acceptance | Clean build, full end-to-end run, soak, local review package and hardware status |
 
-Current priority after machine integration: shared road work and rendering
-architecture, then original floor/cloud hardware backgrounds. Resume entry and
-race-presentation expansion after these bounded performance cards.
+Current priority after machine integration: further road and floor/cloud rendering
+architecture, following the shared-vertex cache and RBG0 floor experiments. Resume
+entry and race-presentation expansion after these bounded performance cards.
 
 Work one card through its gates at a time. A blocked approach gets two distinct
 hypotheses, a concrete unblock condition and a dependency-safe next card. Completed

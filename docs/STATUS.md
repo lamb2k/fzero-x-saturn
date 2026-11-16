@@ -12,9 +12,9 @@ Source assets stay private. Placeholders and missing content do not satisfy comp
 ## Playable extent
 
 Original Time Attack code runs Mute City 1 on the master SH-2 with binary32 soft float.
-The original camera, Blue Falcon, road, sky/skyline/floor/cloud and partial HUD now
-render together behind explicit local build flags. Three-lap input replays finish
-at source race time 121,814 ms. This is an integration experiment, far over the 60 fps budget.
+The original camera, Blue Falcon, road, sky/skyline/floor/cloud and partial HUD render
+together behind explicit local flags. A full 9,907-input replay finishes all three
+laps at source time 121,814 ms. This integration remains far over the 60 fps budget.
 Boot/selection/results/audio and remaining effects are incomplete; debug UI remains.
 Pad-only end-to-end acceptance, final look approval and HARDWARE remain unrun.
 
@@ -22,30 +22,28 @@ Pad-only end-to-end acceptance, final look approval and HARDWARE remain unrun.
 
 | Area | Current evidence / remaining work |
 | --- | --- |
-| Gate 0 | Source-only publication hygiene, receipt rejection and private evidence boundaries established |
-| Simulation | Original race closure; complete 9,907-input native replay preserves final pose/time and source state |
-| Source camera/HUD | 19 held camera packets match; timer/speed/lap/energy integrated; countdown/results remain open |
-| Source Blue Falcon | Original near model retains 132 triangles, with resident source-derived textures and live pose/body/lighting; full replay and guards pass; performance and final visual acceptance remain open |
-| Source road | All 300 chunks / 4,966 triangles retained; shared vertex cache reduces 13-view mean 125.92 to 112.04 ms MODELLED; budget still blocked |
-| Source backdrop | Original sky/skyline/floor/cloud draw; plane-only cost 28.90-103.62 ms MODELLED remains blocked |
-| Gates 2-5 | Entry/results/effects/audio, native rendering budget, pad-only flow and final soak incomplete |
-| Gate 6 | Full-game content, modes, opponents, progression and persistence remain planned |
+| Gate 0 | Source-only hygiene, receipt rejection and private evidence boundaries established |
+| Simulation | Full native replay preserves final pose/time and source state |
+| Camera/HUD | 19 held camera packets match; timer/speed/lap/energy integrated; countdown/results open |
+| Blue Falcon | Original near model retains 132 triangles, resident textures and live pose/body/lighting; full replay/guards pass; performance and final look remain open |
+| Road | All 300 chunks / 4,966 triangles retained; shared cache reduces 13-view mean 125.92 to 112.04 ms MODELLED; budget blocked |
+| Backdrop | Original floor now uses RBG0; floor/cloud mean 74.12 to 56.62 ms MODELLED over 13 views; clouds remain expensive |
+| Gates 2-5 | Entry/results/effects/audio, native scene budget, pad flow and soak incomplete |
+| Gate 6 | Full-game content, modes, opponents, progression and persistence planned |
 
 ## Current card
 
-`FZX_ROAD_TILE_VERTEX_CACHE=1` reuses per-frame transforms/projections/outcodes,
-default off. All 9,907 HOST source views retain identical commands under
-GCC/Clang UBSan. Stale-generation, wrap and vertex-alias controls fail as intended.
-The 13-view EMULATOR diagnostic preserves all scene packets and draw hashes;
-CD/low-RAM/cache guards pass and stack retains 17,880 bytes.
+Default-off FZX_SOURCE_FLOOR_RBG preserves original floor pixels in a resident
+VDP2 character map. Per-dot reciprocal perspective and eight fog bands are explicit
+Saturn adaptations. Full EMULATOR replay passes; all 19 held floor/cloud packets
+match HOST, other scene packets/hashes remain unchanged and memory guards pass.
+Rotation/window uploads match the displayed input and stay inside VBlank.
 
-Uninstrumented A/B/A road means are 125.92 / 112.04 / 125.92 ms, MODELLED.
-The cache saves 11.02% on these views; maximum A/A2 variation is 0.018 ms.
-Worst sampled road cost falls from 244.21 to 213.55 ms, still over budget.
-It uses 73,180 bytes of low work RAM; texture assets and VRAM are unchanged.
-Cache-off matches the admitted machine binary exactly. The prior complete
-native race remains the full-route correctness checkpoint.
-See [road measurements](ROAD_PERFORMANCE.md) for profiling and cache scope.
+Floor/cloud CPU A/B/A means are 74.12 / 56.62 / 74.12 ms MODELLED.
+The mean saving is 17.50 ms; this does not establish whole-frame FPS.
+Stack retains 8,012 bytes; new VDP2 data uses 152,544 bytes. VDP1 textures
+remain unchanged. Floor-off binary identity and corrupt-asset rejection pass.
+See [floor measurements](FLOOR_PERFORMANCE.md) and [road measurements](ROAD_PERFORMANCE.md).
 
 ## Local experiments retained
 
@@ -55,9 +53,8 @@ No release, ROM-derived publication, SD write or physical acceptance occurred.
 
 ## Next
 
-Prioritize rendering architecture: prototype the original floor on Saturn
-background hardware, accounting for clouds that overlap it. Evaluate source-derived
-road distance meshes after the exact shared-work cache.
-Keep original vehicle geometry and resident textures; measure its expensive phases.
+Continue rendering architecture: reduce repeated floor work, address expensive
+clouds, and evaluate source-derived road distance meshes or offline preparation.
+Measure vehicle phases while preserving its original geometry and textures.
 Then finish entry/selection, race audio/results/effects and pad-driven retry.
 The complete content-bearing route must meet the unchanged 60 fps target.

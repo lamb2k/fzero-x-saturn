@@ -601,7 +601,26 @@ source diagonals while splitting into repeating UV tiles still needs about
 22.4 MB. Visible tile charts reach 2.16 MB. Screen-sized collapsed-triangle
 charts reach 449,072 bytes after required size splits, before HUD/commands.
 Screen-aligned masked charts of each original triangle's clipped polygon are
-estimated at 82,272–360,176 bytes, plus 14,080 HUD bytes. They are the next
+estimated at 82,272â€“360,176 bytes, plus 14,080 HUD bytes. They are the next
 bounded native experiment; sampling/upload cost and raster fidelity are unrun.
 No texture downsampling, topology change or performance acceptance follows
 from these allocation estimates.
+
+## Masked road charts (HOST admission)
+
+`fzx_road_draw` preserves the stored triangle/material bindings and source group
+painter order, clips with UV/shade/fog attributes, and emits opaque RGB1555 pixels
+inside each polygon with transparent padding. It does not implement the source's
+continuous chunk endpoint LOD or replace the authored geometry with a ribbon.
+The caller owns atlas/command limits; failure rejects the partial frame.
+
+GCC/Clang synthetic gates cover analytic coverage and perspective shade,
+clip-plane duplicates, extreme UV/skinny-triangle overflow rejection, full int32
+interpolation, painter order, outer walls, material changes and capacity failure.
+UBSan and six deliberate coverage/perspective/overflow/order/wall/material faults
+exercise the relevant controls. At 19 saved race camera/plan packets, HOST draws
+at most 419 charts; atlas use is
+69,344–308,800 bytes and the largest tested rectangle workload is 154,400 pixels.
+These local views prove bounded generation, not source-reference visual fidelity.
+The new module is not yet linked into the committed race recipe. Native frame
+cost, full-route draw/stack limits, source look comparisons and HARDWARE remain open.

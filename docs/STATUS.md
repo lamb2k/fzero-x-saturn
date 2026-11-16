@@ -76,5 +76,5 @@ equal to host on isolated 86ea5d3. Source-reference visuals and HARDWARE unrun.
 Blue Falcon: 72 pose/light checks pass; palette appearance and CPU cost remain open.
 Source-camera view integration: 19 held SH-2 packets match; view/look-back replay
 finishes in 121,814 ms. Road pack: 300 chunks/4,966 triangles; 146,120 cartridge bytes
-match in EMULATOR. Native fog/clock and 19 draw-plan packets match HOST; material HOST gate passes, drawing pending.
+match in EMULATOR. Native fog/clock and 19 draw-plan packets match HOST; material and masked-chart HOST gates pass.
 [Ledger/memory](SOURCE_ART.md). G2.6/G5.3 remain open.

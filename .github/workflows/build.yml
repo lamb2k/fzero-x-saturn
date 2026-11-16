@@ -50,6 +50,8 @@ jobs:
         run: bash ref/check.sh
       - name: Source camera closure, two-camera traces and failure controls
         run: python3 ref/camera_check.py
+      - name: Source road geometry, UV seams and material decoder controls
+        run: python3 ref/road_check.py
       - name: Build the synthetic source-camera SH-2 probe
         run: |
           python3 tools/camera_probe_assets.py camera_controls

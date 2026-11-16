@@ -9,6 +9,10 @@ ROOT=$(cd "$(dirname "$0")/.." && pwd)
 D=$ROOT/upstream/G-Diffuser/decomp
 OUT=$ROOT/ref/build/${CC}${OPT}
 CAMERA=${FZX_SOURCE_CAMERA:-0}
+ROAD=${FZX_ROAD_EXPORT:-0}
+[ "$ROAD" = 0 ] || [ "$ROAD" = 1 ] || { echo "invalid FZX_ROAD_EXPORT" >&2; exit 1; }
+[ "$ROAD:$CAMERA" != 1:1 ] || { echo "road export is an offline tool, not a camera race" >&2; exit 1; }
+[ "$ROAD" = 0 ] || OUT=$OUT-road
 [ "$CAMERA" = 0 ] || [ "$CAMERA" = 1 ] || { echo "invalid FZX_SOURCE_CAMERA" >&2; exit 1; }
 if [ "$CAMERA" = 1 ]; then
     export REF_STUB_CALLS=1
@@ -67,13 +71,19 @@ for s in $SOURCES; do
     compile "$D/$s" "$o"
     OBJS="$OBJS $o"
 done
+if [ "$ROAD" = 1 ]; then
+    python3 "$ROOT/tools/road_bindings.py" "$STUB/asset_syms.h" "$STUB/road_bindings.h" "$D/include/fzx_segmentA.h"
+    BRIDGES="$BRIDGES road_bridge"
+fi
 for s in $BRIDGES; do  # Bridge side: decomp headers.
     o=$OUT/ref_$s.o
     compile "$ROOT/ref/$s.c" "$o"
     OBJS="$OBJS $o"
 done
 # Driver side: host headers only.
-$CC -m32 -fno-pic -O2 -g -std=c11 -Wall -Wextra -Werror -I"$ROOT/ref" -DFZX_SOURCE_CAMERA=$CAMERA -c "$ROOT/ref/main.c" -o "$OUT/ref_main.o"
+DRIVER=main
+[ "$ROAD" = 0 ] || DRIVER=road_main
+$CC -m32 -fno-pic -O2 -g -std=c11 -Wall -Wextra -Werror -I"$ROOT/ref" -DFZX_SOURCE_CAMERA=$CAMERA -c "$ROOT/ref/$DRIVER.c" -o "$OUT/ref_main.o"
 OBJS="$OBJS $OUT/ref_main.o"
 python3 "$ROOT/ref/gen_stubs.py" "$OUT/stubs.c" "$OUT"/*.i -- $OBJS
 $CC -m32 -fno-pic -O0 -w -c "$OUT/stubs.c" -o "$OUT/stubs.o"

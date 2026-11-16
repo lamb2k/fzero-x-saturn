@@ -437,3 +437,35 @@ previous corrected camera-closure probe timings remain the available MODELLED
 simulation-plus-camera evidence. Source-scene geometry/materials, source-reference
 moving visuals, fractional viewport transitions, full mode coverage, stack
 high-water measurement and HARDWARE acceptance remain open. No 60 fps claim.
+
+## Source road export (HOST only)
+
+`python3 tools/road_assets.py` rebuilds a separate host exporter, runs the pinned
+source course setup and full-detail shape routines, then resolves their fixed
+template set offline. No display-list interpreter is linked into the game.
+The capture retains chunk ownership, source triangle order, geometry, modified
+UV seams, material commands and texture bindings. The race setup replaces the
+course-preview setup explicitly; inherited race/background sampling flags are
+included. Every contributing source/header and generated output is receipted.
+
+The local Mute City pack has 300 chunks, 2,413 captured vertices, 2,613 resolved
+vertices, 4,966 triangles, nine materials and six texture loads. The loads cover
+seven authored images: the tunnel's adjacent 64x16 halves form one 64x32 load.
+The source interior pass has 4,806 triangles. Removing the classified 160
+conditional outer faces from the complete pack matches that independently
+captured pass in geometry, UVs, material and triangle order.
+
+HOST: three synthetic road/tunnel/air/pipe/bank fixtures match across GCC/Clang
+at -O0/-O2 and repeated runs. Six decoder tests reject bad references, missing
+texture halves, changed UV/material data, unowned triangles and changed interior
+geometry/order. This establishes the conversion intermediate only. Native chunk
+traversal, racer-dependent interior selection, fog, animated rail color, texture
+submission and source-reference moving visuals remain unimplemented. Course
+gadgets (pits, dash pads, jumps, landmines and decorations) are separate source
+draws and are not in this road pack. No runtime timing or HARDWARE claim.
+
+Isolated source-only tree `69f027a6`: the same gates, all ten default-off race
+traces and Python suite pass. Both retail capture passes are byte-identical
+across four compiler arms; the complete capture SHA256 is
+`ff448f0349456557317a839f1b12055a50b144dc7d521be6d28c535cfff759e1`.
+An edited pack fails its receipt check. No Saturn runtime files changed.

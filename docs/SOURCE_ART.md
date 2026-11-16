@@ -601,7 +601,7 @@ source diagonals while splitting into repeating UV tiles still needs about
 22.4 MB. Visible tile charts reach 2.16 MB. Screen-sized collapsed-triangle
 charts reach 449,072 bytes after required size splits, before HUD/commands.
 Screen-aligned masked charts of each original triangle's clipped polygon are
-estimated at 82,272â€“360,176 bytes, plus 14,080 HUD bytes. They are the next
+estimated at 82,272Ã¢â‚¬â€œ360,176 bytes, plus 14,080 HUD bytes. They are the next
 bounded native experiment; sampling/upload cost and raster fidelity are unrun.
 No texture downsampling, topology change or performance acceptance follows
 from these allocation estimates.
@@ -620,7 +620,24 @@ interpolation, painter order, outer walls, material changes and capacity failure
 UBSan and six deliberate coverage/perspective/overflow/order/wall/material faults
 exercise the relevant controls. At 19 saved race camera/plan packets, HOST draws
 at most 419 charts; atlas use is
-69,344–308,800 bytes and the largest tested rectangle workload is 154,400 pixels.
+69,344â€“308,800 bytes and the largest tested rectangle workload is 154,400 pixels.
 These local views prove bounded generation, not source-reference visual fidelity.
 The new module is not yet linked into the committed race recipe. Native frame
 cost, full-route draw/stack limits, source look comparisons and HARDWARE remain open.
+
+### Local native chart cost result: blocked
+
+The uncommitted integration experiment draws the original first held road view
+on VDP1. Its complete 69,344-byte texture atlas matches HOST byte for byte, with
+13 chunks, 208 source triangles, 120 charts and 12,390 shaded pixels. Source
+camera/plan packets match. This is one diagnostic pose, not a complete race gate.
+The temporary craft and missing scenery remain visible gaps.
+
+That view takes 165 video fields with software perspective division and 132
+with the bounded SH-2 divider (MODELLED, one published interval per arm). Both
+atlases have SHA-256 `b5b0fd0fe344342da95ce5a1ce48db6689788c3d23cab6e40d10089f202e9732`.
+The divider preserves these bytes but does not close the performance gap. This
+per-pixel generation path is retained locally as a fidelity reference, not admitted
+to the race recipe. Unblock: native submission must meet the field budget with
+source-art checks, then pass full-route capacity/stack and simulation gates.
+Next is native shared-texture mapping using the original geometry/materials.

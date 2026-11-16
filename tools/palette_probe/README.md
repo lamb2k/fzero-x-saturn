@@ -15,7 +15,9 @@ make -C tools/palette_probe FZX_PALETTE_ART=fixture symbols
 ```
 
 The optional `retail` selector requires the owner's local source-art export.
-Every generated header and its source inputs are bound by receipts. Keep all
+Every generated header and its source inputs are bound by receipts.
+`FZX_MACHINE_REUSE=1` enables exact position/normal reuse and the constant-shade
+lighting shortcut; default is zero. Output folders include that selector. Keep all
 retail headers, screenshots, images, raw pixels and traces outside git.
 
 `host.c`, built with `src/fzx_machine.c`, `src/fzx_model.c` and
@@ -34,3 +36,9 @@ costs stay private. Emulator costs are MODELLED, never physical Saturn evidence.
 The software reference retains three-point filtering and perspective/depth
 interpolation. Comparing it to these native sprites quantifies the adaptation;
 passing the arithmetic/hash checks does not imply visual acceptance or 60 fps.
+
+For screenshot identity checks use at least `-Samples 6`. The harness saves both
+an early capture and the final sampled capture: OpenGL showed a one-pixel shared
+edge difference in an early capture despite identical command/VRAM inputs; settled
+captures match. Extra command and CLUT/Gouraud readbacks run outside the measured
+projection/build phases, so their counters are not complete frame-cost figures.

@@ -1,7 +1,8 @@
 FZX_PALETTE_ART ?= fixture
+FZX_MACHINE_REUSE ?= 0
 SH_PROGRAM := fzx-palette-probe
-SH_BUILD_DIR := build-$(FZX_PALETTE_ART)/yaul
-SH_OUTPUT_DIR := build-$(FZX_PALETTE_ART)
+SH_BUILD_DIR := build-$(FZX_PALETTE_ART)-$(FZX_MACHINE_REUSE)/yaul
+SH_OUTPUT_DIR := build-$(FZX_PALETTE_ART)-$(FZX_MACHINE_REUSE)
 include $(YAUL_INSTALL_ROOT)/share/build.pre.mk
 ifeq ($(FZX_PALETTE_ART),fixture)
 SH_CFLAGS += -DFZX_EXPECT_PALETTE_FIXTURE=1
@@ -16,7 +17,7 @@ ifeq ($(findstring rc=0,$(PALETTE_RECEIPT)),)
 $(error Chart input refused: $(PALETTE_RECEIPT))
 endif
 SH_SRCS := main.c ../../src/fzx_machine.c
-SH_CFLAGS += -O2 -std=c11 -Wall -Wextra -Werror -I$(PALETTE_DIR) -I../../include
+SH_CFLAGS += -O2 -std=c11 -Wall -Wextra -Werror -I$(PALETTE_DIR) -I../../include -DFZX_MACHINE_REUSE=$(FZX_MACHINE_REUSE)
 IP_VERSION := V0.100
 IP_RELEASE_DATE := 20261116
 IP_AREAS := JTUBKAEL

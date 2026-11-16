@@ -23,4 +23,18 @@ typedef struct { uint16_t palette[16],gouraud[4]; unsigned saturated_channels; }
 bool fzx_machine_light(const fzx_material_color_t *base,unsigned count,
                        const fzx_material_color_t shade[3],const uint8_t fog[3],
                        fzx_machine_palette_t *out);
+
+typedef struct { int16_t x_q4,y_q4; uint16_t inverse_z; } fzx_machine_position_t;
+typedef struct {
+    const uint16_t *position_sources,*normal_sources,*position_map,*normal_map;
+    uint16_t vertex_count,position_count,normal_count;
+} fzx_machine_plan_t;
+/* Validate once at pack load. Maps may only reuse bit-identical source inputs. */
+bool fzx_machine_plan_valid(const fzx_machine_vertex_t *vertices,const fzx_machine_plan_t *plan);
+/* Caller supplies caches sized to the validated plan's unique counts. */
+bool fzx_machine_project_reuse(const fzx_machine_vertex_t *vertices,const fzx_machine_plan_t *plan,
+    const fzx_machine_pose_t *pose,const uint8_t reflection_lut[256],
+    fzx_machine_position_t *positions,fzx_material_color_t *normals,fzx_model_vertex_t *output);
+bool fzx_machine_light_reuse(const fzx_material_color_t *base,unsigned count,
+    const fzx_material_color_t shade[3],const uint8_t fog[3],fzx_machine_palette_t *out);
 #endif

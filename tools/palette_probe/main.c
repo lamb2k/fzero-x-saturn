@@ -8,6 +8,18 @@ static vdp1_cmdt_t commands[512];
 static uint16_t order[509],addresses[509];
 static uint32_t depths[509];
 static fzx_model_vertex_t projected[1024];
+#ifndef FZX_MACHINE_REUSE
+#define FZX_MACHINE_REUSE 0
+#endif
+#if FZX_MACHINE_REUSE
+static fzx_machine_position_t position_cache[1024];
+static fzx_material_color_t normal_cache[1024];
+#define LIGHT fzx_machine_light_reuse
+#define PROJECT(M,P) fzx_machine_project_reuse((M)->vertices,(M)->plan,(P),machine_reflection_lut,position_cache,normal_cache,projected)
+#else
+#define LIGHT fzx_machine_light
+#define PROJECT(M,P) fzx_machine_project((M)->vertices,(M)->vertex_count,(P),machine_reflection_lut,projected)
+#endif
 static vdp1_cmdt_list_t list={.cmdts=commands,.count=3};
 static vdp1_vram_partitions_t partitions;
 volatile uint32_t video_fields;
@@ -15,6 +27,7 @@ volatile uint32_t fzx_palette_status,fzx_palette_case,fzx_palette_hold,fzx_palet
 volatile uint32_t fzx_palette_sequence,fzx_palette_upload_ticks,fzx_palette_build_ticks,fzx_palette_project_ticks;
 volatile uint32_t fzx_palette_wait_fields,fzx_palette_vertex_hash,fzx_palette_light_hash;
 volatile uint32_t fzx_palette_bytes,fzx_palette_count,fzx_palette_saturated;
+volatile uint32_t fzx_palette_texture_hash,fzx_palette_command_hash,fzx_palette_vram_hash;
 static volatile uint32_t timer_high;
 static void overflow(void){timer_high+=65536u;}
 static uint32_t now(void){uint32_t a,b;uint16_t low;do{a=timer_high;low=cpu_frt_count_get();b=timer_high;}while(a!=b);return a+low;}
@@ -29,8 +42,8 @@ void user_init(void)
 static bool upload(unsigned lod)
 {
     const machine_model_t *m=&machine_models[lod];
-    if(!m->triangle_count||m->triangle_count>509||m->vertex_count>1024)return false;
-    uint32_t offset=0;
+    if(!fzx_machine_plan_valid(m->vertices,m->plan)||m->plan->vertex_count!=m->vertex_count||!m->triangle_count||m->triangle_count>509||m->vertex_count>1024)return false;
+    uint32_t offset=0,hash=2166136261u;
     for(unsigned i=0;i<m->triangle_count;++i){
         const indexed_chart_t *c=&m->charts[i];
         if(c->source_triangle!=i||!c->width||(c->width%8)||c->width>128||c->height<2||c->height>128||
@@ -38,9 +51,12 @@ static bool upload(unsigned lod)
         uint32_t size=(uint32_t)c->width*c->height/2;
         if((size%8)||offset>partitions.texture_size||size>partitions.texture_size-offset)return false;
         addresses[i]=(uint16_t)((((uintptr_t)partitions.texture_base&0x7ffffu)+offset)>>3);
-        memcpy((uint8_t*)partitions.texture_base+offset,c->indices,size);offset+=size;
+        volatile const uint8_t *dest=(volatile const uint8_t*)partitions.texture_base+offset;
+        memcpy((uint8_t*)partitions.texture_base+offset,c->indices,size);
+        for(unsigned j=0;j<size;++j){if(dest[j]!=c->indices[j])return false;hash=(hash^dest[j])*16777619u;}
+        offset+=size;
     }
-    fzx_palette_bytes=offset;fzx_palette_count=m->triangle_count;return true;
+    fzx_palette_texture_hash=hash;fzx_palette_bytes=offset;fzx_palette_count=m->triangle_count;return true;
 }
 static bool build(unsigned lod)
 {
@@ -52,7 +68,7 @@ static bool build(unsigned lod)
         for(unsigned j=0;j<3;++j){if(tri->vertex[j]>=m->vertex_count)return false;
             const fzx_model_vertex_t *v=&projected[tri->vertex[j]];shade[j]=v->shade;depths[i]+=v->inverse_z;}
         fzx_machine_palette_t lit;
-        if(!fzx_machine_light(chart->base,chart->colors,shade,machine_fog,&lit))return false;
+        if(!LIGHT(chart->base,chart->colors,shade,machine_fog,&lit))return false;
         saturated+=lit.saturated_channels;
         memcpy(&partitions.clut_base[i],lit.palette,32);memcpy(&partitions.gouraud_base[i],lit.gouraud,8);
         for(unsigned j=0;j<16;++j)hash=hash_word(hash,lit.palette[j]);
@@ -76,6 +92,22 @@ static bool build(unsigned lod)
     memset(&commands[m->triangle_count+2],0,sizeof(commands[0]));vdp1_cmdt_end_set(&commands[m->triangle_count+2]);
     list.count=m->triangle_count+3;fzx_palette_light_hash=hash;fzx_palette_saturated=saturated;return true;
 }
+/* Read back submitted data outside the measured projection/build phases. */
+static void submission_hashes(void)
+{
+    uint32_t hash=2166136261u;
+    const volatile uint16_t *words=(const volatile uint16_t*)commands;
+    for(unsigned i=0;i<list.count*sizeof(commands[0])/2;++i)hash=hash_word(hash,words[i]);
+    fzx_palette_command_hash=hash;hash=2166136261u;
+    for(unsigned i=0;i<fzx_palette_count;++i){
+        const volatile uint16_t *clut=(const volatile uint16_t*)&partitions.clut_base[i];
+        const volatile uint16_t *gouraud=(const volatile uint16_t*)&partitions.gouraud_base[i];
+        for(unsigned j=0;j<16;++j)hash=hash_word(hash,clut[j]);
+        for(unsigned j=0;j<4;++j)hash=hash_word(hash,gouraud[j]);
+    }
+    fzx_palette_vram_hash=hash;
+    if(hash!=fzx_palette_light_hash){fzx_palette_status=3;for(;;){}}
+}
 int main(void)
 {
     cpu_intc_mask_set(0);cpu_frt_init(CPU_FRT_CLOCK_DIV_32);cpu_frt_ovi_set(overflow);cpu_frt_interrupt_priority_set(12);
@@ -93,9 +125,9 @@ int main(void)
         if(loaded!=lod){uint32_t start=now();if(!upload(lod)){fzx_palette_status=2;for(;;){}}
             fzx_palette_upload_ticks=now()-start;loaded=lod;}
         const machine_model_t *m=&machine_models[lod];uint32_t start=now();
-        if(!fzx_machine_project(m->vertices,m->vertex_count,&machine_poses[selected],machine_reflection_lut,projected)){fzx_palette_status=2;for(;;){}}
+        if(!PROJECT(m,&machine_poses[selected])){fzx_palette_status=2;for(;;){}}
         fzx_palette_project_ticks=now()-start;fzx_palette_vertex_hash=hash_vertices(projected,m->vertex_count);
-        start=now();if(!build(lod)){fzx_palette_status=2;for(;;){}}fzx_palette_build_ticks=now()-start;
+        start=now();if(!build(lod)){fzx_palette_status=2;for(;;){}}fzx_palette_build_ticks=now()-start;submission_hashes();
         vdp1_sync_cmdt_list_put(&list,0);vdp1_sync_render();vdp1_sync();vdp2_sync();
         fzx_palette_completed_case=selected;++fzx_palette_sequence;fzx_palette_status=1;
     }

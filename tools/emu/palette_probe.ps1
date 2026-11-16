@@ -81,11 +81,11 @@ try {
             if((Read saturated) -ne $expectedRows[$case].saturated){throw 'Palette saturation count mismatch'}
             if($actual -ne $wanted){throw ('Palette case {0} projected vertex hash mismatch {1:x8} != {2:x8}' -f $case,$actual,$wanted)}
             if($sample -lt 0){$previous=Read sequence;Mcp resume @{}|Out-Null;continue}
-            $row=[ordered]@{case=$case;sample=$sample;hash=('{0:x8}' -f $actual);sequence=(Read sequence);project_ticks=(Read project_ticks);build_ticks=(Read build_ticks);saturated=(Read saturated);upload_ticks=(Read upload_ticks);wait_fields=(Read wait_fields);bytes=(Read bytes);triangles=(Read count)}
+            $row=[ordered]@{case=$case;sample=$sample;hash=('{0:x8}' -f $actual);sequence=(Read sequence);command_hash=(Read command_hash);texture_hash=(Read texture_hash);vram_hash=(Read vram_hash);project_ticks=(Read project_ticks);build_ticks=(Read build_ticks);saturated=(Read saturated);upload_ticks=(Read upload_ticks);wait_fields=(Read wait_fields);bytes=(Read bytes);triangles=(Read count)}
             $rows+=[PSCustomObject]$row
             $previous=$row.sequence
-            if($sample -eq 0){
-                $capture=Join-Path $OutDir "view-$case.png"
+            if($sample -eq 0 -or $sample -eq ($Samples-1)){
+                $capture=Join-Path $OutDir $(if($sample -eq ($Samples-1)){"view-$case.png"}else{"early-view-$case.png"})
                 Mcp framebuffer_screenshot @{path=$capture.Replace('\','/')}|Out-Null
                 if(-not (Test-Path -LiteralPath $capture)){throw 'Palette screenshot was not saved'}
             }

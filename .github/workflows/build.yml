@@ -77,6 +77,7 @@ jobs:
             make -C tools/model_probe FZX_MODEL_ART=fixture FZX_MODEL_DIVU=1
             make -C tools/vdp1_probe FZX_CHART_ART=fixture
             make -C tools/palette_probe FZX_PALETTE_ART=fixture
+            make -C tools/palette_probe FZX_PALETTE_ART=fixture FZX_MACHINE_REUSE=1
             "${YAUL_ARCH_SH_PREFIX}-readelf" -h saturn/build/fzero-x-saturn.elf > saturn/elf-header.txt
             "${YAUL_ARCH_SH_PREFIX}-size" saturn/build/fzero-x-saturn.elf > saturn/size.txt
             "${YAUL_ARCH_SH_PREFIX}-nm" saturn/build/fzero-x-saturn.elf > saturn/symbols.txt

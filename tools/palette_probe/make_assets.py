@@ -24,10 +24,21 @@ def geometry(models,lut):
         lines+=['};',f'static const fzx_model_triangle_t machine_triangles_{i}[]={{']
         for t in m['triangles']:lines+=['{{'+','.join(map(str,t['vertices']))+'},'+str(t['material'])+'},']
         lines+=['};']
-    lines+=['typedef struct { const fzx_machine_vertex_t *vertices; const fzx_model_triangle_t *triangles; const indexed_chart_t *charts; uint16_t vertex_count,triangle_count; } machine_model_t;',
+        plans=[]
+        for field in ('position','normal'):
+            unique={};sources=[];mapping=[]
+            for index,vertex in enumerate(m['vertices']):
+                key=tuple(vertex[field])
+                if key not in unique:unique[key]=len(sources);sources.append(index)
+                mapping.append(unique[key])
+            for suffix,data in (('sources',sources),('map',mapping)):
+                lines+=[f'static const uint16_t machine_{field}_{suffix}_{i}[]={{'+','.join(map(str,data))+'};']
+            plans.append(len(sources))
+        lines+=[f'static const fzx_machine_plan_t machine_plan_{i}={{machine_position_sources_{i},machine_normal_sources_{i},machine_position_map_{i},machine_normal_map_{i},{len(m["vertices"])},{plans[0]},{plans[1]}}};']
+    lines+=['typedef struct { const fzx_machine_vertex_t *vertices; const fzx_model_triangle_t *triangles; const indexed_chart_t *charts; const fzx_machine_plan_t *plan; uint16_t vertex_count,triangle_count; } machine_model_t;',
             'static const machine_model_t machine_models[]={']
     for i,m in enumerate(models):
-        lines+=[f'{{machine_vertices_{i},machine_triangles_{i},indexed_charts_{i},{len(m["vertices"])},{len(m["triangles"])}}},']
+        lines+=[f'{{machine_vertices_{i},machine_triangles_{i},indexed_charts_{i},&machine_plan_{i},{len(m["vertices"])},{len(m["triangles"])}}},']
     lines+=['};']
     poses=[(0,-25,0),(40,-25,0),(-40,-25,0),(180,-25,0)]+[(20,-25,0)]*4
     poses += [(i*360/64,-25,15*math.sin(i*2*math.pi/64)) for i in range(64)]

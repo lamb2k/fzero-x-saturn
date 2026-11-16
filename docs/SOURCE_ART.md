@@ -298,3 +298,29 @@ reserves 400 KiB charts, 16 KiB commands, 16,288 bytes CLUTs and 4,072 Gouraud b
 None of this promotes the experiment into the race. Next exact work: eliminate
 repeated transforms (261 records, only 68 positions and 133 normals at highest
 LOD), and repeated palette work, then remeasure before scene integration.
+
+
+## Exact machine reuse (default off)
+
+`FZX_MACHINE_REUSE=1` reuses bit-identical source positions and normals and skips
+redundant Gouraud work for constant-shade triangles. Per-vertex UVs and all source
+triangles remain unchanged. Load-time validation rejects wrong or out-of-range
+reuse maps. The highest LOD transforms 68 positions and 133 normals instead of
+repeating both operations for 261 vertex records. Default remains zero.
+
+HOST: all 72 software images and vertex/lighting hashes match the pre-change
+reference with the switch off or on. GCC/Clang, ASan/UBSan and bad-map controls pass.
+EMULATOR: the reuse path matches all 72 pose/light checks; the final eight-view
+pair also matches command, uploaded texture and CLUT/Gouraud readback hashes.
+A first capture differed at one or two shared-edge pixels. Byte readbacks ruled
+out submitted-data divergence; six sampled draws per held pose resolve the capture
+settling issue. All eight final screenshots are pixel-identical. Early captures
+are retained, and the harness now saves both early and final sampled captures.
+
+MODELLED: matched final eight-view off/on runs, six sampled draws per pose, reduce
+projection plus build/light work by 18.35-27.90%. The highest LOD views remain
+about 25-26k FRT/32 ticks before sync and diagnostic readback work. Mean/p95/max and
+image identities are in private comparison.json. The preliminary A/B/A agrees on
+the direction of the gain. The reuse caches add 14,336 B BSS. This is a bounded
+probe-phase improvement, not a full-race or console frame-rate result; palette
+appearance, scene cost and source-reference visual acceptance remain open.

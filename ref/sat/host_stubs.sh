@@ -18,10 +18,10 @@ if [ "$CAMERA" = 1 ]; then
     ART=${REF_CAMERA_ART:-fixture}
     HOST=$HOST-camera-$ART
     SMALL=$SMALL-camera-$ART
-    "$REF/build.sh" gcc -O0 >/dev/null
+    bash "$REF/build.sh" gcc -O0 >/dev/null
     CAMERA_ARGS=(--camera-trace "$SMALL/reference-camera.txt")
 fi
-[ -x "$HOST/fzx-ref" ] || "$REF/build.sh" gcc -O0 >/dev/null
+[ -x "$HOST/fzx-ref" ] || bash "$REF/build.sh" gcc -O0 >/dev/null
 mkdir -p "$SMALL"
 python3 "$REF/fixture_course.py" "$SMALL/course.bin"
 rm -f "$SMALL/extents.txt"

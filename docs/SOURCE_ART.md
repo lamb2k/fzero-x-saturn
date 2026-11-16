@@ -33,7 +33,7 @@ tree, after resolving symlinks; tracked repository destinations are refused.
 | --- | --- | --- |
 | Blue Falcon, five authored LODs | Verified retail export, eight texture slots and bounded race-setup decoder gates pass | Open: native reflection/lighting, source model pose and texture submission |
 | Basic speed/time/lap/energy HUD sheets | Verified retail RGBA16 export; 14,080-byte native atlas | Timer/speed/lap/energy and lap flash draw on VDP1; countdown/results and source-reference comparison open |
-| Mute City road materials | Verified retail MIO0 decode and seven RGBA16 surfaces | Open: source cross sections, material selection, UV seams and ordered traversal |
+| Mute City road materials | Verified retail MIO0 decode and seven RGBA16 surfaces | Native shared strips and source geometry complete a full replay locally; performance and final source-reference look remain open |
 | Mute City floor, skyline, clouds, sky | Eleven source texture/palette objects verified; six skyline instances retain source bindings | Native sky/skyline admitted; original floor/cloud draw through a full race, but their cost and final source-reference quality remain open |
 | Dash/pit, other effects, countdown and finish | Source coverage incomplete | Open |
 | Source camera | Original race closure and native view/scissor integration, default off | Source-reference visuals, broader mode coverage and performance remain open |
@@ -997,3 +997,86 @@ Image SHA-256: `5fc2593ccc5044c6f3df45de3c9e78bc0baeeb9cfada59332c11c2f6bd8971d2
 Private evidence: `emu/planes-fan` under FZX_EVIDENCE, including source-file hashes,
 full replay, geometry comparisons, memory guards and the knob-off identity.
 HARDWARE, whole-frame 60 fps and complete scene visual acceptance remain open.
+
+
+## Native original road tiles (EMULATOR; cost blocked)
+
+`FZX_SOURCE_ROAD_TILES=1` replaces the temporary ribbon with the source road,
+using the original camera, chunk traversal, outside-edge policy and materials.
+It defaults off and requires the original simulation, source road/camera/skyline
+and CD HUD. Both reuse switches also default off.
+
+The converter verifies source receipts and pairs all 4,966 original triangles
+into 2,483 quads across 300 chunks. It rejects unmatched winding, material,
+chunk, outside-edge or UV topology. The original positions and source triangle
+identities remain in the geometry pack. Twenty-eight shared native texture strips
+occupy 108,384 bytes; metadata occupies 43,088 bytes. Boot-time CD transfers verify
+the packs and upload textures directly to VDP1. There is no race-time pixel baking.
+
+Saturn adaptations are explicit: affine textured quads, horizontal strip
+resampling, a longitudinal mean row when repeated detail becomes too small,
+three prebaked fog levels with Gouraud correction, and bounded guard-band
+clipping. Clipped polygons with more than four corners become convex fans;
+each fan piece remaps the source strip, so the boundary texture may distort.
+Fog uses the actual clipped depths and the same corner indices as geometry.
+Original geometry coverage is preserved; this does not imply pixel equivalence.
+
+HOST GCC/Clang/repeat and all 9,907 sanitized source views pass, with a maximum
+599 of 768 road draw commands. Synthetic capacity, malformed-pack, callback,
+clipped-fog and reuse controls fail as intended. Two bounded reuse experiments
+retain the route command hashes: projection-based conservative side culling and
+reuse of adjacent strip endpoints. The culler can retain exceptionally close
+outside geometry; universal command identity is not claimed.
+
+The corrected native control and each single arm have 13 matched held views,
+unchanged source-camera/background packets and geometry hashes matching HOST.
+These road-only costs are MODELLED, measured on the same input/view set:
+
+| Arm | Mean | Maximum |
+| --- | --- | --- |
+| Corrected control | 153.89 ms | 297.41 ms |
+| Projection-based culling | 129.56 ms | 249.79 ms |
+| Adjacent endpoint reuse | 150.23 ms | 291.94 ms |
+| Both switches | 125.87 ms | 244.16 ms |
+
+The combined image completes all 9,907 inputs and three laps in 121,814 ms,
+with the same final pose as the preceding floor/cloud image. All 19 held native
+geometry hashes match HOST; camera, road plan and background packets are unchanged.
+The low-RAM guards remain intact and the painted stack retains 26,700 untouched
+bytes. Across these 19 held views, road cost is 72.99-244.16 ms, mean 123.25 ms,
+p95 244.16 ms, MODELLED. This is a held-view sample, not a full-frame cost census.
+The corrected-control repeat reproduces the 153.89 ms mean; its largest held-view
+difference is 0.031 ms, with identical geometry/scene packets and intact guards.
+Flipping the final metadata byte in the combined image yields road load status 3
+and integrity status 8 before race timing initializes. A stale pack copy is refused
+by its receipt; the original four outputs remain current.
+The earlier control timed out at input 9,883; its incomplete evidence is retained.
+
+| Allocation | Combined native road image |
+| --- | --- |
+| High work RAM end | 0x060f7bd4 |
+| Original road geometry in cartridge RAM | 146,120 bytes |
+| Low work RAM road metadata | 43,088 bytes |
+| Low work RAM input log | 49,152 bytes, with separate guards |
+| VDP1 road textures / Gouraud tables | 108,384 / 6,144 bytes |
+| Combined texture partition use | 412,384 of 442,336 bytes; 29,952 remain |
+
+Both reuse switches off reproduce the corrected control binary byte for byte;
+turning off road tiles reproduces the preceding floor/cloud candidate. Local
+start, banked and second-lap views show the source road and markings. The craft
+is still temporary, and cloud coverage and final source-reference look remain
+open. Full scene performance, complete first-course flow and HARDWARE are unrun.
+
+This path fails the 60 fps budget even after both bounded reuse experiments.
+It remains an integration experiment. Unblock performance with a cheaper native
+submission/projection path or source-derived geometry/texture adjustments, then
+measure the same views and full combined route. Do not infer a combined scene
+saving by adding standalone subsystem results. Original machine and entry/race
+presentation can proceed without treating this renderer as performance-qualified.
+
+Combined image SHA-256:
+`8f53d3a6a58df4628dbffb2783beaf9cf3ecf629d3db28d9eb0b02e2df3401db`.
+Private evidence: `emu/road-tiles-reuse11` plus matched `road-tiles-fog`,
+`road-tiles-reuse10` and `road-tiles-reuse01` under FZX_EVIDENCE. The final source
+manifest distinguishes the compiled C from later build-flag validation, forwarding
+and host-test changes, which do not alter the candidate's executable.

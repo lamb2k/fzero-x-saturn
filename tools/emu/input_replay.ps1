@@ -15,12 +15,15 @@ param(
     [int]$TimeoutSeconds = 240,
     [string]$SourceCameraTrace = '',
     [switch]$SourceRoad,
+    [switch]$SourceRoadTiles,
     [switch]$SourceSky,
     [switch]$SourceSkyline,
     [switch]$SourcePlanes,
     [switch]$TextureCd,
     [ValidateRange(4,524288)] [int]$TextureCdBytes = 8320,
-    [int[]]$HoldTicks = @()
+    [int[]]$HoldTicks = @(),
+    # Bounded rendering probes cannot establish race completion.
+    [switch]$DiagnosticOnly
 )
 $ErrorActionPreference = 'Stop'
 $repo = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..')) + [IO.Path]::DirectorySeparatorChar
@@ -53,6 +56,8 @@ $roadSamples = @()
 $skySamples = @()
 $skylineSamples = @()
 $planeSamples = @()
+$roadTileSamples = @()
+if ($SourceRoadTiles -and (-not $SourceRoad -or -not $SourceSky)) {throw "Native road capture requires road and sky gates"}
 if ($SourceSkyline -and -not $SourceSky) {throw 'Skyline capture requires the source sky frame gate'}
 if ($SourceSky -and -not $SourceCameraTrace) { throw 'Sky captures require the matching source camera trace' }
 function Addr([uint32]$a) { '0x{0:X8}' -f $a }
@@ -93,7 +98,7 @@ Copy-Item -LiteralPath $ini -Destination $iniSnapshot -Force
 try {
     $launched = $true
     & (Join-Path $PSScriptRoot 'yaba_boot.ps1') -Iso $Iso -Sym $Sym -Port $Port `
-        -Until '_fzx_timing:0' -UntilValue 0x465A5854 -TimeoutSeconds $(if ($SourcePlanes) {120} else {45}) `
+        -Until '_fzx_timing:0' -UntilValue 0x465A5854 -TimeoutSeconds $(if ($SourceRoadTiles) {180} elseif ($SourcePlanes) {120} else {45}) `
         -KeepRunning -Visible -OutDir $OutDir | Out-Null
     Mcp pause @{} | Out-Null
     $log = S '_fzx_input_log'
@@ -108,12 +113,19 @@ try {
     # Explicit test phase; ordinary player retries preserve the animation clock.
     if ($SourceRoad) { WriteWord (S '_fzx_road_next_frame') 0 }
     WriteWord (S '_fzx_debug_replay_count') $targets[0]
+    if ($SourceRoadTiles) { WriteWord (S '_fzx_debug_frame_hold') 1 }
     WriteWord (S '_fzx_debug_restart') 1
     Mcp resume @{} | Out-Null
     $count = S '_fzx_input_count'
     $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
     foreach ($target in $targets) {
+        if ($SourceRoadTiles -and $target -ne $targets[0]) {
+            do { Start-Sleep -Milliseconds 50; $released=ReadWord (S '_fzx_debug_frame_ready') }
+            while ($released -ne 0 -and (Get-Date) -lt $deadline)
+            if ($released -ne 0) {throw 'Previous display capture did not release'}
+        }
         WriteWord (S '_fzx_debug_replay_count') $target
+        if ($SourceRoadTiles) { WriteWord (S '_fzx_debug_frame_hold') 1 }
         do {
             Start-Sleep -Seconds 1
             $done = ReadWord $count
@@ -125,6 +137,17 @@ try {
             }
             if ($SourceSky -and (ReadWord (S '_fzx_sky_status')) -ge 2) {
                 throw "Sky renderer fault while advancing to tick $target"
+            }
+            if ($SourceRoadTiles -and (ReadWord (S '_fzx_road_tile_status')) -ge 2) {
+                Mcp pause @{} | Out-Null
+                @{tick=(ReadWord $count);target=$target;status=(ReadWord (S '_fzx_road_tile_status'));
+                    stats_hex=(Hex (Mcp memory_read @{address=(Addr (S '_fzx_road_tile_stats'));length=32}));
+                    view_hex=(Hex (Mcp memory_read @{address=(Addr (S '_fzx_native_view'));length=80}));
+                    camera_hex=(Hex (Mcp memory_read @{address=(Addr (S '_fzx_source_camera'));length=252}));
+                    plan_hex=(Hex (Mcp memory_read @{address=(Addr (S '_fzx_source_road_plan'));length=796}))} |
+                    ConvertTo-Json | Set-Content -LiteralPath (Join-Path $OutDir 'road-tile-fault.json')
+                Mcp framebuffer_screenshot @{path=(Join-Path $OutDir 'road-tile-fault.png').Replace('\','/')} | Out-Null
+                throw "Native road tile renderer fault at tick $done"
             }
             if ($SourcePlanes -and (ReadWord (S '_fzx_plane_status')) -ge 2) {
                 Mcp pause @{} | Out-Null
@@ -142,6 +165,11 @@ try {
             }
         } while ($done -ne $target -and (Get-Date) -lt $deadline)
         if ($done -ne $target) { throw "Replay did not reach exact tick $target (at $done)" }
+        if ($SourceRoadTiles) {
+            do { Start-Sleep -Milliseconds 100; $ready=ReadWord (S '_fzx_debug_frame_ready') }
+            while ($ready -ne $target -and (Get-Date) -lt $deadline)
+            if ($ready -ne $target) {throw "Completed display frame not reached at tick $target"}
+        }
         # Simulation is held at N; display remains active for settled capture.
         Start-Sleep -Seconds 1
         if ($SourceSky) {
@@ -153,7 +181,8 @@ try {
                 Mcp pause @{} | Out-Null
                 if ((ReadWord (S '_fzx_sky_busy')) -eq 0 -and
                     (-not $SourceSkyline -or (ReadWord (S '_fzx_skyline_busy')) -eq 0) -and
-                    (-not $SourcePlanes -or (ReadWord (S '_fzx_plane_busy')) -eq 0)) {$snapshotReady=$true;break}
+                    (-not $SourcePlanes -or (ReadWord (S '_fzx_plane_busy')) -eq 0) -and
+                    (-not $SourceRoadTiles -or (ReadWord (S '_fzx_road_tile_busy')) -eq 0)) {$snapshotReady=$true;break}
                 if ((ReadWord (S '_fzx_sky_status')) -ge 2) {throw 'Sky fault while capturing'}
                 Mcp resume @{} | Out-Null
                 Start-Sleep -Milliseconds 37
@@ -167,11 +196,19 @@ try {
             $roadStatus = ReadWord (S '_fzx_road_plan_status')
             if ($sequence -eq 0 -or $sequence -ne (ReadWord (S '_fzx_road_plan_sequence')) -or
                 $roadHex.Length -ne 1592 -or $roadFrame -ne $target-1 -or $roadStatus -ne 1) {
-                throw "Unstable or invalid road plan at tick $target"
+                throw "Invalid road plan tick=$target sequence=$sequence frame=$roadFrame status=$roadStatus hex_length=$($roadHex.Length)"
             }
             $roadSamples += @{tick=$target;frame=$roadFrame;status=$roadStatus;sequence=$sequence;plan_hex=$roadHex}
             $roadSamples | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $OutDir 'road-samples.json')
             Write-Output "FZX-ROAD tick=$target stable-packet=796 frame=$roadFrame"
+        }
+        if ($SourceRoadTiles) {
+            $tileStats=Hex (Mcp memory_read @{address=(Addr (S '_fzx_road_tile_stats'));length=32})
+            if ((ReadWord (S '_fzx_road_tile_status')) -ne 1 -or $tileStats.Length -ne 64 -or $tileStats.Substring(48,8) -ne '00000000') {throw 'Native road tile draw failed'}
+            $roadTileSamples+=@{tick=$target;stats_hex=$tileStats;draw_ticks=(ReadWord (S '_fzx_road_tile_ticks'));
+                draw_fields=(ReadWord (S '_fzx_road_tile_fields'));field_ticks=(ReadWord ((S '_fzx_timing')+8))}
+            $roadTileSamples | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $OutDir 'road-tile-samples.json')
+            Write-Output "FZX-ROAD-TILES tick=$target draw=valid"
         }
         if ($SourceCameraTrace) {
             $cameraHex = Hex (Mcp memory_read @{address=(Addr (S '_fzx_source_camera'));length=252})
@@ -234,6 +271,7 @@ try {
                 $planeSamples | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $OutDir 'plane-samples.json')
                 Write-Output "FZX-PLANES tick=$target draw=valid"
             }
+            if ($SourceRoadTiles -and $target -ne $words.Count) { WriteWord (S '_fzx_debug_frame_hold') 0 }
             Mcp resume @{} | Out-Null
         }
     }
@@ -243,12 +281,12 @@ try {
     $lap = [Convert]::ToUInt32($pose.Substring(120,8),16)
     Mcp framebuffer_screenshot @{path=(Join-Path $OutDir 'held.png').Replace('\','/')} | Out-Null
     $timingHex = Hex (Mcp memory_read @{address=(Addr (S '_fzx_timing'));length=48})
-    $receipt = [ordered]@{tier='EMULATOR';inputs_sha256=(Get-FileHash $Inputs -Algorithm SHA256).Hash.ToLower();
+    $receipt = [ordered]@{tier='EMULATOR';scope=$(if ($DiagnosticOnly) {'diagnostic'} else {'race'});inputs_sha256=(Get-FileHash $Inputs -Algorithm SHA256).Hash.ToLower();
         iso_sha256=(Get-FileHash $Iso -Algorithm SHA256).Hash.ToLower();
         words=$words.Count;ticks=$done;lap=$lap;race_time=$raceTime;flags=('{0:X8}' -f $stateFlags);
         finished=([bool]($stateFlags -band 0x02000000));pose_hex=$pose;timing_hex=$timingHex}
     $receipt | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $OutDir 'replay.json')
-    if (-not $receipt.finished) { throw 'Replay reached its end without finishing the race' }
+    if (-not $DiagnosticOnly -and -not $receipt.finished) { throw 'Replay reached its end without finishing the race' }
     if ($SourceSky) {
         Mcp pause @{} | Out-Null
         $start=ReadWord (S '_fzx_sky_stack_start');$end=ReadWord (S '_fzx_sky_stack_end')
@@ -285,7 +323,16 @@ try {
             scratch_start=$start;scratch_end=$end;guards_intact=$true} |
             ConvertTo-Json | Set-Content -LiteralPath (Join-Path $OutDir 'texture-cd.json')
     }
-    Write-Output "FZX-REPLAY PASS words=$done lap=$lap finish_ms=$raceTime"
+    if ($SourceRoadTiles) {
+        $start=ReadWord (S '_fzx_road_tile_low_start');$end=ReadWord (S '_fzx_road_tile_low_end')
+        if ($start -lt 0x00200000 -or $end+32 -gt 0x00300000 -or $end-$start -lt 49152) {throw 'Native road low-RAM bounds failed'}
+        foreach ($address in @(($start-32),($start+49152),$end)) {
+            if ((Hex (Mcp memory_read @{address=(Addr $address);length=32})) -ne ('51A7C36D'*8)) {throw 'Native road low-RAM guard changed'}
+        }
+        @{tier='EMULATOR';low_start=$start;low_end=$end;guards_intact=$true} | ConvertTo-Json |
+            Set-Content -LiteralPath (Join-Path $OutDir 'road-tile-memory.json')
+    }
+    Write-Output "FZX-REPLAY $(if ($DiagnosticOnly) {'DIAGNOSTIC'} else {'PASS'}) words=$done lap=$lap finish_ms=$raceTime"
 } finally {
     if ($launched) {
         Get-Process yabasanshiro -ErrorAction SilentlyContinue | Where-Object {

@@ -618,6 +618,10 @@ fzx_render(void)
 #if FZX_SOURCE_CAMERA
     if(source_view_valid)visible=ring_count;
 #endif
+#if defined(FZX_SOURCE_ROAD_TILES) && FZX_SOURCE_ROAD_TILES
+    /* Source native road replaces only the temporary ribbon. */
+    visible=0;
+#endif
     /* Include two rings behind the craft so near-plane clipping stays visible. Only the rings
      * drawn are transformed (visible + 1: each strip joins a ring to its successor), in at most
      * two runs where the window wraps past the course's last ring. */

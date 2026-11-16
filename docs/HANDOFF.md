@@ -4,45 +4,45 @@ Limit: 50 lines. Replace this file each session; history lives in git.
 ## Owner direction
 
 - Complete [Mute City 1 from boot/selection through race/results](FIRST_COURSE_GOAL.md).
-- Similar-quality Saturn rendering/behavior adaptations are authorized when exactness
-  is impractical. Assets remain original or are prebaked for Saturn compatibility.
-- Preserve identity and playability; record differences. No replacement art.
-- Source-only pushes to origin/gate1 are authorized after gates and hygiene.
-  ROM-derived assets, traces, screenshots, audio and images remain private.
-- This goal continues across cards. Do not stop at a probe or temporary graphics.
+- Original source assets, prebaked for Saturn; similar-quality native adaptations
+  are authorized. Preserve identity/playability and record meaningful differences.
+- No placeholders or isolated probes satisfy the goal. Source-only origin/gate1
+  pushes are authorized after gates/hygiene; original content stays private.
 
 ## Current state
 
-- Original race code runs full Mute City 1 Time Attack on the master SH-2.
-  Replay finishes in 121,814 ms; source camera and partial HUD are integrated.
-- Source sky, skyline, floor and clouds now draw natively behind explicit flags.
-  Original floor/cloud textures are prebaked into a 262,144-byte CD/VDP1 bank.
-- Floor/cloud candidate passes 9,907 inputs, 19 HOST/native geometry hashes and
-  matching camera/skyline/floor/sky state. Fixed valid cloud wind avoids RNG changes.
-- Clipped polygons with five-plus corners and wide cloud UV derivatives are fixed;
-  all 9,907 HOST views pass sanitizers, maximum 298 of 640 plane commands.
-- Stack guard: 12,612 bytes; high-RAM end: 0x060fb2f4. CD scratch guards pass.
-  Default-off binary matches the preceding HUD-CD image. Evidence: emu/planes-fan.
-- Plane drawing costs 28.90-103.62 ms in 19 held views (MODELLED), so this approach
-  is performance blocked. Visible bounds and native division were insufficient.
-- Ordered cloud/skyline fade quality remains open. Placeholder road/craft,
-  incomplete entry/results/effects/audio still prevent playable-port acceptance.
-- HARDWARE remains UNRUN. No whole-frame 60 fps or final visual acceptance.
+- Original race, camera, partial HUD and sky/skyline/floor/cloud are integrated.
+- Native source-road tiles and two default-off reuse switches are now gated.
+  All 300 chunks / 4,966 source triangles retained; metadata 43,088 bytes and
+  textures 108,384 bytes. The craft remains temporary.
+- HOST GCC/Clang/repeat, rejection controls and all 9,907 UBSan views pass;
+  four reuse combinations retain route command hashes, maximum 599/768 commands.
+- Combined native replay finishes 9,907 inputs at 121,814 ms, same final pose,
+  all 19 held hashes and unchanged scene packets. Low-RAM guards pass; painted
+  stack retains 26,700 bytes. ISO 8f53d3a6... in emu/road-tiles-reuse11.
+- Road-only held-view mean 123.25 ms, max/p95 244.16 ms MODELLED; budget fails.
+  Matched 13-view A/B/A mean 153.89/125.87/153.89 ms. Final corrupt metadata
+  is rejected before race initialization; both reuse OFF and road OFF identities pass.
+- All build/emulator sessions are terminal. Unrelated local road/hitch/clip WIP
+  remains unstaged and must be preserved. No release, SD or hardware action.
+- Plane cost also remains blocked. Machine, entry/results/effects/audio, combined
+  frame qualification, physical testing and final look acceptance remain open.
 
 ## Next work
 
-1. Preserve older road/hitch/divider WIP and admitted native scene source.
-2. Implement source road with shared native textures/subdivision. Do not return
-   to per-frame software shading or oversized whole-patch texture banks.
-3. Integrate original Blue Falcon appearance/pose, entry/selection and race audio.
-4. Unblock plane cost using measured vertex reuse or Saturn rotation backgrounds;
-   preserve content and verify source comparisons plus the full combined budget.
-5. Qualify boot/select/race/results/retry, all memory pools, soak and console review.
+1. Read generated/CONTINUE-CODEX.md tail and generated/MACHINE-NEXT.md for details.
+2. Integrate original Blue Falcon through actual race camera/model pose. Bound
+   resident charts and caches; current VDP1 texture remainder is 29,952 bytes.
+3. Read-only source snapshot must preserve live body colors and tunnel lighting;
+   outside racer fog needs receipt-bound source data, not an uninitialized global.
+4. Gate moving model, clipping, source-reference views, complete replay and memory;
+   then original entry/selection and race audio/results. Full goal stays active.
+5. Return to whole-scene cost with cheaper native projection/submission or reviewed
+   source-derived asset adjustments; do not lower the 60 fps target.
 
 ## Working notes
 
-- FZX_TEST_ROM is saved locally; never print or publish its path.
+- FZX_TEST_ROM is local; never print or publish its path.
 - Use patched FZX_YABA_EXE with visible OpenGL; hidden runs stall.
-- input_replay.ps1 holds exact ticks, restores yabause.ini and stops its instance.
 - Fixed-input replay is the comparison baseline; live autopilot depends on cadence.
-- Public source only; all original content and emulator images remain local.
+- Scripts preserve yabause.ini and stop only their own emulator build.

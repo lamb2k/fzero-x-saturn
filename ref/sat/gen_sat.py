@@ -84,6 +84,13 @@ def write_stubs(out, host_stubs):
         for name, a in layout:
             fh.write("\t.global _%s\n\t.set _%s, 0x%08X\n" % (name, name, a))
         fh.write("\t.global _sat_stub_data_end\n\t.set _sat_stub_data_end, 0x%08X\n" % addr)
+        low_log=os.environ.get("FZX_INPUT_LOG_LOW_RAM","0")
+        if low_log not in ("0","1"):raise ValueError("Invalid low-RAM input log flag")
+        if low_log=="1":
+            start=(addr+4096+63)&~63
+            if start+12288*4+64>0x00300000:raise ValueError("Input log exceeds low work RAM")
+            fh.write("\t.global _fzx_input_log\n\t.set _fzx_input_log, 0x%08X\n" % start)
+
 
 
 if __name__ == "__main__":

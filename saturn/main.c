@@ -8,15 +8,32 @@
 #include <string.h>
 
 #include "fzx.h"
+#ifndef FZX_SOURCE_ROAD_TILES
+#define FZX_SOURCE_ROAD_TILES 0
+#endif
+#if FZX_SOURCE_ROAD_TILES
+#include "road_tiles_native.h"
+#include "road_tile_identity.h"
+static void *road_tile_pixels,*road_tile_shades;
+/* Debugger capture holds only after the submitted frame has finished. */
+volatile uint32_t fzx_debug_frame_hold,fzx_debug_frame_ready;
+/* Debugger writes bypass the SH-2 cache; poll its request through the alias. */
+#define FRAME_HOLD (*(volatile uint32_t *)((uintptr_t)&fzx_debug_frame_hold | CPU_CACHE_THROUGH))
+#endif
 #ifndef FZX_SOURCE_PLANES
 #define FZX_SOURCE_PLANES 0
 #endif
 #if FZX_SOURCE_PLANES
 #include "planes_native.h"
 static void *planes_vram,*planes_shades;
-#define FZX_SCENE_CAPACITY (FZX_MAX_POLYGONS+FZX_PLANE_MAX_DRAWS+1u)
+#define FZX_BACKDROP_CAPACITY (FZX_MAX_POLYGONS+FZX_PLANE_MAX_DRAWS+1u)
 #else
-#define FZX_SCENE_CAPACITY FZX_MAX_POLYGONS
+#define FZX_BACKDROP_CAPACITY FZX_MAX_POLYGONS
+#endif
+#if FZX_SOURCE_ROAD_TILES
+#define FZX_SCENE_CAPACITY (FZX_BACKDROP_CAPACITY+FZX_ROAD_TILE_MAX_DRAWS+1u)
+#else
+#define FZX_SCENE_CAPACITY FZX_BACKDROP_CAPACITY
 #endif
 #ifndef FZX_SOURCE_SKYLINE
 #define FZX_SOURCE_SKYLINE 0
@@ -98,7 +115,7 @@ _Static_assert(COMMAND_CAPACITY <= VDP1_VRAM_DEFAULT_CMDT_COUNT,
  * after the sync that sent it has completed. */
 /* One larger command bank avoids duplicating the new backdrop capacity.
  * Wait for its prior draw before writing commands or Gouraud tables. */
-#if FZX_SOURCE_PLANES
+#if FZX_SOURCE_PLANES || FZX_SOURCE_ROAD_TILES
 #define COMMAND_BUFFER_COUNT 1u
 #else
 #define COMMAND_BUFFER_COUNT 2u
@@ -227,7 +244,11 @@ volatile uint32_t fzx_debug_autopilot;
 /* Every tick's input since the race (re)start, as N64 buttons << 16 | stick x << 8 | stick y:
  * a debugger reads it back as a host input script, so the host reference can replay a run. */
 #define INPUT_LOG_TICKS 12288u /* 3.4 minutes: a whole race */
+#if FZX_SOURCE_ROAD_TILES
+extern volatile uint32_t fzx_input_log[INPUT_LOG_TICKS];
+#else
 volatile uint32_t fzx_input_log[INPUT_LOG_TICKS];
+#endif
 volatile uint32_t fzx_input_count;
 /* Debugger fills the existing log while paused, then restarts. Each tick reads
  * its input before logged_tick writes the same slot. No added retail data. */
@@ -479,6 +500,19 @@ commands_build(const fzx_frame_t *frame)
         fzx_plane_fields=video_fields-before;first+=plane_count;
     }
 #endif
+#if FZX_SOURCE_ROAD_TILES
+    if(fzx_input_count) {
+        uint32_t road_count=0;const uint32_t before=video_fields;
+        const int32_t pa=(int32_t)(-fzx_source_camera.projection[2][2]*1073741824.0f);
+        const int32_t pb=(int32_t)(fzx_source_camera.projection[3][2]*4096.0f);
+        if(!fzx_road_tiles_native(&commands[COMMAND_FIRST_POLYGON+first],FZX_SCENE_CAPACITY-count-first,
+            &fzx_native_view,&fzx_source_road_plan,pa,pb,road_tile_pixels,road_tile_shades,&road_count)) {
+            dbgio_printf("\x1b[H\x1b[2J SOURCE ROAD TILE DRAW FAILED %lu\n",(unsigned long)fzx_road_tile_stats.fault);
+            dbgio_flush();vdp2_sync();for(;;) {}
+        }
+        fzx_road_tile_fields=video_fields-before;first+=road_count;
+    }
+#endif
     /* The core supplies clipped polygons in painter order, far to near. */
     for (uint32_t i = 0; i < count; ++i) {
         const fzx_poly_t *p = &frame->polys[i];
@@ -571,6 +605,18 @@ main(void)
                      "4 MB RAM CARTRIDGE REQUIRED":"SOURCE ROAD LOAD FAILED");
         dbgio_flush(); vdp2_sync(); vdp2_sync_wait();
         for(;;) {}
+    }
+#endif
+#if FZX_SOURCE_ROAD_TILES
+    uint32_t road_tile_offset=sky_shade_offset+FZX_SKY_VRAM_BYTES+FZX_SKYLINE_VRAM_BYTES;
+#if FZX_SOURCE_PLANES
+    road_tile_offset+=FZX_PLANE_PACK_BYTES+FZX_PLANE_SHADE_BYTES;
+#endif
+    road_tile_pixels=(void *)((uintptr_t)sky_partitions.texture_base+road_tile_offset);
+    road_tile_shades=(void *)((uintptr_t)road_tile_pixels+FZX_ROAD_TILE_TEXTURE_BYTES);
+    if(road_tile_offset+FZX_ROAD_TILE_TEXTURE_BYTES+FZX_ROAD_TILE_SHADE_BYTES>sky_partitions.texture_size ||
+       !fzx_road_tiles_load(road_tile_pixels)) {
+        dbgio_printf("\x1b[H\x1b[2J SOURCE ROAD TILES LOAD FAILED\n");dbgio_flush();vdp2_sync();for(;;) {}
     }
 #endif
 #if FZX_SOURCE_HUD
@@ -673,6 +719,10 @@ main(void)
         while (tick_remainder >= fields_per_second) {
 #if FZX_SIM == FZX_SIM_ORIG
             if (pending_reset != 0 || fzx_debug_restart != 0) {
+#if FZX_SOURCE_ROAD_TILES
+                /* Reset the test clock at a tick boundary, never in mid-tick. */
+                if(fzx_debug_restart)fzx_road_next_frame=0;
+#endif
                 fzx_debug_restart = 0;
                 orig_restart();
             }
@@ -692,7 +742,7 @@ main(void)
 #endif
         const uint16_t render_start = cpu_frt_count_get();
         fzx_timing.publish = (uint16_t)(render_start - publish_start);
-#if FZX_SOURCE_PLANES
+#if FZX_SOURCE_PLANES || FZX_SOURCE_ROAD_TILES
         vdp1_sync_wait();vdp2_sync_wait();
 #endif
         const fzx_frame_t *frame = fzx_render();
@@ -765,7 +815,16 @@ main(void)
         vdp1_sync_render();
         vdp1_sync();
         vdp2_sync();
-#if !FZX_SOURCE_PLANES
+#if FZX_SOURCE_ROAD_TILES
+        if(FRAME_HOLD && !fzx_debug_restart && fzx_debug_replay_count &&
+           fzx_input_count==fzx_debug_replay_count) {
+            vdp1_sync_wait();vdp2_sync_wait();
+            fzx_debug_frame_ready=fzx_input_count;
+            while(FRAME_HOLD) { /* Interrupts keep display/pad active. */ }
+            fzx_debug_frame_ready=0;
+        }
+#endif
+#if !FZX_SOURCE_PLANES && !FZX_SOURCE_ROAD_TILES
         command_list = &command_lists[command_list == &command_lists[0] ? 1 : 0];
 #endif
         commands = command_list->cmdts;

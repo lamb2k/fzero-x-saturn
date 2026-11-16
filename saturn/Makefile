@@ -13,6 +13,15 @@ FZX_SOURCE_CAMERA ?= 0
 FZX_SOURCE_SKY ?= 0
 FZX_SOURCE_SKYLINE ?= 0
 FZX_SOURCE_PLANES ?= 0
+FZX_SOURCE_ROAD_TILES ?= 0
+FZX_ROAD_TILE_PROJECT_CULL ?= 0
+FZX_ROAD_TILE_EDGE_REUSE ?= 0
+ifneq ($(filter $(FZX_ROAD_TILE_PROJECT_CULL),0 1),$(FZX_ROAD_TILE_PROJECT_CULL))
+$(error FZX_ROAD_TILE_PROJECT_CULL must be 0 or 1)
+endif
+ifneq ($(filter $(FZX_ROAD_TILE_EDGE_REUSE),0 1),$(FZX_ROAD_TILE_EDGE_REUSE))
+$(error FZX_ROAD_TILE_EDGE_REUSE must be 0 or 1)
+endif
 FZX_SKYLINE_CD ?= 0
 FZX_SKY_SIMPLIFY ?= 0
 ifneq ($(filter $(FZX_SKY_SIMPLIFY),0 1),$(FZX_SKY_SIMPLIFY))
@@ -205,6 +214,23 @@ FZX_ROAD_SRCS := road_native.c road_cd.c ../src/fzx_road_pack.c
 else ifneq ($(FZX_SOURCE_ROAD),0)
 $(error FZX_SOURCE_ROAD must be 0 or 1)
 endif
+ifeq ($(FZX_SOURCE_ROAD_TILES),1)
+ifneq ($(FZX_SOURCE_ROAD):$(FZX_SOURCE_SKY):$(FZX_SOURCE_SKYLINE):$(FZX_HUD_CD),1:1:1:1)
+$(error Native road tiles require source road/sky/skyline and CD HUD)
+endif
+ifeq ($(FZX_SOURCE_ROAD_DRAW),1)
+$(error Select native tiles or the software road experiment)
+endif
+FZX_ROAD_TILES_RECEIPT := $(shell sh ../tools/check_receipt.sh ../generated/road_tiles/road_tiles.receipt 2>&1; echo "rc=$$?")
+ifeq ($(findstring rc=0,$(FZX_ROAD_TILES_RECEIPT)),)
+$(error Native road tile assets are stale: $(FZX_ROAD_TILES_RECEIPT))
+endif
+SH_CFLAGS += -DFZX_SOURCE_ROAD_TILES=1 -DFZX_INPUT_LOG_LOW_RAM=1 -I../generated/road_tiles
+SH_CFLAGS += -DFZX_ROAD_TILE_PROJECT_CULL=$(FZX_ROAD_TILE_PROJECT_CULL) -DFZX_ROAD_TILE_EDGE_REUSE=$(FZX_ROAD_TILE_EDGE_REUSE)
+FZX_ROAD_SRCS += ../src/fzx_road_tiles.c road_tiles_native.c
+else ifneq ($(FZX_SOURCE_ROAD_TILES),0)
+$(error FZX_SOURCE_ROAD_TILES must be 0 or 1)
+endif
 SH_SRCS := main.c ../src/fzx.c $(FZX_ORIG_SRCS) $(FZX_HUD_SRCS) $(FZX_CAMERA_SRCS) $(FZX_ROAD_SRCS) $(FZX_SKY_SRCS) $(wildcard $(SH2ZAM_ROOT)/saturn/src/*.c)
 SH_CFLAGS += -DFZX_SH2_DIVU=1 -O2 -std=c11 -Wall -Wextra -I../include \
              -I$(SH2ZAM_ROOT)/saturn/include -DSH2Z_REQUIRE_SH2=1
@@ -257,4 +283,13 @@ pre-build-iso: stage-plane-pack
 stage-plane-pack:
 	mkdir -p $(IMAGE_DIRECTORY)
 	cp ../generated/planes/PLANES.PAK $(IMAGE_DIRECTORY)/PLANES.PAK
+endif
+
+ifeq ($(FZX_SOURCE_ROAD_TILES),1)
+$(SH_OUTPUT_PATH)/$(SH_PROGRAM).iso: ../generated/road_tiles/ROADTL.PAK ../generated/road_tiles/ROADTX.PAK
+pre-build-iso: stage-road-tiles
+.PHONY: stage-road-tiles
+stage-road-tiles:
+	mkdir -p $(IMAGE_DIRECTORY)
+	cp ../generated/road_tiles/ROADTL.PAK ../generated/road_tiles/ROADTX.PAK $(IMAGE_DIRECTORY)/
 endif

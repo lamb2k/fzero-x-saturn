@@ -24,6 +24,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: git submodule update --init third_party/SH2ZAM
+      - name: HOST road census dependency
+        run: sudo apt-get update && sudo apt-get install -y python3-numpy
       - name: Check core with GCC and Clang
         run: |
           make test CC=gcc BUILD=build/gcc

@@ -26,11 +26,14 @@ Limit: 50 lines. History lives in git.
   through a documented controller handoff at 8,806, with no pause/reset/upload.
 - All owner build/emulator processes are finished. No live capture to restart.
 
-## Next: C1
+## C1 passed; next: C2
 
-- HOST road tier census on all 9,907 recorded views; p99 command budget 420.
-- Measure the plan's repetition thresholds, unique strip colours, tier texture
-  bytes and far merging. The forced-first-tier control must exceed the budget.
+- All 9,907 HOST views: p99 335, max 355 commands; forced-first control p99 818.
+- GCC/Clang UBSan records match; native views match Python; old road unchanged.
+- Four texture tiers plus mean: 140,576 bytes RGB1555. Three fog copies would
+  exceed budget; only 8/28 strips fit 16 colours losslessly. See ROAD_LOD_CENSUS.md.
+- C2: FZXRLD01 receipt-bound pack, 4-byte repetition records, far chains and
+  source-texture tiers. Bound packs/textures and qualify any palette adaptation.
 - Keep the old runtime road frozen. Do not edit SH2ZAM or invent general kernels.
 - The latest detailed checkpoint is at the TOP of generated/CONTINUE-CODEX.md.
 

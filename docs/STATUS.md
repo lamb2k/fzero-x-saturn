@@ -42,8 +42,11 @@ Clock controls, allocation guards and profile-off binary identity pass.
 The diagnostic recorder leaves 5,996 bytes of stack guard, below C7's 16 KB target.
 All 14 asset payloads match the admitted disc. See [frame measurements](FRAME_PERFORMANCE.md).
 
-C1 is next: HOST road tier census over all 9,907 views, p99 at or below 420
-commands and a forced-first-tier control above budget. No runtime road edits yet.
+C1 passes over all 9,907 HOST views: p99 335 commands, maximum 355; forced
+full repetition control p99 818 fails the 420 budget. GCC/Clang records match.
+Four source-texture tiers fit 140,576 bytes at 16 bits before fog variants;
+only 8/28 strips fit 16 colours losslessly. No runtime road edits yet.
+See [road census](ROAD_LOD_CENSUS.md). C2's receipt-bound road bake is next.
 The owner's local render plan ranks C1-C8; the full first-course goal remains.
 
 The last admitted rendering change remains the RBG0 floor: its 13-view
@@ -59,7 +62,7 @@ No release, ROM-derived publication, SD write or physical acceptance occurred.
 
 ## Next
 
-Complete C1's road census and negative control, then road bake and stream,
+Complete the road bake and stream,
 vehicle rebake, bounded clouds, CPU split and combined measurement.
 Finish original entry/selection, audio/results/effects, pad retry and soak.
 SH2ZAM calibration, HARDWARE and owner appearance acceptance remain open.

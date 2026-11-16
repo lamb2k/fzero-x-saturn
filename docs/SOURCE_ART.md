@@ -580,3 +580,28 @@ memory use and HARDWARE remain open.
 Final source audit `8eaa8445` binds all 179 staged files to the reviewed tree and
 tested program. Changing one generated fog-channel value stops the Saturn
 build at its receipt gate; restoring the bytes makes the gate pass.
+
+## Native road material admission (HOST)
+
+`fzx_road_material` maps each stored material to its source RGBA16 tile view,
+including the tunnel's mirrored first half and separate second half. It rejects
+unsupported geometry, sampler, combiner, tile layout and load stride. Resolved
+road UVs are already scaled; the native API consumes them without a second scale.
+The two course combiners preserve texture/primitive blending against shade,
+followed by fog. Coverage stays opaque, including zero-alpha source texels.
+
+GCC and Clang pass 4,500 synthetic samples each, plus undefined-behavior checks;
+wrong texture-half, mirror, combiner and opacity controls fail. All nine local
+material views match the original texture bytes. This code is not yet linked
+into the race; the previously tested image and memory layout are unchanged.
+
+Allocation exploration at nineteen held cameras is HOST modelling only.
+Whole-course source-resolution triangle charts need about 60.8 MB; preserving
+source diagonals while splitting into repeating UV tiles still needs about
+22.4 MB. Visible tile charts reach 2.16 MB. Screen-sized collapsed-triangle
+charts reach 449,072 bytes after required size splits, before HUD/commands.
+Screen-aligned masked charts of each original triangle's clipped polygon are
+estimated at 82,272–360,176 bytes, plus 14,080 HUD bytes. They are the next
+bounded native experiment; sampling/upload cost and raster fidelity are unrun.
+No texture downsampling, topology change or performance acceptance follows
+from these allocation estimates.

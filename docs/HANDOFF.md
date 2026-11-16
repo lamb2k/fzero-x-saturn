@@ -24,13 +24,16 @@ Limit: 50 lines. Replace this file each session; history lives in git.
 - Floor-off binary equals admitted cache image. Corrupt coefficient boot and stale
   receipt controls reject as intended. Full GCC/Clang UBSan projection checks pass.
 - Road cache mean 112.04 ms; vehicle remains expensive. Whole-frame HUD timer wraps.
+- Screen-space fog follow-up withdrawn: only 0.78 ms mean floor saving for a
+  2,720-byte high-RAM increase and 5,588-byte diagnostic stack margin. Two trials
+  and exact source patch retained privately; admitted RBG0 code/image unchanged.
 - Entry/selection/results/audio/effects, pad flow, soak and HARDWARE remain open.
 - Unrelated clip/hitch/software-road WIP preserved unstaged. No release/SD/private upload.
 
 ## Next work
 
 1. Read generated/CONTINUE-CODEX.md tail and generated/PERFORMANCE-NEXT.md.
-2. Continue architecture: repeated floor fog clipping and expensive clouds;
+2. Continue architecture: expensive clouds;
    source-derived road LOD/offline preparation; measured vehicle phases.
 3. Keep original content. Measure combined scene and worst views after each change.
 4. Finish source entry/selection/results/audio/effects, pad flow, retry and final soak.
@@ -39,6 +42,7 @@ Limit: 50 lines. Replace this file each session; history lives in git.
 
 - FZX_TEST_ROM stays local; never print or publish its path.
 - Latest full race and A/B/A: emu/floor-rbg; HOST projection: host/floor-rbg.
+- Rejected fog trials: emu/floor-screen-fog and emu/floor-screen-shift.
 - Per-held byte register reads were unsupported; runtime-registers.json uses actual
   word reads. Rotation/window VRAM readbacks match each held frame directly.
 - Native isolate outputs FLOOR_RBG=0; qualified ON artifacts are preserved externally.

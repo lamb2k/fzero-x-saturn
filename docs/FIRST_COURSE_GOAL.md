@@ -53,8 +53,10 @@ plan, but are not prerequisites for this first-course milestone.
 | First-course acceptance | Clean build, full end-to-end run, soak, local review package and hardware status |
 
 Current priority after machine integration: further road and floor/cloud rendering
-architecture, following the shared-vertex cache and RBG0 floor experiments. Resume
-entry and race-presentation expansion after these bounded performance cards.
+architecture, following the shared-vertex cache and RBG0 floor experiments.
+The screen-space fog follow-up was withdrawn: its small gain did not justify
+the added path and reduced memory margin. Prioritize clouds and larger road changes.
+Resume entry and race-presentation expansion after these bounded performance cards.
 
 Work one card through its gates at a time. A blocked approach gets two distinct
 hypotheses, a concrete unblock condition and a dependency-safe next card. Completed

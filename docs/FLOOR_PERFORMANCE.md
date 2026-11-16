@@ -88,5 +88,46 @@ VDP1 floor atlas is retained for this bounded experiment; total VDP1 textures
 remain 433,728/442,336 bytes. Removing that unused half-bank is separate work.
 No retail pixel bank was added to program RAM.
 
-Next candidates are reducing repeated fog clipping, a hardware or simpler native
-cloud path, and larger source-derived road changes. Their savings remain unmeasured.
+Next candidates are a hardware or simpler native cloud path and larger
+source-derived road changes. Their savings remain unmeasured.
+
+## Screen-space fog experiment: not retained
+
+A bounded follow-up projected each source floor half once, then clipped its fog
+bands in screen space. The original texture, plane geometry, camera, reciprocal
+mapping and eight fog levels were retained. Both native trials used the same
+685-input diagnostic and 13 held views, with all other scene settings unchanged.
+
+| Floor preparation, MODELLED | Mean | Maximum |
+| --- | ---: | ---: |
+| Admitted RBG0 baseline | 14.09 ms | 14.72 ms |
+| Screen-space clipping, first trial | 17.87 ms | 18.41 ms |
+| Same clipping, equivalent power-of-two normalization | 13.31 ms | 13.92 ms |
+
+The second trial saved only 0.78 ms mean. Combined floor/cloud/upload mean
+was 55.88 ms versus 56.62 ms, still far beyond a complete 16.7 ms frame budget.
+Its high-RAM end grew from 0x060fc4f4 to 0x060fcf94, and its short diagnostic
+retained 5,588 stack guard bytes versus 8,308 in the matched baseline repeat.
+This small saving does not justify the extra path and reduced memory margin.
+The experiment was withdrawn; the admitted renderer and its assets are unchanged.
+The final baseline repeat averaged 14.09 ms with at most 0.0072 ms per-view
+variation from the initial baseline; all source packets and guards passed.
+
+GCC/Clang UBSan checks covered all 9,907 source frames. Normalization changes
+preserved the first trial's commands exactly. Compared with the admitted fog,
+12,638 of 20,430,861 sampled pixel centers changed, all within half a pixel of
+an emitted edge. Forty changes exceeded one fog band; independent source-shade
+projection showed all forty improved the old coverage (38 matched the source
+band; two were one band away). This is a documented coverage correction, not
+pixel identity or a completed visual acceptance gate.
+
+Both native trials matched their HOST floor packets and preserved other scene
+packets/hashes in all 13 views. Table uploads stayed in VBlank, guards passed,
+and disabling the feature reproduced the admitted binary exactly. The wrong-line
+constant control failed as intended. These diagnostics do not establish a full
+native race or physical performance for either experimental image.
+
+Private evidence: `emu/floor-screen-fog`, `emu/floor-screen-shift` and
+`host/floor-screen-fog`. The exact experimental patch, source backups and both
+images are retained there. Reopen only for an architecture change with a material
+whole-scene benefit and sufficient memory margin; do not repeat these two arms.

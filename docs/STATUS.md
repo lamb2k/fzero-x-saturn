@@ -45,6 +45,10 @@ Stack retains 8,012 bytes; new VDP2 data uses 152,544 bytes. VDP1 textures
 remain unchanged. Floor-off binary identity and corrupt-asset rejection pass.
 See [floor measurements](FLOOR_PERFORMANCE.md) and [road measurements](ROAD_PERFORMANCE.md).
 
+Follow-up screen-space fog was not retained: the corrected trial saved only
+0.78 ms floor CPU across 13 held views and reduced the stack margin to 5,588 bytes.
+Both trials and source patches are preserved privately; the admitted image is unchanged.
+
 ## Local experiments retained
 
 Unrelated hitch, clip-divider and software-road WIP remain local and unstaged.
@@ -53,8 +57,8 @@ No release, ROM-derived publication, SD write or physical acceptance occurred.
 
 ## Next
 
-Continue rendering architecture: reduce repeated floor work, address expensive
-clouds, and evaluate source-derived road distance meshes or offline preparation.
+Continue rendering architecture: address expensive clouds and evaluate
+source-derived road distance meshes or offline preparation.
 Measure vehicle phases while preserving its original geometry and textures.
 Then finish entry/selection, race audio/results/effects and pad-driven retry.
 The complete content-bearing route must meet the unchanged 60 fps target.

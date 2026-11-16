@@ -1,7 +1,5 @@
 # Handoff
-
 Limit: 50 lines. Replace this file each session; do not append.
-
 ## Owner direction (2026-11-15)
 
 - The target is the real game on Saturn, preserving source art. The old prohibition

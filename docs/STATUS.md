@@ -1,7 +1,5 @@
 # Status
-
 Limit: 80 lines. History lives in git. Plan: [POC_PLAN.md](POC_PLAN.md).
-
 ## Required target (owner correction, 2026-11-15)
 
 The real game on Saturn, preserving original models, materials/textures, scenery,

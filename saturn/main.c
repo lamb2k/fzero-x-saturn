@@ -8,6 +8,17 @@
 #include <string.h>
 
 #include "fzx.h"
+#ifndef FZX_SOURCE_HUD
+#define FZX_SOURCE_HUD 0
+#endif
+#if FZX_SOURCE_HUD
+#include "hud_native.h"
+#include "hud.h"
+_Static_assert(!FZX_HUD_FIXTURE, "Original-race HUD requires locally verified source art");
+static vdp1_vram_partitions_t hud_partitions;
+static fzx_hud_list_t hud_draws;
+volatile uint32_t fzx_source_hud_status; /* 1 uploaded, 2 bad atlas, 3 bad snapshot */
+#endif
 #if FZX_SIM == FZX_SIM_ORIG
 #include "ref.h"
 
@@ -29,7 +40,11 @@ enum {
     COMMAND_SYSTEM_CLIP = 0,
     COMMAND_LOCAL_COORD = 1,
     COMMAND_FIRST_POLYGON = 2,
-    COMMAND_CAPACITY = FZX_MAX_POLYGONS + 3u,
+    COMMAND_CAPACITY = FZX_MAX_POLYGONS + 3u
+#if FZX_SOURCE_HUD
+        + FZX_HUD_MAX_DRAWS
+#endif
+        ,
     MAX_CATCHUP_FIELDS = 5
 };
 
@@ -165,6 +180,9 @@ volatile uint32_t fzx_debug_autopilot;
 #define INPUT_LOG_TICKS 12288u /* 3.4 minutes: a whole race */
 volatile uint32_t fzx_input_log[INPUT_LOG_TICKS];
 volatile uint32_t fzx_input_count;
+/* Debugger fills the existing log while paused, then restarts. Each tick reads
+ * its input before logged_tick writes the same slot. No added retail data. */
+volatile uint32_t fzx_debug_replay_count;
 
 static void
 logged_tick(uint16_t buttons, int8_t sx, int8_t sy)
@@ -180,6 +198,14 @@ logged_tick(uint16_t buttons, int8_t sx, int8_t sy)
 static void
 orig_tick(void)
 {
+    if (fzx_debug_replay_count != 0) {
+        const uint32_t n = fzx_input_count;
+        /* Freeze simulation at the exact end while presentation keeps running. */
+        if (n >= fzx_debug_replay_count || n >= INPUT_LOG_TICKS) return;
+        const uint32_t word = fzx_input_log[n];
+        logged_tick((uint16_t)(word >> 16), (int8_t)(word >> 8), (int8_t)word);
+        return;
+    }
     const uint16_t d = pad_down;
     uint16_t n64 = 0;
     int8_t sx = 0, sy = 0;
@@ -255,6 +281,11 @@ orig_hud(void)
     if (p->state_flags & RACER_FINISHED) status = "FINISHED   START: RACE AGAIN  ";
     else if (p->state_flags & RACER_RETIRED) status = "RETIRED    START: RETRY       ";
     else if (p->intro > 0) status = "GET READY                     ";
+#if FZX_SOURCE_HUD
+    (void)ms; (void)lap;
+    dbgio_printf("\x1b[10;1H ENERGY %s %03lu ", bar, (unsigned long)pct);
+    dbgio_printf("\x1b[11;1H %s", status);
+#else
     dbgio_printf("\x1b[2;1H SPEED %04lu  LAP %d/%d  TIME %lu'%02lu\"%02lu   "
                  "\x1b[3;1H ENERGY %s %03lu ",
                  (unsigned long)(p->speed > 0.0f ? p->speed * 21.6f + 0.5f : 0.0f),
@@ -262,6 +293,7 @@ orig_hud(void)
                  (unsigned long)(ms / 60000u), (unsigned long)(ms / 1000u % 60u),
                  (unsigned long)(ms / 10u % 100u), bar, (unsigned long)pct);
     dbgio_printf("\x1b[7;1H %s", status);
+#endif
 }
 
 static void
@@ -301,10 +333,27 @@ commands_build(const fzx_frame_t *frame)
         cmd->cmd_xd = p->x[3]; cmd->cmd_yd = p->y[3];
     }
 
-    vdp1_cmdt_t *end = &commands[COMMAND_FIRST_POLYGON + count];
+    uint32_t draw_count = count;
+#if FZX_SOURCE_HUD
+    const fzx_hud_snapshot_t state = {
+        /* Hud_UpdatePlayerHudInfo rounds the normal race timer with +5 ms. */
+        (uint32_t)(orig_pose.race_time > 0 ? orig_pose.race_time : 0) + 5u,
+        (uint32_t)(orig_pose.speed > 0.0f ? orig_pose.speed * 21.6f + 0.5f : 0.0f),
+        (uint16_t)(orig_pose.lap > 0 ? orig_pose.lap : 1), RACE_LAPS,
+        (orig_pose.state_flags & RACER_FINISHED) != 0
+    };
+    if (!fzx_hud_build(&fzx_hud_atlas, &state, &hud_draws) ||
+        !fzx_hud_vdp1(&commands[COMMAND_FIRST_POLYGON+count], FZX_HUD_MAX_DRAWS,
+                      &hud_draws, hud_partitions.texture_base)) {
+        fzx_source_hud_status = 3;
+        for (;;) {}
+    }
+    draw_count += hud_draws.count;
+#endif
+    vdp1_cmdt_t *end = &commands[COMMAND_FIRST_POLYGON + draw_count];
     memset(end, 0, sizeof(*end));
     vdp1_cmdt_end_set(end);
-    command_list->count = (uint16_t)(count + 3u);
+    command_list->count = (uint16_t)(draw_count + 3u);
 }
 
 int
@@ -316,6 +365,17 @@ main(void)
     dbgio_dev_font_load();
     commands_init();
     fzx_init();
+#if FZX_SOURCE_HUD
+    vdp1_vram_partitions_get(&hud_partitions);
+    if (sizeof(fzx_hud_pixels) > hud_partitions.texture_size) {
+        fzx_source_hud_status = 2;
+        dbgio_printf("\x1b[H\x1b[2J SOURCE HUD EXCEEDS VDP1 MEMORY\n");
+        dbgio_flush(); vdp2_sync();
+        for (;;) {}
+    }
+    memcpy(hud_partitions.texture_base, fzx_hud_pixels, sizeof(fzx_hud_pixels));
+    fzx_source_hud_status = 1;
+#endif
 #if FZX_SIM == FZX_SIM_ORIG
     /* The stand-ins start zeroed, as the host's do. */
     memset((void *)0x00200000, 0,
@@ -347,7 +407,12 @@ main(void)
     uint32_t pending_reset = 0;
 
     /* The prototype driver must never pass for the port (POC plan, lesson 1). */
-    dbgio_printf("\x1b[H\x1b[2J F-ZERO X / SH2ZAM\n"
+    dbgio_printf(
+#if FZX_SOURCE_HUD
+                 "\x1b[H\x1b[2J\x1b[8;1H SIM %s\n"
+                 "\x1b[12;1H PARTIAL SOURCE HUD / SCENE WIP",
+#else
+                 "\x1b[H\x1b[2J F-ZERO X / SH2ZAM\n"
                  "\x1b[4;1H SIM %s\n"
 #if FZX_SIM == FZX_SIM_ORIG
                  "\x1b[26;1H D-PAD STEER  A/C GO  B BOOST  Y BRAKE\n"
@@ -355,6 +420,7 @@ main(void)
 #else
                  "\x1b[26;1H D-PAD STEER   A/C GO   B BRAKE\n"
                  " START RESET  X CLEAR  X+Z OVERLOAD",
+#endif
 #endif
                  fzx_sim_id() == FZX_SIM_PROTO ? "PROTO DRIVER, NOT THE PORT"
                  : fzx_sim_id() == FZX_SIM_ORIG ? "ORIGINAL RACE CODE (SOFT FLOAT)"
@@ -446,7 +512,12 @@ main(void)
                          (frame->flags & FZX_FRAME_IMPORTED) ? "IMPORTED COURSE"
                                                             : "DEMO COURSE");
 #endif
-            dbgio_printf("\x1b[5;1H CPU %03lu MAX %03lu SIM %03lu /100 MISS %04lu ",
+            dbgio_printf(
+#if FZX_SOURCE_HUD
+                         "\x1b[9;1H CPU %03lu MAX %03lu SIM %03lu /100 MISS %04lu ",
+#else
+                         "\x1b[5;1H CPU %03lu MAX %03lu SIM %03lu /100 MISS %04lu ",
+#endif
                          (unsigned long)(fzx_timing.cpu * 100u / field_counts),
                          (unsigned long)(fzx_timing.cpu_max * 100u / field_counts),
                          (unsigned long)(fzx_timing.sim_max * 100u / field_counts),

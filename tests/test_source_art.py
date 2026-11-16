@@ -195,6 +195,7 @@ class RecipeTests(unittest.TestCase):
             self.assertEqual(summary["lod_triangles"], [132, 96, 64, 24, 11])
             manifest = json.loads((output / "source_art.json").read_text())
             self.assertEqual(manifest["uv_fraction_bits"], 5)
+            self.assertNotIn(b"\r", (output / "source_art.receipt").read_bytes())
             for line in (output / "source_art.receipt").read_text().splitlines():
                 if not line or line.startswith("#") or line.startswith("input "):
                     continue

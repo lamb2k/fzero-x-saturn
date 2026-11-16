@@ -27,6 +27,7 @@ param(
     [int]$TimeoutSeconds = 300,
     [string]$OutDir = $(if ($env:FZX_EVIDENCE) { Join-Path $env:FZX_EVIDENCE 'emu' } else { Join-Path $HOME 'fzx-evidence\emu' }),
     [int]$Port = 9641,
+    [switch]$Visible,
     [switch]$KeepRunning
 )
 $ErrorActionPreference = 'Stop'
@@ -78,7 +79,7 @@ try {
         else { $s = $s.TrimEnd() + "`r`n" + $e.Key + '=' + $e.Value + "`r`n" }
     }
     Set-Content -LiteralPath $ini -Value $s -NoNewline
-    $proc = Start-Process -FilePath $exe -ArgumentList @('-nb', '-a', '-i', "`"$cue`"") -WorkingDirectory (Split-Path $cue) -PassThru
+    $proc = Start-Process -FilePath $exe -ArgumentList @('-nb', '-a', '-i', "`"$cue`"") -WorkingDirectory (Split-Path $cue) -WindowStyle $(if ($Visible) { 'Normal' } else { 'Hidden' }) -PassThru
 
     $status = 'down'
     for ($i = 0; $i -lt 60; $i++) {

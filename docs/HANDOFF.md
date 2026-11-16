@@ -17,8 +17,10 @@ Limit: 50 lines. Replace this file each session; do not append.
 - Original racer code (`FZX_SIM=orig`, binary32 soft float) runs a 3-lap Mute City 1
   race on the master SH-2 with placeholder graphics, debug HUD and Start retry.
   Whole-race finish time matches a host input replay. HARDWARE is UNRUN.
-- Source-art exporter and ledger: `tools/import_source_art.py`, `docs/SOURCE_ART.md`.
-  Five Blue Falcon LODs, 21 textures; HOST gates pass, retail/native review unrun.
+- Verified retail export: five Blue Falcon LODs and 21 textures, all local.
+  Native timer/speed/lap atlas and VDP1 submission run under FZX_SOURCE_HUD=1.
+  HOST: 46 Python tests, 10,010 source-layout cases; wrong glyph/stale asset fail.
+  EMULATOR: 9,907 fixed inputs finish in 121,814 ms, equal to host. Final rerun pending.
 - Local performance WIP adds bounded hitch logs and corrects MISS to elapsed-1.
   Rendering peaks at the same section each lap (up to 88% of a field before changes).
 - FZX_CLIP_DIVU defaults off. HOST frame corpus hash 0027e206 is unchanged;
@@ -30,9 +32,9 @@ Limit: 50 lines. Replace this file each session; do not append.
 
 ## Next work
 
-1. Configure FZX_TEST_ROM locally (unset in this session), run the art exporter.
-   Resolve inherited tile-zero/setup material; integrate native models/HUD/road
-   geometry, then paired source stills. Continue scenery/effects/fonts/audio ledger.
+1. FZX_TEST_ROM is saved locally for Windows; forward it privately into WSL.
+   Finish source HUD state (energy, flashes/countdown/results); resolve inherited
+   tile-zero material, native models/road/camera, then source-reference stills.
 2. Re-measure the source-art scene. For clip WIP, replay fixed recorded pad inputs
    before promotion: the live diagnostic autopilot depends on render/catch-up cadence.
 3. Cut 18.5 s setup, load the CPU run-out racing line from ROM, rerun all 10 SH-2
@@ -40,9 +42,8 @@ Limit: 50 lines. Replace this file each session; do not append.
 4. Expand the faithful slice through Gate 6's content/mode coverage ledger.
 
 ## Working notes
-
-- Soft-float versus fixed-point is still open; CI default remains `proto`.
+- Soft-float versus fixed-point is open; CI default remains `proto`.
 - Use FZX_YABA_EXE and FZX_TEST_ROM locally; never publish private paths. Emulator
   scripts restore the shared yabause.ini; stop this instance before rebuilding.
-- Hooks: fzx_debug_n64/autopilot/restart/overload, fzx_timing, fzx_input_log,
-  fzx_hitches, fzx_hitch_count, fzx_init_fields. LTO symbols may end .lto_priv.N.
+- `tools/emu/input_replay.ps1` uploads/verifies the existing log, restarts, then
+  holds simulation at N via fzx_debug_replay_count. Use this for render comparisons.

@@ -12,7 +12,7 @@ section 4.7 and Gate 6 for source-art acceptance and full-game coverage.
 ## Playable extent
 
 Locally, with the owner's ROM: a Time Attack race on Mute City 1, original race code
-(`FZX_SIM=orig`, soft float) on the master SH-2, temporary placeholder visuals, debug race HUD,
+(`FZX_SIM=orig`, soft float) on the master SH-2, temporary road/craft, debug race HUD,
 Start retries. A whole 3-lap race on the emulator matches the host reference to the ms
 (EMULATOR). 60 fps with rare hitches (38 missed fields in 9,455), course set-up about
 18.5 s (MODELLED). Never run on a console. CI images use the synthetic fixture and the
@@ -61,20 +61,19 @@ prototype driver (`FZX_SIM=proto`) by default.
 
 ## Current local experiments (not promoted)
 
-Hitch logging finds render-heavy peaks at the same section each lap. Clip-divider
-experiment: HOST render hash unchanged; 65,776 SH-2 ratio cases exact, mutation
-control fails. First arm: 26 misses/9,871 loops, full-race host finish time matches.
-Second arm: 32 misses/9,759 loops and the diagnostic autopilot retires; not accepted.
-Use a fixed input replay to separate cadence-dependent autopilot changes from the
-renderer before promotion. All figures MODELLED; changes remain local work in progress.
+Hitch/clip-divider WIP remains local and unpromoted: HOST image identity and
+65,776 SH-2 ratio cases pass; timing-sensitive autopilot runs disagree. Use the new
+fixed-input replay for render comparisons. Emulator timing remains MODELLED.
 
 ## Blockers
-
-Source-art retail validation: FZX_TEST_ROM is unset in Windows/WSL. Unblock with
-a local verified US rev0 ROM. Native art-bearing image and visual review are unrun.
+ROM found and verified; FZX_TEST_ROM saved locally. Native models/materials, source
+road/scenery/camera, full HUD/UI/audio and full-game coverage remain incomplete.
 
 ## Source-art extraction probe (2026-11-15)
 
-`tools/import_source_art.py` preserves Blue Falcon's five LOD recipes and exports
-21 model/HUD/road textures locally. HOST: 41 Python tests pass; two retail checks skip.
-Receipt control fails as required. [Ledger](SOURCE_ART.md): tile-zero material, native rendering and review open.
+Five Blue Falcon LODs and 21 textures exported from verified retail ROM. HOST:
+46 Python tests pass, no skips; 10,010 source HUD layout cases and wrong-glyph control.
+FZX_SOURCE_HUD=1 draws native timer/speed/lap art from live original race state.
+Stale assets fail the build. EMULATOR: 9,907 fixed inputs finish in 121,814 ms,
+equal to host; final rerun pending. Source-reference visuals and HARDWARE unrun.
+[Ledger/build/memory details](SOURCE_ART.md); this partial HUD does not close G2.6.

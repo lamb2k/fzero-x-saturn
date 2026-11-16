@@ -57,7 +57,27 @@ $(error FZX_SIM must be proto or orig)
 endif
 
 SH_PROGRAM := fzero-x-saturn
-SH_SRCS := main.c ../src/fzx.c $(FZX_ORIG_SRCS) $(wildcard $(SH2ZAM_ROOT)/saturn/src/*.c)
+# Partial native HUD integration; source scene/audio gates remain open.
+FZX_SOURCE_HUD ?= 0
+ifeq ($(FZX_SOURCE_HUD),1)
+ifneq ($(FZX_SIM),orig)
+$(error FZX_SOURCE_HUD=1 requires the original race simulation)
+endif
+ifneq ($(FZX_ROM_BOOT),1)
+$(error FZX_SOURCE_HUD=1 requires the local retail machine constants)
+endif
+FZX_HUD_RECEIPT := $(shell sh ../tools/check_receipt.sh ../generated/source_art/source_art.receipt 2>&1; echo "rc=$$?")
+ifeq ($(findstring rc=0,$(FZX_HUD_RECEIPT)),)
+$(error Source HUD is not current: $(FZX_HUD_RECEIPT))
+endif
+SH_CFLAGS += -DFZX_SOURCE_HUD=1 -I../generated/source_art
+FZX_HUD_SRCS := ../src/fzx_hud.c hud_native.c
+SH_BUILD_DIR := build-orig-hud/yaul
+SH_OUTPUT_DIR := build-orig-hud
+else ifneq ($(FZX_SOURCE_HUD),0)
+$(error FZX_SOURCE_HUD must be 0 or 1)
+endif
+SH_SRCS := main.c ../src/fzx.c $(FZX_ORIG_SRCS) $(FZX_HUD_SRCS) $(wildcard $(SH2ZAM_ROOT)/saturn/src/*.c)
 SH_CFLAGS += -DFZX_SH2_DIVU=1 -O2 -std=c11 -Wall -Wextra -I../include \
              -I$(SH2ZAM_ROOT)/saturn/include -DSH2Z_REQUIRE_SH2=1
 

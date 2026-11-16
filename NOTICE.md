@@ -19,6 +19,9 @@ decompilation algorithms/data layouts at commit
   `Course_SplineCalculateTensions` and `func_8009DB28`.
 - `src/game/EA90.c`: `func_80074CE4` segment up-vector construction.
 - `include/fzx_math.h`: the original 4096-step angle conversion.
+- `src/overlays/ovl_i3/hud.c`: single-player timer, speed and lap layout/glyph
+  selection, adapted in `src/fzx_hud.c` and tested against the pinned functions.
+  Native atlases use local ROM extraction; no retail pixels are committed.
 
 The current temporary renderer uses a sampled flat road ribbon and approximate
 polyline arc lengths. It does not reproduce all original course surface types,

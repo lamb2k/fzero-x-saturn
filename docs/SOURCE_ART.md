@@ -31,9 +31,9 @@ tree, after resolving symlinks; tracked repository destinations are refused.
 
 | Required content | Extraction | Native rendering / acceptance |
 | --- | --- | --- |
-| Blue Falcon, five authored LODs | Converter and synthetic gates implemented; retail run pending | Open: inherited tile-zero setup/look-at material, lighting, source model pose and native texture submission |
-| Basic speed/time/lap/energy HUD sheets | RGBA16 conversion implemented; retail run pending | Open: original layout, glyph subrectangles and state-driven drawing |
-| Mute City road materials | MIO0 decode and seven RGBA16 surfaces implemented; retail run pending | Open: source cross sections, material selection, UV seams and ordered traversal |
+| Blue Falcon, five authored LODs | Verified retail export and synthetic decoder gates pass | Open: inherited tile-zero setup/look-at material, lighting, source model pose and native texture submission |
+| Basic speed/time/lap/energy HUD sheets | Verified retail RGBA16 export; 14,080-byte native atlas | Timer/speed/lap draw on VDP1 from race state; energy, flash/countdown/results, source-reference comparison open |
+| Mute City road materials | Verified retail MIO0 decode and seven RGBA16 surfaces | Open: source cross sections, material selection, UV seams and ordered traversal |
 | Mute City floor, skyline, clouds, sky | Source locations identified | Open |
 | Dash/pit, other effects, countdown and finish | Source coverage incomplete | Open |
 | Source camera, entry/results and audio | Not integrated | Open |
@@ -62,6 +62,55 @@ HOST synthetic checks cover MIO0 literals/overlap/bounds, channel order, nibble
 order, alpha, native row padding, source vertex loads, all five LODs and receipts.
 Malformed streams, unknown graphics commands, unloaded vertex references,
 wrong ROMs and hand-edited generated output are rejected by negative controls.
-No retail art, image, native visual parity or hardware performance is established
-by these tests. The next gate is a verified local ROM export, resolving the
-inherited material, followed by native rendering and paired source stills.
+The verified retail export passes all 46 Python tests without skips. The source
+HUD oracle extracts the pinned timer/speed/lap functions and position tables;
+10,010 cases match the native draw list and a wrong-glyph control fails. This is
+layout/command equivalence, not an N64-versus-Saturn raster comparison.
+
+## Native HUD slice
+
+`tools/hud_probe/` builds a standalone display test with `FZX_HUD_ART=fixture` or
+`retail`. Both use the game's native submission path in `saturn/hud_native.c`.
+Fixture sheets are explicitly synthetic; retail mode requires verified generated
+art. Receipts cover the header, atlas generator and source HUD. Compilation checks
+provenance, and a deliberately edited retail header stops the build.
+
+```
+python3 tools/import_source_art.py
+SATURN_DIR=tools/hud_probe bash tools/saturn_build.sh FZX_HUD_ART=retail
+```
+
+After the original-race build has produced its local course and closure:
+
+```
+bash tools/saturn_build.sh FZX_SIM=orig FZX_IMPORTED=1 FZX_ROM_BOOT=1 \
+  FZX_CLOSURE=/work/saturn/build-orig/ref_closure.o FZX_SOURCE_HUD=1
+```
+
+The separate `saturn/build-orig-hud/` image includes source timer/speed/lap artwork
+and the source timer's +5 ms rounding. Its debug text is moved away from these
+components. It retains the temporary scene and does not implement the full HUD
+state machine: energy, lap flashes, countdown, intervals/results and other modes
+remain open. This option defaults off and cannot use the synthetic machine build.
+
+EMULATOR: eight static retail display cases were captured locally, including the
+maximum timer/speed and finished-state lap suppression. The integrated image
+replayed 9,907 recorded inputs, completed all three laps and matched the host's
+121,814 ms finish time. The live timing-dependent autopilot retired in a separate
+run; that is not used as a fidelity result. `tools/emu/input_replay.ps1` uploads
+and reads back every word, restarts, then holds source state at the exact end
+while presentation runs. All input/state/image evidence remains outside git.
+
+Current local memory footprint (SH-2 link map, not hardware high-water evidence):
+
+| Region | Footprint |
+| --- | --- |
+| HUD texture atlas, resident VDP1 | 14,080 bytes of the default 442,336-byte texture partition |
+| Two CPU command buffers | 539 commands each, 34,496 bytes total; includes 24 reserved HUD draws |
+| HUD draw count | At most 19 of 24 reserved commands |
+| Whole candidate ELF | text 222,400; data 11,376; BSS 740,032 bytes (final check pending) |
+| High-work-RAM end / stack top | 0x060f1bf4 / 0x06100000 (58,380-byte gap, not measured stack use) |
+
+Source-reference still/motion comparisons, full scene budgets and physical Saturn
+acceptance are unrun. The next art work is the remaining HUD state plus native
+Blue Falcon materials, source road geometry/camera, scenery/effects and audio.

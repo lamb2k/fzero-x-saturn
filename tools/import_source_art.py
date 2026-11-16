@@ -22,6 +22,7 @@ import sys
 
 from import_course import (DECOMP_COMMIT, UPSTREAM_COMMIT, extract_rom_course,
                            normalize_rom)
+from hud_assets import HUD_SHEETS, header as hud_header
 
 ROOT = Path(__file__).resolve().parents[1]
 DECOMP = ROOT / "upstream/G-Diffuser/decomp"
@@ -35,8 +36,7 @@ SEGMENTS = {
     "hud_gfx": (0x1B8550, 0x1E23F0),
     "mute_city_textures": (0x235130, 0x239A80),
 }
-HUD = ("aHudTimeTex", "aHudEnergyTex", "aLapCounterSymbolsTex",
-       "aSpeedDigitsTex", "aKmhTex", "aTimerSymbolsTex", "aLapTex")
+HUD = tuple(row[0] for row in HUD_SHEETS)
 
 
 class ArtError(ValueError):
@@ -202,6 +202,7 @@ class SourceArt:
         self.draw = (decomp / DRAW).read_bytes()
         self.inputs[DRAW] = sha(self.draw)
         self.inputs["src/game/racer.c"] = sha((decomp / "src/game/racer.c").read_bytes())
+        self.inputs["src/overlays/ovl_i3/hud.c"] = sha((decomp / "src/overlays/ovl_i3/hud.c").read_bytes())
 
     def texture(self, symbol: str) -> dict:
         row = self.rows[symbol]
@@ -325,6 +326,7 @@ def export(rom: bytes, out: Path, decomp: Path = DECOMP) -> dict:
             texture.update(native_file=name + ".rgb1555", native_stride=stride)
             outputs[texture["native_file"]] = native
         textures.append(texture)
+    outputs["hud.h"] = hud_header({name: outputs[name + ".rgb1555"] for name in HUD})
     manifest = dict(schema=1, source_commit=UPSTREAM_COMMIT, decomp_commit=DECOMP_COMMIT,
                     rom_sha256=provenance["normalized_rom_sha256"], source_inputs=source.inputs,
                     model_scale_game_units=[0.1, 0.1, 0.1], uv_fraction_bits=5,
@@ -335,7 +337,7 @@ def export(rom: bytes, out: Path, decomp: Path = DECOMP) -> dict:
     outputs["source_art.json"] = (json.dumps(manifest, indent=2) + "\n").encode()
     out.mkdir(parents=True, exist_ok=True)
     receipt = ["# fzx generation receipt v1"]
-    for filename in ("import_source_art.py", "import_course.py"):
+    for filename in ("import_source_art.py", "import_course.py", "hud_assets.py"):
         receipt.append(f"generator {sha((ROOT / 'tools' / filename).read_bytes())} {filename}")
     for filename, digest in source.inputs.items():
         receipt.append(f"generator {digest} ../upstream/G-Diffuser/decomp/{filename}")
@@ -343,7 +345,7 @@ def export(rom: bytes, out: Path, decomp: Path = DECOMP) -> dict:
     for name, data in outputs.items():
         (out / name).write_bytes(data)
         receipt.append(f"output {sha(data)} {name}")
-    (out / "source_art.receipt").write_text("\n".join(receipt) + "\n", encoding="utf-8")
+    (out / "source_art.receipt").write_bytes(("\n".join(receipt) + "\n").encode())
     return dict(lod_triangles=[len(m["triangles"]) for m in models], textures=len(textures),
                 native_texture_bytes=sum(len(v) for k, v in outputs.items() if k.endswith(".rgb1555")))
 

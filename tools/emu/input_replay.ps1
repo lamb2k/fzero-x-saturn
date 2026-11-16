@@ -24,6 +24,7 @@ param(
     [switch]$SourceSkyline,
     [switch]$SourcePlanes,
     [switch]$SourceFloorRbg,
+    [switch]$FrameProfile,
     [switch]$TextureCd,
     [ValidateRange(4,524288)] [int]$TextureCdBytes = 8320,
     [int[]]$HoldTicks = @(),
@@ -33,6 +34,7 @@ param(
 $ErrorActionPreference = 'Stop'
 if (($RoadTileProfile -or $RoadTileVertexCache) -and -not $SourceRoadTiles) { throw 'Road tile diagnostics require SourceRoadTiles' }
 if ($SourceFloorRbg -and (-not $SourcePlanes -or -not $SourceRoadTiles)) {throw 'Rotation floor diagnostics require SourcePlanes and SourceRoadTiles'}
+if ($FrameProfile -and (-not $SourceFloorRbg -or -not $SourceMachine -or $HoldTicks.Count)) {throw 'Frame profile requires full scene and uninterrupted replay (no HoldTicks)'}
 $repo = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..')) + [IO.Path]::DirectorySeparatorChar
 if (([IO.Path]::GetFullPath($OutDir) + [IO.Path]::DirectorySeparatorChar).StartsWith(
         $repo, [StringComparison]::OrdinalIgnoreCase)) {
@@ -468,6 +470,33 @@ try {
         }
         @{tier='EMULATOR';low_start=$start;low_end=$end;guards_intact=$true} | ConvertTo-Json |
             Set-Content -LiteralPath (Join-Path $OutDir 'machine-memory.json')
+    }
+    if ($FrameProfile) {
+        $header=Hex (Mcp memory_read @{address=(Addr (S '_fzx_frame_profile'));length=64})
+        $v=@(0..15 | ForEach-Object {[Convert]::ToUInt32($header.Substring($_*8,8),16)})
+        if ($v[0] -ne 0x465a4650 -or ($v[1] -ne 1 -and $v[1] -ne 2) -or $v[2] -ne 1 -or $v[8] -ne 0 -or
+            $v[4] -lt 2 -or $v[4] -gt $v[5] -or $v[5] -ne 4096 -or $v[6] -ne 64 -or
+            $v[3] -lt (ReadWord (S '_fzx_machine_low_end'))+64 -or $v[7]+32 -gt 0x00300000 -or
+            $v[7] -ne $v[3]+$v[5]*$v[6] -or $v[12] -ne $v[4]) {throw 'Frame profile header, capacity, clock or presentation check failed'}
+        foreach ($address in @(($v[3]-32),$v[7])) {
+            if ((Hex (Mcp memory_read @{address=(Addr $address);length=32})) -ne ('39C5A71E'*8)) {throw 'Frame profile low-RAM guard changed'}
+        }
+        $rows=[Text.StringBuilder]::new()
+        for ($offset=0;$offset -lt $v[4]*64;$offset+=1024) {
+            $size=[Math]::Min(1024,$v[4]*64-$offset)
+            $part=Hex (Mcp memory_read @{address=(Addr ($v[3]+$offset));length=$size})
+            if ($part.Length -ne $size*2) {throw 'Short frame profile read'}
+            [void]$rows.Append($part)
+        }
+        $subsystems=''
+        if ($v[1] -eq 2) {
+            if ($v[15] -ne 7 -or $v[14] -ne (S '_fzx_frame_subsystems')) {throw 'Invalid subsystem counter address/count'}
+            $subsystems=Hex (Mcp memory_read @{address=(Addr $v[14]);length=224})
+            if ($subsystems.Length -ne 448) {throw 'Short subsystem counter read'}
+        }
+        @{header_hex=$header;rows_hex=$rows.ToString();subsystems_hex=$subsystems;guards_intact=$true;intentional_holds=0;
+            tier='MODELLED';hardware='UNRUN';iso_sha256=$receipt.iso_sha256} | ConvertTo-Json |
+            Set-Content -LiteralPath (Join-Path $OutDir 'frame-profile.json')
     }
     Write-Output "FZX-REPLAY $(if ($DiagnosticOnly) {'DIAGNOSTIC'} else {'PASS'}) words=$done lap=$lap finish_ms=$raceTime"
 } finally {

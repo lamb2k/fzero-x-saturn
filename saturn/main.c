@@ -8,6 +8,7 @@
 #include <string.h>
 
 #include "fzx.h"
+#include "frame_profile.h"
 #ifndef FZX_SOURCE_MACHINE
 #define FZX_SOURCE_MACHINE 0
 #endif
@@ -185,6 +186,9 @@ vblank_out(void *work)
     fzx_timing.field = (uint16_t)(now - vblank_frt);
     vblank_frt = now;
     ++video_fields;
+#if FZX_FRAME_PROFILE
+    fzx_fp_vblank(now,video_fields);
+#endif
     smpc_peripheral_intback_issue();
 }
 
@@ -495,22 +499,34 @@ commands_build(const fzx_frame_t *frame)
         const unsigned bank=command_list==&command_lists[0]?0u:1u;
         void *shades=(void *)((uintptr_t)sky_partitions.texture_base+sky_shade_offset+
                              bank*FZX_SKY_MAX_COMMANDS*8u);
+#if FZX_FRAME_PROFILE
+        fzx_fp_scene_begin();
+#endif
         if(!fzx_sky_native(&commands[COMMAND_FIRST_POLYGON],FZX_SCENE_CAPACITY-count,
                            &fzx_native_view,shades,&first)) {
             dbgio_printf("\x1b[H\x1b[2J SOURCE SKY DRAW FAILED %lu\n",(unsigned long)fzx_sky_stats.fault);
             dbgio_flush();vdp2_sync();for(;;) {}
         }
+#if FZX_FRAME_PROFILE
+        fzx_fp_scene_end(0,first);
+#endif
     }
 #endif
 
 #if FZX_SOURCE_SKYLINE
     if(fzx_input_count) {
         uint32_t skyline_count=0;
+#if FZX_FRAME_PROFILE
+        fzx_fp_scene_begin();
+#endif
         if(!fzx_skyline_native(&commands[COMMAND_FIRST_POLYGON+first],FZX_SCENE_CAPACITY-count-first,
                                &fzx_native_view,skyline_vram,&skyline_count)) {
             dbgio_printf("\x1b[H\x1b[2J SOURCE SKYLINE DRAW FAILED %lu\n",(unsigned long)fzx_skyline_stats.fault);
             dbgio_flush();vdp2_sync();for(;;) {}
         }
+#if FZX_FRAME_PROFILE
+        fzx_fp_scene_end(1,skyline_count);
+#endif
         first+=skyline_count;
     }
 #endif
@@ -518,22 +534,34 @@ commands_build(const fzx_frame_t *frame)
 #if FZX_SOURCE_FLOOR_RBG
     if(fzx_input_count) {
         uint32_t floor_count=0;
+#if FZX_FRAME_PROFILE
+        fzx_fp_scene_begin();
+#endif
         if(!fzx_floor_native(&commands[COMMAND_FIRST_POLYGON+first],FZX_SCENE_CAPACITY-count-first,
             &fzx_native_view,&fzx_source_backdrop,&floor_count)) {
             dbgio_printf("\x1b[H\x1b[2J SOURCE FLOOR DRAW FAILED %lu\n",(unsigned long)fzx_floor_rbg.fault);
             dbgio_flush();vdp2_sync();for(;;) {}
         }
+#if FZX_FRAME_PROFILE
+        fzx_fp_scene_end(2,floor_count);
+#endif
         first+=floor_count;
     }
 #endif
 #if FZX_SOURCE_PLANES
     if(fzx_input_count) {
         uint32_t plane_count=0;const uint32_t before=video_fields;
+#if FZX_FRAME_PROFILE
+        fzx_fp_scene_begin();
+#endif
         if(!fzx_planes_native(&commands[COMMAND_FIRST_POLYGON+first],FZX_SCENE_CAPACITY-count-first,
             &fzx_native_view,&fzx_source_backdrop,planes_vram,planes_shades,&plane_count)) {
             dbgio_printf("\x1b[H\x1b[2J SOURCE PLANES DRAW FAILED %lu\n",(unsigned long)fzx_plane_stats.fault);
             dbgio_flush();vdp2_sync();for(;;) {}
         }
+#if FZX_FRAME_PROFILE
+        fzx_fp_scene_end(3,plane_count);
+#endif
         fzx_plane_fields=video_fields-before;first+=plane_count;
     }
 #endif
@@ -545,6 +573,9 @@ commands_build(const fzx_frame_t *frame)
 #endif
         const int32_t pa=(int32_t)(-fzx_source_camera.projection[2][2]*1073741824.0f);
         const int32_t pb=(int32_t)(fzx_source_camera.projection[3][2]*4096.0f);
+#if FZX_FRAME_PROFILE
+        fzx_fp_scene_begin();
+#endif
         if(!fzx_road_tiles_native(&commands[COMMAND_FIRST_POLYGON+first],FZX_SCENE_CAPACITY-count-first,
             &fzx_native_view,&fzx_source_road_plan,pa,pb,road_tile_pixels,road_tile_shades,&road_count)) {
             dbgio_printf("\x1b[H\x1b[2J SOURCE ROAD TILE DRAW FAILED %lu\n",(unsigned long)fzx_road_tile_stats.fault);
@@ -555,17 +586,26 @@ commands_build(const fzx_frame_t *frame)
         fzx_road_profile_outer[0]=(uint16_t)(profile_end.ticks-profile_start.ticks);
         fzx_road_profile_outer[1]=profile_end.fields-profile_start.fields;
 #endif
+#if FZX_FRAME_PROFILE
+        fzx_fp_scene_end(4,road_count);
+#endif
         fzx_road_tile_fields=video_fields-before;first+=road_count;
     }
 #endif
 #if FZX_SOURCE_MACHINE
     if(fzx_input_count) {
         uint32_t machine_count=0;const uint32_t before=video_fields;
+#if FZX_FRAME_PROFILE
+        fzx_fp_scene_begin();
+#endif
         if(!fzx_machine_native(&commands[COMMAND_FIRST_POLYGON+first],FZX_SCENE_CAPACITY-count-first,
             &fzx_native_view,machine_pixels,machine_shades,&machine_count)) {
             dbgio_printf("\x1b[H\x1b[2J SOURCE MACHINE DRAW FAILED %lu/%lu\n",(unsigned long)fzx_machine_status,(unsigned long)fzx_machine_stats.fault);
             dbgio_flush();vdp2_sync();for(;;) {}
         }
+#if FZX_FRAME_PROFILE
+        fzx_fp_scene_end(5,machine_count);
+#endif
         fzx_machine_fields=video_fields-before;first+=machine_count;
     }
 #endif
@@ -589,6 +629,9 @@ commands_build(const fzx_frame_t *frame)
 #if FZX_SOURCE_HUD
     /* Racer_InitRacer sets energy=maxEnergy, and maxEnergy is immutable
      * in this source race closure. Capture its initial value before any ticks. */
+#if FZX_FRAME_PROFILE
+    fzx_fp_scene_begin();
+#endif
     const float energy_pixels = (orig_pose.energy / orig_start_energy) * 68.0f + 0.5f;
     const fzx_hud_snapshot_t state = {
         hud_clock.time_ms,
@@ -605,6 +648,9 @@ commands_build(const fzx_frame_t *frame)
         fzx_source_hud_status = 3;
         for (;;) {}
     }
+#if FZX_FRAME_PROFILE
+    fzx_fp_scene_end(6,hud_draws.count);
+#endif
     draw_count += hud_draws.count;
 #endif
     vdp1_cmdt_t *end = &commands[COMMAND_FIRST_POLYGON + draw_count];
@@ -768,9 +814,18 @@ main(void)
     cpu_frt_init(CPU_FRT_CLOCK_DIV_32);
     vblank_frt = cpu_frt_count_get();
     fzx_timing.magic = 0x465A5854u;
+#if FZX_FRAME_PROFILE
+    if(!fzx_fp_init(fzx_machine_low_end,fields_per_second)) {
+        dbgio_printf("FRAME PROFILE MEMORY FAILED");dbgio_flush();
+        for(;;){}
+    }
+#endif
     uint32_t warmup = 2; /* the first loops still carry the course load */
 
     while (true) {
+#if FZX_FRAME_PROFILE
+        fzx_fp_begin(fzx_input_count);
+#endif
         const uint16_t loop_start = cpu_frt_count_get();
         const uint32_t buttons = buttons_read();
         pending_reset |= buttons & FZX_RESET;
@@ -785,6 +840,9 @@ main(void)
         }
         if (elapsed > MAX_CATCHUP_FIELDS) elapsed = MAX_CATCHUP_FIELDS;
         tick_remainder += elapsed * 60u;
+#if FZX_FRAME_PROFILE
+        fzx_fp_mark(1);
+#endif
         const uint16_t sim_start = cpu_frt_count_get();
         while (tick_remainder >= fields_per_second) {
 #if FZX_SIM == FZX_SIM_ORIG
@@ -795,6 +853,9 @@ main(void)
 #endif
                 fzx_debug_restart = 0;
                 orig_restart();
+#if FZX_FRAME_PROFILE
+                fzx_fp_restart();
+#endif
             }
             orig_tick();
 #else
@@ -804,16 +865,25 @@ main(void)
             tick_remainder -= fields_per_second;
         }
 
+#if FZX_FRAME_PROFILE
+        fzx_fp_mark(2);
+#endif
         const uint16_t publish_start = cpu_frt_count_get();
         fzx_timing.sim = (uint16_t)(publish_start - sim_start);
         if (fzx_timing.sim > fzx_timing.sim_max) fzx_timing.sim_max = fzx_timing.sim;
 #if FZX_SIM == FZX_SIM_ORIG
         orig_publish();
 #endif
+#if FZX_FRAME_PROFILE
+        fzx_fp_mark(3);
+#endif
         const uint16_t render_start = cpu_frt_count_get();
         fzx_timing.publish = (uint16_t)(render_start - publish_start);
 #if FZX_SOURCE_PLANES || FZX_SOURCE_ROAD_TILES
         vdp1_sync_wait();vdp2_sync_wait();
+#endif
+#if FZX_FRAME_PROFILE
+        fzx_fp_mark(4);
 #endif
         const fzx_frame_t *frame = fzx_render();
 #if FZX_SOURCE_CAMERA
@@ -853,6 +923,9 @@ main(void)
          * and go straight on to the next frame. */
         vdp1_sync_wait();
         vdp2_sync_wait();
+#if FZX_FRAME_PROFILE
+        fzx_fp_mark(5);
+#endif
         const uint16_t hud_start = cpu_frt_count_get();
         /* The text plane is redrawn every fourth loop: printing and uploading it each frame
          * cost about 7% of a field. */
@@ -881,10 +954,16 @@ main(void)
             dbgio_flush();
         }
         fzx_timing.hud = (uint16_t)(cpu_frt_count_get() - hud_start);
+#if FZX_FRAME_PROFILE
+        fzx_fp_submit(fzx_input_count);
+#endif
         vdp1_sync_cmdt_list_put(command_list, 0);
         vdp1_sync_render();
         vdp1_sync();
         vdp2_sync();
+#if FZX_FRAME_PROFILE
+        fzx_fp_return();
+#endif
 #if FZX_SOURCE_ROAD_TILES
         if(FRAME_HOLD && !fzx_debug_restart && fzx_debug_replay_count &&
            fzx_input_count==fzx_debug_replay_count) {

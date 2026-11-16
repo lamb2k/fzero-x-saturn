@@ -1,49 +1,43 @@
 # Handoff
-Limit: 50 lines. Replace this file each session; history lives in git.
+Limit: 50 lines. History lives in git.
 
-## Owner direction
+## Goal and direction
 
-- Complete [Mute City 1 boot/selection/race/results](FIRST_COURSE_GOAL.md), targeting 60 fps.
-- Original assets converted for Saturn; similar-quality adaptations authorized.
-- Source-only origin/gate1 pushes authorized after gates/hygiene. Assets stay private.
+- Follow the owner's local render plan C0-C8 and all [first-course gates](FIRST_COURSE_GOAL.md).
+- Original boot/selection, Mute City 1, results/retry, audio/effects, pad flow,
+  soak and 60 fps target remain required. Hardware and owner look review are open.
+- Convert original assets offline for Saturn; document adaptations.
+- Completed source-only origin/gate1 pushes authorized after gates and hygiene.
 
-## Current state
+## C0 result
 
-- Original race, camera, Blue Falcon, partial HUD, road and backdrops are integrated.
-- Latest full native replay: 9,907 inputs, source time 121,814 ms, same final pose.
-- Default-off FZX_SOURCE_FLOOR_RBG moves original floor pixels to VDP2 RBG0.
-  Reciprocal perspective, finite window and eight fog bands are explicit adaptations.
-  Clouds retain the previous native sprite path. Final appearance acceptance is open.
-- All 19 floor packets/cloud hashes match HOST; camera/road/machine/other backdrop
-  packets and hashes remain unchanged. CD, low-RAM/cache and stack guards pass.
-- Floor table uploads match displayed inputs; all captured uploads remain in VBlank.
-- Thirteen-view floor/cloud CPU A/B/A: 74.12/56.62/74.12 ms MODELLED,
-  saving 17.50 ms mean. This is not whole-frame FPS; the budget is still blocked.
-- New VDP2 data 152,544 bytes; original VDP1 floor atlas remains allocated.
-  VDP1 textures 433,728/442,336 bytes; high-RAM end 0x060fc4f4; stack guard 8,012 bytes.
-- Floor-off binary equals admitted cache image. Corrupt coefficient boot and stale
-  receipt controls reject as intended. Full GCC/Clang UBSan projection checks pass.
-- Road cache mean 112.04 ms; vehicle remains expensive. Whole-frame HUD timer wraps.
-- Screen-space fog follow-up withdrawn: only 0.78 ms mean floor saving for a
-  2,720-byte high-RAM increase and 5,588-byte diagnostic stack margin. Two trials
-  and exact source patch retained privately; admitted RBG0 code/image unchanged.
-- Entry/selection/results/audio/effects, pad flow, soak and HARDWARE remain open.
-- Unrelated clip/hitch/software-road WIP preserved unstaged. No release/SD/private upload.
+- Full 9,907-input native replay passes; source finish time 121,814 ms, same final pose.
+- All final scene packets and whole-capture road/machine command counts match HOST.
+- 1,982 pictures: 3.287 fps MODELLED, mean 304.215 ms, p95 433.333 ms,
+  maximum 466.668 ms, 34,178 missed fields. No 30 or 60 fps acceptance.
+- Mean CPU: road 121.720 ms, machine 52.858, clouds 32.863, floor 14.029;
+  simulation 46.134 per catch-up loop and state publication 32.078 ms.
+- Extended clock and counters pass; 16-bit clock controls fail as required.
+- Profile-off binary equals the admitted RBG0 build; 14 asset payloads unchanged.
+- Low-RAM recorder 262,144 bytes; all guards pass. Stack guard 5,996 bytes,
+  below C7's 16 KB target. Faster full captures will need more than 4,096 rows.
+- Private evidence: emu/frame-profile-v2/race, with exact image/source receipts.
+- First v1 capture timed out at 9,302 inputs. V2 kept the same emulator process
+  through a documented controller handoff at 8,806, with no pause/reset/upload.
+- All owner build/emulator processes are finished. No live capture to restart.
 
-## Next work
+## Next: C1
 
-1. Read generated/CONTINUE-CODEX.md tail and generated/PERFORMANCE-NEXT.md.
-2. Continue architecture: expensive clouds;
-   source-derived road LOD/offline preparation; measured vehicle phases.
-3. Keep original content. Measure combined scene and worst views after each change.
-4. Finish source entry/selection/results/audio/effects, pad flow, retry and final soak.
+- HOST road tier census on all 9,907 recorded views; p99 command budget 420.
+- Measure the plan's repetition thresholds, unique strip colours, tier texture
+  bytes and far merging. The forced-first-tier control must exceed the budget.
+- Keep the old runtime road frozen. Do not edit SH2ZAM or invent general kernels.
+- The latest detailed checkpoint is at the TOP of generated/CONTINUE-CODEX.md.
 
-## Evidence
+## Preserved work and gaps
 
-- FZX_TEST_ROM stays local; never print or publish its path.
-- Latest full race and A/B/A: emu/floor-rbg; HOST projection: host/floor-rbg.
-- Rejected fog trials: emu/floor-screen-fog and emu/floor-screen-shift.
-- Per-held byte register reads were unsupported; runtime-registers.json uses actual
-  word reads. Rotation/window VRAM readbacks match each held frame directly.
-- Native isolate outputs FLOOR_RBG=0; qualified ON artifacts are preserved externally.
-  Do not overwrite ON artifacts with OFF. HARDWARE remains UNRUN.
+- Older clip/hitch/software-road WIP is still local and unstaged.
+- The build isolate currently contains profile-OFF outputs. Qualified ON artifacts
+  are preserved externally; do not overwrite them with OFF outputs.
+- The screen-space fog trial remains withdrawn. Other source-art/content cards
+  and all physical acceptance remain open. No release or SD write occurred.

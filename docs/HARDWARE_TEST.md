@@ -4,6 +4,12 @@ An emulator run is not hardware timing. Yaba Sanshiro does not model the SH-2
 cache or work-RAM wait states accurately, so every figure from it is MODELLED.
 This sheet is the protocol for the first run on a real Saturn.
 
+The protocol and figures below describe the earlier prototype renderer. They do
+not certify the current original-art scene. Its legacy CPU/MAX timer wraps after
+65,536 FRT ticks (roughly 78 ms), so a small displayed percentage can hide a long
+frame. Use the [whole-scene recorder](FRAME_PERFORMANCE.md) for current cadence;
+the old HUD is not evidence of 30 or 60 fps on this scene.
+
 ## What the image shows
 
 Row 5 of the HUD is the timing line (see `saturn/README.md`, Controls):
@@ -45,7 +51,7 @@ the video field itself, so they hold for NTSC, PAL and either dot clock.
 Pass: `MISS` 0 over the lap, `MAX` under 85 (15% headroom), negative control
 trips. Anything else is a failure to record with its figures, not a pass.
 
-## Last emulator figures (MODELLED, Mute City 1, Yaba Sanshiro)
+## Historical prototype figures (MODELLED, not the current original-art scene)
 
 Per-frame CPU 69-84% of a field in normal driving; zero missed fields through
 start, throttle and steering; 4 missed fields when energy ran out (the original

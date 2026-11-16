@@ -15,6 +15,15 @@ FZX_SOURCE_SKY ?= 0
 FZX_SOURCE_SKYLINE ?= 0
 FZX_SOURCE_PLANES ?= 0
 FZX_SOURCE_FLOOR_RBG ?= 0
+FZX_FRAME_PROFILE ?= 0
+ifeq ($(FZX_FRAME_PROFILE),1)
+ifneq ($(FZX_SIM):$(FZX_SOURCE_FLOOR_RBG):$(FZX_SOURCE_MACHINE),orig:1:1)
+$(error FZX_FRAME_PROFILE requires original race, RBG floor and original machine)
+endif
+FZX_FRAME_PROFILE_SRCS := frame_profile.c
+else ifneq ($(FZX_FRAME_PROFILE),0)
+$(error FZX_FRAME_PROFILE must be 0 or 1)
+endif
 FZX_SOURCE_ROAD_TILES ?= 0
 FZX_ROAD_TILE_PROJECT_CULL ?= 0
 FZX_ROAD_TILE_EDGE_REUSE ?= 0
@@ -281,7 +290,10 @@ FZX_MACHINE_SRCS := machine_native.c ../src/fzx_machine_draw.c ../src/fzx_machin
 else ifneq ($(FZX_SOURCE_MACHINE),0)
 $(error FZX_SOURCE_MACHINE must be 0 or 1)
 endif
-SH_SRCS := main.c ../src/fzx.c $(FZX_ORIG_SRCS) $(FZX_HUD_SRCS) $(FZX_CAMERA_SRCS) $(FZX_ROAD_SRCS) $(FZX_SKY_SRCS) $(FZX_MACHINE_SRCS) $(wildcard $(SH2ZAM_ROOT)/saturn/src/*.c)
+ifeq ($(FZX_FRAME_PROFILE),1)
+SH_CFLAGS += -DFZX_FRAME_PROFILE=1
+endif
+SH_SRCS := $(FZX_FRAME_PROFILE_SRCS) main.c ../src/fzx.c $(FZX_ORIG_SRCS) $(FZX_HUD_SRCS) $(FZX_CAMERA_SRCS) $(FZX_ROAD_SRCS) $(FZX_SKY_SRCS) $(FZX_MACHINE_SRCS) $(wildcard $(SH2ZAM_ROOT)/saturn/src/*.c)
 SH_CFLAGS += -DFZX_SH2_DIVU=1 -O2 -std=c11 -Wall -Wextra -I../include \
              -I$(SH2ZAM_ROOT)/saturn/include -DSH2Z_REQUIRE_SH2=1
 

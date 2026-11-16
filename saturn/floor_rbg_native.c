@@ -1,3 +1,4 @@
+#include "frame_profile.h"
 #include "floor_rbg_native.h"
 #include "floor_rbg_identity.h"
 #include "texture_cd.h"
@@ -100,4 +101,7 @@ void fzx_floor_present(void *unused) {
     fzx_floor_upload_blanking=blank_start|(vdp2_tvmd_vblank_in()?2u:0u);
     fzx_floor_upload_ticks=(uint16_t)(cpu_frt_count_get()-start);
     fzx_floor_presented=fzx_floor_pending;fzx_floor_pending=0;++fzx_floor_commits;
+#if FZX_FRAME_PROFILE
+    fzx_fp_present();
+#endif
 }

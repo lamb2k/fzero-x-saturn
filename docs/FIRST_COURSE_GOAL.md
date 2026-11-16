@@ -52,11 +52,13 @@ plan, but are not prerequisites for this first-course milestone.
 | Combined scene and performance | Measure actual scene, improve the largest cost, qualify memory/stack and deterministic gameplay on the combined image |
 | First-course acceptance | Clean build, full end-to-end run, soak, local review package and hardware status |
 
-Current priority after machine integration: further road and floor/cloud rendering
-architecture, following the shared-vertex cache and RBG0 floor experiments.
-The screen-space fog follow-up was withdrawn: its small gain did not justify
-the added path and reduced memory margin. Prioritize clouds and larger road changes.
-Resume entry and race-presentation expansion after these bounded performance cards.
+Current priority follows the owner's `generated/CODEX-RENDER-PLAN.md` C0-C8:
+C0 now establishes a 3.287 fps MODELLED whole-route baseline with 34,178 missed
+fields. Next are road census/bake/stream, vehicle rebake,
+cloud architecture, CPU split and combined measurements. Entry and race-presentation
+work can interleave where the plan allows. The render plan does not replace or
+narrow the completion gates above. A 60 Hz simulation with 30 Hz drawing must be
+reported explicitly if that fallback becomes necessary; it is not 60 fps.
 
 Work one card through its gates at a time. A blocked approach gets two distinct
 hypotheses, a concrete unblock condition and a dependency-safe next card. Completed

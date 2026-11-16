@@ -33,21 +33,23 @@ Pad-only end-to-end acceptance, final look approval and HARDWARE remain unrun.
 
 ## Current card
 
-Default-off FZX_SOURCE_FLOOR_RBG preserves original floor pixels in a resident
-VDP2 character map. Per-dot reciprocal perspective and eight fog bands are explicit
-Saturn adaptations. Full EMULATOR replay passes; all 19 held floor/cloud packets
-match HOST, other scene packets/hashes remain unchanged and memory guards pass.
-Rotation/window uploads match the displayed input and stay inside VBlank.
+C0 frame profiling is gated: 9,907 inputs, all three laps, original final state
+and scene packets retained. The 1,982-picture baseline is 3.287 fps MODELLED:
+304.215 ms mean presentation interval, p95 433.333 ms, maximum 466.668 ms;
+34,178 missed fields. These are complete-scene measurements, not physical FPS.
+Road and machine command totals/ranges match HOST at the actual drawn inputs.
+Clock controls, allocation guards and profile-off binary identity pass.
+The diagnostic recorder leaves 5,996 bytes of stack guard, below C7's 16 KB target.
+All 14 asset payloads match the admitted disc. See [frame measurements](FRAME_PERFORMANCE.md).
 
-Floor/cloud CPU A/B/A means are 74.12 / 56.62 / 74.12 ms MODELLED.
-The mean saving is 17.50 ms; this does not establish whole-frame FPS.
-Stack retains 8,012 bytes; new VDP2 data uses 152,544 bytes. VDP1 textures
-remain unchanged. Floor-off binary identity and corrupt-asset rejection pass.
-See [floor measurements](FLOOR_PERFORMANCE.md) and [road measurements](ROAD_PERFORMANCE.md).
+C1 is next: HOST road tier census over all 9,907 views, p99 at or below 420
+commands and a forced-first-tier control above budget. No runtime road edits yet.
+The owner's local render plan ranks C1-C8; the full first-course goal remains.
 
-Follow-up screen-space fog was not retained: the corrected trial saved only
-0.78 ms floor CPU across 13 held views and reduced the stack margin to 5,588 bytes.
-Both trials and source patches are preserved privately; the admitted image is unchanged.
+The last admitted rendering change remains the RBG0 floor: its 13-view
+floor/cloud A/B/A means are 74.12 / 56.62 / 74.12 ms MODELLED. These cover
+different views from the new whole-route baseline. The screen-space fog
+follow-up was withdrawn for insufficient benefit and reduced memory margin.
 
 ## Local experiments retained
 
@@ -57,8 +59,7 @@ No release, ROM-derived publication, SD write or physical acceptance occurred.
 
 ## Next
 
-Continue rendering architecture: address expensive clouds and evaluate
-source-derived road distance meshes or offline preparation.
-Measure vehicle phases while preserving its original geometry and textures.
-Then finish entry/selection, race audio/results/effects and pad-driven retry.
-The complete content-bearing route must meet the unchanged 60 fps target.
+Complete C1's road census and negative control, then road bake and stream,
+vehicle rebake, bounded clouds, CPU split and combined measurement.
+Finish original entry/selection, audio/results/effects, pad retry and soak.
+SH2ZAM calibration, HARDWARE and owner appearance acceptance remain open.

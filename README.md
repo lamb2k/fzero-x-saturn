@@ -33,10 +33,11 @@ The public default circuit and craft remain synthetic test fixtures.
 | Web preview | The same C core compiled to WebAssembly, with keyboard/touch controls and local imported-course loading. |
 | Validation | Independent spline oracle, driving/reset/ordering checks, exact prepared/general transform comparisons, importer checks, sanitizers and browser interaction tests. |
 
-**Hardware performance is unmeasured.** The content-bearing original-race image completes
-emulator replays, but individual road, plane and machine draws exceed the entire
-16.7 ms frame budget. These measurements are MODELLED; complete-scene and physical
-60 fps acceptance remain open.
+**Hardware performance is unmeasured.** The [whole-scene baseline](docs/FRAME_PERFORMANCE.md)
+completes 9,907 replay inputs at **3.287 fps MODELLED**: 304.2 ms mean presentation
+interval and 34,178 missed display fields. The original final race state is retained,
+but the rendering pipeline needs substantial changes to reach the 60 fps target.
+These emulator measurements do not establish physical Saturn performance.
 
 The latest [original-floor experiment](docs/FLOOR_PERFORMANCE.md) moves it onto
 VDP2 RBG0. A/B/A held-view checks reduce floor/cloud CPU work from 74.12 to

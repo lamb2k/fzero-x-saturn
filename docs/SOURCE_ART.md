@@ -1149,3 +1149,14 @@ HARDWARE remain open.
 Image SHA-256: `ce52a6c5a6edff297aaa07139b7389059bd4efcb9602be553063681ce815636c`.
 Private evidence: `emu/machine-clean` and `host/machine-state`; earlier partial
 capture in `emu/machine-integration`. Only source code and counts are published.
+
+
+## Exclusive road CPU diagnostic
+
+The default-off road profiler changes no source content or conversion. It has
+9,907-view HOST command identity, paired timer-wrap controls, 13-view native scene
+identity and memory guards, A/B/A cost comparison and whole-binary OFF identity.
+See [road measurements](ROAD_PERFORMANCE.md) for the exact image and cost table.
+Profiling overhead is substantial and remains explicit; no phase is presented as
+an uninstrumented saving. Source appearance, whole-scene 60 fps and hardware gates
+remain unchanged.

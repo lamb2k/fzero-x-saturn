@@ -33,22 +33,20 @@ Pad-only end-to-end acceptance, final look approval and HARDWARE remain unrun.
 
 ## Current card
 
-`FZX_SOURCE_MACHINE=1` integrates the original Blue Falcon into the actual race.
-The read-only source snapshot retains live body color, tunnel lights, reflection,
-pose and visibility. Source LODs 1-3 use original LOD 1; LOD 4 stays 4; LODs 5-6 use 5.
-The 16x16 chart cap, native palette/Gouraud lighting and LOD mapping are adaptations.
-The temporary craft is disabled only when the original-machine path is enabled.
+`FZX_ROAD_TILE_PROFILE=1` records exclusive road CPU phases, default off.
+All 9,907 HOST source views retain identical commands under GCC/Clang with UBSan.
+The 13-view EMULATOR diagnostic preserves camera, road, machine and backgrounds;
+CD/low-RAM guards pass and stack retains 17,548 bytes.
+Paired video-field/FRT samples detect lost timer wraps; authored controls reject them.
 
-HOST: GCC/Clang, source nonmutation, authored failure controls and all 9,907
-sanitized camera/model views pass. EMULATOR: full race, 19 source-state/draw hashes,
-unchanged road/background packets and low-RAM guards pass. Stack retains 18,224 bytes.
-Machine-only cost is 0.67-59.93 ms, mean 45.74 ms across 19 held views,
-MODELLED. These are subsystem samples, not combined frame-rate acceptance.
-Corrupt machine metadata fails before race initialization. Machine-off binary
-matches the prior admitted road image. Local same-camera software source-model
-comparisons preserve recognizable shape/markings; they are not source-game captures.
-Earlier input 624 capture stall and a minimized-window/core-change diagnostic are
-retained separately. The replacement run audits one CPU core and window visibility.
+Instrumentation is expensive: mean 197.67 ms versus baseline
+125.92 ms and repeated baseline 125.92 ms, all MODELLED.
+A-to-A2 maximum difference is 0.018 ms. Phase costs include profiling
+work and cannot be added to uninstrumented timings. Hashing is a small measured
+component; shared transform/projection/cull work is the next bounded experiment.
+Profile-off binary matches the admitted machine image exactly. No assets changed.
+See [road measurements](ROAD_PERFORMANCE.md) for scope, phases and limitations.
+The prior complete native race remains the full-route correctness checkpoint.
 
 ## Local experiments retained
 
@@ -58,8 +56,8 @@ No release, ROM-derived publication, SD write or physical acceptance occurred.
 
 ## Next
 
-Prioritize rendering architecture: measure exclusive road phases on pinned views,
-then eliminate repeated transforms/traversal and evaluate source-derived distance
+Prioritize rendering architecture: reuse per-frame source vertex transforms,
+projection and culling, then evaluate source-derived distance
 meshes. Prototype the original floor/cloud content on Saturn background hardware.
 Keep original vehicle geometry and resident textures; measure its expensive phases.
 Then finish entry/selection, race audio/results/effects and pad-driven retry.

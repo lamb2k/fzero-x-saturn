@@ -16,6 +16,7 @@ param(
     [string]$SourceCameraTrace = '',
     [switch]$SourceRoad,
     [switch]$SourceRoadTiles,
+    [switch]$RoadTileProfile,
     [switch]$SourceMachine,
     [string]$SourceMachineTrace = '',
     [switch]$SourceSky,
@@ -28,6 +29,7 @@ param(
     [switch]$DiagnosticOnly
 )
 $ErrorActionPreference = 'Stop'
+if ($RoadTileProfile -and -not $SourceRoadTiles) { throw 'RoadTileProfile requires SourceRoadTiles' }
 $repo = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..')) + [IO.Path]::DirectorySeparatorChar
 if (([IO.Path]::GetFullPath($OutDir) + [IO.Path]::DirectorySeparatorChar).StartsWith(
         $repo, [StringComparison]::OrdinalIgnoreCase)) {
@@ -264,6 +266,11 @@ try {
             if ((ReadWord (S '_fzx_road_tile_status')) -ne 1 -or $tileStats.Length -ne 64 -or $tileStats.Substring(48,8) -ne '00000000') {throw 'Native road tile draw failed'}
             $roadTileSamples+=@{tick=$target;stats_hex=$tileStats;draw_ticks=(ReadWord (S '_fzx_road_tile_ticks'));
                 draw_fields=(ReadWord (S '_fzx_road_tile_fields'));field_ticks=(ReadWord ((S '_fzx_timing')+8))}
+            if ($RoadTileProfile) {
+                $roadTileSamples[-1].profile_hex=Hex (Mcp memory_read @{address=(Addr (S '_fzx_road_profile'));length=104})
+                $roadTileSamples[-1].profile_outer_ticks=ReadWord (S '_fzx_road_profile_outer')
+                $roadTileSamples[-1].profile_outer_fields=ReadWord ((S '_fzx_road_profile_outer')+4)
+            }
             $roadTileSamples | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $OutDir 'road-tile-samples.json')
             Write-Output "FZX-ROAD-TILES tick=$target draw=valid"
         }

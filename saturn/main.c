@@ -134,6 +134,18 @@ static vdp1_cmdt_t *commands = commands_buf[0];
 static vdp1_cmdt_list_t *command_list = &command_lists[0];
 static smpc_peripheral_digital_t digital;
 static volatile uint32_t video_fields;
+#if FZX_ROAD_TILE_PROFILE
+/* Pair the FRT and field clock inside one video field. This outer scope
+ * independently detects an entire lost 16-bit wrap in the phase counters. */
+volatile uint32_t fzx_road_profile_outer[2];
+typedef struct {uint32_t fields;uint16_t ticks;} road_profile_clock_t;
+static road_profile_clock_t road_profile_clock(void) {
+    road_profile_clock_t result;uint32_t before;
+    do {before=video_fields;result.ticks=cpu_frt_count_get();result.fields=video_fields;}
+    while(before!=result.fields);
+    return result;
+}
+#endif
 static uint16_t pad_down;
 
 /* Frame timing for hardware runs (docs/HARDWARE_TEST.md). The FRT runs free at the master
@@ -511,6 +523,9 @@ commands_build(const fzx_frame_t *frame)
 #if FZX_SOURCE_ROAD_TILES
     if(fzx_input_count) {
         uint32_t road_count=0;const uint32_t before=video_fields;
+#if FZX_ROAD_TILE_PROFILE
+        const road_profile_clock_t profile_start=road_profile_clock();
+#endif
         const int32_t pa=(int32_t)(-fzx_source_camera.projection[2][2]*1073741824.0f);
         const int32_t pb=(int32_t)(fzx_source_camera.projection[3][2]*4096.0f);
         if(!fzx_road_tiles_native(&commands[COMMAND_FIRST_POLYGON+first],FZX_SCENE_CAPACITY-count-first,
@@ -518,6 +533,11 @@ commands_build(const fzx_frame_t *frame)
             dbgio_printf("\x1b[H\x1b[2J SOURCE ROAD TILE DRAW FAILED %lu\n",(unsigned long)fzx_road_tile_stats.fault);
             dbgio_flush();vdp2_sync();for(;;) {}
         }
+#if FZX_ROAD_TILE_PROFILE
+        const road_profile_clock_t profile_end=road_profile_clock();
+        fzx_road_profile_outer[0]=(uint16_t)(profile_end.ticks-profile_start.ticks);
+        fzx_road_profile_outer[1]=profile_end.fields-profile_start.fields;
+#endif
         fzx_road_tile_fields=video_fields-before;first+=road_count;
     }
 #endif

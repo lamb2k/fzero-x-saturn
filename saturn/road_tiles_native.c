@@ -1,5 +1,6 @@
 #include "road_tiles_native.h"
 #include "road_native.h"
+#include "fzx_road_profile.h"
 #include "texture_cd.h"
 #include "road_tile_identity.h"
 #include <string.h>
@@ -8,6 +9,9 @@ extern volatile uint32_t fzx_input_log[];
 volatile uint32_t fzx_road_tile_status,fzx_road_tile_busy,fzx_road_tile_ticks,fzx_road_tile_fields;
 volatile uint32_t fzx_road_tile_low_start,fzx_road_tile_low_end;
 fzx_road_tile_stats_t fzx_road_tile_stats;
+#if FZX_ROAD_TILE_PROFILE
+uint16_t fzx_road_profile_clock(void){return cpu_frt_count_get();}
+#endif
 static fzx_road_tiles_t tiles;
 bool fzx_road_tiles_load(void *vram) {
     uintptr_t scratch=((uintptr_t)sat_stub_data_end+31u)&~(uintptr_t)31u;
@@ -40,9 +44,19 @@ bool fzx_road_tiles_native(vdp1_cmdt_t *commands,unsigned capacity,const fzx_vie
                            int32_t pa,int32_t pb,void *pixels,void *shades,uint32_t *count) {
     if(!commands || capacity<2 || !view || !plan || !pixels || !shades || !count)return false;
     uint16_t start=cpu_frt_count_get();fzx_road_tile_busy=1;
+#if FZX_ROAD_TILE_PROFILE
+    fzx_road_profile_begin();
+#endif
     memset(commands,0,sizeof(*commands));vdp1_cmdt_user_clip_coord_set(commands);
     commands->cmd_xa=view->clip[0];commands->cmd_ya=view->clip[1];commands->cmd_xc=view->clip[2]-1;commands->cmd_yc=view->clip[3]-1;
     submit_t s={commands+1,(uintptr_t)pixels,shades,0};if(capacity-1>FZX_ROAD_TILE_MAX_DRAWS)capacity=FZX_ROAD_TILE_MAX_DRAWS+1;
-    if(!fzx_road_tiles_draw(&tiles,view,plan,pa,pb,capacity-1,emit,&s,&fzx_road_tile_stats)){fzx_road_tile_status=4;fzx_road_tile_busy=0;return false;}
+#if FZX_ROAD_TILE_PROFILE
+    bool ok=fzx_road_tiles_draw(&tiles,view,plan,pa,pb,capacity-1,emit,&s,&fzx_road_tile_stats);
+    fzx_road_profile_end();
+    if(!ok)
+#else
+    if(!fzx_road_tiles_draw(&tiles,view,plan,pa,pb,capacity-1,emit,&s,&fzx_road_tile_stats))
+#endif
+    {fzx_road_tile_status=4;fzx_road_tile_busy=0;return false;}
     *count=s.count+1;fzx_road_tile_ticks=(uint16_t)(cpu_frt_count_get()-start);fzx_road_tile_busy=0;fzx_road_tile_status=1;return true;
 }

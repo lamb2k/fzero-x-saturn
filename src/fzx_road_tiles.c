@@ -1,4 +1,5 @@
 #include "fzx_road_tiles.h"
+#include "fzx_road_profile.h"
 #include <limits.h>
 #include <string.h>
 #ifndef FZX_ROAD_TILE_PROJECT_CULL
@@ -84,7 +85,7 @@ static unsigned projected_outcode(const fzx_view_t *v,const int32_t p[3],const i
         if((int64_t)xy[1]<(int64_t)v->clip[1]*65536-1)code|=16u;
         if((int64_t)xy[1]>(int64_t)v->clip[3]*65536+1)code|=32u;
     } else {
-        for(unsigned k=2;k<6;++k)if(fzx_view_plane(v,p,k)<0)code|=1u<<k;
+        for(unsigned k=2;k<6;++k)if(RP_CALL(FZX_RP_CULL,fzx_view_plane(v,p,k))<0)code|=1u<<k;
     }
     return code;
 }
@@ -111,16 +112,17 @@ static int64_t area(const int32_t xy[][2],unsigned count) {
     return a;
 }
 static bool submit(draw_t *d,fzx_road_tile_quad_t *q,const int32_t xy[][2],const uint16_t *shades,unsigned n) {
-    if(!area(xy,n)){++d->stats->culled;return true;}
+    if(!RP_CALL(FZX_RP_CULL,area(xy,n))){++d->stats->culled;return true;}
     for(unsigned first=1;first+1<n;first+=2) {
         unsigned indices[4]={0,first,first+1,first+2<n?first+2:n-1};
         for(unsigned i=0;i<4;++i){q->x[i]=(int16_t)(xy[indices[i]][0]/65536);q->y[i]=(int16_t)(xy[indices[i]][1]/65536);q->shade[i]=shades[indices[i]];}
         if(d->stats->draws>=d->capacity)return fault(d,2);
-        if(!d->emit(d->context,q))return fault(d,3);
+        if(!RP_CALL(FZX_RP_EMIT,d->emit(d->context,q)))return fault(d,3);
+        RP_BEGIN(FZX_RP_HASH,hash_phase);
         uint32_t h=d->stats->hash;
         for(unsigned i=0;i<4;++i){h=(h^(uint32_t)(int32_t)q->x[i])*16777619u;h=(h^(uint32_t)(int32_t)q->y[i])*16777619u;h=(h^q->shade[i])*16777619u;}
         h=(h^q->offset)*16777619u;h=(h^q->width)*16777619u;h=(h^q->height)*16777619u;h=(h^q->solid)*16777619u;
-        d->stats->hash=h;++d->stats->draws;
+        d->stats->hash=h;RP_END(hash_phase);++d->stats->draws;
     }
     return true;
 }
@@ -128,11 +130,11 @@ static bool piece(draw_t *d,const int32_t v[][3],const uint8_t *strip,bool primi
     int32_t xy[10][2],clipped[10][3];const int32_t (*vertices)[3]=v;bool safe=true;unsigned out=63;
     for(unsigned i=0;i<4;++i) {
 #if FZX_ROAD_TILE_PROJECT_CULL
-        bool projected=project(d->view,v[i],xy[i]);out&=projected_outcode(d->view,v[i],xy[i],projected);
+        bool projected=RP_CALL(FZX_RP_PROJECT,project(d->view,v[i],xy[i]));out&=RP_CALL(FZX_RP_CULL,projected_outcode(d->view,v[i],xy[i],projected));
         if(!projected ||
 #else
-        unsigned o=0;for(unsigned k=0;k<6;++k)if(fzx_view_plane(d->view,v[i],k)<0)o|=1u<<k;out&=o;
-        if(!project(d->view,v[i],xy[i]) ||
+        unsigned o=0;for(unsigned k=0;k<6;++k)if(RP_CALL(FZX_RP_CULL,fzx_view_plane(d->view,v[i],k))<0)o|=1u<<k;out&=o;
+        if(!RP_CALL(FZX_RP_PROJECT,project(d->view,v[i],xy[i])) ||
 #endif
            v[i][2]<d->view->near_plane || xy[i][0]/65536 < -900 || xy[i][0]/65536>900 || xy[i][1]/65536 < -900 || xy[i][1]/65536>900)safe=false;
     }
@@ -140,13 +142,14 @@ static bool piece(draw_t *d,const int32_t v[][3],const uint8_t *strip,bool primi
     unsigned n=4;
     if(!safe) {
         fzx_view_t guard=*d->view;guard.clip[0]=guard.clip[1]=-900;guard.clip[2]=guard.clip[3]=900;
-        int count=fzx_view_clip(&guard,v,4,clipped);
+        int count=RP_CALL(FZX_RP_CLIP,fzx_view_clip(&guard,v,4,clipped));
         if(count<0)return fault(d,4);
         if(count<3){++d->stats->culled;return true;}
         n=(unsigned)count;vertices=(const int32_t (*)[3])clipped;
-        for(unsigned i=0;i<n;++i)if(!project(&guard,clipped[i],xy[i]))return fault(d,4);
+        for(unsigned i=0;i<n;++i)if(!RP_CALL(FZX_RP_PROJECT,project(&guard,clipped[i],xy[i])))return fault(d,4);
         ++d->stats->clipped;
     }
+    RP_BEGIN(FZX_RP_MATERIAL,material_phase);
     int fades[10],middle=0;for(unsigned i=0;i<n;++i){fades[i]=fog(d,vertices[i][2]);middle+=fades[i];}middle/=(int)n;
     unsigned variant=(unsigned)(middle+64)/128;if(variant>2)variant=2;
     fzx_road_tile_quad_t q={0};q.solid=primitive;
@@ -167,6 +170,7 @@ static bool piece(draw_t *d,const int32_t v[][3],const uint8_t *strip,bool primi
             shades[i]|=(uint16_t)(native<<(c*5));
         }
     }
+    RP_END(material_phase);
     return submit(d,&q,(const int32_t (*)[2])xy,shades,n);
 }
 static int32_t lerp(int32_t a,int32_t b,int32_t n,int32_t den) {
@@ -180,25 +184,25 @@ static bool quad(draw_t *d,const uint8_t *record) {
     for(unsigned i=0;i<4;++i) {
         const uint8_t *p=fzx_road_record(d->tiles->road,FZX_ROAD_VERTEX,U16(record+i*2));
         int32_t world[3];for(unsigned k=0;k<3;++k)world[k]=s16(p+k*2)*4096;
-        if(!fzx_view_transform(d->view,world,v[i]))return fault(d,1);
+        if(!RP_CALL(FZX_RP_TRANSFORM,fzx_view_transform(d->view,world,v[i])))return fault(d,1);
         uv[i][0]=s16(p+6);uv[i][1]=s16(p+8);
 #if FZX_ROAD_TILE_PROJECT_CULL
-        bool projected=project(d->view,v[i],xy[i]);out&=projected_outcode(d->view,v[i],xy[i],projected);
+        bool projected=RP_CALL(FZX_RP_PROJECT,project(d->view,v[i],xy[i]));out&=RP_CALL(FZX_RP_CULL,projected_outcode(d->view,v[i],xy[i],projected));
         if(!projected ||
 #else
-        unsigned o=0;for(unsigned k=0;k<6;++k)if(fzx_view_plane(d->view,v[i],k)<0)o|=1u<<k;out&=o;
-        if(!project(d->view,v[i],xy[i]) ||
+        unsigned o=0;for(unsigned k=0;k<6;++k)if(RP_CALL(FZX_RP_CULL,fzx_view_plane(d->view,v[i],k))<0)o|=1u<<k;out&=o;
+        if(!RP_CALL(FZX_RP_PROJECT,project(d->view,v[i],xy[i])) ||
 #endif
            v[i][2]<d->view->near_plane)front=false;
     }
     if(out){++d->stats->culled;return true;}
     if(!front) {
-        int32_t clipped[10][3];int n=fzx_view_clip(d->view,(const int32_t (*)[3])v,4,clipped);
+        int32_t clipped[10][3];int n=RP_CALL(FZX_RP_CLIP,fzx_view_clip(d->view,(const int32_t (*)[3])v,4,clipped));
         if(n<0)return fault(d,4);
         if(n<3){++d->stats->culled;return true;}
-        for(int i=0;i<n;++i)if(!project(d->view,clipped[i],xy[i]))return fault(d,4);
-        if(area((const int32_t (*)[2])xy,(unsigned)n)>=0){++d->stats->culled;return true;}
-    } else if(area((const int32_t (*)[2])xy,4)>=0){++d->stats->culled;return true;}
+        for(int i=0;i<n;++i)if(!RP_CALL(FZX_RP_PROJECT,project(d->view,clipped[i],xy[i])))return fault(d,4);
+        if(RP_CALL(FZX_RP_CULL,area((const int32_t (*)[2])xy,(unsigned)n))>=0){++d->stats->culled;return true;}
+    } else if(RP_CALL(FZX_RP_CULL,area((const int32_t (*)[2])xy,4))>=0){++d->stats->culled;return true;}
     if(U16(record+10)&2u)return piece(d,(const int32_t (*)[3])v,NULL,true,0,0,false);
     const uint8_t *strip=d->tiles->data+d->tiles->strip_at+U16(record+8)*32;
     /* Arrange both source S edges from low to high T. Source winding was
@@ -239,11 +243,11 @@ static bool quad(draw_t *d,const uint8_t *record) {
             else
 #endif
             {
-                part[0][k]=lerp(v[left][k],v[le][k],start-l0,l1-l0);
-                part[1][k]=lerp(v[right][k],v[re][k],start-r0,r1-r0);
+                part[0][k]=RP_CALL(FZX_RP_SPLIT,lerp(v[left][k],v[le][k],start-l0,l1-l0));
+                part[1][k]=RP_CALL(FZX_RP_SPLIT,lerp(v[right][k],v[re][k],start-r0,r1-r0));
             }
-            part[2][k]=lerp(v[right][k],v[re][k],end-r0,r1-r0);
-            part[3][k]=lerp(v[left][k],v[le][k],end-l0,l1-l0);
+            part[2][k]=RP_CALL(FZX_RP_SPLIT,lerp(v[right][k],v[re][k],end-r0,r1-r0));
+            part[3][k]=RP_CALL(FZX_RP_SPLIT,lerp(v[left][k],v[le][k],end-l0,l1-l0));
         }
         unsigned row=(unsigned)phase/32,height=((unsigned)phase+(unsigned)(end-start)+31)/32-row;
         if(!height || row+height>period)return fault(d,1);

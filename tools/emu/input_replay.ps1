@@ -18,6 +18,7 @@ param(
     [switch]$SourceSky,
     [switch]$SourceSkyline,
     [switch]$TextureCd,
+    [ValidateRange(4,524288)] [int]$TextureCdBytes = 8320,
     [int[]]$HoldTicks = @()
 )
 $ErrorActionPreference = 'Stop'
@@ -249,7 +250,7 @@ try {
         $address=S '_fzx_texture_cd_status'
         $values=@(0..6 | ForEach-Object {ReadWord ($address+$_*4)})
         $start=$values[4];$end=$values[5]
-        if ($values[0] -ne 1 -or $values[1] -ne 8320 -or $values[2] -ne 5 -or $values[6] -ne 0 -or
+        if ($values[0] -ne 1 -or $values[1] -ne $TextureCdBytes -or $values[2] -ne [Math]::Ceiling($TextureCdBytes/2048.0) -or $values[6] -ne 0 -or
             $start -lt (S '_sat_stub_data_end') -or $end -gt 0x00300000 -or $end -le $start -or ($start -band 31)) {
             throw 'Invalid native texture CD load status or scratch bounds'
         }

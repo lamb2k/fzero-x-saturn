@@ -32,9 +32,19 @@ static uint32_t sky_shade_offset;
 #ifndef FZX_SOURCE_HUD
 #define FZX_SOURCE_HUD 0
 #endif
+#ifndef FZX_HUD_CD
+#define FZX_HUD_CD 0
+#endif
 #if FZX_SOURCE_HUD
 #include "hud_native.h"
+#if FZX_HUD_CD
+#include "hud_identity.h"
+#include "texture_cd.h"
+#define FZX_HUD_BYTES FZX_HUD_PACK_BYTES
+#else
 #include "hud.h"
+#define FZX_HUD_BYTES sizeof(fzx_hud_pixels)
+#endif
 _Static_assert(!FZX_HUD_FIXTURE, "Original-race HUD requires locally verified source art");
 static vdp1_vram_partitions_t hud_partitions;
 static fzx_hud_list_t hud_draws;
@@ -498,7 +508,7 @@ main(void)
 #if FZX_SOURCE_SKY
     vdp1_vram_partitions_get(&sky_partitions);
 #if FZX_SOURCE_HUD
-    sky_shade_offset=(sizeof(fzx_hud_pixels)+7u)&~7u;
+    sky_shade_offset=(FZX_HUD_BYTES+7u)&~7u;
 #endif
     if(sky_shade_offset+FZX_SKY_VRAM_BYTES>sky_partitions.texture_size) {
         dbgio_printf("\x1b[H\x1b[2J SOURCE SKY EXCEEDS VDP1 MEMORY\n");
@@ -527,13 +537,25 @@ main(void)
 #endif
 #if FZX_SOURCE_HUD
     vdp1_vram_partitions_get(&hud_partitions);
-    if (sizeof(fzx_hud_pixels) > hud_partitions.texture_size) {
+    if (FZX_HUD_BYTES > hud_partitions.texture_size) {
         fzx_source_hud_status = 2;
         dbgio_printf("\x1b[H\x1b[2J SOURCE HUD EXCEEDS VDP1 MEMORY\n");
         dbgio_flush(); vdp2_sync();
         for (;;) {}
     }
-    memcpy(hud_partitions.texture_base, fzx_hud_pixels, sizeof(fzx_hud_pixels));
+#if FZX_HUD_CD
+    const uintptr_t hud_scratch=((uintptr_t)sat_stub_data_end+31u)&~(uintptr_t)31u;
+    if(hud_scratch<0x00200000u || hud_scratch>=0x00300000u ||
+       fzx_texture_cd_scratch_bytes()>0x00300000u-hud_scratch ||
+       !fzx_texture_cd_load("HUD.PAK",FZX_HUD_BYTES,FZX_HUD_PACK_HASH,
+                           hud_partitions.texture_base,(void *)hud_scratch,0x00300000u-hud_scratch)) {
+        fzx_source_hud_status=2;
+        dbgio_printf("\x1b[H\x1b[2J SOURCE HUD LOAD FAILED\n");
+        dbgio_flush();vdp2_sync();for(;;) {}
+    }
+#else
+    memcpy(hud_partitions.texture_base, fzx_hud_pixels, FZX_HUD_BYTES);
+#endif
     fzx_source_hud_status = 1;
 #endif
 #if FZX_SIM == FZX_SIM_ORIG

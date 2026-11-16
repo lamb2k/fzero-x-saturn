@@ -18,6 +18,7 @@ CAMERA=${FZX_SOURCE_CAMERA:-0}
 PLAN=${FZX_SOURCE_ROAD:-0}
 SKY=${FZX_SOURCE_SKY:-0}
 SKYLINE=${FZX_SOURCE_SKYLINE:-0}
+if [ "${FZX_HUD_CD:-0}" = 1 ]; then python3 "$ROOT/tools/hud_cd_assets.py"; fi
 if [ "$SKYLINE" = 1 ]; then python3 "$ROOT/tools/skyline_assets.py"; fi
 if [ "$SKY" = 1 ]; then python3 "$ROOT/tools/sky_assets.py"; fi
 if [ "$PLAN" = 1 ]; then python3 "$ROOT/tools/road_plan.py"; fi
@@ -72,7 +73,7 @@ if [ "$CAMERA" = 1 ]; then
     chroot "$IMG" /bin/bash -c "source /yaul-env.sh && export PATH=\"\$YAUL_INSTALL_ROOT/bin:\$PATH\" && \
         FZX_FASTFLOAT=1 FZX_SOURCE_CAMERA=1 FZX_ROAD_PLAN=$PLAN FZX_SOURCE_SKY=$SKY FZX_SOURCE_SKYLINE=$SKYLINE REF_CAMERA_ART=$ART bash /work/ref/sat/closure.sh /work/saturn/build-orig-camera && \
         make -B -C /work/saturn FZX_SIM=orig FZX_IMPORTED=1 FZX_SOURCE_CAMERA=1 \
-          FZX_CLOSURE=/work/saturn/build-orig-camera/ref_closure.o FZX_ROM_BOOT=$ROM_BOOT FZX_SOURCE_HUD=${FZX_SOURCE_HUD:-0} FZX_SOURCE_SKY=$SKY FZX_SKY_SIMPLIFY=${FZX_SKY_SIMPLIFY:-0} FZX_SOURCE_SKYLINE=$SKYLINE FZX_SKYLINE_CD=${FZX_SKYLINE_CD:-0}"
+          FZX_CLOSURE=/work/saturn/build-orig-camera/ref_closure.o FZX_ROM_BOOT=$ROM_BOOT FZX_SOURCE_HUD=${FZX_SOURCE_HUD:-0} FZX_SOURCE_SKY=$SKY FZX_SKY_SIMPLIFY=${FZX_SKY_SIMPLIFY:-0} FZX_SOURCE_SKYLINE=$SKYLINE FZX_SKYLINE_CD=${FZX_SKYLINE_CD:-0} FZX_HUD_CD=${FZX_HUD_CD:-0}"
     echo "built source-camera original-race image"
     exit 0
 fi

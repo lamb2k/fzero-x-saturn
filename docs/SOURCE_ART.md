@@ -892,3 +892,43 @@ The net high-RAM saving includes the newly linked loader/CD filesystem code.
 Additional native packs can reuse that code. Next, move the 14,080-byte original
 HUD atlas through this path, then integrate original floor/clouds and road/craft.
 This is memory-residency evidence, not a whole-scene performance or HARDWARE result.
+
+
+## Boot-loaded original HUD (EMULATOR)
+
+`FZX_HUD_CD=1` places the existing seven-sheet native HUD atlas in `HUD.PAK`.
+`tools/hud_cd_assets.py` checks the original asset receipt, sheet dimensions and
+padding, then proves its generated embedded header equals the existing header.
+The pack's 14,080 pixel bytes and sheet offsets are unchanged. A small identity
+header retains atlas metadata; no pixel array remains in program RAM for this arm.
+Both HUD and skyline use the already admitted boot CD loader and the same bounded
+low-RAM scratch. There is no new image conversion or race-time streaming.
+
+HOST GCC/Clang/repeat and undefined-behavior checks exercise both the 8,320-byte
+and 14,080-byte transfers, including their different partial final sectors.
+Padding/length mutations and a reversed hash-check control fail. A stale HUD pack
+copy is rejected. `FZX_HUD_CD=0` gives the byte-identical preceding game binary:
+1,018,164 bytes, SHA-256
+`c345a2decd54d485581cc1197621446543a99cb5f9d59c25d67f6966107f00e4`.
+
+EMULATOR: the isolated combined image loads seven HUD sectors, verifies all 14,080
+bytes and retains both scratch guards through the full 9,907-input race. It finishes
+in 121,814 ms with the same pose, all 19 camera/backdrop/skyline packets and drawing
+statistics matching the embedded-HUD baseline. Local HUD appearance was reviewed.
+Scaled emulator captures have a few skyline edge-pixel differences; this card does
+not claim whole-frame pixel identity or final source-reference visual acceptance.
+Flipping the last HUD pack byte on a private disc copy yields integrity status 8
+and HUD load status 2 while race timing is still uninitialized.
+
+| Combined allocation | HUD + skyline CD candidate |
+| --- | --- |
+| High work RAM end | 0x060f9274; another 14,016 bytes recovered |
+| Native HUD atlas in VDP1 | 14,080 bytes, unchanged |
+| Shared boot CD scratch in low work RAM | 0x0026b0c0..0x0026bac0; 2,560 bytes |
+| Untouched stack guard after full race | 22,872 bytes |
+
+Image SHA-256: `4f25e4dd3363ca08d2ff1962276ba03ab46bd374be79c7099faf0e03acbf3465`.
+Private evidence: `emu/hud-cd` under FZX_EVIDENCE. This is a residency improvement;
+whole-frame 60 fps and HARDWARE remain unproven. The recovered RAM makes room for
+original floor/cloud rendering; source road/craft, entry/selection and complete
+race presentation/audio still remain to be integrated.

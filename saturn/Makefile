@@ -8,6 +8,7 @@ endif
 SH_PROGRAM := fzero-x-saturn
 FZX_SIM ?= proto
 FZX_SOURCE_HUD ?= 0
+FZX_HUD_CD ?= 0
 FZX_SOURCE_CAMERA ?= 0
 FZX_SOURCE_SKY ?= 0
 FZX_SOURCE_SKYLINE ?= 0
@@ -138,10 +139,6 @@ ifneq ($(FZX_SOURCE_SKYLINE),1)
 $(error FZX_SKYLINE_CD=1 requires FZX_SOURCE_SKYLINE=1)
 endif
 SH_CFLAGS += -DFZX_SKYLINE_CD=1
-FZX_SKY_SRCS += texture_cd.c
-ifneq ($(FZX_SOURCE_ROAD),1)
-FZX_SKY_SRCS += road_cd.c
-endif
 else ifneq ($(FZX_SKYLINE_CD),0)
 $(error FZX_SKYLINE_CD must be 0 or 1)
 endif
@@ -162,6 +159,24 @@ SH_CFLAGS += -DFZX_SOURCE_HUD=1 -I../generated/source_art
 FZX_HUD_SRCS := ../src/fzx_hud.c hud_native.c
 else ifneq ($(FZX_SOURCE_HUD),0)
 $(error FZX_SOURCE_HUD must be 0 or 1)
+endif
+ifeq ($(FZX_HUD_CD),1)
+ifneq ($(FZX_SOURCE_HUD),1)
+$(error FZX_HUD_CD=1 requires FZX_SOURCE_HUD=1)
+endif
+FZX_HUD_CD_RECEIPT := $(shell sh ../tools/check_receipt.sh ../generated/hud_cd/hud_cd.receipt 2>&1; echo "rc=$$?")
+ifeq ($(findstring rc=0,$(FZX_HUD_CD_RECEIPT)),)
+$(error Source HUD CD pack is not current: $(FZX_HUD_CD_RECEIPT))
+endif
+SH_CFLAGS += -DFZX_HUD_CD=1 -I../generated/hud_cd
+else ifneq ($(FZX_HUD_CD),0)
+$(error FZX_HUD_CD must be 0 or 1)
+endif
+ifneq ($(filter 1,$(FZX_SKYLINE_CD) $(FZX_HUD_CD)),)
+FZX_SKY_SRCS += texture_cd.c
+ifneq ($(FZX_SOURCE_ROAD),1)
+FZX_SKY_SRCS += road_cd.c
+endif
 endif
 ifeq ($(FZX_SOURCE_ROAD),1)
 ifneq ($(FZX_SIM):$(FZX_SOURCE_CAMERA):$(FZX_ROM_BOOT),orig:1:1)
@@ -212,4 +227,12 @@ pre-build-iso: stage-skyline-pack
 stage-skyline-pack:
 	mkdir -p $(IMAGE_DIRECTORY)
 	cp ../generated/skyline/SKYLINE.PAK $(IMAGE_DIRECTORY)/SKYLINE.PAK
+endif
+ifeq ($(FZX_HUD_CD),1)
+$(SH_OUTPUT_PATH)/$(SH_PROGRAM).iso: ../generated/hud_cd/HUD.PAK
+pre-build-iso: stage-hud-pack
+.PHONY: stage-hud-pack
+stage-hud-pack:
+	mkdir -p $(IMAGE_DIRECTORY)
+	cp ../generated/hud_cd/HUD.PAK $(IMAGE_DIRECTORY)/HUD.PAK
 endif

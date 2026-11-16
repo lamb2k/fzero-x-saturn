@@ -29,6 +29,7 @@ Limit: 50 lines. Replace this file each session; do not append.
   Yaba OpenGL stalls at frame 0 when hidden here; test callers use a visible window.
 
 ## Next work
+Active goal: [boot/select/complete Mute City at 60 fps](FIRST_COURSE_GOAL.md); Blender adjustments authorized.
 
 1. FZX_TEST_ROM is saved locally for Windows; forward it privately into WSL.
    Moving Blue Falcon now passes 72 host/SH-2 pose/light checks. Native palettes

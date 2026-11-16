@@ -641,3 +641,28 @@ per-pixel generation path is retained locally as a fidelity reference, not admit
 to the race recipe. Unblock: native submission must meet the field budget with
 source-art checks, then pass full-route capacity/stack and simulation gates.
 Next is native shared-texture mapping using the original geometry/materials.
+
+### Native patch allocation probe (HOST, not admitted)
+
+The 4,966 source triangles form 2,483 command pairs with four boundary vertices:
+1,148 UV rectangles, 1,324 convex UV trapezoids and 11 primitive-color pairs.
+Six original texture sheets occupy 24,576 bytes. Arbitrary repeat phase and
+large endpoint skew prevent replacing these with one shared rectangular crop.
+The selected material-4 tile is invariant along V; its 80 pairs are a reusable
+strip candidate. No source positions, UVs or texture detail were removed.
+
+A second sizing probe samples bilinear four-corner charts with at least one
+sample per texel of L1 UV movement along either chart axis. It keeps fractional
+phases, uses three-point source filtering, splits at native sprite limits and
+deduplicates exact byte-identical charts. This is an allocation experiment,
+not preservation of the original triangle interpolation or a runtime pack.
+It needs 2,632 unique charts / 32,919,888 RGB1555 bytes; independently zlib-
+compressed charts total 6,371,715 bytes. The 19 held views need 366,624 to
+2,133,824 uncompressed bytes before HUD/commands. Compression does not reduce
+the VDP1 residency requirement, so this whole-patch approach is also blocked.
+Report SHA-256: `6efc47ff82baf1512192011e3d0d0ecb49ab2df7ffaf8107d501c7845ae9456e`.
+
+Unblock: shared native tiles/subdivision must retain source topology, UVs and
+sampling while fitting the scene's measured memory and field budgets; source
+look and full-route gates follow. No downsampling or dropped-content arm is
+accepted. Next independent card: source backdrop extraction and bindings.

@@ -77,4 +77,5 @@ Blue Falcon: 72 pose/light checks pass; palette appearance and CPU cost remain o
 Source-camera view integration: 19 held SH-2 packets match; view/look-back replay
 finishes in 121,814 ms. Road pack: 300 chunks/4,966 triangles; 146,120 cartridge bytes
 match in EMULATOR. Native fog/clock and 19 draw-plan packets match HOST; material and masked-chart HOST gates pass.
-[Ledger/memory](SOURCE_ART.md). Local software road draw: 132–165 fields/view (MODELLED); native texture mapping must meet the field budget before route admission.
+[Ledger/memory](SOURCE_ART.md). Software road draw: 132–165 fields/view (MODELLED).
+Full-detail patch baking exceeds VRAM; shared tiles remain open. Backdrop extraction next.

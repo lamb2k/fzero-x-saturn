@@ -175,6 +175,14 @@ Cartridge rules:
 
 ### 4.7 Source-art and audio preservation contract
 
+- Owner clarification (2026-11-16) supersedes exactness requirements below:
+  approximate source behavior and similar visual/audio quality are authorized
+  where exact reproduction is impractical on Saturn. Preserve the game's identity
+  and playability, use source assets as the basis, and record material differences
+  with local comparisons. Native shading, filtering, tessellation, texture size,
+  blending and behavior adaptations do not need another permission round.
+  Exact numeric parity remains evidence for unchanged code, not a prerequisite
+  for adapted presentation. Missing content and placeholders still fail coverage.
 - Extract from the verified owner-supplied ROM using the pinned source's asset
   tables, symbols, formats and draw routines. No generated lookalikes or replacement
   designs. Preserve machine silhouettes/proportions, source topology and authored
@@ -186,8 +194,8 @@ Cartridge rules:
 - Start with lossless representation/layout changes and the source's own LODs.
   Palette conversion, texture padding and native packing must preserve sampling and
   transparency. Mesh simplification, texture downsampling, removed scenery or altered
-  audio are explicit adaptations with before/after evidence and owner review; reaching
-  the performance target does not waive the source-art gate.
+  audio are explicit adaptations with before/after evidence under the owner's
+  preservation authorization; retain similar quality and recognizable identity.
 - Every local pack has a receipt and a source-to-output manifest: ROM identity,
   asset symbols/offsets, decoder version, source/output counts, material/texture
   bindings, hashes and any adaptation. Reject missing/stale packs. Public fixtures
@@ -360,7 +368,7 @@ with implemented, tested, blocked and owner-approved exception states.
 Only these. Everything else the agent decides and records.
 
 1. **Before Gate 1.6:** where the US rev0 ROM lives for ROM-lane cards (a private path exposed as `FZX_TEST_ROM`, on the owner's machine or a private environment). It never enters the repo, a CI log, or a chat.
-2. **Gate 1 report:** "GO or NO-GO as recommended?" The frame target (60 fps), cartridge requirement and preservation of source art are already decided. If they do not yet fit together, report the measured gap and concrete options. Removing source art, reducing its fidelity or lowering the frame target requires owner review; it is not an automatic fallback.
+2. **Gate 1 report:** "GO or NO-GO as recommended?" The frame target (60 fps), cartridge requirement and preservation of source art are already decided. Similar-quality Saturn adaptations are authorized by section 4.7. Report remaining measured gaps; dropping required content or lowering the frame target still requires owner review.
 3. **P review (repeated for F):** "What should stay as it is, what looks, sounds or feels wrong, and which issue should be fixed first?" Include source/reference comparisons and the content ledger. Silence is not approval.
 
 Also needing the owner: any still or clip of the retail course in a public place, hosting a build, and running the hardware sheet.

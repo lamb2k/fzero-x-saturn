@@ -18,6 +18,13 @@ instructions and pulls work off course.
 
 ## Work
 
+- **Owner clarification, 2026-11-16: Saturn preservation takes priority over exact parity.**
+  Approximate behavior or similar visual/audio quality is authorized when exact
+  source behavior is impractical on Saturn. Preserve the game's identity and
+  playable experience; document adaptations and compare them locally. Do not
+  block useful native implementations on bit-exact rendering or request repeated
+  permission for these adaptations. Source assets remain the starting material;
+  placeholders and missing features do not become completed content.
 - **Owner direction, 2026-11-15: the real game on Saturn, preserving source art.**
   Original machine models, track materials, scenery, effects, HUD/fonts, menus
   and audio are port content, extracted locally from the owner's ROM. Placeholder

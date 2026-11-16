@@ -4,6 +4,12 @@ Owner instruction, 2026-11-16: continue until the first level is playable from
 boot through selection and race completion, with Saturn-optimized faithful source
 content and a 60 fps target. Blender may be used when assets need adjustment.
 
+Owner clarification, 2026-11-16: this is a Sega Saturn preservation project.
+Approximate behavior or similar quality is acceptable when exact source behavior
+is impractical. Use source content and preserve recognizable handling, presentation
+and race rules; document meaningful differences. Exact parity is a useful baseline,
+not a blocker to an otherwise faithful playable Saturn implementation.
+
 The first course is Mute City 1. The current Time Attack / Blue Falcon integration
 is the starting slice. The entry and selection flow must use the original game's
 presentation and lead into that playable race; booting directly into a diagnostic
@@ -23,7 +29,8 @@ plan, but are not prerequisites for this first-course milestone.
   useful. Do not silently drop content or lower the 60 fps target to pass.
 - The actual content-bearing race is measured over the full route: mean, p95,
   maximum frame cost and missed fields, with 60 fps / zero missed fields the target.
-  Count all memory pools and peak stack use. Preserve simulation parity.
+  Count all memory pools and peak stack use. Check simulation parity where retained
+  and explicitly validate any adapted behavior against its intended race rules.
 - Run a clean final candidate through boot/select/race/results/retry, the relevant
   negative controls, a ten-minute soak and local source-reference visual/audio
   review. Record image, code, asset and configuration identities together.

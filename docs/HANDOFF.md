@@ -1,17 +1,16 @@
 # Handoff
 Limit: 50 lines. Replace this file each session; do not append.
 ## Owner direction (2026-11-15)
-
 - The target is the real game on Saturn, preserving source art. The old prohibition
   on the game's art/look is superseded. Original models, textures/materials,
   scenery, effects, HUD/fonts, menus and audio are required. Placeholders are tests.
+- Owner clarification (2026-11-16): approximate behavior or similar quality is
+  authorized where exactness is impractical. Document adaptations; prioritize playability.
 - POC_PLAN section 4.7 defines the source-art gate; Gate 6 covers the complete game.
   A Mute City slice is an intermediate milestone, not completion.
 - ROM-derived assets, packs, traces, stills and images stay local/ignored. Public
   source contains converters, runtime code and synthetic fixtures only.
-
 ## Current state, branch `gate1`
-
 - Original racer code (`FZX_SIM=orig`, binary32 soft float) runs a 3-lap Mute City 1
   race on the master SH-2 with placeholder graphics, debug HUD and Start retry.
   Whole-race finish time matches a host input replay. HARDWARE is UNRUN.
@@ -27,10 +26,8 @@ Limit: 50 lines. Replace this file each session; do not append.
   arm: 32/9,759 and diagnostic autopilot retirement. NOT promoted; timings MODELLED.
 - The race-log tool now rejects an empty/full log; replay requires an actual finish.
   Yaba OpenGL stalls at frame 0 when hidden here; test callers use a visible window.
-
 ## Next work
 Active goal: [boot/select/complete Mute City at 60 fps](FIRST_COURSE_GOAL.md); Blender adjustments authorized.
-
 1. FZX_TEST_ROM is saved locally for Windows; forward it privately into WSL.
    Moving Blue Falcon now passes 72 host/SH-2 pose/light checks. Native palettes
    still differ visually and are slow. Exact reuse is gated default-off; source

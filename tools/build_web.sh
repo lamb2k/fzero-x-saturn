@@ -9,7 +9,7 @@ test -f "$SH2ZAM_DIR/saturn/include/sh2zam/sh2zam.h" || {
 }
 "${CLANG:-clang}" --target=wasm32 -O2 -std=c11 -ffreestanding -fno-builtin \
   -fno-fast-math -ffp-contract=off -nostdlib -DSH2Z_FORCE_PORTABLE=1 \
-  -Iinclude -I"$SH2ZAM_DIR/saturn/include" \
+  -Iweb/include -Iinclude -I"$SH2ZAM_DIR/saturn/include" \
   src/fzx.c src/wasm_support.c "$SH2ZAM_DIR"/saturn/src/*.c \
   -Wl,--no-entry -Wl,--export-memory -Wl,--initial-memory=2097152 \
   -Wl,--max-memory=2097152 -Wl,-z,stack-size=65536 \

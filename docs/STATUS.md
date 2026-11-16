@@ -26,27 +26,26 @@ Pad-only end-to-end acceptance, final look approval and HARDWARE remain unrun.
 | Simulation | Original race closure; complete 9,907-input native replay preserves final pose/time and source state |
 | Source camera/HUD | 19 held camera packets match; timer/speed/lap/energy integrated; countdown/results remain open |
 | Source Blue Falcon | Original near model retains 132 triangles, with resident source-derived textures and live pose/body/lighting; full replay and guards pass; performance and final visual acceptance remain open |
-| Source road | All 300 chunks / 4,966 triangles retained; 19-view cost 72.99-244.16 ms MODELLED after two reuse experiments |
+| Source road | All 300 chunks / 4,966 triangles retained; shared vertex cache reduces 13-view mean 125.92 to 112.04 ms MODELLED; budget still blocked |
 | Source backdrop | Original sky/skyline/floor/cloud draw; plane-only cost 28.90-103.62 ms MODELLED remains blocked |
 | Gates 2-5 | Entry/results/effects/audio, native rendering budget, pad-only flow and final soak incomplete |
 | Gate 6 | Full-game content, modes, opponents, progression and persistence remain planned |
 
 ## Current card
 
-`FZX_ROAD_TILE_PROFILE=1` records exclusive road CPU phases, default off.
-All 9,907 HOST source views retain identical commands under GCC/Clang with UBSan.
-The 13-view EMULATOR diagnostic preserves camera, road, machine and backgrounds;
-CD/low-RAM guards pass and stack retains 17,548 bytes.
-Paired video-field/FRT samples detect lost timer wraps; authored controls reject them.
+`FZX_ROAD_TILE_VERTEX_CACHE=1` reuses per-frame transforms/projections/outcodes,
+default off. All 9,907 HOST source views retain identical commands under
+GCC/Clang UBSan. Stale-generation, wrap and vertex-alias controls fail as intended.
+The 13-view EMULATOR diagnostic preserves all scene packets and draw hashes;
+CD/low-RAM/cache guards pass and stack retains 17,880 bytes.
 
-Instrumentation is expensive: mean 197.67 ms versus baseline
-125.92 ms and repeated baseline 125.92 ms, all MODELLED.
-A-to-A2 maximum difference is 0.018 ms. Phase costs include profiling
-work and cannot be added to uninstrumented timings. Hashing is a small measured
-component; shared transform/projection/cull work is the next bounded experiment.
-Profile-off binary matches the admitted machine image exactly. No assets changed.
-See [road measurements](ROAD_PERFORMANCE.md) for scope, phases and limitations.
-The prior complete native race remains the full-route correctness checkpoint.
+Uninstrumented A/B/A road means are 125.92 / 112.04 / 125.92 ms, MODELLED.
+The cache saves 11.02% on these views; maximum A/A2 variation is 0.018 ms.
+Worst sampled road cost falls from 244.21 to 213.55 ms, still over budget.
+It uses 73,180 bytes of low work RAM; texture assets and VRAM are unchanged.
+Cache-off matches the admitted machine binary exactly. The prior complete
+native race remains the full-route correctness checkpoint.
+See [road measurements](ROAD_PERFORMANCE.md) for profiling and cache scope.
 
 ## Local experiments retained
 
@@ -56,9 +55,9 @@ No release, ROM-derived publication, SD write or physical acceptance occurred.
 
 ## Next
 
-Prioritize rendering architecture: reuse per-frame source vertex transforms,
-projection and culling, then evaluate source-derived distance
-meshes. Prototype the original floor/cloud content on Saturn background hardware.
+Prioritize rendering architecture: prototype the original floor on Saturn
+background hardware, accounting for clouds that overlap it. Evaluate source-derived
+road distance meshes after the exact shared-work cache.
 Keep original vehicle geometry and resident textures; measure its expensive phases.
 Then finish entry/selection, race audio/results/effects and pad-driven retry.
 The complete content-bearing route must meet the unchanged 60 fps target.

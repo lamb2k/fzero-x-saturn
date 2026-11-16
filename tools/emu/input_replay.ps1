@@ -17,6 +17,7 @@ param(
     [switch]$SourceRoad,
     [switch]$SourceRoadTiles,
     [switch]$RoadTileProfile,
+    [switch]$RoadTileVertexCache,
     [switch]$SourceMachine,
     [string]$SourceMachineTrace = '',
     [switch]$SourceSky,
@@ -29,7 +30,7 @@ param(
     [switch]$DiagnosticOnly
 )
 $ErrorActionPreference = 'Stop'
-if ($RoadTileProfile -and -not $SourceRoadTiles) { throw 'RoadTileProfile requires SourceRoadTiles' }
+if (($RoadTileProfile -or $RoadTileVertexCache) -and -not $SourceRoadTiles) { throw 'Road tile diagnostics require SourceRoadTiles' }
 $repo = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..')) + [IO.Path]::DirectorySeparatorChar
 if (([IO.Path]::GetFullPath($OutDir) + [IO.Path]::DirectorySeparatorChar).StartsWith(
         $repo, [StringComparison]::OrdinalIgnoreCase)) {
@@ -271,6 +272,10 @@ try {
                 $roadTileSamples[-1].profile_outer_ticks=ReadWord (S '_fzx_road_profile_outer')
                 $roadTileSamples[-1].profile_outer_fields=ReadWord ((S '_fzx_road_profile_outer')+4)
             }
+            if ($RoadTileVertexCache) {
+                $roadTileSamples[-1].cache_hits=ReadWord (S '_fzx_road_tile_cache_hits')
+                $roadTileSamples[-1].cache_misses=ReadWord (S '_fzx_road_tile_cache_misses')
+            }
             $roadTileSamples | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $OutDir 'road-tile-samples.json')
             Write-Output "FZX-ROAD-TILES tick=$target draw=valid"
         }
@@ -411,6 +416,15 @@ try {
         }
         @{tier='EMULATOR';low_start=$start;low_end=$end;guards_intact=$true} | ConvertTo-Json |
             Set-Content -LiteralPath (Join-Path $OutDir 'road-tile-memory.json')
+    }
+    if ($RoadTileVertexCache) {
+        $cache=ReadWord (S '_fzx_road_tile_cache_start');$bytes=ReadWord (S '_fzx_road_tile_cache_bytes')
+        if ($cache -lt 0x00200020 -or $bytes -lt 44 -or $cache+$bytes -ne (ReadWord (S '_fzx_road_tile_low_end'))) {throw 'Road vertex cache bounds failed'}
+        foreach ($address in @(($cache-32),($cache+$bytes))) {
+            if ((Hex (Mcp memory_read @{address=(Addr $address);length=32})) -ne ('51A7C36D'*8)) {throw 'Road vertex cache guard changed'}
+        }
+        @{tier='EMULATOR';start=$cache;bytes=$bytes;guards_intact=$true} | ConvertTo-Json |
+            Set-Content -LiteralPath (Join-Path $OutDir 'road-cache-memory.json')
     }
     if ($SourceMachine) {
         $start=ReadWord (S '_fzx_machine_low_start');$end=ReadWord (S '_fzx_machine_low_end')

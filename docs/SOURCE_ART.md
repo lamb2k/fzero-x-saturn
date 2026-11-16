@@ -1160,3 +1160,19 @@ See [road measurements](ROAD_PERFORMANCE.md) for the exact image and cost table.
 Profiling overhead is substantial and remains explicit; no phase is presented as
 an uninstrumented saving. Source appearance, whole-scene 60 fps and hardware gates
 remain unchanged.
+
+## Shared road vertex cache
+
+The default-off `FZX_ROAD_TILE_VERTEX_CACHE` preserves the original road assets
+and all canonical commands across 9,907 HOST source views. It caches per-draw
+view positions, screen projection and outcodes by source vertex ID. UV, material,
+fog and subdivision remain live. Guarded low work RAM grows by 73,180 bytes;
+the machine allocation follows the cache at 0x00294780..0x00299e40.
+VDP1 textures remain 433,728/442,336 bytes. Native stack retains 17,880 bytes.
+
+Thirteen held native views preserve all source scene packets and draw hashes,
+with low-RAM/CD/cache guards intact. Uninstrumented A/B/A confirms an 11.02%
+mean road CPU reduction (125.92 to 112.04 ms MODELLED), still far over budget.
+Cache-off restores the exact admitted machine binary. No geometry or art was
+changed; this short diagnostic is not a new full native race acceptance.
+See [road measurements](ROAD_PERFORMANCE.md) for scope and private evidence.

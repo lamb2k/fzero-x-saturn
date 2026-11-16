@@ -45,7 +45,7 @@ plan, but are not prerequisites for this first-course milestone.
 | Card | Current state / next exit |
 | --- | --- |
 | Native backdrop and skyline | Original sky/skyline/floor/cloud draw through a full race; plane cost is blocked at 28.90-103.62 ms MODELLED and final scene review remains open |
-| Native road within budget | Native shared tiles finish the original race; two reuse experiments still cost 72.99-244.16 ms in 19 held views, MODELLED. Budget remains blocked; exclusive profiling is gated, with substantial diagnostic overhead. Next cache shared vertex work, then pursue source-derived asset adjustments |
+| Native road within budget | Native shared tiles finish the original race. Shared vertex cache preserves 9,907 HOST views and 13 native scene checks; road mean 125.92 -> 112.04 ms MODELLED, A/B/A confirmed. Budget remains blocked; pursue larger rendering and source-derived asset adjustments |
 | Native Blue Falcon | Original model now completes the actual race with live pose/body/lighting and guarded resident packs; 0.67-59.93 ms held-view cost MODELLED remains over budget; final appearance acceptance open |
 | Source entry and selection | Integrate the bounded original boot/menu/selection path into the slice; pad-driven transitions required |
 | Race presentation and audio | Finish HUD/countdown/results/effects, source music and sound cues; integrate retry |

@@ -11,6 +11,19 @@
 #define U16 fzx_road_u16
 #define U32 fzx_road_u32
 static int32_t s16(const uint8_t *p){return (int16_t)U16(p);}
+#if FZX_ROAD_TILE_VERTEX_CACHE
+_Static_assert(sizeof(fzx_road_tile_vertex_t)==28,"Road vertex cache record size");
+uint32_t fzx_road_tiles_cache_bytes(uint32_t vertices) {
+    if(!vertices || vertices>(UINT32_MAX-sizeof(fzx_road_tile_cache_t))/sizeof(fzx_road_tile_vertex_t))return 0;
+    return (uint32_t)(sizeof(fzx_road_tile_cache_t)+vertices*sizeof(fzx_road_tile_vertex_t));
+}
+bool fzx_road_tiles_cache_bind(fzx_road_tiles_t *tiles,void *storage,uint32_t bytes) {
+    if(!tiles || !tiles->data || !tiles->road || !tiles->road->data || !storage || ((uintptr_t)storage&3u))return false;
+    uint32_t count=tiles->road->count[FZX_ROAD_VERTEX],needed=fzx_road_tiles_cache_bytes(count);
+    if(!needed || bytes<needed)return false;
+    memset(storage,0,needed);tiles->cache=storage;tiles->cache->capacity=count;return true;
+}
+#endif
 bool fzx_road_tiles_open(fzx_road_tiles_t *out,const fzx_road_pack_t *road,const void *data,
                          uint32_t bytes,uint32_t textures,uint32_t hash) {
     if(!out)return false;
@@ -18,7 +31,11 @@ bool fzx_road_tiles_open(fzx_road_tiles_t *out,const fzx_road_pack_t *road,const
     if(!road || !road->data || !p || bytes<64 || memcmp(p,"FZXRTL01",8) ||
        U32(p+8)!=bytes || U32(p+12)!=road->hash || U32(p+20)!=textures ||
        fzx_road_hash(p,bytes)!=hash)return false;
-    fzx_road_tiles_t r={road,p,bytes,textures,U32(p+24),U32(p+28),U32(p+32),U32(p+36),U32(p+40),U32(p+44)};
+    fzx_road_tiles_t r={road,p,bytes,textures,U32(p+24),U32(p+28),U32(p+32),U32(p+36),U32(p+40),U32(p+44)
+#if FZX_ROAD_TILE_VERTEX_CACHE
+        ,NULL
+#endif
+    };
     if(r.chunks!=road->count[FZX_ROAD_CHUNK] || r.quads*2!=road->count[FZX_ROAD_TRIANGLE] ||
        !r.strips || r.strips>256 || r.chunk_at!=64 || r.quad_at!=64+r.chunks*8 ||
        r.strip_at!=r.quad_at+r.quads*16 || bytes!=r.strip_at+r.strips*32)return false;
@@ -93,8 +110,34 @@ static unsigned projected_outcode(const fzx_view_t *v,const int32_t p[3],const i
 typedef struct {
     const fzx_road_tiles_t *tiles;const fzx_view_t *view;const RefRoadPlan *plan;
     int32_t pa,pb,fm,fo;uint32_t capacity;fzx_road_tile_emit_fn emit;void *context;fzx_road_tile_stats_t *stats;
+#if FZX_ROAD_TILE_VERTEX_CACHE
+    uint32_t cache_hits,cache_misses;
+#endif
 } draw_t;
 static bool fault(draw_t *d,unsigned code){d->stats->fault=code;return false;}
+#if FZX_ROAD_TILE_VERTEX_CACHE
+static bool cached_vertex(draw_t *d,unsigned id,int32_t view[3],int32_t xy[2],unsigned *out,bool *projected) {
+    fzx_road_tile_cache_t *cache=d->tiles->cache;
+    if(id>=cache->capacity)return fault(d,1);
+    fzx_road_tile_vertex_t *entry=cache->vertices+id;
+    if(entry->frame!=cache->frame) {
+        const uint8_t *p=fzx_road_record(d->tiles->road,FZX_ROAD_VERTEX,id);
+        int32_t world[3];for(unsigned k=0;k<3;++k)world[k]=s16(p+k*2)*4096;
+        if(!RP_CALL(FZX_RP_TRANSFORM,fzx_view_transform(d->view,world,entry->view)))return fault(d,1);
+        entry->xy[0]=entry->xy[1]=0;
+        entry->projected=RP_CALL(FZX_RP_PROJECT,project(d->view,entry->view,entry->xy));
+#if FZX_ROAD_TILE_PROJECT_CULL
+        entry->outcode=(uint8_t)RP_CALL(FZX_RP_CULL,projected_outcode(d->view,entry->view,entry->xy,entry->projected));
+#else
+        unsigned code=0;for(unsigned k=0;k<6;++k)if(RP_CALL(FZX_RP_CULL,fzx_view_plane(d->view,entry->view,k))<0)code|=1u<<k;
+        entry->outcode=(uint8_t)code;
+#endif
+        entry->frame=cache->frame;++d->cache_misses;
+    } else ++d->cache_hits;
+    memcpy(view,entry->view,sizeof(entry->view));memcpy(xy,entry->xy,sizeof(entry->xy));
+    *out&=entry->outcode;*projected=entry->projected!=0;return true;
+}
+#endif
 static int32_t fog(draw_t *d,int32_t z) {
     int64_t ratio=-(INT64_C(1)<<30);
     if(z>0)ratio=d->pa+divide((int64_t)d->pb*(INT64_C(1)<<30),z);
@@ -183,6 +226,12 @@ static bool quad(draw_t *d,const uint8_t *record) {
     ++d->stats->quads;int32_t v[4][3],uv[4][2],xy[10][2];unsigned out=63;bool front=true;
     for(unsigned i=0;i<4;++i) {
         const uint8_t *p=fzx_road_record(d->tiles->road,FZX_ROAD_VERTEX,U16(record+i*2));
+#if FZX_ROAD_TILE_VERTEX_CACHE
+        bool projected;
+        if(!cached_vertex(d,U16(record+i*2),v[i],xy[i],&out,&projected))return false;
+        uv[i][0]=s16(p+6);uv[i][1]=s16(p+8);
+        if(!projected || v[i][2]<d->view->near_plane)front=false;
+#else
         int32_t world[3];for(unsigned k=0;k<3;++k)world[k]=s16(p+k*2)*4096;
         if(!RP_CALL(FZX_RP_TRANSFORM,fzx_view_transform(d->view,world,v[i])))return fault(d,1);
         uv[i][0]=s16(p+6);uv[i][1]=s16(p+8);
@@ -194,6 +243,7 @@ static bool quad(draw_t *d,const uint8_t *record) {
         if(!RP_CALL(FZX_RP_PROJECT,project(d->view,v[i],xy[i])) ||
 #endif
            v[i][2]<d->view->near_plane)front=false;
+#endif
     }
     if(out){++d->stats->culled;return true;}
     if(!front) {
@@ -272,7 +322,17 @@ bool fzx_road_tiles_draw(const fzx_road_tiles_t *tiles,const fzx_view_t *view,co
     memset(stats,0,sizeof(*stats));stats->hash=2166136261u;stats->fault=1;
     if(!tiles || !tiles->data || !view || !plan || !emit || !capacity || plan->faults ||
        plan->count>REF_ROAD_GROUPS || plan->outer>1 || plan->fog_start<0 || plan->fog_start>996 || view->near_plane<=0)return false;
-    draw_t d={tiles,view,plan,pa,pb,128000/(1000-plan->fog_start),(500-plan->fog_start)*256/(1000-plan->fog_start),capacity,emit,context,stats};
+    draw_t d={tiles,view,plan,pa,pb,128000/(1000-plan->fog_start),(500-plan->fog_start)*256/(1000-plan->fog_start),capacity,emit,context,stats
+#if FZX_ROAD_TILE_VERTEX_CACHE
+        ,0,0
+#endif
+    };
+#if FZX_ROAD_TILE_VERTEX_CACHE
+    if(!tiles->cache || tiles->cache->capacity!=tiles->road->count[FZX_ROAD_VERTEX])return false;
+    if(++tiles->cache->frame==0) {
+        memset(tiles->cache->vertices,0,tiles->cache->capacity*sizeof(fzx_road_tile_vertex_t));tiles->cache->frame=1;
+    }
+#endif
     unsigned chunks=tiles->chunks;
     for(unsigned g=0;g<plan->count;++g) {
         const RefRoadGroup *p=plan->groups+g;
@@ -285,5 +345,8 @@ bool fzx_road_tiles_draw(const fzx_road_tiles_t *tiles,const fzx_view_t *view,co
         }while(true);
     }
     if(stats->chunks!=plan->visible_chunks)return false;
+#if FZX_ROAD_TILE_VERTEX_CACHE
+    tiles->cache->hits=d.cache_hits;tiles->cache->misses=d.cache_misses;
+#endif
     stats->fault=0;return true;
 }

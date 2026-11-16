@@ -53,12 +53,41 @@ control and unassigned bookkeeping. `split` times interpolation calls only.
 `material` includes fog selection and Gouraud values; `emit` is native command and
 shade writes. Instrumentation overhead is distributed across phases and base.
 
-Hashing is a small observed component. The next bounded experiment caches source
-vertex transforms, projection and outcodes per frame in low work RAM, then measures
-that arm without profiling. It must preserve commands and pass A/B/A timing and
-memory checks; this document does not claim a saving in advance. Larger road and
-background changes remain necessary to approach the unchanged 16.7 ms scene target.
+Hashing is a small observed component. Larger road and background changes remain
+necessary to approach the unchanged 16.7 ms scene target.
 
 Private evidence: `emu/road-profile-paired`, `host/road-profile`. Earlier
 `emu/road-profile` preserves the diagnostic with mismatched timing scopes; it is
 superseded. Images, snapshots and source assets are not published. HARDWARE UNRUN.
+
+## Shared source-vertex cache
+
+`FZX_ROAD_TILE_VERTEX_CACHE=1` caches each source vertex's transformed position,
+projection and clip outcode within one draw. It defaults off and requires native
+road tiles. Source geometry, texture coordinates, material and fog remain unchanged.
+The 2,613-entry cache occupies 73,180 bytes of guarded low work RAM including its
+header. Generation wrap clears tags; each draw invalidates the previous view.
+
+All 9,907 source views preserve exact command output under GCC/Clang UBSan;
+combining cache and profiling also passes. Authored stale-generation, missing-wrap
+and aliased-vertex controls fail. Capacity, refusal, changing camera/fog and bounds
+checks pass. Cache-off reproduces the entire admitted machine binary exactly.
+
+The uninstrumented image
+`268904779b69d98b072821ca475382eb9932f36c2634dc4727a39db7d7b27565`
+was tested at the same 13 held views, inputs 1-685, between baseline repeats.
+Camera, road, machine, sky, skyline and plane packets/hashes match. CD, cache and
+other low-RAM guards pass; stack retains 17,880 bytes. High-RAM end is 0x060f9f74.
+
+| Uninstrumented road CPU, MODELLED | Mean | Maximum |
+| --- | ---: | ---: |
+| Baseline A | 125.92 ms | 244.21 ms |
+| Vertex cache B | 112.04 ms | 213.55 ms |
+| Baseline A2 | 125.92 ms | — |
+
+Mean reduction is 13.88 ms (11.02%); maximum per-view A/A2 variation is 0.018 ms.
+This is road CPU work only, not VDP1 completion or whole-frame speed. The short
+EMULATOR diagnostic does not replace the earlier complete native race; cache
+full-route correctness here is HOST evidence. The scene budget remains blocked.
+No source assets were changed. Private evidence: `emu/road-cache`,
+`host/road-cache` under FZX_EVIDENCE. HARDWARE remains UNRUN.

@@ -9,6 +9,10 @@ extern volatile uint32_t fzx_input_log[];
 volatile uint32_t fzx_road_tile_status,fzx_road_tile_busy,fzx_road_tile_ticks,fzx_road_tile_fields;
 volatile uint32_t fzx_road_tile_low_start,fzx_road_tile_low_end;
 fzx_road_tile_stats_t fzx_road_tile_stats;
+#if FZX_ROAD_TILE_VERTEX_CACHE
+volatile uint32_t fzx_road_tile_cache_start,fzx_road_tile_cache_bytes;
+volatile uint32_t fzx_road_tile_cache_hits,fzx_road_tile_cache_misses;
+#endif
 #if FZX_ROAD_TILE_PROFILE
 uint16_t fzx_road_profile_clock(void){return cpu_frt_count_get();}
 #endif
@@ -17,15 +21,28 @@ bool fzx_road_tiles_load(void *vram) {
     uintptr_t scratch=((uintptr_t)sat_stub_data_end+31u)&~(uintptr_t)31u;
     uintptr_t log=(uintptr_t)fzx_input_log,metadata=(log+12288u*4u+63u)&~(uintptr_t)31u;
     uintptr_t end=metadata+FZX_ROAD_TILE_METADATA_BYTES;
+#if FZX_ROAD_TILE_VERTEX_CACHE
+    uintptr_t cache=(end+63u)&~(uintptr_t)31u;
+    uint32_t cache_bytes=fzx_road_tiles_cache_bytes(fzx_native_road.count[FZX_ROAD_VERTEX]);
+    if(!cache_bytes || cache_bytes>0x00300000u || cache>0x00300000u-cache_bytes){fzx_road_tile_status=2;return false;}
+    end=cache+cache_bytes;
+#endif
     if(log!=((scratch+4096u+63u)&~(uintptr_t)63u) || scratch<0x00200000u ||
        fzx_texture_cd_scratch_bytes()>log-32u-scratch || end+32u>0x00300000u){fzx_road_tile_status=2;return false;}
     fzx_road_tile_low_start=(uint32_t)log;fzx_road_tile_low_end=(uint32_t)end;
     for(unsigned i=0;i<8;++i){((volatile uint32_t *)log)[(int)i-8]=0x51a7c36du;((volatile uint32_t *)end)[i]=0x51a7c36du;fzx_input_log[12288u+i]=0x51a7c36du;}
+#if FZX_ROAD_TILE_VERTEX_CACHE
+    fzx_road_tile_cache_start=(uint32_t)cache;fzx_road_tile_cache_bytes=cache_bytes;
+    for(unsigned i=0;i<8;++i)((volatile uint32_t *)cache)[(int)i-8]=0x51a7c36du;
+#endif
     if(!fzx_texture_cd_load("ROADTL.PAK",FZX_ROAD_TILE_METADATA_BYTES,FZX_ROAD_TILE_METADATA_HASH,(void *)metadata,(void *)scratch,log-32u-scratch) ||
        !fzx_road_tiles_open(&tiles,&fzx_native_road,(void *)metadata,FZX_ROAD_TILE_METADATA_BYTES,FZX_ROAD_TILE_TEXTURE_BYTES,FZX_ROAD_TILE_METADATA_HASH) ||
        !fzx_texture_cd_load("ROADTX.PAK",FZX_ROAD_TILE_TEXTURE_BYTES,FZX_ROAD_TILE_TEXTURE_HASH,vram,(void *)scratch,log-32u-scratch)) {
         fzx_road_tile_status=3;return false;
     }
+#if FZX_ROAD_TILE_VERTEX_CACHE
+    if(!fzx_road_tiles_cache_bind(&tiles,(void *)cache,cache_bytes)){fzx_road_tile_status=2;return false;}
+#endif
     fzx_road_tile_status=1;return true;
 }
 typedef struct {vdp1_cmdt_t *cmd;uintptr_t pixels;uint16_t *shades;unsigned count;} submit_t;
@@ -58,5 +75,8 @@ bool fzx_road_tiles_native(vdp1_cmdt_t *commands,unsigned capacity,const fzx_vie
     if(!fzx_road_tiles_draw(&tiles,view,plan,pa,pb,capacity-1,emit,&s,&fzx_road_tile_stats))
 #endif
     {fzx_road_tile_status=4;fzx_road_tile_busy=0;return false;}
+#if FZX_ROAD_TILE_VERTEX_CACHE
+    fzx_road_tile_cache_hits=tiles.cache->hits;fzx_road_tile_cache_misses=tiles.cache->misses;
+#endif
     *count=s.count+1;fzx_road_tile_ticks=(uint16_t)(cpu_frt_count_get()-start);fzx_road_tile_busy=0;fzx_road_tile_status=1;return true;
 }

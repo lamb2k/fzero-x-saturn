@@ -693,3 +693,26 @@ The separate local retail export and all eleven oracle comparisons pass.
 This card does not change the Saturn image. Source background geometry/camera,
 the two cloud-scroll advances per source update, skyline tint/fade, sky/floor
 render state and scene integration remain open. No EMULATOR/HARDWARE promotion.
+
+## Source backdrop state (HOST)
+
+`FZX_BACKDROP_STATE=1` in the reference harness compares a bounded presentation
+packet against the original `Background_Update`, using independent vertex pools.
+It retains the original 20 sky/floor/cloud vertices, signed UVs, colors and 96-byte
+background state. It does not execute the asset loader, consume simulation RNG,
+or introduce a Saturn rendering path. The selected venue is Mute City, one player;
+cloud velocities, pool choice and pause are explicit inputs.
+
+GCC/Clang at O2 match across T01–T10 with unchanged camera-only simulation hashes.
+The local 9,907-input Mute City replay matches every source packet across both
+compilers and a repeat; simulation trace stays identical and finishes in 121,814 ms.
+Packet SHA-256: `51bf65f08ed7de2d795222ba0a1798c5a24820ddefc85578e37df939c2231898`.
+The branch gate covers all 44 source speed/sign combinations, repeated pool choices,
+pause, both scroll wrap signs, and the camera above/below/at cloud height. The speed
+bound preserves the source `10 * 0.0005f`, which differs from literal `0.005f`.
+Four compiled native mutations (pause, half-speed scroll, cloud-height branch and
+sky UVs) are rejected. Three extraction/receipt tests reject changed source and
+stale output. No runtime, visual, timing or HARDWARE acceptance follows.
+
+Next: original skyline placement/tint/fade and initialization order, then native
+scene submission and held-camera/source look checks within the memory/field budget.

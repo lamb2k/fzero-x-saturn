@@ -11,6 +11,8 @@ OUT=$ROOT/ref/build/${CC}${OPT}
 CAMERA=${FZX_SOURCE_CAMERA:-0}
 ROAD=${FZX_ROAD_EXPORT:-0}
 PLAN=${FZX_ROAD_PLAN:-0}
+BACKDROP=${FZX_BACKDROP_STATE:-0}
+[ "$BACKDROP" = 0 ] || [ "$BACKDROP:$CAMERA:$ROAD:$PLAN" = 1:1:0:0 ] || { echo "backdrop state requires source camera without road tools" >&2; exit 1; }
 [ "$PLAN" = 0 ] || [ "$PLAN:$CAMERA:$ROAD" = 1:1:0 ] || { echo "road planner requires source camera and no offline export" >&2; exit 1; }
 [ "$ROAD" = 0 ] || [ "$ROAD" = 1 ] || { echo "invalid FZX_ROAD_EXPORT" >&2; exit 1; }
 [ "$ROAD:$CAMERA" != 1:1 ] || { echo "road export is an offline tool, not a camera race" >&2; exit 1; }
@@ -27,6 +29,11 @@ fi
 if [ "$PLAN" = 1 ]; then
     OUT=$OUT-plan
     python3 "$ROOT/tools/road_plan.py" --output "$OUT/road_plan_course.c"
+fi
+if [ "$BACKDROP" = 1 ]; then
+    OUT=$OUT-backdrop
+    python3 "$ROOT/tools/backdrop_state.py" --output "$OUT/background.c"
+    bash "$ROOT/tools/check_receipt.sh" "$OUT/background.receipt"
 fi
 STUB=$OUT/stub
 [ -f "$D/src/game/racer.c" ] || { echo "decomp submodule missing: git submodule update --init upstream/G-Diffuser && git -C upstream/G-Diffuser submodule update --init decomp" >&2; exit 1; }
@@ -67,6 +74,12 @@ compile() { # Generated asset headers and asset symbols get empty stand-ins unti
 
 BRIDGES="bridge hooks"
 if [ "$PLAN" = 1 ]; then CFLAGS="-I$D/src/game -DREF_ROAD_PLAN_ORACLE $CFLAGS"; fi
+if [ "$BACKDROP" = 1 ]; then
+    # Dimensions from the source asset declarations let the uncalled stock
+    # loader compile. No texture bytes or loader behavior are mocked by the gate.
+    CFLAGS="-I$D/src/overlays/ovl_i3 -DREF_BACKDROP_ORACLE -D_aCloudTex_WIDTH=64 -D_aCloudTex_HEIGHT=32 -D_D_F2207C8_WIDTH=8 -D_D_F2207C8_HEIGHT=8 $CFLAGS"
+    SOURCES="$SOURCES src/overlays/ovl_i3/background.c"
+fi
 if [ "$CAMERA" = 1 ]; then
     CFLAGS="$CFLAGS -DFZX_SOURCE_CAMERA=1 -I$ASSETS"
     SOURCES="$SOURCES src/game/camera.c"
@@ -75,7 +88,9 @@ fi
 OBJS=""
 for s in $SOURCES; do
     o=$OUT/$(basename "$s" .c).o
-    if [ "$PLAN:$s" = 1:src/game/course.c ]; then
+    if [ "$BACKDROP:$s" = 1:src/overlays/ovl_i3/background.c ]; then
+        compile "$OUT/background.c" "$o"
+    elif [ "$PLAN:$s" = 1:src/game/course.c ]; then
         compile "$OUT/road_plan_course.c" "$o"
     else
         compile "$D/$s" "$o"
@@ -94,7 +109,7 @@ done
 # Driver side: host headers only.
 DRIVER=main
 [ "$ROAD" = 0 ] || DRIVER=road_main
-$CC -m32 -fno-pic -O2 -g -std=c11 -Wall -Wextra -Werror -I"$ROOT/ref" -DFZX_SOURCE_CAMERA=$CAMERA -DFZX_ROAD_PLAN=$PLAN -c "$ROOT/ref/$DRIVER.c" -o "$OUT/ref_main.o"
+$CC -m32 -fno-pic -O2 -g -std=c11 -Wall -Wextra -Werror -I"$ROOT/ref" -DFZX_SOURCE_CAMERA=$CAMERA -DFZX_ROAD_PLAN=$PLAN -DFZX_BACKDROP_STATE=$BACKDROP -c "$ROOT/ref/$DRIVER.c" -o "$OUT/ref_main.o"
 OBJS="$OBJS $OUT/ref_main.o"
 python3 "$ROOT/ref/gen_stubs.py" "$OUT/stubs.c" "$OUT"/*.i -- $OBJS
 $CC -m32 -fno-pic -O0 -w -c "$OUT/stubs.c" -o "$OUT/stubs.o"

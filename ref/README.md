@@ -13,6 +13,24 @@ fzx-ref --course RECORD --byte-order big|little --inputs SCRIPT [--rom ROM] [--t
 
 Needs a 32-bit capable compiler (`gcc-multilib`; clang uses the same libraries).
 
+## Source backdrop state gate
+
+`FZX_SOURCE_CAMERA=1 FZX_BACKDROP_STATE=1 bash ref/build.sh gcc -O2` builds
+the single-player Mute City sky/floor/cloud state probe; repeat with `clang`.
+Build both camera-only baselines without `FZX_BACKDROP_STATE`, then run
+`python3 ref/backdrop_check.py`. The switch defaults off and is HOST-only.
+The gate compares the extracted update with the original function in separate
+storage on all ten synthetic scripts, checks simulation identity, and compiles
+four deliberately wrong native updates which must fail. Generated files stay
+ignored and receipted. `REF_BACKDROP_TRACE` optionally writes local state packets.
+
+The packet preserves 20 source vertices, UVs, colors and background state.
+Pool selection and pause are explicit; the source advances cloud scroll twice
+per update and retains a pool's cloud vertices at exact cloud height. The gate
+covers those branches, scroll wrap and all 44 source speed/sign combinations.
+Cloud speed is an explicit input: source initialization/RNG ordering, skyline
+sprites, native rendering and field cost are separate, unfinished gates.
+
 ## What runs
 
 `bridge.c` sets up the race as the menus leave it: Time Attack, one player, Blue Falcon,

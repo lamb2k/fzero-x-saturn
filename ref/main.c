@@ -30,6 +30,38 @@
 #include <string.h>
 
 #include "ref.h"
+#if FZX_BACKDROP_STATE
+#include "backdrop_state.h"
+int ref_backdrop_check(RefBackdrop*,unsigned int,int);
+int ref_backdrop_branch_check(void);
+static FILE *backdrop_trace;
+static void backdrop_gate(int tick) {
+    RefBackdrop packet;
+    RefState before,after;
+    RefCamera camera_before,camera_after;
+    unsigned int i;
+    ref_state(&before);ref_camera(&camera_before);
+    if(tick==0 && ref_backdrop_branch_check()) {
+        fprintf(stderr,"backdrop branch control failed\n");exit(3);
+    }
+    /* Repeat pool selections and paused presentation frames independently of
+     * the running simulation, to cover retained source vertex-pool contents. */
+    const int result=ref_backdrop_check(&packet,((unsigned int)tick/3)&1,tick%31==7);
+    ref_state(&after);ref_camera(&camera_after);
+    if(result || memcmp(&before,&after,sizeof(before)) ||
+       memcmp(&camera_before,&camera_after,sizeof(camera_before))) {
+        fprintf(stderr,"backdrop failed at tick %d: %d\n",tick,result);exit(3);
+    }
+    if(backdrop_trace) {
+        fprintf(backdrop_trace,"%d",tick);
+        for(i=0;i<sizeof(packet)/4;++i) {
+            uint32_t word;memcpy(&word,(const unsigned char*)&packet+4*i,4);
+            fprintf(backdrop_trace," %08x",word);
+        }
+        fputc('\n',backdrop_trace);
+    }
+}
+#endif
 #if FZX_ROAD_PLAN
 #include "road_plan.h"
 int ref_road_plan_check(RefRoadPlan *out,unsigned int draw_frame,const unsigned char fog[3]);
@@ -264,11 +296,18 @@ int main(int argc, char** argv) {
     if(getenv("REF_ROAD_PLAN_TRACE") && !(road_plan_trace=fopen(getenv("REF_ROAD_PLAN_TRACE"),"w")))
         die("cannot write road plan trace");
 #endif
+#if FZX_BACKDROP_STATE
+    if(getenv("REF_BACKDROP_TRACE") && !(backdrop_trace=fopen(getenv("REF_BACKDROP_TRACE"),"w")))
+        die("cannot write backdrop trace");
+#endif
     for (i = 0; i < nsteps && (limit < 0 || tick < limit); i++) {
         int t;
         for (t = 0; t < steps[i].ticks && (limit < 0 || tick < limit); t++) {
             ref_tick(steps[i].button, steps[i].sx, steps[i].sy);
             trace_tick(out, tick, &steps[i]);
+#if FZX_BACKDROP_STATE
+            backdrop_gate(tick);
+#endif
 #if FZX_ROAD_PLAN
             road_plan_gate(tick);
 #endif
@@ -315,6 +354,9 @@ int main(int argc, char** argv) {
         ref_stub_report(getenv("REF_STUB_REPORT"));
     }
     printf("ticks %d hash %016llx\n", tick, (unsigned long long) hash);
+#if FZX_BACKDROP_STATE
+    if(backdrop_trace)fclose(backdrop_trace);
+#endif
 #if FZX_ROAD_PLAN
     if(road_plan_trace)fclose(road_plan_trace);
 #endif

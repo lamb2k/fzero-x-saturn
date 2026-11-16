@@ -41,7 +41,7 @@ static void build(void)
     const uint16_t energy[8]={0,1,33,34,67,68,68,68};
     const unsigned selected=fzx_hud_probe_case%8u;
     const fzx_hud_snapshot_t snapshot={times[selected],speeds[selected],
-        (uint16_t)(1u+selected%3u),3,selected==7u,energy[selected],selected==4u || selected==5u};
+        (uint16_t)(1u+selected%3u),3,selected==7u,energy[selected],selected==4u || selected==5u,false};
     if (!fzx_hud_build(&fzx_hud_atlas,&snapshot,&draws)) {
         fzx_hud_probe_status=2;
         return;

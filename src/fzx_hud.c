@@ -5,6 +5,41 @@ static const uint16_t sizes[FZX_HUD_TEXTURES][2] = {
     {24,16}, {72,16}, {8,72}, {12,160}, {20,16}, {8,224}, {16,12}
 };
 
+void fzx_hud_clock_reset(fzx_hud_clock_t *clock)
+{
+    if (clock) *clock = (fzx_hud_clock_t){1, 0, 0, 5, true};
+}
+
+bool fzx_hud_clock_step(fzx_hud_clock_t *clock, const fzx_hud_clock_input_t *input)
+{
+    if (!clock || !input || input->lap > 4 ||
+        clock->lap < 1u || clock->lap > 4u || clock->flash_ticks > 180u ||
+        input->race_time_ms > 0x7ffffffau) return false;
+    for (unsigned i = 0; i < 3; ++i)
+        if (input->lap_times_ms[i] > 0x7ffffffau) return false;
+    fzx_hud_clock_t out = *clock;
+    if ((int32_t)out.lap < input->lap) {
+        out.lap = (uint32_t)input->lap;
+        out.flash_ticks = 180;
+    }
+    if (out.flash_ticks == 180) {
+        const int32_t slot = (input->lap+1)%3;
+        if (slot < 0) return false; /* invalid source indexing, never wrap it */
+        out.previous_lap_ms = input->lap_times_ms[slot];
+    }
+    if (out.flash_ticks > 0) {
+        if (!input->paused) --out.flash_ticks;
+        out.visible = out.flash_ticks%20u >= 5u;
+        out.time_ms = out.previous_lap_ms + 5u;
+        /* A 1->0 transition stays in this branch and is still blank. */
+    } else {
+        out.visible = true;
+        out.time_ms = input->race_time_ms + 5u;
+    }
+    *clock = out;
+    return true;
+}
+
 static void sprite(fzx_hud_list_t *out, const fzx_hud_atlas_t *atlas,
                    unsigned texture, unsigned row, unsigned height, int x, int y)
 {
@@ -64,8 +99,9 @@ bool fzx_hud_build(const fzx_hud_atlas_t *atlas, const fzx_hud_snapshot_t *state
     const uint32_t hundredths = ms / 10u % 100u;
     const unsigned digits[8] = {minutes/10u, minutes%10u, 10u, seconds/10u,
                                 seconds%10u, 11u, hundredths/10u, hundredths%10u};
-    for (unsigned i = 0; i < 8; ++i)
-        sprite(&out, atlas, FZX_HUD_TIMER, digits[i]*16u, 16, 230+(int)i*8, 38);
+    if (!state->hide_timer)
+        for (unsigned i = 0; i < 8; ++i)
+            sprite(&out, atlas, FZX_HUD_TIMER, digits[i]*16u, 16, 230+(int)i*8, 38);
     if (!state->finished) {
         sprite(&out, atlas, FZX_HUD_ENERGY, 0, 16, 220, 20);
         const unsigned lap = state->lap < state->total_laps ? state->lap : state->total_laps;

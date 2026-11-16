@@ -25,6 +25,12 @@ typedef struct {
     int intro, lap, laps_completed, race_time, state_flags;
 } RefPose;
 
+/* Read-only source timing for the native Time Attack HUD. RefPose/trace ABI
+ * remains unchanged; lap times include the source crossing interpolation. */
+typedef struct {
+    int lap, race_time, lap_times[3];
+} RefHud;
+
 /* Bridge side. */
 int ref_load_course(const unsigned char* record, int big_endian); /* 0 on success */
 void ref_set_rom_boot(const unsigned char* boot); /* big-endian (z64) bytes; NULL = CI fixture */
@@ -38,6 +44,7 @@ void ref_set_cpu_driver(int on);
 void ref_tick(unsigned short buttons, signed char stick_x, signed char stick_y);
 void ref_state(RefState* out);
 void ref_pose(RefPose* out);
+void ref_hud(RefHud* out);
 
 /* Shared between bridge.c and hooks.c. */
 extern int ref_course_ready;

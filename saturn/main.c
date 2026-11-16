@@ -17,7 +17,8 @@
 _Static_assert(!FZX_HUD_FIXTURE, "Original-race HUD requires locally verified source art");
 static vdp1_vram_partitions_t hud_partitions;
 static fzx_hud_list_t hud_draws;
-volatile uint32_t fzx_source_hud_status; /* 1 uploaded, 2 bad atlas, 3 bad snapshot */
+static fzx_hud_clock_t hud_clock;
+volatile uint32_t fzx_source_hud_status; /* 1 uploaded, 2 bad atlas, 3 bad snapshot, 4 bad clock */
 #endif
 #if FZX_SIM == FZX_SIM_ORIG
 #include "ref.h"
@@ -193,6 +194,19 @@ logged_tick(uint16_t buttons, int8_t sx, int8_t sy)
         fzx_input_count = n + 1u;
     }
     ref_tick(buttons, sx, sy);
+#if FZX_SOURCE_HUD
+    RefHud source;
+    ref_hud(&source);
+    const fzx_hud_clock_input_t input = {
+        source.lap, (uint32_t)source.race_time,
+        {(uint32_t)source.lap_times[0], (uint32_t)source.lap_times[1],
+         (uint32_t)source.lap_times[2]}, false
+    };
+    if (!fzx_hud_clock_step(&hud_clock, &input)) {
+        fzx_source_hud_status = 4;
+        for (;;) {}
+    }
+#endif
 }
 
 static void
@@ -257,6 +271,9 @@ static void
 orig_restart(void)
 {
     ref_race_restart();
+#if FZX_SOURCE_HUD
+    fzx_hud_clock_reset(&hud_clock);
+#endif
     fzx_input_count = 0;
 }
 
@@ -339,13 +356,13 @@ commands_build(const fzx_frame_t *frame)
      * in this source race closure. Capture its initial value before any ticks. */
     const float energy_pixels = (orig_pose.energy / orig_start_energy) * 68.0f + 0.5f;
     const fzx_hud_snapshot_t state = {
-        /* Hud_UpdatePlayerHudInfo rounds the normal race timer with +5 ms. */
-        (uint32_t)(orig_pose.race_time > 0 ? orig_pose.race_time : 0) + 5u,
+        hud_clock.time_ms,
         (uint32_t)(orig_pose.speed > 0.0f ? orig_pose.speed * 21.6f + 0.5f : 0.0f),
-        (uint16_t)(orig_pose.lap > 0 ? orig_pose.lap : 1), RACE_LAPS,
+        (uint16_t)hud_clock.lap, RACE_LAPS,
         (orig_pose.state_flags & RACER_FINISHED) != 0,
         (uint16_t)(energy_pixels > 68.0f ? 68 : energy_pixels > 0.0f ? (unsigned)energy_pixels : 0),
-        (orig_pose.state_flags & (1 << 20)) != 0 /* RACER_STATE_CAN_BOOST */
+        (orig_pose.state_flags & (1 << 20)) != 0, /* RACER_STATE_CAN_BOOST */
+        !hud_clock.visible
     };
     if (!fzx_hud_build(&fzx_hud_atlas, &state, &hud_draws) ||
         !fzx_hud_vdp1(&commands[COMMAND_FIRST_POLYGON+count], FZX_HUD_MAX_DRAWS,
@@ -403,6 +420,9 @@ main(void)
     fzx_init_fields = video_fields - init_start;
     orig_publish();
     if (orig_pose.energy > 0.0f) orig_start_energy = orig_pose.energy;
+#if FZX_SOURCE_HUD
+    fzx_hud_clock_reset(&hud_clock);
+#endif
 #endif
 
     const uint32_t fields_per_second =

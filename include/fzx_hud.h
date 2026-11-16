@@ -22,7 +22,24 @@ typedef struct {
     bool finished;
     uint16_t energy_width; /* source-rounded energy/maxEnergy * 68, range 0..68 */
     bool can_boost;
+    bool hide_timer; /* source lap flash blanks digits, not the TIME label */
 } fzx_hud_snapshot_t;
+typedef struct {
+    int32_t lap; /* source starts at zero and can decrease on reverse crossings */
+    uint32_t race_time_ms, lap_times_ms[3];
+    bool paused;
+} fzx_hud_clock_input_t;
+typedef struct {
+    uint32_t lap, flash_ticks, previous_lap_ms, time_ms;
+    bool visible;
+} fzx_hud_clock_t;
+
+/* Time Attack presentation state adapted from Hud_UpdatePlayerHudInfo.
+ * Advance exactly once after each source logic tick, never for a redraw.
+ * Reset on race initialization/retry. Input times come from Racer, including
+ * its fractional lap crossing; the renderer must not reconstruct them. */
+void fzx_hud_clock_reset(fzx_hud_clock_t *clock);
+bool fzx_hud_clock_step(fzx_hud_clock_t *clock, const fzx_hud_clock_input_t *input);
 typedef struct {
     uint32_t offset;
     int16_t x, y;

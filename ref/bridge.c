@@ -192,3 +192,10 @@ void ref_pose(RefPose* p) {
     p->race_time = r->raceTime;
     p->state_flags = r->stateFlags;
 }
+
+void ref_hud(RefHud* out) {
+    const Racer* r = &gRacers[0];
+    out->lap = r->lap;
+    out->race_time = r->raceTime;
+    for (s32 i = 0; i < 3; i++) out->lap_times[i] = r->lapTimes[i];
+}

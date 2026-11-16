@@ -75,7 +75,7 @@ DRIVER = r'''
 static void compare(unsigned speed,unsigned time,unsigned lap,unsigned total,bool finished,
                     unsigned energy_width,bool boost) {
     fzx_hud_snapshot_t state={time,speed,(uint16_t)lap,(uint16_t)total,finished,
-                             (uint16_t)energy_width,boost};
+                             (uint16_t)energy_width,boost,false};
     fzx_hud_list_t actual;
     assert(fzx_hud_build(&atlas,&state,&actual));
     memset(&expected,0,sizeof(expected));
@@ -152,7 +152,7 @@ int main(void) {
         for(unsigned flags=0;flags<4;++flags) {
             compare(9999,0,1,3,(flags&1u)!=0,energy,(flags&2u)!=0); ++cases;
         }
-    fzx_hud_snapshot_t state={0,0,1,3,false,0,false};
+    fzx_hud_snapshot_t state={0,0,1,3,false,0,false,false};
     fzx_hud_list_t output,sentinel;
     memset(&sentinel,0x5a,sizeof(sentinel)); output=sentinel;
     fzx_hud_atlas_t bad=atlas;
@@ -166,6 +166,18 @@ int main(void) {
     assert(!fzx_hud_build(NULL,&state,&output));
     state.speed_kmh=0; state.energy_width=69;
     assert(!fzx_hud_build(&atlas,&state,&output));
+    state.energy_width=0;
+    assert(fzx_hud_build(&atlas,&state,&output));
+    unsigned normal_count=output.count;
+    state.hide_timer=true;
+    assert(fzx_hud_build(&atlas,&state,&output));
+    assert(output.count+8u==normal_count);
+    assert(output.draws[0].offset==atlas.textures[FZX_HUD_TIME].offset);
+    for(unsigned i=0;i<output.count;++i) {
+        const fzx_hud_draw_t *d=&output.draws[i];
+        assert(d->color || d->offset<atlas.textures[FZX_HUD_TIMER].offset ||
+               d->offset>=atlas.textures[FZX_HUD_LAP].offset);
+    }
     printf("HOST HUD source differential: %u cases, bounds controls PASS\n",cases);
     return 0;
 }

@@ -9,7 +9,7 @@ sys.path.insert(0, str(TOOLS))
 from model_assets import header
 
 
-def fixture():
+def fixture_data():
     vertices, triangles, materials, textures, bindings, raw = [], [], [], [], [], {}
     for tile in range(8):
         symbol = "synthetic_panel_" + str(tile)
@@ -27,7 +27,11 @@ def fixture():
         triangles.extend([dict(vertices=[start,start+1,start+2],material=tile),dict(vertices=[start,start+2,start+3],material=tile)])
         materials.append(dict(tile=tile,primitive=[255,150,50,255],environment=[0,30,160,255],combine=["PRIMITIVE"]))
     models=[dict(vertices=vertices,triangles=triangles,materials=materials) for _ in range(5)]
-    return header(models,bindings,textures,raw,list(range(256)),[0,255,255],[255,240,180],fixture=True)
+    return models,bindings,textures,raw,list(range(256)),[0,255,255],[255,240,180]
+
+
+def fixture():
+    return header(*fixture_data(),fixture=True)
 
 
 if __name__ == "__main__":

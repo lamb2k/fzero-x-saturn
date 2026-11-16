@@ -33,8 +33,8 @@ Limit: 50 lines. Replace this file each session; do not append.
 ## Next work
 
 1. FZX_TEST_ROM is saved locally for Windows; forward it privately into WSL.
-   Blue Falcon software reference and VDP1 chart probes are gated. Baked native
-   poses draw cheaply but differ visually; next: moving materials/camera/road/audio.
+   Moving Blue Falcon now passes 72 host/SH-2 pose/light checks. Native palettes
+   still differ visually and are slow; next: exact reuse, source camera/road/audio.
 2. Re-measure the source-art scene. For clip WIP, replay fixed recorded pad inputs
    before promotion: the live diagnostic autopilot depends on render/catch-up cadence.
 3. Cut 18.5 s setup, load the CPU run-out racing line from ROM, rerun all 10 SH-2

@@ -261,3 +261,40 @@ material cost. All eight poses together: ELF text/data/BSS 451,644/128/60,704 by
 VDP1 reserves 400 KiB texture space and 16 KiB commands. This experiment does not
 change the game image. Next: moving source geometry and materials, measured
 against the software oracle before any race-renderer promotion.
+
+
+## Moving native machine experiment
+
+`tools/palette_probe` projects the original positions and normals on SH-2, applies
+its diagnostic light/reflection directions, and updates triangle CLUTs/Gouraud
+records each draw. It retains all five original LODs, topology, UVs and material
+assignments. Index charts use source point samples and exact combined source
+colors; they do not retain the source three-point filter or perspective mapping.
+The per-triangle CLUT uses average shade, with an additive vertex residual at a
+representative material color. Multiplicative lighting is therefore approximated.
+This is a moving representation experiment, not accepted source-game rendering.
+
+HOST: the palette helper matches the original material equation for 16,000
+constant-shade colors, and known projection poses and numeric bounds pass under
+GCC/Clang and ASan/UBSan. Wrong reflection, rotation and chart UV controls fail.
+The indexed-chart corner test rejects a texel offset; unsupported shifts fail.
+53 Python tests passed together with the local ROM; the additional indexed-chart
+suite passes separately (54 current tests). Synthetic and retail SH-2 builds pass.
+
+EMULATOR: 72 poses (eight LOD/view checks plus 64 turn/bank steps), two samples each,
+match host projected-vertex and CLUT/Gouraud hashes. Auto motion advances after
+releasing the debug hold. The wrong lighting-hash control fails. Observed screenshot
+silhouette IoU is 0.948-0.984; union RGB channel error is 10.52-16.44 versus the
+matching software reference, scaled RGB5 by eight. This is not a passing visual
+tolerance or a running source-game comparison. At most two Gouraud channels clip
+across these poses. OpenGL emulator coverage/shading also contributes to the image
+comparison; physical VDP1 and source-reference motion remain unrun.
+
+MODELLED: fixed eight-view projection averages 763-6,594 FRT/32 ticks; lighting,
+record building and diagnostic hash work average 1,890-24,976. The highest LOD's
+roughly 31,500 CPU ticks is too slow for the scene budget. Native textures are
+28,016-94,288 bytes per LOD. ELF text/data/BSS: 386,720/124/81,184 bytes. VDP1
+reserves 400 KiB charts, 16 KiB commands, 16,288 bytes CLUTs and 4,072 Gouraud bytes.
+None of this promotes the experiment into the race. Next exact work: eliminate
+repeated transforms (261 records, only 68 positions and 133 normals at highest
+LOD), and repeated palette work, then remeasure before scene integration.

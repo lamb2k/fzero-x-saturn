@@ -76,5 +76,5 @@ Five Blue Falcon LODs, eight model texture slots and 22 textures exported. HOST:
 FZX_SOURCE_HUD=1 draws timer/speed/lap/energy art and source-timed lap flashes.
 Stale assets fail the build. EMULATOR: 9,907 fixed inputs finish in 121,814 ms,
 equal to host on isolated 86ea5d3. Source-reference visuals and HARDWARE unrun.
-Blue Falcon: eight software hashes agree; native VDP1 charts are fast for baked
-poses, with measured visual errors. [Ledger/memory](SOURCE_ART.md). G2.6 stays open.
+Blue Falcon: 72 moving native pose/light checks pass; palette appearance and
+CPU cost need work. [Ledger/memory](SOURCE_ART.md). G2.6 remains open.

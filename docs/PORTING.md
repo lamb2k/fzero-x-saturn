@@ -2,91 +2,62 @@
 
 ## Target
 
-A native Sega Saturn adaptation of F-Zero X, using the chosen G-Diffuser source
-tree and SH2ZAM. The first authentic gameplay milestone is one imported Mute
-City course, Blue Falcon, original driving behavior and collision. Frame-rate
-and content budgets will be set from hardware measurements.
+The real F-Zero X on Saturn, preserving original gameplay and source art.
+The owner reaffirmed this on 2026-11-15. The authoritative work plan is
+[POC_PLAN.md](POC_PLAN.md); current evidence and blockers are in [STATUS.md](STATUS.md).
+The target remains 60 fps with the 4 MB RAM cartridge.
 
-## Foundation in this repository
+Original machine models/materials, course surfaces/textures, scenery, effects,
+HUD/fonts, menus and audio are required content. Synthetic art is useful for CI
+and diagnosis but is not a replacement for the game. A faithful one-track slice
+is the first milestone; completion also requires the remaining source content,
+modes, opponents, progression and persistence, followed by console acceptance.
 
-G-Diffuser is pinned at `4f9320675758fd524bb3bc9ea98b913a09d48552`; its
-decompilation submodule is `Zorkats/fzerox` at
-`b944a4135409d24979f5c74b001befab8345761a`. The top-level source selection is
-preserved instead of silently following a different decompilation branch.
+## Source and current implementation
 
-The common C core has no heap or floating-point arithmetic. It evaluates the
-source's adaptive cubic spline in Q16.16, samples eight rings per control-point
-segment, interpolates widths/up vectors by approximate sampled arc length,
-builds a ribbon and renders clipped, sorted polygons. It caches immutable mesh
-bounds and uses SH2ZAM's prepared transforms. The alternate exact transform path
-exists for output comparison.
+G-Diffuser is pinned at `4f9320675758fd524bb3bc9ea98b913a09d48552`; its decompilation
+is `Zorkats/fzerox` at `b944a4135409d24979f5c74b001befab8345761a`.
+The public default uses a synthetic circuit and prototype driver. The local
+`FZX_SIM=orig` route compiles the original race closure for the master SH-2 with
+binary32 software float. With the owner's ROM it has completed a three-lap
+Mute City 1 race and matched a host replay's finish time. Retry and the timing HUD
+exist; source-art presentation and original audio remain unimplemented.
 
-The prototype driver follows the sampled track with lateral steering. It has
-no original vehicle tuning, air physics, surface collision, boosts, energy,
-opponent behavior or race rules. Its circuit, craft, colors and sky are fixtures.
+The temporary renderer samples a flat ribbon, follows the source racer pose,
+clips/sorts polygons and submits native VDP1 commands. This establishes an
+integration path; it does not establish visual fidelity or the final scene budget.
+Emulator timings are MODELLED. Physical-console acceptance remains UNRUN.
 
-The native backend submits flat RGB1555 VDP1 polygons and overlays a VDP2 HUD.
-Only the master SH-2 is used. Input is digital. Browser rendering shares the C
-geometry but uses Canvas to display the resulting polygons, so its rasterization
-is not a VDP1 accuracy test.
+## First source-art slice
 
-### Numeric and memory contract
+1. Inventory source asset symbols, draw routines, formats and dependencies for
+   Mute City 1 and Blue Falcon, including the source camera, UI and sound cues.
+2. Extract locally from the verified ROM. Preserve source vertices/indices,
+   authored LODs, materials, UVs, palettes and placement. Decode display lists
+   offline into native packs; do not introduce a runtime N64 interpreter.
+3. Validate a small authored Blue Falcon LOD first, then the near model and LOD
+   transitions. A permanently low-detail craft is not the acceptance target.
+4. Replace the temporary road with source surfaces, materials and features;
+   integrate scenery/backdrop/effects and the original HUD/fonts and race audio.
+5. Compare fixed poses and a moving full-race capture against the selected source
+   reference, then measure CPU, VDP1 fill, memory and audio I/O on that real scene.
+6. Run behavioral parity, retry/soak, negative controls and the owner console sheet.
 
-- Imported positions/radii use 1/16 original game scale and signed Q16.16.
-- There are 4–64 control points, at most 512 sampled rings and 512 output polygons.
-- Runtime input bounds: position components within ±4096 scaled units, radii
-  from 0.25 to 256, tension from 0 to 2. Degenerate sampled geometry is rejected.
-- Banks preserve the original 4096-step angle quantization before conversion to
-  SH2ZAM turns. Spline arithmetic is quantized and is not bit-identical to float.
-- Uploaded courses use separate staging storage. Validation completes before
-  replacing the active course, and the active course is copied into owned memory.
-- Geometry/render buffers are static. A 515-command native VDP1 buffer uses
-  16,480 bytes. Actual linked memory usage is emitted by each native build.
-- Drawing clips near, far and all four screen planes before integer projection.
-  Painter sorting by average depth can still fail for intersecting geometry;
-  the original track segmentation/visibility strategy is a later milestone.
+Preserve appearance through lossless layout/native-format conversion first.
+Any mesh reduction, downsampling, omitted object or changed audio needs explicit
+adaptation evidence and owner review. Performance work does not waive fidelity.
 
-## Next: authentic asset validation
+## Reproducible local content
 
-Supply a US rev0 ROM, run the importer, and verify Mute City 1 against the chosen
-upstream. Confirm checksum and adaptive tensions, spline sample positions,
-bank sign, control-point scale and spawn orientation. The initial implementation
-has been tested with synthetic records only.
+ROM-derived outputs live only in ignored local storage. Each pack carries a
+receipt and source-to-output manifest with ROM identity, symbols/offsets,
+converter version, counts, material bindings and hashes. A port build rejects
+missing/stale required content instead of substituting a fixture. The repository
+holds conversion/runtime code and synthetic tests, not extracted game assets.
 
-Import `Machine_DrawBlueFalconLod5` as the first real machine. The selected source
-uses 30 vertices and 11 triangles across `D_70077B8`, `D_7007878` and `D_7007778`
-in uncompressed `machine_global_gfx` (US rev0 ROM base `0x1E23F0`). Extract locally;
-do not commit extracted retail model/texture data. Preserve source indices and
-check all triangles against an upstream reference render.
+## After the slice
 
-## Next: original driving and collisions
-
-Audit `Racer_UpdateFromControls` and the tuning path through
-`Racer_InitMachineStats`. They depend on globals and ROM-backed tuning data;
-selecting one machine still requires extracting those values. Isolate a
-deterministic one-racer update behind a platform-independent interface.
-
-Capture input/state traces from the selected upstream. Convert the measured
-hot math to fixed point with stated range and error contracts. Compare position,
-speed, orientation, boundary behavior and lap transitions on identical traces.
-The prototype driver must remain labeled until those traces pass.
-
-## Next: console validation and performance
-
-First boot the generated CUE in a full Saturn emulator and then on hardware.
-Check video setup, pad input, depth order, near-plane crossings, worst turns,
-framebuffer completion and memory headroom. Separate CPU simulation, transforms,
-command generation and VDP1 completion time. A correct native compile is not a
-boot test; isolated SH-2 instruction models do not establish full-system FPS.
-
-Only after the representative scene is measured should we choose mesh density,
-draw distance, audio memory, texture formats or slave-CPU work. Compare a competent
-baseline against SH2ZAM on identical game workloads, including setup and output
-checks. Do not extrapolate a kernel speedup into an overall game speedup.
-
-## Later
-
-Track features and other surface shapes; machine materials and scenery; audio;
-opponents and collision; menus, race rules and saving; course coverage; 3D-pad
-input; sustained hardware testing. Each phase should retain a small bootable
-artifact and an explicit statement of what has actually been verified.
+Gate 6 tracks every original course, machine, mode, opponent/CPU-line path,
+menu, progression/persistence feature, UI asset and sound. Keep a coverage ledger:
+implemented, tested, blocked, or explicitly accepted platform adaptation.
+Do not call the port complete while those rows or hardware acceptance remain open.

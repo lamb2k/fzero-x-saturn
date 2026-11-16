@@ -5,10 +5,11 @@ Saturn application. The SH-2 transforms and clips geometry with SH2ZAM, then
 VDP1 draws the resulting flat-colored polygons. VDP2 displays the HUD. The
 default scene is the showcase's procedural demo course.
 
-This is an engineering slice for the F-Zero X port effort. The vehicle handling
-is prototype code; the original game's vehicle physics, AI, audio and race
-systems are not implemented here. See the [showcase overview](../README.md)
-and [source attribution](../NOTICE.md).
+The default build is a synthetic engineering fixture. `FZX_SIM=orig` below runs
+the original one-racer simulation and race loop with temporary presentation.
+The accepted port must preserve original models, textures, scenery, effects,
+HUD/fonts, menus and audio through local native conversion. The current fixture
+art is not the finished game; see the [port plan](../docs/POC_PLAN.md).
 
 ## Build
 

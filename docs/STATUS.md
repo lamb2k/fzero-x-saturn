@@ -2,10 +2,17 @@
 
 Limit: 80 lines. History lives in git. Plan: [POC_PLAN.md](POC_PLAN.md).
 
+## Required target (owner correction, 2026-11-15)
+
+The real game on Saturn, preserving original models, materials/textures, scenery,
+effects, HUD/fonts, menus and audio. ROM-derived content stays local. Placeholder
+art is only a test fixture; the current race is not the completed port. See plan
+section 4.7 and Gate 6 for source-art acceptance and full-game coverage.
+
 ## Playable extent
 
 Locally, with the owner's ROM: a Time Attack race on Mute City 1, original race code
-(`FZX_SIM=orig`, soft float) on the master SH-2, original placeholder visuals, race HUD,
+(`FZX_SIM=orig`, soft float) on the master SH-2, temporary placeholder visuals, debug race HUD,
 Start retries. A whole 3-lap race on the emulator matches the host reference to the ms
 (EMULATOR). 60 fps with rare hitches (38 missed fields in 9,455), course set-up about
 18.5 s (MODELLED). Never run on a console. CI images use the synthetic fixture and the
@@ -17,7 +24,8 @@ prototype driver (`FZX_SIM=proto`) by default.
 | --- | --- |
 | 0 Ground rules | Done in CI (see card table) |
 | 1 GO / NO-GO | In progress. G1.1, G1.2, G1.5 done; G1.3 and G1.4 mostly; next cards in [HANDOFF.md](HANDOFF.md) |
-| 2 to 5 | Not started; wait for Gate 1 |
+| 2 to 5 | Source-art preservation now required; asset census/decoder probes next. Partial original-race integration exists, but source art/audio, pad-only acceptance and final gates remain open |
+| 6 Full game | Planned, not implemented: remaining content/modes, rivals, menus/progression/persistence and console acceptance |
 
 ### Gate 0 cards
 
@@ -50,6 +58,15 @@ prototype driver (`FZX_SIM=proto`) by default.
 
 - Soft-float route vs POC_PLAN 4.2 (the CI default stays `proto` until decided).
 - A console run on the owner's flash cart (docs/HARDWARE_TEST.md).
+
+## Current local experiments (not promoted)
+
+Hitch logging finds render-heavy peaks at the same section each lap. Clip-divider
+experiment: HOST render hash unchanged; 65,776 SH-2 ratio cases exact, mutation
+control fails. First arm: 26 misses/9,871 loops, full-race host finish time matches.
+Second arm: 32 misses/9,759 loops and the diagnostic autopilot retires; not accepted.
+Use a fixed input replay to separate cadence-dependent autopilot changes from the
+renderer before promotion. All figures MODELLED; changes remain local work in progress.
 
 ## Blockers
 

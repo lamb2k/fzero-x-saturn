@@ -18,6 +18,12 @@ instructions and pulls work off course.
 
 ## Work
 
+- **Owner direction, 2026-11-15: the real game on Saturn, preserving source art.**
+  Original machine models, track materials, scenery, effects, HUD/fonts, menus
+  and audio are port content, extracted locally from the owner's ROM. Placeholder
+  art is for synthetic tests only and cannot satisfy a playable-port milestone.
+  Preserve source appearance and behavior through native conversion; do not
+  replace them with newly designed assets. See POC_PLAN section 4.7.
 - One card at a time, to done. Done means committed, pushed and gated, with
   the card's control shown failing. "Coded, unrun" is a valid status; write it.
 - A failing gate gets two distinct hypotheses tested. Then record the blocker

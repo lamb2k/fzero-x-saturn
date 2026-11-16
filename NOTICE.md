@@ -20,9 +20,11 @@ decompilation algorithms/data layouts at commit
 - `src/game/EA90.c`: `func_80074CE4` segment up-vector construction.
 - `include/fzx_math.h`: the original 4096-step angle conversion.
 
-This renderer deliberately uses a sampled flat road ribbon and approximate
+The current temporary renderer uses a sampled flat road ribbon and approximate
 polyline arc lengths. It does not reproduce all original course surface types,
-features, textures, scenery, vehicle physics, audio or game modes.
+features, textures or scenery. The original racer-code route is separate from
+this presentation layer. The port plan requires source models, materials, UI
+and audio through local conversion; the temporary renderer is not that endpoint.
 
 [SH2ZAM](https://github.com/lamb2k/SH2ZAM) supplies fixed-point scalar, vector,
 trigonometric and prepared batch-transform code under MIT. SH2ZAM in turn credits

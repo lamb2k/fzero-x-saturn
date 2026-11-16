@@ -6,10 +6,12 @@ An experimental native Sega Saturn port foundation using
 [G-Diffuser](https://github.com/Zorkats/G-Diffuser) as its source reference and
 [SH2ZAM](https://github.com/lamb2k/SH2ZAM) for fixed-point mathematics.
 
-**Current milestone: a drivable track and renderer workbench. This is not yet a
-playable port of the original F-Zero X game.** The default circuit and craft are
-original test fixtures. Original vehicle physics, retail assets, track features,
-audio, opponents and game modes remain to be integrated.
+**Target: the real F-Zero X on Saturn, preserving its original art and gameplay.**
+The local `FZX_SIM=orig` build runs the original one-racer code on Mute City 1,
+including a three-lap race and retry. It still uses temporary placeholder visuals
+and a debug HUD, so it is not the finished game. Original models, textures,
+scenery, effects, HUD/fonts, menus and audio are required port content.
+The public default circuit and craft remain synthetic test fixtures.
 
 [Open the web workbench](https://lamb2k.github.io/fzero-x-saturn/) ·
 [Native build artifacts](https://github.com/lamb2k/fzero-x-saturn/actions/workflows/build.yml) ·
@@ -24,20 +26,24 @@ audio, opponents and game modes remain to be integrated.
 | Original course math | Adaptive spline tension is computed offline from the source algorithm. The C core evaluates its position/tangent polynomial with SH2ZAM and constructs banked road frames. |
 | Native geometry | Sampled flat road ribbons, a chase camera, six-plane polygon clipping, depth ordering and VDP1 polygon commands. |
 | Prototype driving | Fixed-step acceleration, braking, lateral steering, boundary slowdown, laps and reset. These are new test controls, not the original game's handling. |
+| Original race route | `FZX_SIM=orig` links the original racer code with binary32 software float; local owner-ROM builds supply Mute City 1 and machine constants. Emulator whole-race finish times have matched host replays. Source-art integration remains open. |
 | Saturn platform | Yaul build, VDP1 drawing, VDP2 HUD, digital pad input and PAL/NTSC tick scheduling. |
 | Web preview | The same C core compiled to WebAssembly, with keyboard/touch controls and local imported-course loading. |
 | Validation | Independent spline oracle, driving/reset/ordering checks, exact prepared/general transform comparisons, importer checks, sanitizers and browser interaction tests. |
 
-**Saturn performance is unmeasured.** Creating a valid SH-2 executable and ISO
-does not establish that it boots correctly or reaches a target frame rate.
-The browser preview is a functional check; it does not estimate console FPS.
+**Hardware performance is unmeasured.** The original-race image boots in the
+emulator and has completed races, with frame hitches still under investigation.
+Those timings are MODELLED and use placeholder rendering; they do not establish
+console performance or the budget of the final source-art scene.
 
 ## Next
 
-The next milestone is a one-track proof of concept: Mute City 1 with the
-original racer physics in fixed point, then a playable three-lap race at
-60 fps with the 4 MB RAM cartridge. See the [POC plan](docs/POC_PLAN.md) and the
-current [status](docs/STATUS.md).
+First finish a faithful Mute City 1 slice with the original Blue Falcon,
+track materials, scenery, race HUD, camera and audio at the 60 fps target,
+requiring the 4 MB RAM cartridge. Then expand to the original game's content
+and modes. Preserve source art through local native conversion; placeholders
+and texture-off builds cannot satisfy the port milestones.
+See the [port plan](docs/POC_PLAN.md) and current [status](docs/STATUS.md).
 
 ## Get the project
 

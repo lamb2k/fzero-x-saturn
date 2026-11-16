@@ -1,4 +1,4 @@
-# F-Zero X Saturn: one-track POC plan
+# F-Zero X Saturn: source-preserving port plan
 
 Plan for this repository, written against commit `33a94ec`.
 Written 2026-11-13 for execution by an agent in Claude Code, with the owner as reviewer.
@@ -11,28 +11,47 @@ playbook and skills, the "recomp" side), and `lamb2k/re4dc`
 **Owner decisions, 2026-11-13:** the target is **60 frames per second**, and the build **requires the 4 MB RAM cartridge**
 (confirmed by the owner; the 1 MB cartridge is not a target).
 
+**Owner correction, 2026-11-15:** "It neeeds to be the real game on Saturn" and
+"Revise plan to preserve source art". The target is the original game with its
+original content, not a new game with matching physics. This supersedes the old
+handoff's prohibition on the game's art and look, and the optional-texture and
+placeholder acceptance rules in the earlier plan. The one-track milestones are intermediate
+proofs; they are not completion of the port. Source-derived assets stay local.
+
 ---
 
 ## 1. Outcome
 
-One track of the real game, driven with the real physics, on a Saturn.
+The real game on Saturn: original gameplay and source art converted to the native
+hardware. First deliver a faithful Mute City 1 slice, then expand content and modes
+through Gate 6. Do not call a placeholder race or one-track slice the completed port.
 
 | Tier | Name | Exit condition |
 | --- | --- | --- |
-| **T** | Technical POC | Mute City 1 from the owner's ROM, Blue Falcon, one racer. The original one-racer simulation runs in the shared fixed-point core and passes the differential gates against the float reference. The Saturn image boots on an emulator and completes a lap from pad input only. Frame cost, memory and parity numbers are recorded with their tiers. |
-| **P** | Playable POC | T, plus the race loop from the source rules: countdown, three laps, timer, energy, boost, pit, dash plates, wall damage, finish, retry. HUD on VDP2. A new picture every field (60 fps NTSC) over the three-lap route, counted as missed fields. Ten-minute soak without fatals. The owner has played it and answered the review question. |
+| **T** | Technical slice | Mute City 1 from the owner's ROM, source Blue Falcon model/materials, source track geometry/materials and one racer. The original simulation passes the differential gates against the host reference. The Saturn image boots and completes a lap from pad input only. Frame cost, memory, behavioral parity and source-art comparisons are recorded with their tiers. Placeholder builds remain engineering fixtures and do not meet this exit. |
+| **P** | Faithful playable slice | T, plus the source race loop: countdown, three laps, timer, energy, boost, pit, dash plates, wall damage, finish, run-out and retry. Original scenery, effects, race camera, HUD/font assets, race audio and the entry/results presentation for this slice. One finished picture per NTSC field over the route, with all misses reported; ten-minute soak; owner play and visual/audio review. |
+| **F** | Complete port | P expanded to the source game's courses, machines, race modes, opponents, menus, progression and persistence. Gate 6's coverage ledger has no silently omitted content or placeholder substitutions. Any platform adaptation is documented and accepted; the owner has run the console acceptance sheet. |
 
-T is the commitment. P follows from T without a new architecture. If Gate 1 says NO-GO for P, T still stands as the deliverable.
+F is the requested outcome; T and P are staged proofs. A NO-GO records the actual
+blocker and the owner's trade decision. It does not redefine a technical fixture
+as the completed game or silently drop source content.
 
 **What 60 fps means here.** One simulation tick and one finished picture inside every 16.67 ms field: about 477,000 cycles per SH-2 per field, and VDP1 must finish drawing in the same field. A late picture shows the previous one and is counted as a missed field; the simulation still ticks. The architecture is built for this from the first card. An emulator can only give a MODELLED answer: "60 fps" is a HARDWARE-tier claim and stays unproven until the owner runs the sheet on a console. Any lower rate is the owner's decision, never a quiet fallback.
 
-**Not in this POC:** rivals and AI, audio, menus, saving, other tracks, other machines, track shapes the census does not find on Mute City 1, 64DD content, textures before T, physical-hardware acceptance (the sheet ships; the run is the owner's).
+**Deferred from the first slice, not dropped from the port:** other courses and
+machines, competitive AI/rivals, the remaining menus/modes and persistence, and
+course shapes not used by Mute City 1. Original race audio, textures, scenery and
+HUD art are required for P. 64DD expansion content is outside the selected US rev0
+cartridge scope. Physical-hardware acceptance is owner-run and stays UNRUN until
+performed; it is required to call F complete.
 
 ---
 
-## 2. Where the repo stands
+## 2. Historical starting baseline (2026-11-13)
 
-Verified by reading the tree, not taken from the README:
+This is the baseline the original plan was written against, not current status.
+The original-race route has since been integrated; read [STATUS.md](STATUS.md)
+for current evidence and remaining source-art gaps. Baseline observations:
 
 - Shared C core (`src/fzx.c`, 417 lines): Q16.16 spline evaluation, sampled flat ribbon, clipping, global depth sort, flat RGB1555 polygons, 512-polygon cap. No heap, no float.
 - `fzx_step` is a **prototype driver** that follows the sampled centreline. It is labelled as such. None of the original racer code is ported.
@@ -62,7 +81,7 @@ Each row is a rule this plan applies, with where it was learned.
 | # | Lesson | Learned from | Rule here |
 | --- | --- | --- | --- |
 | 1 | The arcade port ran on a mixed architecture with authored gameplay until a full reset. A prototype quietly became the game. | arcade port reset audit | The prototype driver stays behind `FZX_SIM=proto` and is named on screen. It can never be reported as the port. Default flips only when the trace gate passes. |
-| 2 | Measure before building. Phase 1 is a written GO or NO-GO with numbers. | toolkit playbook, sh2-game-logic | Gate 1 below. Nothing in Gates 2 to 5 starts before it. |
+| 2 | Measure before building. Phase 1 is a written GO or NO-GO with numbers. | toolkit playbook, sh2-game-logic | Gate 1 below. Source-asset census and bounded decoder/renderer probes may inform it; placeholder timings remain provisional until the real art-bearing scene is measured. No milestone acceptance skips the gate. |
 | 3 | The arcade port's interactive play was blocked for months by a missing tick contract: the image picked updates from captured cadence tables. | arcade port handoff, learning notes | The tick contract is written first (section 4.4). The simulation consumes current state and current input only. Traces exist only inside tests and the `AUTOTEST` build. |
 | 4 | Lift first, prove it against the reference, then make it readable and fast, one function at a time, each swap gated. | sh2-game-logic | The float decomp is the "lifted" tier here. Fixed-point functions replace it slice by slice, each behind the same gate (section 4.2, Gate 3). |
 | 5 | Source owns simulation and state; the native layer owns presentation. Never alter collision, event order, state or AI for speed. | re4dc AGENTS | Renderer and platform changes must leave the simulation trace STRICT-identical. |
@@ -120,7 +139,10 @@ The cartridge changes what OFFLINE can hold. With 4 MB of read-mostly space, bak
 | **BOUNDED** | Open loop: state is reseeded from the reference each tick; each output field of the fixed function is within its stated error. | Function-level gate for each converted slice. Error bounds come from the field's Q format and are written in the range contract, not tuned until green. |
 | **DISCRETE** | Closed loop, free running: the same ordered events (segment crossings, wall hits, dash and pit entry, boost on and off, lap line, finish) within a stated tick skew, lap time within a stated delta. | Whole-route gate. Position drift is reported raw alongside; it is never hidden by the normalisation. |
 
-"Functional parity" is what this POC claims. Frame-exact parity with the N64 is not claimed anywhere.
+Behavioral parity and source-art fidelity are separate required gates. The port
+does not claim pixel-identical N64 rasterization: Saturn resolution, affine texture
+mapping, color formats and transparency differ. Those differences do not authorize
+replacing the models, materials, composition, HUD or audio with placeholders.
 
 ### 4.4 Tick contract
 
@@ -134,22 +156,51 @@ The cartridge changes what OFFLINE can hold. With 4 MB of read-mostly space, bak
 
 - Track: the original chunk traversal order from the camera's segment, far to near, replaces the global depth sort for track geometry. Quads go to VDP1 as quads.
 - CPU split: the master runs the game and publishes one immutable snapshot per field (camera, racer pose, visible chunk window). The slave transforms, clips and builds the VDP1 list from it. The snapshot boundary goes into the shared core API now, so host, web and single-CPU builds use the same path. The split is a knob; the simulation trace is STRICT-identical with it on or off.
-- VDP1 fill is a budget of its own. Gate 1 finds how many polygons and how much screen coverage finish in one field; draw distance and LOD are set from that number, not from what looks nice.
+- VDP1 fill is a budget of its own. Measure the real source-art scene, then choose source LODs and native submission methods that pass both the field budget and the source-art gate. A flat placeholder scene is not the finished game's performance proof.
 - Per-frame geometry work is transform and clip only. Spline evaluation and chunk vertex construction are baked into the cartridge pack.
-- T tier is flat or Gouraud polygons. Textured distorted sprites are a P-tier knob, default off, added only if the 60 fps fill budget has room.
+- Source materials are required: preserve flat/Gouraud shading where the source uses it and source textures where it uses textures. Convert to native VDP1 polygons/distorted sprites and palettes. A texture-off mode is diagnostic only, never the accepted port recipe.
 - Near plane: clip polygons as today. Subdivide near quads only if still pairs show it is needed.
-- Sky and backdrop: VDP2 back colour, then one scrolling NBG layer at P. Camera roll on the backdrop is out of scope.
+- Sky and backdrop: preserve the source images, colors, placement, motion and camera relationship using VDP2 or VDP1 as measured. A plain background cannot stand in for missing source scenery at P.
 - VDP1 command list: clear polygon at the head, static aligned buffer, wait for draw-end before reuse (already so).
 
 ### 4.6 Memory contract
 
-One table, kept current, with link-map numbers and asserts: work RAM high (1 MB), work RAM low (1 MB), cartridge RAM (4 MB), VDP1 VRAM (512 KB), VDP2 VRAM (512 KB), SCSP RAM (unused in this POC). Fixed pools only. Headroom in a spec is not headroom in the link map.
+One table, kept current, with link-map numbers and asserts: work RAM high (1 MB), work RAM low (1 MB), cartridge RAM (4 MB), VDP1 VRAM (512 KB), VDP2 VRAM (512 KB), SCSP RAM (512 KB, budgeted for source audio). Fixed pools only. Headroom in a spec is not headroom in the link map. Include source textures, palettes, font/UI atlases, model LODs and sound buffers before claiming the scene fits.
 
 Cartridge rules:
 - The image detects the cartridge at boot and shows a plain "RAM cartridge required" screen without it. Emulator configs and the hardware sheet name the cartridge.
 - Placement: code, stacks and per-tick mutable state in high work RAM. The cartridge holds large read-mostly baked data. Treat cartridge access as slower than high work RAM until measured, and note that an emulator may not model that cost at all.
-- Loaded once, before the race, with the display blanked. Nothing is read from disc during play.
+- Race geometry/materials are loaded before play. Any source-music streaming design has its own bounded buffers, measured I/O schedule and console test; it must not stall simulation or drawing. Do not silently omit audio to retain the old no-I/O assumption.
 - Cartridge data reaches VDP1 by CPU copy. No SCU DMA with a cartridge endpoint until physical evidence says it is safe.
+
+### 4.7 Source-art and audio preservation contract
+
+- Extract from the verified owner-supplied ROM using the pinned source's asset
+  tables, symbols, formats and draw routines. No generated lookalikes or replacement
+  designs. Preserve machine silhouettes/proportions, source topology and authored
+  LODs, UVs, palettes, material assignments, scenery placement, effects, animations,
+  logos, HUD/fonts and menus. Preserve music, engine/boost/collision sounds and cues.
+- Build offline converters to Saturn-native geometry, textures, UI atlases and audio.
+  Decoding source display lists offline is allowed; a runtime N64 display-list
+  interpreter or libultra emulation layer is not the architecture.
+- Start with lossless representation/layout changes and the source's own LODs.
+  Palette conversion, texture padding and native packing must preserve sampling and
+  transparency. Mesh simplification, texture downsampling, removed scenery or altered
+  audio are explicit adaptations with before/after evidence and owner review; reaching
+  the performance target does not waive the source-art gate.
+- Every local pack has a receipt and a source-to-output manifest: ROM identity,
+  asset symbols/offsets, decoder version, source/output counts, material/texture
+  bindings, hashes and any adaptation. Reject missing/stale packs. Public fixtures
+  test the same loaders but cannot silently replace missing retail assets in a port build.
+- Validate fixed-pose still pairs against the selected source reference, including
+  near/far machine LODs, turns, banks, pits/dash plates, scenery, effects and HUD.
+  Check a moving capture for camera, animation, transitions and texture stability;
+  compare audio cues and timing. Use local evidence only. Deliberately wrong UVs,
+  palette bindings or a missing model must make the relevant gate fail.
+- The repository contains conversion/runtime code and synthetic tests. ROMs,
+  extracted/converted assets, source-course traces, stills, audio and asset-bearing
+  images remain in ignored local storage or `$FZX_EVIDENCE`. Preservation in the
+  user's local port is required; publication is a separate action.
 
 ---
 
@@ -229,12 +280,23 @@ Decision rules the report applies (the owner can change the thresholds once, at 
 | --- | --- | --- | --- | --- |
 | G2.1 | **Course pack v2.** The importer calls the reference to bake everything the census marked OFFLINE into `generated/` (and the browser's local JSON): course tables, chunk vertices per LOD, wall edges and the track-query index, laid out for the cartridge. | Pack round-trips; receipt written; size fits the cartridge layout from G1.7; synthetic pack committed as a fixture | Corrupt one baked length; the load must reject it | partly |
 | G2.2 | **Track query** in fixed point: world position to segment, parameter, lateral offset, surface and wall distance (the role of `func_8009EBEC` and its callers) | BOUNDED on a dense grid of points and on every trace position | Swap left and right radius | no |
-| G2.3 | **Renderer v2**: chunk-ordered painter from baked vertices, walled-road shape with walls, distance LOD, the per-field polygon budget from G1.4, reading only the per-field snapshot. Knob, default off until still pairs pass. | STRICT simulation trace unchanged; still pairs against G-Diffuser at five fixed poses reviewed; worst-case polygons under the cap | Reverse the traversal; ordering test must fail | stills need ROM |
-| G2.4 | **Blue Falcon** low-LOD model import, local only | Triangle and vertex counts match the source table; visible in both builds | none | **yes** |
+| G2.3 | **Source track renderer**: native pack of the original course surface geometry, walls, material bindings and source textures; chunk-ordered painter, reading only the snapshot. Retain the old ribbon as a test fixture. | STRICT simulation unchanged; local still pairs at five fixed poses, banks and near-plane crossings; texture/UV and source-art gate passes; polygons and fill fit the measured budget | Reverse traversal or swap two material bindings; the relevant gate fails | **yes** |
+| G2.4 | **Blue Falcon source model**: import original geometry, colors/materials and authored LODs locally. The small source LOD is a first decoder test, not a permanent substitute for the near model. | Source-to-output vertex/triangle/material accounting; near/far still pairs and moving LOD transitions preserve the source craft | Corrupt an index or material binding; validation fails | **yes** |
+| G2.5 | **Scenery, sky and effects** used by Mute City 1: source meshes/sprites, textures, placements and animation/effect state | Local reference pairs cover the whole lap and representative boost, pit, damage and finish effects; no silent placeholder fallback | Remove a required asset; the port pack loader refuses it | **yes** |
+| G2.6 | **HUD, font and UI assets**: original images, glyphs, palettes and layout rules; native VDP2/VDP1 atlas packing | Source overlays match in countdown, normal racing, low energy, lap change and finish; debug timing is a separate test overlay | Wrong palette or glyph mapping is detected | **yes** |
+| G2.7 | **Race audio pack**: original music/sample/sequence data and sound event mapping; choose and measure a Saturn playback path with the intended flash-cart setup | Local cue/timing comparison, sound-memory budget and no frame stalls under playback; silence is a missing feature | Suppress a required cue; the event/audio comparison fails | **yes** |
+| G2.8 | **Native content pack**: one local reproducible build tying geometry, textures, UI and audio to the same verified ROM and converter revisions | Clean rebuild, receipts and per-memory-region budgets pass; missing/stale retail assets are fatal in port mode; synthetic mode remains explicit | Corrupt a pack length/hash or omit a required asset | **yes** |
 
 ### Gate 3: racer truth (effort high; the long pole)
 
 Order follows the sh2-game-logic campaign: kernel, then the hottest and most depended-on code first.
+
+The existing `FZX_SIM=orig` software-float route already runs the original closure.
+Its permanent use versus fixed-point conversion remains the owner architecture
+decision; the source-art requirement does not depend on that choice. Whichever
+route is selected must preserve original simulation/state and pass these gates.
+Do not spend a conversion campaign replacing source behavior merely to satisfy
+an obsolete implementation label.
 
 | Card | Slice | Notes |
 | --- | --- | --- |
@@ -255,7 +317,7 @@ Input mapping is the one handling choice with no source answer: the N64 stick is
 | Card | Goal | Done when |
 | --- | --- | --- |
 | G4.1 | `AUTOTEST` image: runs an embedded synthetic trace at boot and prints the final state hash and PASS or FAIL | The hash on the emulator screenshot equals the host hash: STRICT on SH-2 |
-| G4.2 | Normal image with the fixed simulation, renderer v2, imported course and machine | Boots; HUD names course and simulation |
+| G4.2 | Normal image with the selected original simulation route and required source course/machine content pack | Boots; original art is visible; missing packs fail clearly; diagnostics identify simulation and pack |
 | G4.3 | Pad-only lap: a scripted pad schedule, then a read-only closed-loop bot | One full lap from pad input; run line recorded (image hash, flags, ticks, fatals) |
 | G4.4 | Dual-CPU split: master publishes the snapshot, slave transforms, clips and builds the list. Knob. | Simulation trace STRICT-identical with the knob on and off; pictures identical at fixed poses |
 | G4.4b | Cost run over the lap, every field: master, slave and VDP1 lines as mean, p95, max, plus missed-field count | Table in STATUS, labelled EMULATOR / MODELLED |
@@ -267,12 +329,29 @@ Input mapping is the one handling choice with no source answer: the N64 stick is
 | Card | Goal |
 | --- | --- |
 | G5.1 | Race state from source rules: countdown, lap count, timer, finish, retire and retry |
-| G5.2 | HUD on VDP2 in fixed cells: speed, lap, time, energy. Replace the debug console. |
-| G5.3 | Race camera: census `camera.c` for the default chase mode only; port that mode or keep the labelled prototype, by owner preference at the review |
+| G5.2 | Original race HUD/font assets and source layout/state on native planes: speed, lap, time, energy, countdown and finish. Debug text is not the final HUD. |
+| G5.3 | Original race camera behavior from `camera.c`, including source transitions used by the slice. The prototype chase camera cannot satisfy P. |
 | G5.4 | Close the gap to 60 fps on the three-lap route: zero missed fields is the target, and the count is reported whatever it is. Each optimisation: knob default off, knob-off identity, one cost arm, STRICT trace. Order by measured cost: cartridge tables for the tick, hot-loop work with SH2ZAM's prepared batches, draw distance and LOD, then command-build tricks. A missed-field counter stays on the HUD in test builds. |
-| G5.5 | Backdrop layer; optional road texture knob, only if the 60 fps fill budget has room |
+| G5.5 | Integrate required source track materials, scenery, backdrop and effects. Re-measure the actual art-bearing scene at 60 fps; report any fidelity/performance gap instead of turning source art off. |
 | G5.6 | Ten-minute soak, repeated resets, pad disconnect and reconnect |
-| G5.7 | **P candidate** and the review package: the exact image, controls, a continuous clip, the list of adaptations, known issues, hardware status |
+| G5.7 | **P candidate** and local review package: exact asset-bearing image, controls, full-race clip with source audio, source/reference still pairs, adaptations, known issues and hardware status. No placeholder substitution can pass. |
+| G5.8 | Original race music/sound cues and source entry/results presentation for the slice; validate retry and transitions together with audio and art |
+
+### Gate 6: complete the original cartridge game, F exit
+
+The one-track slice establishes the pipeline. It does not remove the rest of the
+game from scope. Maintain a coverage ledger against the pinned source/verified ROM,
+with implemented, tested, blocked and owner-approved exception states.
+
+| Card | Required coverage | Gate |
+| --- | --- | --- |
+| G6.1 | All source courses, surface types, features, scenery and track-specific audio | Each course loads its source pack, completes its race rules and passes visual/behavioral checks |
+| G6.2 | All source machines, tuning, models/materials/LODs, animation/effects and selection art | Machine selection and representative handling/art comparisons; no shared placeholder substitutes |
+| G6.3 | Original opponents, CPU racing lines, collision/race positions and source mode rules | Deterministic scenario comparisons and full-race completion; crowd budgets measured with source art |
+| G6.4 | Title, menus, course/machine selection, results, progression, records, saving and ghost features where present in the source | End-to-end navigation/progression/persistence tests, including restart and failure recovery |
+| G6.5 | Remaining original modes and multiplayer/input configurations present in the selected game | Each ledger row is exercised; a platform limitation needs explicit owner acceptance, not silent omission |
+| G6.6 | Complete audio/UI/effect coverage and final performance/memory qualification | Asset census has no unexplained gaps; representative worst scenes and long play sessions meet the documented gates |
+| G6.7 | Final local package and console acceptance | Reproducible owner-ROM build, clean content receipts, complete coverage ledger, hardware run and owner review; only then call the port complete |
 
 ---
 
@@ -281,8 +360,8 @@ Input mapping is the one handling choice with no source answer: the N64 stick is
 Only these. Everything else the agent decides and records.
 
 1. **Before Gate 1.6:** where the US rev0 ROM lives for ROM-lane cards (a private path exposed as `FZX_TEST_ROM`, on the owner's machine or a private environment). It never enters the repo, a CI log, or a chat.
-2. **Gate 1 report:** "GO or NO-GO as recommended?" The frame target (60 fps) and the cartridge requirement are already decided. If the report shows 60 fps is out of reach as specified, it will also ask which trade the owner prefers: less picture, a longer optimisation campaign, or a lower rate.
-3. **P review:** "What should stay as it is, what looks or feels wrong, and which issue should be fixed first?" Silence is not approval.
+2. **Gate 1 report:** "GO or NO-GO as recommended?" The frame target (60 fps), cartridge requirement and preservation of source art are already decided. If they do not yet fit together, report the measured gap and concrete options. Removing source art, reducing its fidelity or lowering the frame target requires owner review; it is not an automatic fallback.
+3. **P review (repeated for F):** "What should stay as it is, what looks, sounds or feels wrong, and which issue should be fixed first?" Include source/reference comparisons and the content ledger. Silence is not approval.
 
 Also needing the owner: any still or clip of the retail course in a public place, hosting a build, and running the hardware sheet.
 
@@ -340,11 +419,14 @@ Paste into a fresh Claude Code session opened on `lamb2k/fzero-x-saturn`:
 
 ```
 Read docs/POC_PLAN.md sections 1, 4, 5 and 8, then Gate 0 in section 6.
-Goal: a one-track technical POC of F-Zero X on Saturn (tier T), then playable (tier P).
-Start with Gate 0 and continue into Gate 1 without waiting for me, card by card.
+Goal: the real F-Zero X on Saturn, preserving source art and gameplay (tier F),
+through a faithful one-track technical slice (T) and playable slice (P).
+Read current STATUS and HANDOFF; continue unfinished cards without redoing completed work.
 A card is done only when it is committed, pushed, gated, and its control has been
 shown to fail. Skip ROM-lane cards until FZX_TEST_ROM is set; do every ROM-free card first.
-Stop when docs/GATE1.md is written and ask me the Gate 1 question from section 7.
+Ask the required architecture/Gate 1 and owner-review questions at their concrete
+review points. Do not accept placeholder art, missing audio or a one-track slice
+as completion of the port; follow the content ledger through Gate 6.
 Report playable extent first, then gates with their evidence tier, then what is unrun.
 ```
 

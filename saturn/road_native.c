@@ -9,8 +9,39 @@ _Static_assert(FZX_ROAD_PACK_BYTES<=FZX_ROAD_MAX_BYTES,"road pack exceeds cartri
 _Static_assert((FZX_ROAD_PACK_BYTES&3u)==0,"road pack must be word aligned");
 fzx_road_pack_t fzx_native_road;
 volatile fzx_road_load_status_t fzx_road_load_status;
+volatile uint32_t fzx_road_next_frame, fzx_road_frame;
+volatile uint32_t fzx_road_plan_status, fzx_road_plan_sequence;
+RefRoadPlan fzx_source_road_plan;
+_Static_assert(sizeof(RefRoadPlan)==796,"source road packet ABI");
+static const unsigned char road_fog[3]=FZX_ROAD_COURSE_FOG;
+static uint32_t planned_frame;
+static bool road_tick_seen,road_plan_seen;
 static sector_buffer_t sector __aligned(32);
 static cdfs_filelist_entry_t entries[16];
+void fzx_road_note_tick(void) {
+    fzx_road_frame=fzx_road_next_frame++;
+    road_tick_seen=true;
+}
+void fzx_road_restart(void) {road_plan_seen=false;road_tick_seen=false;}
+bool fzx_road_publish(void) {
+    if(!road_tick_seen) return true;
+    if(road_plan_seen && planned_frame==fzx_road_frame) return fzx_road_plan_status==1;
+    ref_road_plan(&fzx_source_road_plan,fzx_road_frame,road_fog);
+    const unsigned int chunks=fzx_native_road.count[FZX_ROAD_CHUNK];
+    if(fzx_source_road_plan.faults || fzx_source_road_plan.outer>1 ||
+       fzx_source_road_plan.visible_chunks>chunks || fzx_source_road_plan.count>REF_ROAD_GROUPS) {
+        fzx_road_plan_status=2;return false;
+    }
+    for(unsigned int i=0;i<fzx_source_road_plan.count;++i) {
+        const RefRoadGroup *g=&fzx_source_road_plan.groups[i];
+        if(g->start>=chunks || g->end>=chunks || (g->direction!=1 && g->direction!=-1)) {
+            fzx_road_plan_status=3;return false;
+        }
+    }
+    planned_frame=fzx_road_frame;road_plan_seen=true;
+    ++fzx_road_plan_sequence;fzx_road_plan_status=1;
+    return true;
+}
 static void read_volume_sector(sector_t lba,sector_buffer_t *out) {
     int rc=fzx_road_sector_read((fad_t)(lba+150u),out);
     if(rc) {

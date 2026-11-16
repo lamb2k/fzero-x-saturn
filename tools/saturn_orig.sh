@@ -15,6 +15,8 @@ ROOT=$(cd "$(dirname "$0")/.." && pwd)
 IMG=${YAUL_IMAGE:-$HOME/yaul-image}
 OUT=$ROOT/saturn/build-orig
 CAMERA=${FZX_SOURCE_CAMERA:-0}
+PLAN=${FZX_SOURCE_ROAD:-0}
+if [ "$PLAN" = 1 ]; then python3 "$ROOT/tools/road_plan.py"; fi
 STUB_DIR=$ROOT/ref/sat/build/host-small
 ART=fixture
 if [ "$CAMERA" = 1 ]; then
@@ -64,7 +66,7 @@ mountpoint -q "$IMG/proc" || mount -t proc proc "$IMG/proc"
 mountpoint -q "$IMG/dev" || mount --bind /dev "$IMG/dev"
 if [ "$CAMERA" = 1 ]; then
     chroot "$IMG" /bin/bash -c "source /yaul-env.sh && export PATH=\"\$YAUL_INSTALL_ROOT/bin:\$PATH\" && \
-        FZX_FASTFLOAT=1 FZX_SOURCE_CAMERA=1 REF_CAMERA_ART=$ART bash /work/ref/sat/closure.sh /work/saturn/build-orig-camera && \
+        FZX_FASTFLOAT=1 FZX_SOURCE_CAMERA=1 FZX_ROAD_PLAN=$PLAN REF_CAMERA_ART=$ART bash /work/ref/sat/closure.sh /work/saturn/build-orig-camera && \
         make -B -C /work/saturn FZX_SIM=orig FZX_IMPORTED=1 FZX_SOURCE_CAMERA=1 \
           FZX_CLOSURE=/work/saturn/build-orig-camera/ref_closure.o FZX_ROM_BOOT=$ROM_BOOT FZX_SOURCE_HUD=${FZX_SOURCE_HUD:-0}"
     echo "built source-camera original-race image"

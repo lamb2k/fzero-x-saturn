@@ -7,6 +7,7 @@ import json
 import struct
 import subprocess
 from import_source_art import output_location
+from road_environment import course_fog
 
 ROOT=Path(__file__).resolve().parents[1]
 STRIDES=(16,12,64,80,16,1)
@@ -76,17 +77,22 @@ def main():
     subprocess.run(['bash',str(ROOT/'tools/check_receipt.sh'),str(args.source/'road.receipt')],check=True)
     mesh=json.loads((args.source/'road.json').read_text());course=(args.source/'course.bin').read_bytes()
     data,info=pack(mesh,course)
+    background=ROOT/'upstream/G-Diffuser/decomp/src/overlays/ovl_i3/background.c'
+    layout=background.with_suffix('.h')
+    environment=course_fog(background.read_text(),layout.read_text(),course[3])
     args.output.mkdir(parents=True,exist_ok=True)
     (args.output/'ROAD.PAK').write_bytes(data)
     header=('/* Generated source-road identity; data remains on disc. */\n'
             '#define FZX_ROAD_PACK_BYTES %du\n#define FZX_ROAD_PACK_HASH 0x%08Xu\n'
             '#define FZX_ROAD_PACK_FIXTURE %du\n')%(info['bytes'],info['hash'],info['fixture'])
+    header+='#define FZX_ROAD_COURSE_FOG {%s}\n'%','.join(map(str,environment['course_fog']))
     (args.output/'road_identity.h').write_bytes(header.encode())
-    info.update(source_sha256=hashlib.sha256((args.source/'road.json').read_bytes()).hexdigest(),
+    info.update(environment=environment,source_sha256=hashlib.sha256((args.source/'road.json').read_bytes()).hexdigest(),
                 pack_sha256=hashlib.sha256(data).hexdigest())
     (args.output/'manifest.json').write_bytes((json.dumps(info,sort_keys=True,indent=2)+'\n').encode())
     digest=lambda p:hashlib.sha256(p.read_bytes()).hexdigest()
     dependencies=[ROOT/'tools/road_pack.py',ROOT/'include/fzx_road_pack.h',ROOT/'src/fzx_road_pack.c',
+                  ROOT/'tools/road_environment.py',background,layout,
                   args.source/'road.receipt',args.source/'road.json',args.source/'course.bin']
     import os
     receipt=['# fzx generation receipt v1; regenerate, never edit']

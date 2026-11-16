@@ -200,6 +200,9 @@ logged_tick(uint16_t buttons, int8_t sx, int8_t sy)
         fzx_input_count = n + 1u;
     }
     ref_tick(buttons, sx, sy);
+#if FZX_SOURCE_ROAD
+    fzx_road_note_tick();
+#endif
 #if FZX_SOURCE_HUD
     RefHud source;
     ref_hud(&source);
@@ -287,6 +290,9 @@ static void
 orig_restart(void)
 {
     ref_race_restart();
+#if FZX_SOURCE_ROAD
+    fzx_road_restart();
+#endif
 #if FZX_SOURCE_HUD
     fzx_hud_clock_reset(&hud_clock);
 #endif
@@ -358,6 +364,12 @@ orig_publish(void)
         for(;;) {}
     }
     fzx_set_camera(&fzx_native_view);
+#if FZX_SOURCE_ROAD
+    if(!fzx_road_publish()) {
+        dbgio_printf("\x1b[H\x1b[2J SOURCE ROAD PLAN FAILED\n");
+        dbgio_flush();vdp2_sync();for(;;) {}
+    }
+#endif
     if(fzx_camera_status!=3)fzx_camera_status=1;
 #endif
 }

@@ -35,6 +35,7 @@
 int ref_road_plan_check(RefRoadPlan *out,unsigned int draw_frame,const unsigned char fog[3]);
 int ref_road_plan_branch_check(void);
 static FILE *road_plan_trace;
+static unsigned char road_plan_fog[3]={203,137,61};
 static void road_plan_gate(int tick) {
     RefRoadPlan plan;
     RefState before,after;
@@ -46,8 +47,7 @@ static void road_plan_gate(int tick) {
     }
     /* Deliberately unequal synthetic channels exercise the source transition
      * math. These are a test input, never a substitute retail environment. */
-    static const unsigned char fog[3]={203,137,61};
-    const int result=ref_road_plan_check(&plan,(unsigned int)tick,fog);
+    const int result=ref_road_plan_check(&plan,(unsigned int)tick,road_plan_fog);
     ref_state(&after); ref_camera(&camera_after);
     if(result || memcmp(&before,&after,sizeof(before)) ||
        memcmp(&camera_before,&camera_after,sizeof(camera_before))) {
@@ -255,6 +255,12 @@ int main(int argc, char** argv) {
     if (camera_path && !(camera_out = fopen(camera_path, "w"))) die("cannot write camera trace");
 #endif
 #if FZX_ROAD_PLAN
+    if(getenv("REF_ROAD_PLAN_FOG")) {
+        unsigned int r,g,b;char tail;
+        if(sscanf(getenv("REF_ROAD_PLAN_FOG"),"%u,%u,%u%c",&r,&g,&b,&tail)!=3 || r>255 || g>255 || b>255)
+            die("invalid road environment color");
+        road_plan_fog[0]=(unsigned char)r;road_plan_fog[1]=(unsigned char)g;road_plan_fog[2]=(unsigned char)b;
+    }
     if(getenv("REF_ROAD_PLAN_TRACE") && !(road_plan_trace=fopen(getenv("REF_ROAD_PLAN_TRACE"),"w")))
         die("cannot write road plan trace");
 #endif

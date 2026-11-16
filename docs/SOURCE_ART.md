@@ -543,3 +543,40 @@ The local 9,907-input route also matches the source planner on every tick, with
 up to 19 groups and 3..62 visible chunks; both interior states, 59 synthetic fog
 colors and all 32 rail-color phases occur. Its race trace remains byte-identical.
 This is planner equivalence, not source-scene visual or performance acceptance.
+
+## Native road planner and environment binding
+
+`FZX_SOURCE_ROAD=1` now publishes that planner packet on SH-2. The receipted
+metadata binds the course record's skybox to the original `Background_Init`
+course-fog table. A separate presentation phase starts at zero on the first
+completed race tick and survives player retries. Debugger replays explicitly
+reset that phase; a held simulation does not advance it or rebuild the packet.
+The race-only closure's graphics-frame global remains untouched. Menus and the
+complete graphics main loop are still outside this partial race integration.
+
+EMULATOR: a 9,907-input race again finishes in 121,814 ms. All nineteen held
+796-byte packets match the HOST oracle bit for bit, including source group
+depths/order, interior-face selection, selected source fog and animated rail
+color. Camera packets also match with zero overflow. Mutating outer selection,
+fog, rail color or group direction makes the readback checker fail. The
+source-only environment tests reject changed table/layout/initialization wiring.
+
+Program SHA256: `38ad491f0342ba518784a3a7dde30ee94958d5e6bfa879715c4525528259b39f`.
+Road-off program identity remains `3d761af2e3f4c6326692d1a289e54f30ca74d352f71bcb544629934c490302b8`.
+The isolated suite has 69 passes and one archive-metadata skip; the subsequent
+readback parser tick-numbering regression test also passes. The parser fix did
+not change the tested image or require a new emulator capture.
+
+| Planner-enabled memory | Footprint |
+| --- | --- |
+| ELF text / data / BSS | 256,104 / 12,112 / 742,208 bytes |
+| High-work-RAM end / stack top | 0x060fab14 / 0x06100000; 21,740-byte static gap |
+| Cartridge road pack | 146,120 bytes, unchanged |
+
+The gap includes SDK user-heap metadata and is not a stack high-water result.
+Native road geometry/textures are not drawn yet; source-scene look, cost, full
+memory use and HARDWARE remain open.
+
+Final source audit `8eaa8445` binds all 179 staged files to the reviewed tree and
+tested program. Changing one generated fog-channel value stops the Saturn
+build at its receipt gate; restoring the bytes makes the gate pass.

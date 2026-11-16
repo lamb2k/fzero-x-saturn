@@ -36,8 +36,8 @@ Limit: 50 lines. Replace this file each session; do not append.
    Moving Blue Falcon now passes 72 host/SH-2 pose/light checks. Native palettes
    still differ visually and are slow. Exact reuse is gated default-off; source
    camera/view passes HOST and SH-2; source-scene performance remains over budget.
-2. Road storage passes EMULATOR; source draw planner passes HOST. Native drawing next.
-   Measure stack high water (26,220-byte static gap) and source-scene cost. Use fixed inputs
+2. Road storage and 19 source planner packets pass EMULATOR. Native drawing next.
+   Measure stack high water (21,740-byte static gap) and source-scene cost. Use fixed inputs
    for comparisons; the live diagnostic autopilot depends on render/catch-up cadence.
 3. Cut 18.5 s setup, load the CPU run-out racing line from ROM, rerun all 10 SH-2
    probes after closure changes, then prepare the owner console run.

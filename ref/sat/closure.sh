@@ -10,6 +10,11 @@ W=$(cd "$(dirname "$0")/../.." && pwd)
 D=$W/upstream/G-Diffuser/decomp
 STUB=$W/ref/build/gcc-O0/stub
 CAMERA=${FZX_SOURCE_CAMERA:-0}
+PLAN=${FZX_ROAD_PLAN:-0}
+[ "$PLAN" = 0 ] || [ "$PLAN:$CAMERA" = 1:1 ] || { echo "road planner requires source camera" >&2; exit 1; }
+if [ "$PLAN" = 1 ]; then
+    bash "$W/tools/check_receipt.sh" "$W/generated/road_plan/course.receipt"
+fi
 [ "$CAMERA" = 0 ] || [ "$CAMERA" = 1 ] || { echo "invalid FZX_SOURCE_CAMERA" >&2; exit 1; }
 if [ "$CAMERA" = 1 ]; then
     ART=${REF_CAMERA_ART:-fixture}
@@ -30,6 +35,7 @@ CFLAGS="-m2 -mb -O2 -fno-fast-math -fno-unsafe-math-optimizations -ffp-contract=
  -I$W/ref -I$STUB -include $W/ref/overrides.h -include $STUB/asset_syms.h"
 SOURCES="src/game/racer.c src/game/course.c src/game/course_gadgets.c src/sys/math.c src/game/EA90.c src/game/common.c src/sys/controller.c src/overlays/ovl_i2/course_context.c src/overlays/ovl_i3/cpu.c src/game/game_context.c src/game/course_gadget_context.c"
 BRIDGES="bridge hooks"
+if [ "$PLAN" = 1 ]; then CFLAGS="-I$D/src/game $CFLAGS"; fi
 if [ "$CAMERA" = 1 ]; then
     CFLAGS="$CFLAGS -DFZX_SOURCE_CAMERA=1 -I$ASSETS"
     SOURCES="$SOURCES src/game/camera.c"
@@ -40,7 +46,11 @@ mkdir -p "$OBJ"
 objs=""
 for s in $SOURCES; do
     o=$OBJ/$(basename "$s" .c).o
-    $CC $CFLAGS -c "$D/$s" -o "$o"
+    if [ "$PLAN:$s" = 1:src/game/course.c ]; then
+        $CC $CFLAGS -c "$W/generated/road_plan/course.c" -o "$o"
+    else
+        $CC $CFLAGS -c "$D/$s" -o "$o"
+    fi
     objs="$objs $o"
 done
 for s in $BRIDGES; do

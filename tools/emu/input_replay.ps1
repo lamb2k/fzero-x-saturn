@@ -14,6 +14,7 @@ param(
     [int]$Port = 9641,
     [int]$TimeoutSeconds = 240,
     [string]$SourceCameraTrace = '',
+    [switch]$SourceRoad,
     [int[]]$HoldTicks = @()
 )
 $ErrorActionPreference = 'Stop'
@@ -43,6 +44,7 @@ if ($SourceCameraTrace) {
 $targets = @(@($HoldTicks)+@($words.Count) | Sort-Object -Unique)
 if (@($targets | Where-Object { $_ -lt 1 -or $_ -gt $words.Count }).Count) { throw 'Hold tick outside replay' }
 $cameraSamples = @()
+$roadSamples = @()
 function Addr([uint32]$a) { '0x{0:X8}' -f $a }
 function S([string]$name) {
     $line = Get-Content -LiteralPath $Sym | Where-Object {
@@ -93,6 +95,8 @@ try {
     }
     WriteWord (S '_fzx_debug_autopilot') 0
     WriteWord (S '_fzx_debug_n64') 0
+    # Explicit test phase; ordinary player retries preserve the animation clock.
+    if ($SourceRoad) { WriteWord (S '_fzx_road_next_frame') 0 }
     WriteWord (S '_fzx_debug_replay_count') $targets[0]
     WriteWord (S '_fzx_debug_restart') 1
     Mcp resume @{} | Out-Null
@@ -106,10 +110,26 @@ try {
             if ($SourceCameraTrace -and (ReadWord (S '_fzx_camera_status')) -ge 2) {
                 throw "Camera renderer fault while advancing to tick $target"
             }
+            if ($SourceRoad -and (ReadWord (S '_fzx_road_plan_status')) -ge 2) {
+                throw "Road planner fault while advancing to tick $target"
+            }
         } while ($done -ne $target -and (Get-Date) -lt $deadline)
         if ($done -ne $target) { throw "Replay did not reach exact tick $target (at $done)" }
         # Simulation is held at N; display remains active for settled capture.
         Start-Sleep -Seconds 1
+        if ($SourceRoad) {
+            $sequence = ReadWord (S '_fzx_road_plan_sequence')
+            $roadHex = Hex (Mcp memory_read @{address=(Addr (S '_fzx_source_road_plan'));length=796})
+            $roadFrame = ReadWord (S '_fzx_road_frame')
+            $roadStatus = ReadWord (S '_fzx_road_plan_status')
+            if ($sequence -eq 0 -or $sequence -ne (ReadWord (S '_fzx_road_plan_sequence')) -or
+                $roadHex.Length -ne 1592 -or $roadFrame -ne $target-1 -or $roadStatus -ne 1) {
+                throw "Unstable or invalid road plan at tick $target"
+            }
+            $roadSamples += @{tick=$target;frame=$roadFrame;status=$roadStatus;sequence=$sequence;plan_hex=$roadHex}
+            $roadSamples | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $OutDir 'road-samples.json')
+            Write-Output "FZX-ROAD tick=$target stable-packet=796 frame=$roadFrame"
+        }
         if ($SourceCameraTrace) {
             $cameraHex = Hex (Mcp memory_read @{address=(Addr (S '_fzx_source_camera'));length=252})
             $cameraStatus = ReadWord (S '_fzx_camera_status')

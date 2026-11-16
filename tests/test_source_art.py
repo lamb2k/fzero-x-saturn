@@ -25,7 +25,56 @@ def literal_mio0(payload):
     return b"MIO0" + struct.pack(">III", len(payload), start, start) + masks + payload
 
 
+def synthetic_setup():
+    """Invented RSP state using gbi.h encodings, no retail command bytes."""
+    def mode(op, shift, length, value):
+        return (op << 24 | (32 - shift - length) << 8 | (length - 1), value << shift)
+    # Synthetic geometry, colorspace/dither and addressing deliberately differ
+    # from retail; the importer must decode fields, not match a ROM byte string.
+    words = [(0xD9000000, 0), (0xD9FFFFFF, 0x60004), (0xDB020000, 48), (0xE7000000, 0),
+             mode(0xE3, 20, 2, 1), mode(0xE2, 3, 29, 3), mode(0xE3, 23, 1, 0),
+             mode(0xE2, 0, 2, 1), mode(0xE3, 16, 1, 0), mode(0xE3, 14, 2, 0),
+             mode(0xE3, 17, 2, 0), mode(0xE3, 19, 1, 1), mode(0xE3, 12, 2, 0),
+             mode(0xE3, 9, 3, 6),
+             (0xFD000000 | 4 << 21 | 2 << 19, 3 << 24 | 0x4618),
+             (0xF5000000 | 4 << 21 | 2 << 19, 7 << 24), (0xE6000000, 0),
+             (0xF3000000, 7 << 24 | 63 << 12 | 2048), (0xE7000000, 0),
+             (0xF5000000 | 4 << 21 | 1 << 9, 2 << 18 | 4 << 14 | 2 << 10 | 1 << 8 | 4 << 4),
+             (0xF2000000, 60 << 12 | 60), (0xDF000000, 0)]
+    return b"".join(struct.pack(">II", *pair) for pair in words)
+
+
+def synthetic_rom():
+    rom = bytearray(0x239A80)
+    setup = synthetic_setup()
+    rom[0x17B1E0 + 0x3A6A8:0x17B1E0 + 0x3A6A8 + len(setup)] = setup
+    return rom
+
+
 class DecoderTests(unittest.TestCase):
+    def test_race_setup_fields_and_rejected_controls(self):
+        data = synthetic_setup()
+        setup = art.machine_setup(data)
+        self.assertEqual(setup["geometry"], 0x60004)
+        self.assertEqual(setup["num_lights"], 2)
+        self.assertEqual(setup["othermode_h"], 1 << 20 | 1 << 19 | 6 << 9)
+        self.assertEqual(setup["othermode_l"], 3 << 3 | 1)
+        tile = setup["tile_zero"]
+        self.assertEqual((tile["s_mode"], tile["t_mode"], tile["t_shift"]), (1, 2, 2))
+        self.assertEqual((tile["width"], tile["height"], tile["line"]), (16, 16, 1))
+        # Unknown/nested commands, missing END, changed load size, bad bitfield,
+        # bad tile role and a changed render size each fail rather than substitute.
+        cases = [data[:-8], data + bytes(8)]
+        for offset, word in [(0, 0xDE000000), (17 * 8 + 4, 7 << 24 | 62 << 12 | 2048),
+                             (4 * 8, 0xE300FFFF), (15 * 8 + 4, 6 << 24),
+                             (20 * 8 + 4, 56 << 12 | 60)]:
+            changed = bytearray(data)
+            struct.pack_into(">I", changed, offset, word)
+            cases.append(changed)
+        for changed in cases:
+            with self.subTest(changed=bytes(changed).hex()[:16]), self.assertRaises(art.ArtError):
+                art.machine_setup(changed)
+
     def test_mio0_literals_and_overlapping_copy(self):
         self.assertEqual(art.mio0(literal_mio0(b"synthetic texture")), b"synthetic texture")
         # A literal then seven copies of the previous byte. Reads its own output.
@@ -82,7 +131,7 @@ class RecipeTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         # The sizes/positions are synthetic and have no relation to retail art.
-        rom = bytearray(0x239A80)
+        rom = synthetic_rom()
         struct.pack_into(">hhhHhhbbbB", rom, 0x17B1E0 + 0x40F8,
                          -123, 456, -789, 0, -64, 1024, -127, 0, 126, 255)
         cls.source = art.SourceArt(bytes(rom))
@@ -131,12 +180,22 @@ class RecipeTests(unittest.TestCase):
     def test_texture_binding_and_hud_sources(self):
         bindings = self.source.texture_bindings()
         self.assertEqual([b["tile"] for b in bindings], list(range(8)))
-        self.assertIsNone(bindings[0]["symbol"])
-        for b in bindings[1:]:
+        self.assertEqual(bindings[0]["symbol"], "D_3004618")
+        for b in bindings:
             self.assertGreater(len(self.source.texture(b["symbol"])["rgba"]), 0)
         for name in art.HUD:
             t = self.source.texture(name)
             self.assertEqual(t["format"], "RGBA16")
+
+    def test_setup_metadata_mismatch_control(self):
+        original = dict(self.source.rows["D_3004618"])
+        try:
+            for field, value in [("width", 32), ("format", "RGBA16"), ("offset", 0x4619)]:
+                self.source.rows["D_3004618"] = dict(original, **{field: value})
+                with self.subTest(field=field), self.assertRaises(art.ArtError):
+                    self.source.race_setup()
+        finally:
+            self.source.rows["D_3004618"] = original
 
     def test_compressed_venue_offsets_use_decoded_segment(self):
         rom = bytearray(0x239A80)
@@ -180,7 +239,7 @@ class RecipeTests(unittest.TestCase):
             self.assertFalse(output.exists())
 
     def test_synthetic_export_receipt_and_mutation(self):
-        rom = bytes(0x239A80)
+        rom = bytes(synthetic_rom())
         source = art.SourceArt(rom)
         source.segments["mute_city_textures"] = bytes(0x7000)
         with tempfile.TemporaryDirectory() as folder, \
@@ -191,7 +250,7 @@ class RecipeTests(unittest.TestCase):
             output = Path(folder)
             with mock.patch.dict(os.environ, {"FZX_EVIDENCE": folder}):
                 summary = art.export(rom, output)
-            self.assertEqual(summary["textures"], 21)
+            self.assertEqual(summary["textures"], 22)
             self.assertEqual(summary["lod_triangles"], [132, 96, 64, 24, 11])
             manifest = json.loads((output / "source_art.json").read_text())
             self.assertEqual(manifest["uv_fraction_bits"], 5)
@@ -217,7 +276,7 @@ class RecipeTests(unittest.TestCase):
             with mock.patch.dict(os.environ, {"FZX_EVIDENCE": folder}):
                 summary = art.export(rom, output)
             self.assertEqual(summary["lod_triangles"], [132, 96, 64, 24, 11])
-            self.assertEqual(summary["textures"], 21)
+            self.assertEqual(summary["textures"], 22)
             for line in (output / "source_art.receipt").read_text().splitlines():
                 if line.startswith("output "):
                     _, digest, name = line.split()

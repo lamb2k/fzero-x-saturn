@@ -43,6 +43,105 @@ class ArtError(ValueError):
     """Unsupported source or malformed asset; never silently substitute art."""
 
 
+def machine_setup(data: bytes) -> dict:
+    """Decode only the stock race machine setup, offline, with no execution.
+
+    No calls, branches, vertex commands or arbitrary display lists are accepted.
+    Retain inherited RSP/RDP state; a native renderer must explicitly implement
+    or reject it. This does not claim that ordinary N64 texgen implements FZX's
+    patched race microcode (Racer_Draw also uploads D_800CE3D0).
+    """
+    if not data or len(data) % 8 or len(data) > 256:
+        raise ArtError("Invalid race setup span")
+    expected_ops = [0xD9, 0xD9, 0xDB, 0xE7, 0xE3, 0xE2, 0xE3, 0xE2,
+                    0xE3, 0xE3, 0xE3, 0xE3, 0xE3, 0xE3, 0xFD, 0xF5,
+                    0xE6, 0xF3, 0xE7, 0xF5, 0xF2, 0xDF]
+    if list(data[::8]) != expected_ops:
+        raise ArtError("Unsupported race setup recipe")
+    state = dict(geometry=0, othermode_h=0, othermode_l=0)
+    tiles, sizes, images, loads, lights = {}, {}, [], [], []
+    ended = False
+    for offset in range(0, len(data), 8):
+        w0, w1 = struct.unpack_from(">II", data, offset)
+        op = w0 >> 24
+        if op == 0xDF:
+            if w0 != 0xDF000000 or w1 or offset != len(data) - 8:
+                raise ArtError("Invalid race setup termination")
+            ended = True
+        elif op == 0xD9:
+            state["geometry"] = (state["geometry"] & (w0 & 0xFFFFFF)) | w1
+        elif op == 0xDB:
+            if w0 != 0xDB020000 or w1 % 24 or w1 > 7 * 24:
+                raise ArtError("Unsupported race setup move-word")
+            lights.append(w1 // 24)
+        elif op in (0xE2, 0xE3):
+            length = (w0 & 255) + 1
+            shift = 32 - ((w0 >> 8) & 255) - length
+            if w0 & 0x00FF0000 or not 0 <= shift < 32 or length > 32:
+                raise ArtError("Invalid race setup othermode range")
+            mask = ((1 << length) - 1) << shift
+            if w1 & ~mask:
+                raise ArtError("Race setup othermode exceeds its field")
+            key = "othermode_h" if op == 0xE3 else "othermode_l"
+            state[key] = (state[key] & ~mask) | w1
+        elif op == 0xFD:
+            if w0 & 0x0007F000:
+                raise ArtError("Invalid race setup texture image")
+            images.append(dict(format=(w0 >> 21) & 7, size=(w0 >> 19) & 3,
+                               width=(w0 & 0xFFF) + 1, address=w1))
+        elif op == 0xF5:
+            tile = (w1 >> 24) & 7
+            if w1 & 0xF8000000 or tile in tiles:
+                raise ArtError("Invalid or duplicate race setup tile")
+            tiles[tile] = dict(format=(w0 >> 21) & 7, size=(w0 >> 19) & 3,
+                               line=(w0 >> 9) & 511, tmem=w0 & 511,
+                               palette=(w1 >> 20) & 15,
+                               t_mode=(w1 >> 18) & 3, t_mask=(w1 >> 14) & 15,
+                               t_shift=(w1 >> 10) & 15, s_mode=(w1 >> 8) & 3,
+                               s_mask=(w1 >> 4) & 15, s_shift=w1 & 15)
+        elif op in (0xF2, 0xF3):
+            tile = (w1 >> 24) & 7
+            if w1 & 0xF8000000:
+                raise ArtError("Invalid race setup tile coordinates")
+            coords = [(w0 >> 12) & 4095, w0 & 4095,
+                      (w1 >> 12) & 4095, w1 & 4095]
+            if op == 0xF2:
+                if tile in sizes:
+                    raise ArtError("Duplicate race setup tile size")
+                sizes[tile] = coords
+            else:
+                loads.append(dict(tile=tile, coordinates=coords))
+        elif op in (0xE6, 0xE7):
+            if w0 & 0xFFFFFF or w1:
+                raise ArtError("Invalid race setup synchronization")
+        else:
+            raise ArtError("Unsupported race setup command")
+    if not ended or len(images) != 1 or len(loads) != 1 or len(lights) != 1:
+        raise ArtError("Incomplete race setup")
+    if set(tiles) != {0, 7} or set(sizes) != {0} or loads[0]["tile"] != 7:
+        raise ArtError("Unsupported race setup tile roles")
+    image, tile, load = images[0], tiles[0], loads[0]
+    # The source uses an I16 block load to bring an I4 tile into TMEM.
+    if (image["format"], image["size"], image["width"]) != (4, 2, 1):
+        raise ArtError("Unsupported race setup texture transfer")
+    if (tile["format"], tile["size"], tile["tmem"], tile["palette"]) != (4, 0, 0, 0):
+        raise ArtError("Unsupported race setup render texture")
+    if (tiles[7]["format"], tiles[7]["size"], tiles[7]["tmem"]) != (4, 2, 0):
+        raise ArtError("Unsupported race setup load texture")
+    u0, v0, u1, v1 = sizes[0]
+    if u0 or v0 or u1 % 4 or v1 % 4:
+        raise ArtError("Unsupported race setup texture extent")
+    width, height = u1 // 4 + 1, v1 // 4 + 1
+    if tile["line"] * 8 != (width + 1) // 2 or load["coordinates"][:2] != [0, 0]:
+        raise ArtError("Race setup texture stride mismatch")
+    if (load["coordinates"][2] + 1) * 2 != (width * height + 1) // 2:
+        raise ArtError("Race setup texture load length mismatch")
+    return dict(**state, num_lights=lights[0], texture_image=image,
+                tile_zero=dict(**tile, width=width, height=height),
+                load=load, source_sha256=sha(data),
+                race_patch="D_800CE3D0 at RSP DMEM 0x8B0; FLX reflection alpha, authored UVs retained")
+
+
 def sha(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
@@ -289,10 +388,31 @@ class SourceArt:
             bindings.append(dict(tile=int(args[3]), symbol=args[1], source_command=command, arguments=args[2:]))
         if [b["tile"] for b in bindings] != list(range(1, 8)):
             raise ArtError("Incomplete Blue Falcon texture bindings")
-        # Tile zero is inherited from the source machine setup display list.
-        # Do not invent a texture: retain this explicit unresolved dependency.
-        bindings.insert(0, dict(tile=0, symbol=None, dependency="D_303A6A8 race setup / look-at material"))
+        setup = self.race_setup()
+        bindings.insert(0, dict(tile=0, symbol=setup["texture_symbol"],
+                               source_setup="D_303A6A8", sampling=setup["tile_zero"]))
         return bindings
+
+    def race_setup(self) -> dict:
+        row = self.rows["D_303A6A8"]
+        if row["type"] != "GFX":
+            raise ArtError("Missing race setup metadata")
+        end = min(r["offset"] for r in self.rows.values()
+                  if r["family"] == row["family"] and r["offset"] > row["offset"])
+        setup = machine_setup(bounded(self.segments[row["family"]], row["offset"], end - row["offset"]))
+        address = setup["texture_image"]["address"]
+        if address >> 24 != 3:
+            raise ArtError("Race setup texture must use machine custom segment")
+        matches = [name for name, r in self.rows.items()
+                   if r["family"] == "machine_custom_gfx" and r["offset"] == address & 0xFFFFFF
+                   and r["type"] == "TEXTURE"]
+        if len(matches) != 1:
+            raise ArtError("Race setup texture has no unique source metadata")
+        name = matches[0]
+        texture, tile = self.rows[name], setup["tile_zero"]
+        if (texture["format"], texture["width"], texture["height"]) != ("I4", tile["width"], tile["height"]):
+            raise ArtError("Race setup texture disagrees with source metadata")
+        return dict(**setup, texture_symbol=name)
 
 
 def verify_source(decomp: Path):
@@ -331,8 +451,8 @@ def export(rom: bytes, out: Path, decomp: Path = DECOMP) -> dict:
                     rom_sha256=provenance["normalized_rom_sha256"], source_inputs=source.inputs,
                     model_scale_game_units=[0.1, 0.1, 0.1], uv_fraction_bits=5,
                     color_expansion="G-Diffuser tools/n64_texels.py: RGB5 floor(v*255/31), IA3 v*36",
-                    models=models, texture_bindings=bindings, textures=textures,
-                    unresolved=["Tile 0 machine setup/look-at state", "Native model material rendering and lighting",
+                    models=models, texture_bindings=bindings, textures=textures, race_setup=source.race_setup(),
+                    unresolved=["Race microcode texture generation/look-at behavior", "Native model material rendering and lighting",
                                 "Source model pose/camera integration", "Source-reference still/motion comparison"])
     outputs["source_art.json"] = (json.dumps(manifest, indent=2) + "\n").encode()
     out.mkdir(parents=True, exist_ok=True)

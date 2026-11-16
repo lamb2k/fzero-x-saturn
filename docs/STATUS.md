@@ -71,8 +71,8 @@ road/scenery/camera, full HUD/UI/audio and full-game coverage remain incomplete.
 
 ## Source-art extraction probe (2026-11-15)
 
-Five Blue Falcon LODs and 21 textures exported from verified retail ROM. HOST:
-47 Python tests pass, no skips; source HUD/layout/flash oracles and mutation controls.
+Five Blue Falcon LODs, eight model texture slots and 22 textures exported. HOST:
+49 tests pass, no skips; HUD/flash oracles and bounded race-setup mutation controls.
 FZX_SOURCE_HUD=1 draws timer/speed/lap/energy art and source-timed lap flashes.
 Stale assets fail the build. EMULATOR: 9,907 fixed inputs finish in 121,814 ms,
 equal to host on isolated 86ea5d3. Source-reference visuals and HARDWARE unrun.

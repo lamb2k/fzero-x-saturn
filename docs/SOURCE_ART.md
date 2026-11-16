@@ -31,8 +31,8 @@ tree, after resolving symlinks; tracked repository destinations are refused.
 
 | Required content | Extraction | Native rendering / acceptance |
 | --- | --- | --- |
-| Blue Falcon, five authored LODs | Verified retail export and synthetic decoder gates pass | Open: inherited tile-zero setup/look-at material, lighting, source model pose and native texture submission |
-| Basic speed/time/lap/energy HUD sheets | Verified retail RGBA16 export; 14,080-byte native atlas | Timer/speed/lap draw on VDP1 from race state; energy, flash/countdown/results, source-reference comparison open |
+| Blue Falcon, five authored LODs | Verified retail export, eight texture slots and bounded race-setup decoder gates pass | Open: native reflection/lighting, source model pose and texture submission |
+| Basic speed/time/lap/energy HUD sheets | Verified retail RGBA16 export; 14,080-byte native atlas | Timer/speed/lap/energy and lap flash draw on VDP1; countdown/results and source-reference comparison open |
 | Mute City road materials | Verified retail MIO0 decode and seven RGBA16 surfaces | Open: source cross sections, material selection, UV seams and ordered traversal |
 | Mute City floor, skyline, clouds, sky | Source locations identified | Open |
 | Dash/pit, other effects, countdown and finish | Source coverage incomplete | Open |
@@ -173,3 +173,24 @@ Its newly built source closure SHA256 is
 Source-reference still/motion comparisons, full scene budgets and physical Saturn
 acceptance are unrun. The next art work is the remaining HUD state plus native
 Blue Falcon materials, source road geometry/camera, scenery/effects and audio.
+
+## Inherited machine setup
+
+The offline importer now decodes the bounded stock race setup `D_303A6A8` and
+resolves its tile-zero image to `D_3004618`, an I4 16x16 cockpit texture. All eight
+Blue Falcon texture slots are accounted for: the local export has 22 textures.
+The private manifest retains geometry/othermode bits, light count, texture load,
+tile addressing and setup hash. Unsupported command sequences, nested lists,
+bad tile roles, transfer lengths and metadata mismatches fail explicitly. This
+decoder never executes lists and is not a runtime N64 interpreter.
+
+HOST: all 49 Python tests pass with the verified ROM, including synthetic setup
+fields and malformed-command controls. No runtime code changes in this slice.
+The existing source HUD atlas remains 14,080 bytes; the added I4 image does not
+use the binary-alpha RGB1555 conversion intended for HUD/road textures.
+
+The pinned G-Diffuser renderer's FLX path preserves authored UVs and uses the
+race LookAtY vector plus `D_800CE3D0` lookup table for vertex reflection alpha.
+This is an HLE implementation reference, not instruction-level RSP validation:
+[pinned implementation](https://github.com/Zorkats/libultraship/blob/7c2354576a4a0ded4e83a31b558c7165cddc1ecb/src/fast/interpreter.cpp#L2954).
+Native lighting/reflection and source-reference motion comparison remain open.

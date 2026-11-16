@@ -15,12 +15,38 @@ static void sprite(fzx_hud_list_t *out, const fzx_hud_atlas_t *atlas,
     };
 }
 
+static void fill(fzx_hud_list_t *out, int x, int y, unsigned width, uint16_t color)
+{
+    out->draws[out->count++] = (fzx_hud_draw_t){
+        0, (int16_t)x, (int16_t)y, (uint16_t)width, 1, color
+    };
+}
+
+#define RGB(r,g,b) (0x8000u | ((r)>>3) | (((g)>>3)<<5) | (((b)>>3)<<10))
+static void energy(fzx_hud_list_t *out, const fzx_hud_snapshot_t *state)
+{
+    /* hud.c's RGBA5551 fill words. Row 3 alternates two red levels: do not
+     * flatten it to a gradient. Draw its even color then overwrite odd pixels.
+     * Five rows + 34 odd pixels is the bounded worst case (59 total HUD draws). */
+    static const uint16_t colors[2][5] = {
+        {RGB(155,0,0), RGB(220,0,0), RGB(255,0,0), RGB(220,0,0), RGB(155,0,0)},
+        {RGB(0,255,0), RGB(0,255,20), RGB(0,195,35), RGB(0,160,50), RGB(0,135,70)}
+    };
+    if (state->finished || state->energy_width == 0) return;
+    for (unsigned y = 0; y < 5; ++y)
+        fill(out, 222, 28+(int)y, state->energy_width, colors[state->can_boost][y]);
+    if (!state->can_boost)
+        for (unsigned x = 1; x < state->energy_width; x += 2)
+            fill(out, 222+(int)x, 31, 1, RGB(230,0,0));
+}
+#undef RGB
+
 bool fzx_hud_build(const fzx_hud_atlas_t *atlas, const fzx_hud_snapshot_t *state,
                    fzx_hud_list_t *output)
 {
     if (!atlas || !state || !output || atlas->bytes > 0x6bfe0u ||
         state->speed_kmh > 9999u || state->total_laps < 1u ||
-        state->total_laps > 5u || state->lap < 1u) return false;
+        state->total_laps > 5u || state->lap < 1u || state->energy_width > 68u) return false;
     uint32_t end = 0;
     for (unsigned i = 0; i < FZX_HUD_TEXTURES; ++i) {
         const fzx_hud_texture_t *t = &atlas->textures[i];
@@ -41,12 +67,14 @@ bool fzx_hud_build(const fzx_hud_atlas_t *atlas, const fzx_hud_snapshot_t *state
     for (unsigned i = 0; i < 8; ++i)
         sprite(&out, atlas, FZX_HUD_TIMER, digits[i]*16u, 16, 230+(int)i*8, 38);
     if (!state->finished) {
+        sprite(&out, atlas, FZX_HUD_ENERGY, 0, 16, 220, 20);
         const unsigned lap = state->lap < state->total_laps ? state->lap : state->total_laps;
         sprite(&out, atlas, FZX_HUD_LAP, 0, 12, 66, 20);
         sprite(&out, atlas, FZX_HUD_LAP_SYMBOLS, lap*12u, 12, 66, 34);
         sprite(&out, atlas, FZX_HUD_LAP_SYMBOLS, 0, 12, 74, 34);
         sprite(&out, atlas, FZX_HUD_LAP_SYMBOLS, state->total_laps*12u, 12, 82, 34);
     }
+    energy(&out, state);
     /* Source black backing covers the middle two digit columns. */
     out.draws[out.count++] = (fzx_hud_draw_t){0,238,204,24,16,0x8000};
     uint32_t remainder = state->speed_kmh, divisor = 1000;

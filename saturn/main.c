@@ -335,12 +335,17 @@ commands_build(const fzx_frame_t *frame)
 
     uint32_t draw_count = count;
 #if FZX_SOURCE_HUD
+    /* Racer_InitRacer sets energy=maxEnergy, and maxEnergy is immutable
+     * in this source race closure. Capture its initial value before any ticks. */
+    const float energy_pixels = (orig_pose.energy / orig_start_energy) * 68.0f + 0.5f;
     const fzx_hud_snapshot_t state = {
         /* Hud_UpdatePlayerHudInfo rounds the normal race timer with +5 ms. */
         (uint32_t)(orig_pose.race_time > 0 ? orig_pose.race_time : 0) + 5u,
         (uint32_t)(orig_pose.speed > 0.0f ? orig_pose.speed * 21.6f + 0.5f : 0.0f),
         (uint16_t)(orig_pose.lap > 0 ? orig_pose.lap : 1), RACE_LAPS,
-        (orig_pose.state_flags & RACER_FINISHED) != 0
+        (orig_pose.state_flags & RACER_FINISHED) != 0,
+        (uint16_t)(energy_pixels > 68.0f ? 68 : energy_pixels > 0.0f ? (unsigned)energy_pixels : 0),
+        (orig_pose.state_flags & (1 << 20)) != 0 /* RACER_STATE_CAN_BOOST */
     };
     if (!fzx_hud_build(&fzx_hud_atlas, &state, &hud_draws) ||
         !fzx_hud_vdp1(&commands[COMMAND_FIRST_POLYGON+count], FZX_HUD_MAX_DRAWS,

@@ -19,8 +19,10 @@ Limit: 50 lines. Replace this file each session; history lives in git.
   and native model cost need work. Road drawing is not yet within budget.
 - Source sky and skyline now draw natively. Original skyline images remain 64x64
   CI4; tint and ordered alpha coverage are prebaked. No per-frame conversion.
-- Isolated native replay passes 19 views / 114 original skyline placements and
-  finishes three laps in 121,814 ms. Stack guard is 6,908 bytes; high RAM is tight.
+- CD-loaded skyline passes 19 views / 114 original placements and three laps in
+  121,814 ms. Stack guard is 8,860 bytes; high-RAM end is now 0x060fc934.
+- Boot CD integrity/readback checks reject bad assets before the race. Scratch lies
+  after original low-RAM variables; both guards pass a second full-race replay.
 - Skyline drawing costs 0.82-0.99 ms (MODELLED); sky costs about 1.34-1.88 ms.
   Neither is whole-scene timing. HARDWARE and final visual acceptance remain open.
 - Boot/selection, source floor/cloud, complete HUD/results/effects and audio
@@ -28,8 +30,8 @@ Limit: 50 lines. Replace this file each session; history lives in git.
 
 ## Next work
 
-1. Native sky/skyline are gated. Preserve older road/hitch/divider WIP locally.
-   Before more embedded assets, address high-RAM residency (end 0x060fd0d4).
+1. CD loader is admitted. Preserve older road/hitch/divider WIP locally.
+   Move the original 14,080-byte HUD atlas through the same CD loader.
 2. Integrate original floor/cloud assets through Saturn-native rendering. Prebake
    conversions; avoid per-frame texture conversion or software shading.
 3. Use shared native road textures/subdivision; whole-patch bake exceeded VRAM.

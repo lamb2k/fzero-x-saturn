@@ -11,6 +11,7 @@ FZX_SOURCE_HUD ?= 0
 FZX_SOURCE_CAMERA ?= 0
 FZX_SOURCE_SKY ?= 0
 FZX_SOURCE_SKYLINE ?= 0
+FZX_SKYLINE_CD ?= 0
 FZX_SKY_SIMPLIFY ?= 0
 ifneq ($(filter $(FZX_SKY_SIMPLIFY),0 1),$(FZX_SKY_SIMPLIFY))
 $(error FZX_SKY_SIMPLIFY must be 0 or 1)
@@ -132,6 +133,19 @@ else ifneq ($(FZX_SOURCE_SKYLINE),0)
 $(error FZX_SOURCE_SKYLINE must be 0 or 1)
 endif
 
+ifeq ($(FZX_SKYLINE_CD),1)
+ifneq ($(FZX_SOURCE_SKYLINE),1)
+$(error FZX_SKYLINE_CD=1 requires FZX_SOURCE_SKYLINE=1)
+endif
+SH_CFLAGS += -DFZX_SKYLINE_CD=1
+FZX_SKY_SRCS += texture_cd.c
+ifneq ($(FZX_SOURCE_ROAD),1)
+FZX_SKY_SRCS += road_cd.c
+endif
+else ifneq ($(FZX_SKYLINE_CD),0)
+$(error FZX_SKYLINE_CD must be 0 or 1)
+endif
+
 # Partial native HUD integration; source scene/audio gates remain open.
 ifeq ($(FZX_SOURCE_HUD),1)
 ifneq ($(FZX_SIM),orig)
@@ -185,7 +199,17 @@ include $(YAUL_INSTALL_ROOT)/share/build.post.iso-cue.mk
 
 ifeq ($(FZX_SOURCE_ROAD),1)
 $(SH_OUTPUT_PATH)/$(SH_PROGRAM).iso: ../generated/road_pack/ROAD.PAK
-pre-build-iso:
+pre-build-iso: stage-road-pack
+.PHONY: stage-road-pack
+stage-road-pack:
 	mkdir -p $(IMAGE_DIRECTORY)
 	cp ../generated/road_pack/ROAD.PAK $(IMAGE_DIRECTORY)/ROAD.PAK
+endif
+ifeq ($(FZX_SKYLINE_CD),1)
+$(SH_OUTPUT_PATH)/$(SH_PROGRAM).iso: ../generated/skyline/SKYLINE.PAK
+pre-build-iso: stage-skyline-pack
+.PHONY: stage-skyline-pack
+stage-skyline-pack:
+	mkdir -p $(IMAGE_DIRECTORY)
+	cp ../generated/skyline/SKYLINE.PAK $(IMAGE_DIRECTORY)/SKYLINE.PAK
 endif

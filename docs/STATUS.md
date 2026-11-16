@@ -29,20 +29,21 @@ performance for the content-bearing port. HARDWARE remains UNRUN.
 | Source models | Five Blue Falcon LODs and 22 textures exported; 72 pose/light checks pass. Native palette appearance and cost remain open |
 | Source HUD | Timer, speed, lap, energy and lap flashes integrated under FZX_SOURCE_HUD=1; countdown/results/effects remain open |
 | Source camera | 19 held SH-2 packets match; view/look-back replay finishes correctly |
-| Source road | 300 chunks / 4,966 triangles, 146,120 cartridge bytes admitted. Materials/planner pass HOST gates; software rendering costs 132–165 fields/view and whole-patch baking exceeds VRAM |
+| Source road | 300 chunks / 4,966 triangles, 146,120 cartridge bytes admitted. Materials/planner pass HOST gates; software rendering costs 132Ã¢â‚¬â€œ165 fields/view and whole-patch baking exceeds VRAM |
 | Source scene | Backdrop/skyline state pass 256 SH-2 probes. Native sky supports original geometry/colors and an offline-selected smooth gradient; original skyline drawing is admitted; floor/cloud drawing remains open |
-| Gates 2–5 | Native scene, entry/results/audio, pad-only acceptance, full-route cost/memory and final soak remain incomplete |
+| Gates 2Ã¢â‚¬â€œ5 | Native scene, entry/results/audio, pad-only acceptance, full-route cost/memory and final soak remain incomplete |
 | Gate 6 | Full-game content/modes/opponents/progression/persistence remain planned |
 
 ## Current card
 
-Native original skyline is admitted from an isolated source tree. Four original
-64x64 CI4 images retain source tint/placements; vertical alpha is prebaked as ordered
-coverage for Saturn. No runtime asset conversion. HOST tests/controls pass.
-EMULATOR: 19 held views / 114 source placements match; all 9,907 inputs finish three
-laps in 121,814 ms. Skyline drawing is 0.82-0.99 ms (MODELLED), not full-scene timing.
-High-work-RAM end is 0x060fd0d4; 6,908 bytes of painted stack guard remain. Further
-content needs a residency/loading change. See [SOURCE_ART.md](SOURCE_ART.md).
+Original skyline now has a default-off boot CD loading path, with the same 8,320
+pixel/palette bytes in VDP1. Pack receipts, size/hash checks and readback reject bad
+content; a corrupted-disc control stops before race initialization. HOST controls
+pass; knob-off binary is byte-identical. The clean candidate finishes 9,907 inputs
+in 121,814 ms with matching final pose and all 19 source scene packets.
+High-RAM end is 0x060fc934 (1,952 bytes saved); full-race stack guard is 8,860 bytes.
+Low-RAM scratch occupies 0x0026b0c0..0x0026bac0 after original variables; both guards
+remain intact through a second full replay. See SOURCE_ART.md.
 
 ## Local experiments retained
 
@@ -52,7 +53,7 @@ No release, ROM-derived publication, SD write or physical acceptance occurred.
 
 ## Next
 
-Native sky/skyline are admitted. Plan remaining asset residency before adding floor
-and clouds from original prebaked assets; use shared native textures for
-road work instead of per-frame software conversion. Then integrate the original
+Move the original 14,080-byte HUD atlas through the admitted CD loader.
+Use the recovered RAM for original floor/cloud drawing and shared native road
+textures instead of per-frame software conversion. Then integrate the original
 machine, entry/selection, race presentation/audio and full-course acceptance.

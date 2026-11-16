@@ -17,6 +17,7 @@ param(
     [switch]$SourceRoad,
     [switch]$SourceSky,
     [switch]$SourceSkyline,
+    [switch]$TextureCd,
     [int[]]$HoldTicks = @()
 )
 $ErrorActionPreference = 'Stop'
@@ -242,6 +243,22 @@ try {
             untouched_guard_bytes=$firstChanged-$start;hardware='UNRUN'} |
             ConvertTo-Json | Set-Content -LiteralPath (Join-Path $OutDir 'sky-stack.json')
         if ($firstChanged -le $start) {throw 'Sky candidate exhausted its painted stack guard'}
+    }
+    if ($TextureCd) {
+        if (-not $SourceSky) {Mcp pause @{} | Out-Null}
+        $address=S '_fzx_texture_cd_status'
+        $values=@(0..6 | ForEach-Object {ReadWord ($address+$_*4)})
+        $start=$values[4];$end=$values[5]
+        if ($values[0] -ne 1 -or $values[1] -ne 8320 -or $values[2] -ne 5 -or $values[6] -ne 0 -or
+            $start -lt (S '_sat_stub_data_end') -or $end -gt 0x00300000 -or $end -le $start -or ($start -band 31)) {
+            throw 'Invalid native texture CD load status or scratch bounds'
+        }
+        $before=Hex (Mcp memory_read @{address=(Addr $start);length=32})
+        $after=Hex (Mcp memory_read @{address=(Addr ($end-32));length=32})
+        if ($before -ne ('39A5C27E'*8) -or $after -ne ('39A5C27E'*8)) {throw 'Texture CD scratch guard changed'}
+        @{tier='EMULATOR';status=$values[0];bytes=$values[1];sectors=$values[2];hash=('{0:X8}' -f $values[3]);
+            scratch_start=$start;scratch_end=$end;guards_intact=$true} |
+            ConvertTo-Json | Set-Content -LiteralPath (Join-Path $OutDir 'texture-cd.json')
     }
     Write-Output "FZX-REPLAY PASS words=$done lap=$lap finish_ms=$raceTime"
 } finally {

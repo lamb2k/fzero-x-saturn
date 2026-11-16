@@ -72,7 +72,7 @@ if [ "$CAMERA" = 1 ]; then
     chroot "$IMG" /bin/bash -c "source /yaul-env.sh && export PATH=\"\$YAUL_INSTALL_ROOT/bin:\$PATH\" && \
         FZX_FASTFLOAT=1 FZX_SOURCE_CAMERA=1 FZX_ROAD_PLAN=$PLAN FZX_SOURCE_SKY=$SKY FZX_SOURCE_SKYLINE=$SKYLINE REF_CAMERA_ART=$ART bash /work/ref/sat/closure.sh /work/saturn/build-orig-camera && \
         make -B -C /work/saturn FZX_SIM=orig FZX_IMPORTED=1 FZX_SOURCE_CAMERA=1 \
-          FZX_CLOSURE=/work/saturn/build-orig-camera/ref_closure.o FZX_ROM_BOOT=$ROM_BOOT FZX_SOURCE_HUD=${FZX_SOURCE_HUD:-0} FZX_SOURCE_SKY=$SKY FZX_SKY_SIMPLIFY=${FZX_SKY_SIMPLIFY:-0} FZX_SOURCE_SKYLINE=$SKYLINE"
+          FZX_CLOSURE=/work/saturn/build-orig-camera/ref_closure.o FZX_ROM_BOOT=$ROM_BOOT FZX_SOURCE_HUD=${FZX_SOURCE_HUD:-0} FZX_SOURCE_SKY=$SKY FZX_SKY_SIMPLIFY=${FZX_SKY_SIMPLIFY:-0} FZX_SOURCE_SKYLINE=$SKYLINE FZX_SKYLINE_CD=${FZX_SKYLINE_CD:-0}"
     echo "built source-camera original-race image"
     exit 0
 fi

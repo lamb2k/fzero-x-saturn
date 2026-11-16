@@ -1,14 +1,34 @@
 #include "skyline_native.h"
+#ifndef FZX_SKYLINE_CD
+#define FZX_SKYLINE_CD 0
+#endif
+#if FZX_SKYLINE_CD
+#include "skyline_identity.h"
+#include "texture_cd.h"
+extern unsigned char sat_stub_data_end[];
+#else
 #include "skyline_pixels.h"
+#endif
 #include <string.h>
 _Static_assert(!FZX_SKYLINE_FIXTURE,"Original race skyline requires local source art");
+#if !FZX_SKYLINE_CD
 _Static_assert(sizeof(fzx_skyline_pixels)==FZX_SKYLINE_VRAM_BYTES,"skyline VRAM span");
+#else
+_Static_assert(FZX_SKYLINE_PACK_BYTES==FZX_SKYLINE_VRAM_BYTES,"skyline CD span");
+#endif
 RefSkyline fzx_source_skyline;
 fzx_skyline_stats_t fzx_skyline_stats;
 volatile uint32_t fzx_skyline_status,fzx_skyline_busy,fzx_skyline_ticks;
 static bool ready,published;
 static uint32_t published_tick;
 bool fzx_skyline_load(void *vram) {
+#if FZX_SKYLINE_CD
+    const uintptr_t begin=((uintptr_t)sat_stub_data_end+31u)&~(uintptr_t)31u;
+    if(begin<0x00200000u || begin>=0x00300000u ||
+       fzx_texture_cd_scratch_bytes()>0x00300000u-begin)return false;
+    return fzx_texture_cd_load("SKYLINE.PAK",FZX_SKYLINE_PACK_BYTES,FZX_SKYLINE_PACK_HASH,
+                               vram,(void *)begin,0x00300000u-begin);
+#else
     if(!vram || ((uintptr_t)vram&7u))return false;
     volatile uint32_t *out=vram;
     for(unsigned i=0;i<FZX_SKYLINE_VRAM_BYTES/4u;++i) {
@@ -18,6 +38,7 @@ bool fzx_skyline_load(void *vram) {
         uint32_t value;memcpy(&value,&fzx_skyline_pixels[i*4u],4);if(out[i]!=value)return false;
     }
     return true;
+#endif
 }
 void fzx_skyline_restart(void){ready=false;published=false;fzx_skyline_status=0;}
 bool fzx_skyline_publish(uint32_t tick) {

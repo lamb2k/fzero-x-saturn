@@ -601,7 +601,7 @@ source diagonals while splitting into repeating UV tiles still needs about
 22.4 MB. Visible tile charts reach 2.16 MB. Screen-sized collapsed-triangle
 charts reach 449,072 bytes after required size splits, before HUD/commands.
 Screen-aligned masked charts of each original triangle's clipped polygon are
-estimated at 82,272Ã¢â‚¬â€œ360,176 bytes, plus 14,080 HUD bytes. They are the next
+estimated at 82,272ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Å“360,176 bytes, plus 14,080 HUD bytes. They are the next
 bounded native experiment; sampling/upload cost and raster fidelity are unrun.
 No texture downsampling, topology change or performance acceptance follows
 from these allocation estimates.
@@ -620,7 +620,7 @@ interpolation, painter order, outer walls, material changes and capacity failure
 UBSan and six deliberate coverage/perspective/overflow/order/wall/material faults
 exercise the relevant controls. At 19 saved race camera/plan packets, HOST draws
 at most 419 charts; atlas use is
-69,344â€“308,800 bytes and the largest tested rectangle workload is 154,400 pixels.
+69,344Ã¢â‚¬â€œ308,800 bytes and the largest tested rectangle workload is 154,400 pixels.
 These local views prove bounded generation, not source-reference visual fidelity.
 The new module is not yet linked into the committed race recipe. Native frame
 cost, full-route draw/stack limits, source look comparisons and HARDWARE remain open.
@@ -703,7 +703,7 @@ background state. It does not execute the asset loader, consume simulation RNG,
 or introduce a Saturn rendering path. The selected venue is Mute City, one player;
 cloud velocities, pool choice and pause are explicit inputs.
 
-GCC/Clang at O2 match across T01–T10 with unchanged camera-only simulation hashes.
+GCC/Clang at O2 match across T01â€“T10 with unchanged camera-only simulation hashes.
 The local 9,907-input Mute City replay matches every source packet across both
 compilers and a repeat; simulation trace stays identical and finishes in 121,814 ms.
 Packet SHA-256: `51bf65f08ed7de2d795222ba0a1798c5a24820ddefc85578e37df939c2231898`.
@@ -798,8 +798,8 @@ or console acceptance. Image SHA-256:
 | Isolated game high work RAM end / stack top | 0x060f9a54 / 0x06100000 |
 | Untouched painted stack guard after full replay | 20,856 bytes; allocator prefix preserved |
 
-Sky-only cost across the 19 held views is about 1.34–1.88 ms (MODELLED). The
-prior unsimplified sky ranged about 1.34–19.76 ms with identical source camera
+Sky-only cost across the 19 held views is about 1.34â€“1.88 ms (MODELLED). The
+prior unsimplified sky ranged about 1.34â€“19.76 ms with identical source camera
 and backdrop packets. This comparison isolates the sky timer; debug/HUD recipe
 changes prevent treating it as a whole-frame A/B result. Whole-scene 60 fps,
 complete source-reference appearance, all other memory pools and HARDWARE remain
@@ -842,10 +842,54 @@ Private evidence: `emu/source-skyline-first` under FZX_EVIDENCE.
 | High work RAM end / stack top | 0x060fd0d4 / 0x06100000 |
 | Untouched painted stack guard after full replay | 6,908 bytes |
 | Original low-work-RAM stand-ins end | 0x0026b0c0 |
-| Held-view skyline draw cost | 0.82–0.99 ms; mean 0.94 ms, MODELLED |
+| Held-view skyline draw cost | 0.82â€“0.99 ms; mean 0.94 ms, MODELLED |
 
 This cost excludes state publication and other scene work. Whole-frame 60 fps,
 complete source-reference visual acceptance and HARDWARE are still open. High work
 RAM is now tight: further content needs explicit residency/loading work instead of
 continuing to embed texture arrays there. Floor/clouds, source road/craft and the
 entry/results/audio flow remain incomplete.
+
+
+## Boot-loaded original skyline (EMULATOR)
+
+`FZX_SKYLINE_CD=1` moves the same 8,320 converted texture/palette bytes from an
+embedded array to `SKYLINE.PAK`. Offline conversion and native drawing are unchanged.
+The pack and identity header have generation receipts. Boot requires its exact
+name, size and FNV-1a identity, copies five sectors through bounded low work RAM,
+and verifies every 32-bit VDP1 store. Nothing streams or converts during racing.
+A load failure stops before race initialization. This flag defaults to zero.
+
+The scratch area begins at the next 32-byte boundary after `sat_stub_data_end`;
+it cannot overlap the original variables or exceed low work RAM. It contains the
+sector buffer and 16 CDFS entries with guards on both sides. The loader reuses the
+existing bounded CD PIO implementation. It never DMA-writes cartridge or VRAM.
+
+HOST: GCC/Clang/repeat and undefined-behavior checks pass for transfer/tail bounds,
+13 rejection cases and a failing hash-check mutation. A changed private pack copy
+fails its receipt. In EMULATOR, a disc with its last asset byte flipped reaches
+integrity failure status 8, while race timing remains uninitialized. Knob-off game
+binary is byte-identical to the preceding skyline build (1,020,116 bytes;
+SHA-256 `19399cc253fbeb9f86282be3f6bcaf876b9acbfa292aec6387054a3254a39570`).
+
+The clean CD candidate finishes 9,907 inputs in 121,814 ms with identical final
+pose and all 19 camera/backdrop/skyline packets matching the embedded baseline.
+A second full replay with the corrected runner also passes: both low-RAM guards
+remain intact, all 8,320 loaded bytes retain the expected identity, and stack
+headroom is unchanged. The runner fix removed a redundant pause; native code and
+image remained identical.
+
+| Allocation | CD candidate |
+| --- | --- |
+| High work RAM end | 0x060fc934; net 1,952 bytes below embedded baseline |
+| VDP1 skyline pixels/palettes | 8,320 bytes, unchanged |
+| Low work RAM scratch | 0x0026b0c0..0x0026bac0; 2,560 bytes |
+| Untouched painted stack guard after full race | 8,860 bytes |
+
+Image SHA-256: `badefee70789530dddbc280743efa24f14276ee5bc4f1f4aac0509b5298f7bbd`.
+Private evidence: `emu/texture-cd` under FZX_EVIDENCE. Native source was built from
+an isolated staged tree; unrelated local performance WIP remains excluded.
+The net high-RAM saving includes the newly linked loader/CD filesystem code.
+Additional native packs can reuse that code. Next, move the 14,080-byte original
+HUD atlas through this path, then integrate original floor/clouds and road/craft.
+This is memory-residency evidence, not a whole-scene performance or HARDWARE result.

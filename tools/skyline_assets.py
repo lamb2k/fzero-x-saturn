@@ -55,6 +55,12 @@ def generate(source,out):
         tex,colors=convert(raw.read_bytes(),lut.read_bytes(),bindings['sky']['sprite_rgb'])
         textures+=tex;palettes+=colors;dependencies.extend((raw,lut))
     data=textures+palettes
+    pack_hash=2166136261
+    for byte in data:pack_hash=((pack_hash^byte)*16777619)&0xffffffff
+    identity=('/* Generated local skyline identity; regenerate, never edit. */\n'
+              '#define FZX_SKYLINE_FIXTURE 0\n'
+              '#define FZX_SKYLINE_PACK_BYTES %du\n'
+              '#define FZX_SKYLINE_PACK_HASH 0x%08xu\n')%(len(data),pack_hash)
     header=('/* Generated local source skyline; regenerate, never edit. */\n'
             '#define FZX_SKYLINE_FIXTURE 0\n'
             'static const uint8_t fzx_skyline_pixels[8320] __attribute__((aligned(8))) = {\n'+
@@ -64,6 +70,8 @@ def generate(source,out):
     state+=skyline_state.native(backdrop_state.SOURCE.read_text())
     out.mkdir(parents=True,exist_ok=True)
     (out/'skyline_pixels.h').write_bytes(header.encode())
+    (out/'SKYLINE.PAK').write_bytes(data)
+    (out/'skyline_identity.h').write_bytes(identity.encode())
     (out/'skyline_state.c').write_bytes(state.encode())
     description={'textures':4,'instances':6,'width':64,'height':64,'bytes':len(data),
         'bindings':sprites,'tint':bindings['sky']['sprite_rgb'],
@@ -74,7 +82,8 @@ def generate(source,out):
     digest=lambda p:hashlib.sha256(p.read_bytes()).hexdigest()
     receipt=['# fzx generation receipt v1; regenerate, never edit']
     receipt+=['generator %s %s'%(digest(p),os.path.relpath(p,ROOT/'tools')) for p in dependencies]
-    receipt+=['output %s %s'%(digest(out/name),name) for name in ('skyline_pixels.h','skyline_state.c','skyline.json')]
+    receipt+=['output %s %s'%(digest(out/name),name) for name in
+             ('skyline_pixels.h','skyline_state.c','skyline.json','SKYLINE.PAK','skyline_identity.h')]
     (out/'skyline.receipt').write_bytes(('\n'.join(receipt)+'\n').encode())
     print('native skyline: four original 64x64 CI4 images, six placements, 8320 bytes')
 

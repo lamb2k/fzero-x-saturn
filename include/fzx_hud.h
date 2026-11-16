@@ -50,7 +50,7 @@ typedef struct {
     fzx_hud_draw_t draws[FZX_HUD_MAX_DRAWS];
 } fzx_hud_list_t;
 
-/* Timer, speed, energy and lap counter. Flash timers, countdown,
+/* Timer, speed, energy and lap counter, including resolved lap flashes. Countdown,
  * interval/results and mode-dependent HUD selection remain source-integration work.
  * Coordinates retain the source 320x240 layout; these components fit 320x224.
  * Invalid atlas/state is rejected without changing the caller's output. */

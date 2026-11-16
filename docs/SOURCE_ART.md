@@ -62,7 +62,7 @@ HOST synthetic checks cover MIO0 literals/overlap/bounds, channel order, nibble
 order, alpha, native row padding, source vertex loads, all five LODs and receipts.
 Malformed streams, unknown graphics commands, unloaded vertex references,
 wrong ROMs and hand-edited generated output are rejected by negative controls.
-The verified retail export passes all 46 Python tests without skips. The source
+The verified retail export passes all 47 Python tests without skips. The source
 HUD oracle extracts the pinned timer/speed/lap/energy functions and tables;
 10,286 cases match native sprites and filled pixels; wrong-glyph and wrong-color
 controls fail. This is
@@ -91,7 +91,7 @@ bash tools/saturn_build.sh FZX_SIM=orig FZX_IMPORTED=1 FZX_ROM_BOOT=1 \
 The separate `saturn/build-orig-hud/` image includes source timer/speed/lap/energy artwork
 and the source timer's +5 ms rounding. Its debug text is moved away from these
 components. It retains the temporary scene and does not implement the full HUD
-state machine: lap flashes, countdown, intervals/results and other modes
+state machine: countdown, intervals/results and other modes
 remain open. This option defaults off and cannot use the synthetic machine build.
 
 EMULATOR: eight static retail display cases were captured locally, including the
@@ -119,8 +119,8 @@ Current local memory footprint (SH-2 link map, not hardware high-water evidence)
 | HUD texture atlas, resident VDP1 | 14,080 bytes of the default 442,336-byte texture partition |
 | Two CPU command buffers | 579 commands each, 37,056 bytes total; includes 64 reserved HUD draws |
 | HUD draw count | At most 59 of 64 reserved commands |
-| Isolated source 3c77a61 ELF | text 222,612; data 11,372; BSS 731,968 bytes |
-| High-work-RAM end / stack top | 0x060efd54 / 0x06100000 (66,220-byte gap, not measured stack use) |
+| Isolated source 86ea5d3 ELF | text 223,124; data 11,372; BSS 731,968 bytes |
+| High-work-RAM end / stack top | 0x060eff54 / 0x06100000 (65,708-byte gap, not measured stack use) |
 
 The energy addition in `3c77a61` retains the source red/green fill words, including
 the alternating red pixels in row four, zero-width handling and finish suppression.
@@ -138,6 +138,37 @@ These are native fill/layout checks, not a source-game screenshot comparison.
 The isolated `3c77a61` image also completes the same 9,907-input replay in 121,814 ms,
 matching the host, with unchanged simulation closure. Its ISO SHA256 is
 `442a1fcaee2efebc238ad1747deb40102e7bc6f685c3d7baefbe48df6c0c7c14`.
+
+## Lap-flash state
+
+`86ea5d3` adds a read-only `ref_hud` accessor for the source's lap times. They retain
+the original fractional crossing calculation; the native layer does not estimate
+them from video fields. The Time Attack presentation adapter advances once after
+each original logic tick and resets on initialization/retry. A repeated draw or
+held diagnostic replay does not advance it. Source raw lap zero and backward or
+negative laps do not reset the monotonic displayed lap.
+
+HOST: `test_hud_clock.py` executes the original `Hud_UpdatePlayerHudInfo` against
+the adapter through three lap transitions, every flash phase, pause/resume, retry,
+intro lap zero and reverse crossings. Changed blink threshold, wrong lap slot and
+double advance controls each fail. All 47 checkout tests pass with the ROM; the
+isolated archive skips only its unavailable git-hygiene check. GCC/Clang at O0/O2
+retain all ten reference trace hashes, including restart/byte-order checks and the
+machine-constant mutation control. Runtime gameplay pause and lap audio events
+remain unimplemented; the tested pause semantics are a HOST API result.
+
+EMULATOR: the isolated image holds at exact replay ticks around the first lap:
+flash counters 179/165/164/159/5/0/0 select shown/shown/blank/shown/shown/blank/shown.
+The completed lap is 42,511 ms; visible digits use 42,516 ms (+5 source rounding).
+The final zero-counter blank frame is retained before the running timer returns.
+Captures were inspected, and clock bytes remain unchanged across repeated draws.
+The original-race HUD-off program is byte-identical before/after, SHA256
+`4f7ee58e9d6f04afe429e664b6ae8728827ad97c69d3b45eb35505c11dddd9f9`.
+After the held flash checks, the same isolated image finishes all three laps at
+9,907 inputs in 121,814 ms, matching the host. Image SHA256:
+`07adaf7b80b8270bae12ea1b56b3475a28c76970eda5c52178de87e48cd3382c`.
+Its newly built source closure SHA256 is
+`19c9f86d86052cec29e3bb0a6abbe5b59cfcee530ff6608ef43af5c2e01cebd0`.
 
 Source-reference still/motion comparisons, full scene budgets and physical Saturn
 acceptance are unrun. The next art work is the remaining HUD state plus native

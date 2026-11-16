@@ -72,8 +72,8 @@ road/scenery/camera, full HUD/UI/audio and full-game coverage remain incomplete.
 ## Source-art extraction probe (2026-11-15)
 
 Five Blue Falcon LODs and 21 textures exported from verified retail ROM. HOST:
-46 Python tests pass, no skips; 10,286 source HUD cases; wrong glyph/color controls fail.
-FZX_SOURCE_HUD=1 draws timer/speed/lap/energy art from live original race state.
+47 Python tests pass, no skips; source HUD/layout/flash oracles and mutation controls.
+FZX_SOURCE_HUD=1 draws timer/speed/lap/energy art and source-timed lap flashes.
 Stale assets fail the build. EMULATOR: 9,907 fixed inputs finish in 121,814 ms,
-equal to host on isolated 3c77a61. Source-reference visuals and HARDWARE unrun.
+equal to host on isolated 86ea5d3. Source-reference visuals and HARDWARE unrun.
 [Ledger/build/memory details](SOURCE_ART.md); this partial HUD does not close G2.6.

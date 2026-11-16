@@ -53,6 +53,10 @@ instructions and pulls work off course.
 
 This repository is public: every push is a publication.
 
+Owner authorization (2026-11-15): push completed, evidenced source-only changes to
+`origin/gate1` regularly. This authorizes routine pushes after the gates and hygiene
+scan; it does not authorize publishing ROM-derived content or releases.
+
 - Run `python3 tools/hygiene_scan.py` before every push. CI runs it too.
 - Never commit ROMs, extracted course, model or texture data, retail-course
   traces or stills of retail content. The ROM path is `FZX_TEST_ROM`, set

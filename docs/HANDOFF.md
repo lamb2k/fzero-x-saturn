@@ -18,9 +18,9 @@ Limit: 50 lines. Replace this file each session; do not append.
   race on the master SH-2 with placeholder graphics, debug HUD and Start retry.
   Whole-race finish time matches a host input replay. HARDWARE is UNRUN.
 - Verified retail export: five Blue Falcon LODs and 21 textures, all local.
-  Native timer/speed/lap/energy and VDP1 submission run under FZX_SOURCE_HUD=1.
-  HOST: 46 Python tests, 10,286 source cases; wrong glyph/color/stale asset fail.
-  EMULATOR: isolated 3c77a61, 9,907 inputs finish in 121,814 ms, equal to host.
+  Native timer/speed/lap/energy and lap flashes run under FZX_SOURCE_HUD=1.
+  HOST: 47 Python tests; source HUD/flash oracles and mutation/stale-asset controls.
+  EMULATOR: isolated 86ea5d3, 9,907 inputs finish in 121,814 ms, equal to host.
 - Local performance WIP adds bounded hitch logs and corrects MISS to elapsed-1.
   Rendering peaks at the same section each lap (up to 88% of a field before changes).
 - FZX_CLIP_DIVU defaults off. HOST frame corpus hash 0027e206 is unchanged;
@@ -33,7 +33,7 @@ Limit: 50 lines. Replace this file each session; do not append.
 ## Next work
 
 1. FZX_TEST_ROM is saved locally for Windows; forward it privately into WSL.
-   Finish source HUD state (lap flashes/countdown/results); resolve inherited
+   Finish source HUD state (countdown/results and audio events); resolve inherited
    tile-zero material, native models/road/camera, then source-reference stills.
 2. Re-measure the source-art scene. For clip WIP, replay fixed recorded pad inputs
    before promotion: the live diagnostic autopilot depends on render/catch-up cadence.

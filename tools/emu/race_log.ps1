@@ -76,7 +76,15 @@ try {
     }
     $samples | Set-Content -Encoding ascii (Join-Path $OutDir 'samples.txt')
     $(for ($i = 0; $i -lt $n; $i++) { $hex.Substring(8 * $i, 8) }) | Set-Content -Encoding ascii (Join-Path $OutDir 'inputs.hex')
+    # fzx_timing: magic, loops, field, cpu, cpu_max, sim, sim_max, misses, overload (FRT counts).
+    $t = Hex (Mcp 'memory_read' @{ address = (Addr (S '_fzx_timing')); length = 36 })
+    $w = for ($i = 0; $i -lt 9; $i++) { [Convert]::ToUInt32($t.Substring(8 * $i, 8), 16) }
+    $fl = [Math]::Max(1, $w[2])
+    $timing = 'frames {0}  worst frame {1}% of a field  worst ticks {2}%  missed fields {3}' -f $w[1],
+        [int](100 * $w[4] / $fl), [int](100 * $w[6] / $fl), $w[7]
+    $timing | Set-Content -Encoding ascii (Join-Path $OutDir 'timing.txt')
     Write-Output "FZX-RACE ticks logged $n; last sample: $($samples[-1])"
+    Write-Output "FZX-RACE timing: $timing"
 } finally {
     Get-Process yabasanshiro -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq (Resolve-Path -LiteralPath $env:FZX_YABA_EXE).Path } |
         Stop-Process -Force

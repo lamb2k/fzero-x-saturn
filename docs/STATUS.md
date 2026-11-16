@@ -70,4 +70,11 @@ renderer before promotion. All figures MODELLED; changes remain local work in pr
 
 ## Blockers
 
-None.
+Source-art retail validation: FZX_TEST_ROM is unset in Windows/WSL. Unblock with
+a local verified US rev0 ROM. Native art-bearing image and visual review are unrun.
+
+## Source-art extraction probe (2026-11-15)
+
+`tools/import_source_art.py` preserves Blue Falcon's five LOD recipes and exports
+21 model/HUD/road textures locally. HOST: 41 Python tests pass; two retail checks skip.
+Receipt control fails as required. [Ledger](SOURCE_ART.md): tile-zero material, native rendering and review open.

@@ -17,8 +17,8 @@ Limit: 50 lines. Replace this file each session; do not append.
 - Original racer code (`FZX_SIM=orig`, binary32 soft float) runs a 3-lap Mute City 1
   race on the master SH-2 with placeholder graphics, debug HUD and Start retry.
   Whole-race finish time matches a host input replay. HARDWARE is UNRUN.
-- Starting commits: 6533419 handoff/race logging; f8b2774 status. Current plan
-  revision supersedes their placeholder-only direction, not their evidence.
+- Source-art exporter and ledger: `tools/import_source_art.py`, `docs/SOURCE_ART.md`.
+  Five Blue Falcon LODs, 21 textures; HOST gates pass, retail/native review unrun.
 - Local performance WIP adds bounded hitch logs and corrects MISS to elapsed-1.
   Rendering peaks at the same section each lap (up to 88% of a field before changes).
 - FZX_CLIP_DIVU defaults off. HOST frame corpus hash 0027e206 is unchanged;
@@ -30,9 +30,9 @@ Limit: 50 lines. Replace this file each session; do not append.
 
 ## Next work
 
-1. Inventory source assets and build local native converters: Blue Falcon authored
-   LODs/materials, original track surfaces/textures, scenery/effects, HUD/fonts, audio.
-   Preserve source identities and compare local stills/motion/audio to the reference.
+1. Configure FZX_TEST_ROM locally (unset in this session), run the art exporter.
+   Resolve inherited tile-zero/setup material; integrate native models/HUD/road
+   geometry, then paired source stills. Continue scenery/effects/fonts/audio ledger.
 2. Re-measure the source-art scene. For clip WIP, replay fixed recorded pad inputs
    before promotion: the live diagnostic autopilot depends on render/catch-up cadence.
 3. Cut 18.5 s setup, load the CPU run-out racing line from ROM, rerun all 10 SH-2

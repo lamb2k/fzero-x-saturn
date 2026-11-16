@@ -408,7 +408,7 @@ Written for an agent in Claude Code. Reasons are given so the rules can be appli
 | No ROM reaches the agent | G1.6 blocked | All ROM-free cards proceed on the synthetic course; T cannot be claimed until G1.6 and G2.4 run |
 | Painter order breaks where the track overlaps itself | G2.3 still pairs | Chunk order within the visible window plus per-chunk priority; do not add a z-buffer emulation |
 | VDP1 fill time, not CPU, is the limit at 60 fps | G1.4 sweep and G4.4b show draw-end past the field | Fewer, larger quads; shorter draw distance; lower resolution of the far band; all as measured knobs |
-| Affine texture warping looks bad near the camera | G5.5 stills | Keep the road flat-shaded near the camera; textures are optional for P |
+| Affine texture warping looks bad near the camera | G5.5 stills | Preserve source textures; measure native subdivision and UV handling against source stills. Any remaining fidelity/performance trade needs owner review |
 | Plan and state sprawl | STATUS or HANDOFF over their line limits | Move history to git; trim in the same commit |
 
 ---

@@ -8,6 +8,12 @@
 #include <string.h>
 
 #include "fzx.h"
+#ifndef FZX_SOURCE_ROAD
+#define FZX_SOURCE_ROAD 0
+#endif
+#if FZX_SOURCE_ROAD
+#include "road_native.h"
+#endif
 #ifndef FZX_SOURCE_HUD
 #define FZX_SOURCE_HUD 0
 #endif
@@ -417,6 +423,16 @@ main(void)
     dbgio_dev_font_load();
     commands_init();
     fzx_init();
+#if FZX_SOURCE_ROAD
+    dbgio_printf("\x1b[H\x1b[2J LOADING SOURCE ROAD...\n");
+    dbgio_flush(); vdp2_sync(); vdp2_sync_wait();
+    if(!fzx_road_load(fzx_course_record,REF_COURSE_RECORD_SIZE)) {
+        dbgio_printf("\x1b[H\x1b[2J %s\n",fzx_road_load_status.status==2?
+                     "4 MB RAM CARTRIDGE REQUIRED":"SOURCE ROAD LOAD FAILED");
+        dbgio_flush(); vdp2_sync(); vdp2_sync_wait();
+        for(;;) {}
+    }
+#endif
 #if FZX_SOURCE_HUD
     vdp1_vram_partitions_get(&hud_partitions);
     if (sizeof(fzx_hud_pixels) > hud_partitions.texture_size) {

@@ -1,0 +1,91 @@
+#include <yaul.h>
+#include <string.h>
+#include "road_native.h"
+#include "road_cd.h"
+#include "road_identity.h"
+
+_Static_assert(!FZX_ROAD_PACK_FIXTURE,"A source-road race requires the local source pack");
+_Static_assert(FZX_ROAD_PACK_BYTES<=FZX_ROAD_MAX_BYTES,"road pack exceeds cartridge");
+_Static_assert((FZX_ROAD_PACK_BYTES&3u)==0,"road pack must be word aligned");
+fzx_road_pack_t fzx_native_road;
+volatile fzx_road_load_status_t fzx_road_load_status;
+static sector_buffer_t sector __aligned(32);
+static cdfs_filelist_entry_t entries[16];
+static void read_volume_sector(sector_t lba,sector_buffer_t *out) {
+    int rc=fzx_road_sector_read((fad_t)(lba+150u),out);
+    if(rc) {
+        fzx_road_load_status.io_result=rc;
+        memset(out,0,sizeof(*out));
+    }
+}
+
+static bool cart_probe(volatile uint32_t *cart) {
+    uint32_t saved[4]; bool ok=true;
+    for(unsigned i=0;i<4;++i) saved[i]=cart[i*0x40000u];
+    for(unsigned i=0;i<4;++i) cart[i*0x40000u]=0xa19c52e7u+i;
+    for(unsigned i=0;i<4;++i) if(cart[i*0x40000u]!=0xa19c52e7u+i) ok=false;
+    for(unsigned i=0;i<4;++i) cart[i*0x40000u]=saved[i];
+    return ok;
+}
+
+bool fzx_road_load(const void *course,uint32_t course_bytes) {
+    cdfs_filelist_t list;
+    const cdfs_filelist_entry_t *file=NULL;
+    fzx_road_load_status=(fzx_road_load_status_t){0};
+    memset(&fzx_native_road,0,sizeof(fzx_native_road));
+    cpu_frt_init(CPU_FRT_CLOCK_DIV_32);
+    dram_cart_init();
+    fzx_road_load_status.cart_id=(uint32_t)dram_cart_id_get();
+    volatile uint32_t *cart=dram_cart_area_get();
+    if(fzx_road_load_status.cart_id!=DRAM_CART_ID_4MIB || dram_cart_size_get()!=FZX_ROAD_MAX_BYTES ||
+       !cart || !cart_probe(cart)) {fzx_road_load_status.status=2;return false;}
+    fzx_road_load_status.status=10;
+    if(cd_block_init()!=0) {fzx_road_load_status.status=3;return false;}
+    /* CDFS's default callback discards read errors and then asserts on a bad
+     * volume header. Probe it first so boot can report a plain load failure. */
+    fzx_road_load_status.io_result=fzx_road_sector_read(166,&sector);
+    fzx_road_load_status.volume_word=fzx_road_u32(sector.buffer8);
+    if(fzx_road_load_status.io_result) {fzx_road_load_status.status=3;return false;}
+    if(sector.buffer8[0]!=1 || memcmp(sector.buffer8+1,"CD001",5)) {
+        fzx_road_load_status.status=7;return false;
+    }
+    fzx_road_load_status.status=13;
+    const cdfs_config_t config={.sector_read=read_volume_sector,.sectors=&sector,.sector_count=1};
+    cdfs_config_set(&config);
+    cdfs_filelist_init(&list,entries,16);
+    cdfs_filelist_root_read(&list);
+    if(fzx_road_load_status.io_result) {fzx_road_load_status.status=3;return false;}
+    fzx_road_load_status.status=11;
+    for(uint32_t i=0;i<list.entries_count;++i) {
+        if(entries[i].type==CDFS_ENTRY_TYPE_FILE && !strcmp(entries[i].name,"ROAD.PAK")) {
+            if(file) {fzx_road_load_status.status=4;return false;}
+            file=&entries[i];
+        }
+    }
+    if(!file) {fzx_road_load_status.status=4;return false;}
+    if(file->size!=FZX_ROAD_PACK_BYTES) {fzx_road_load_status.status=5;return false;}
+    for(uint32_t at=0;at<file->size;at+=CDFS_SECTOR_SIZE) {
+        fzx_road_load_status.io_result=fzx_road_sector_read(file->starting_fad+at/CDFS_SECTOR_SIZE,&sector);
+        if(fzx_road_load_status.io_result) {
+            fzx_road_load_status.status=3;return false;
+        }
+        uint32_t count=file->size-at;
+        if(count>CDFS_SECTOR_SIZE) count=CDFS_SECTOR_SIZE;
+        /* CPU stores only. The cartridge is never an SCU/SH-2 DMA endpoint. */
+        volatile uint32_t *dest=cart+at/4u;
+        for(uint32_t i=0;i<count/4u;++i) dest[i]=sector.buffer32[i];
+        ++fzx_road_load_status.sectors;
+    }
+    fzx_road_load_status.status=12;
+    if(!fzx_road_pack_open(&fzx_native_road,(const void *)cart,file->size,FZX_ROAD_PACK_HASH,
+                           fzx_road_hash(course,course_bytes),false)) {
+        fzx_road_load_status.status=6;return false;
+    }
+    fzx_road_load_status.bytes=fzx_native_road.bytes;
+    fzx_road_load_status.hash=fzx_native_road.hash;
+    fzx_road_load_status.vertices=fzx_native_road.count[FZX_ROAD_VERTEX];
+    fzx_road_load_status.triangles=fzx_native_road.count[FZX_ROAD_TRIANGLE];
+    fzx_road_load_status.chunks=fzx_native_road.count[FZX_ROAD_CHUNK];
+    fzx_road_load_status.status=1;
+    return true;
+}

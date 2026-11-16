@@ -469,3 +469,52 @@ traces and Python suite pass. Both retail capture passes are byte-identical
 across four compiler arms; the complete capture SHA256 is
 `ff448f0349456557317a839f1b12055a50b144dc7d521be6d28c535cfff759e1`.
 An edited pack fails its receipt check. No Saturn runtime files changed.
+
+## Source road cartridge storage (default off; drawing still pending)
+
+`tools/saturn_road.sh` builds the original race, source camera/HUD and the local
+road storage path with `FZX_SOURCE_ROAD=1`. `ROAD.PAK` loads before course setup;
+the race loop performs no disc I/O. The temporary road/craft still draw. This is
+the storage prerequisite for native source-road rendering, not its acceptance.
+
+The big-endian pack retains signed source positions/UVs, triangle order and
+ownership, conditional-face flags, material state and original RGBA16 bytes.
+Its 146,120 bytes include 24,576 texture bytes. The image binds to the receipted
+pack hash and its course record. The loader rejects wrong identities, lengths,
+indices, spans, texture checksums and fixture content in the retail path. It
+requires a detected 4 MiB cartridge and checks for bank aliasing before writing.
+Disc sectors first enter work RAM; aligned CPU stores copy them to the cartridge.
+
+The installed Yaul 0.3.1 CPU sector transfer reads words at 0x25890000, an alias
+the selected Yaba build does not implement. It returned success with zero data,
+then CDFS asserted on its volume header. The native loader uses longword PIO at
+the sector-data port 0x25818000, bounded sector/ready waits and a volume-header
+preflight. It leaves the SDK and emulator unchanged. HARDWARE remains UNRUN.
+
+HOST: GCC/Clang and ASan/UBSan accept the synthetic pack and reject independently
+rehashed malformed records, wrong course/pack identities and fixture/retail
+mixups. Source texture bytes round-trip against their original SHA256. The
+isolated suite has 66 passes and one archive-metadata skip. Road-off program
+SHA256 remains `3d761af2e3f4c6326692d1a289e54f30ca74d352f71bcb544629934c490302b8`.
+
+EMULATOR: all 72 disc sectors load; all 146,120 cartridge bytes match the local
+pack SHA256 `00c0133202a2d8762af91b9429fae10062a90fed0d7468178c0b743a683f0bf1`.
+Changing one pack byte fails before race entry. No cartridge also fails before
+race entry and displays the required message. Program SHA256 is
+`68d034bcd177c0b155232447327efabbcf8d8db052fd43c6c4f3226b12b4bd6d`.
+The 9,907-input whole-race replay finishes in 121,814 ms, matching the host;
+all nineteen held source-camera and native-view packets match, with no overflow.
+
+| Storage-enabled race memory | Footprint |
+| --- | --- |
+| ELF text / data / BSS | 253,520 / 12,096 / 740,352 bytes |
+| High-work-RAM end / stack top | 0x060f9994 / 0x06100000; 26,220-byte static gap |
+| Cartridge road pack | 146,120 bytes of 4 MiB |
+
+The static gap also hosts SDK user-heap metadata; it is not measured stack
+headroom or space for more assets. Stack high-water, native road materials and
+traversal, moving source-reference visuals, final scene cost and hardware remain open.
+
+Final source audit `b5403b39` matches all 170 staged source files to the reviewed
+tree and the tested program. Editing `ROAD.PAK` also stops the Saturn build at
+its receipt check; restoring the original bytes makes that check pass.

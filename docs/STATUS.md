@@ -75,6 +75,6 @@ Stale assets fail the build. EMULATOR: 9,907 fixed inputs finish in 121,814 ms,
 equal to host on isolated 86ea5d3. Source-reference visuals and HARDWARE unrun.
 Blue Falcon: 72 pose/light checks pass; palette appearance and CPU cost remain open.
 Source-camera view integration: 19 held SH-2 packets match; view/look-back replay
-finishes in 121,814 ms. HOST road export: 300 chunks, 4,966 triangles, six textures;
-four compiler arms and interior-pass identity pass. Native road/materials remain open.
+finishes in 121,814 ms. Road pack: 300 chunks/4,966 triangles; 146,120 cartridge bytes
+match in EMULATOR. Corrupt-pack/no-cart controls pass; native road drawing is pending.
 [Ledger/memory](SOURCE_ART.md). G2.6/G5.3 remain open.

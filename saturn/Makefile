@@ -9,6 +9,7 @@ SH_PROGRAM := fzero-x-saturn
 FZX_SIM ?= proto
 FZX_SOURCE_HUD ?= 0
 FZX_SOURCE_CAMERA ?= 0
+FZX_SOURCE_ROAD ?= 0
 ifeq ($(FZX_SIM),orig)
 ifeq ($(FZX_SOURCE_HUD),1)
 SH_BUILD_DIR := build-orig-hud/yaul
@@ -21,6 +22,11 @@ endif
 ifeq ($(FZX_SOURCE_CAMERA),1)
 SH_BUILD_DIR := build-orig-camera/yaul
 SH_OUTPUT_DIR := build-orig-camera
+endif
+ifeq ($(FZX_SOURCE_ROAD),1)
+SH_BUILD_DIR := build-orig-road/yaul
+SH_OUTPUT_DIR := build-orig-road
+IMAGE_DIRECTORY := build-orig-road/cd
 endif
 include $(YAUL_INSTALL_ROOT)/share/build.pre.mk
 
@@ -98,7 +104,20 @@ FZX_HUD_SRCS := ../src/fzx_hud.c hud_native.c
 else ifneq ($(FZX_SOURCE_HUD),0)
 $(error FZX_SOURCE_HUD must be 0 or 1)
 endif
-SH_SRCS := main.c ../src/fzx.c $(FZX_ORIG_SRCS) $(FZX_HUD_SRCS) $(FZX_CAMERA_SRCS) $(wildcard $(SH2ZAM_ROOT)/saturn/src/*.c)
+ifeq ($(FZX_SOURCE_ROAD),1)
+ifneq ($(FZX_SIM):$(FZX_SOURCE_CAMERA):$(FZX_ROM_BOOT),orig:1:1)
+$(error FZX_SOURCE_ROAD=1 requires original simulation, source camera and local retail content)
+endif
+FZX_ROAD_RECEIPT := $(shell sh ../tools/check_receipt.sh ../generated/road/road.receipt 2>&1 && sh ../tools/check_receipt.sh ../generated/road_pack/road_pack.receipt 2>&1; echo "rc=$$?")
+ifeq ($(findstring rc=0,$(FZX_ROAD_RECEIPT)),)
+$(error Source road is not current: $(FZX_ROAD_RECEIPT))
+endif
+SH_CFLAGS += -DFZX_SOURCE_ROAD=1 -I../generated/road_pack
+FZX_ROAD_SRCS := road_native.c road_cd.c ../src/fzx_road_pack.c
+else ifneq ($(FZX_SOURCE_ROAD),0)
+$(error FZX_SOURCE_ROAD must be 0 or 1)
+endif
+SH_SRCS := main.c ../src/fzx.c $(FZX_ORIG_SRCS) $(FZX_HUD_SRCS) $(FZX_CAMERA_SRCS) $(FZX_ROAD_SRCS) $(wildcard $(SH2ZAM_ROOT)/saturn/src/*.c)
 SH_CFLAGS += -DFZX_SH2_DIVU=1 -O2 -std=c11 -Wall -Wextra -I../include \
              -I$(SH2ZAM_ROOT)/saturn/include -DSH2Z_REQUIRE_SH2=1
 
@@ -118,3 +137,10 @@ IP_1ST_READ_ADDR := 0x06004000
 IP_1ST_READ_SIZE := 0
 
 include $(YAUL_INSTALL_ROOT)/share/build.post.iso-cue.mk
+
+ifeq ($(FZX_SOURCE_ROAD),1)
+$(SH_OUTPUT_PATH)/$(SH_PROGRAM).iso: ../generated/road_pack/ROAD.PAK
+pre-build-iso:
+	mkdir -p $(IMAGE_DIRECTORY)
+	cp ../generated/road_pack/ROAD.PAK $(IMAGE_DIRECTORY)/ROAD.PAK
+endif

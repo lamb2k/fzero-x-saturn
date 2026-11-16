@@ -27,6 +27,7 @@ param(
     [int]$TimeoutSeconds = 300,
     [string]$OutDir = $(if ($env:FZX_EVIDENCE) { Join-Path $env:FZX_EVIDENCE 'emu' } else { Join-Path $HOME 'fzx-evidence\emu' }),
     [int]$Port = 9641,
+    [ValidateSet(0,7)] [int]$CartridgeType = 7,
     [switch]$Visible,
     [switch]$KeepRunning
 )
@@ -70,7 +71,7 @@ try {
     New-Item -ItemType Directory -Force (Split-Path $cue) | Out-Null
     Set-Content -LiteralPath $cue -Encoding ASCII -Value @("FILE `"$Iso`" BINARY", '  TRACK 01 MODE1/2048', '    INDEX 01 00:00:00')
     $s = Get-Content -LiteralPath $ini -Raw
-    $set = [ordered]@{ 'General\CdRom' = '1'; 'General\CdRomISO' = $cue.Replace('\', '/'); 'Cartridge\Type' = '7';
+    $set = [ordered]@{ 'General\CdRom' = '1'; 'General\CdRomISO' = $cue.Replace('\', '/'); 'Cartridge\Type' = [string]$CartridgeType;
                        'autostart' = 'true'; 'Video\VideoCore' = '1';  # core 4 (Vulkan) fails to start on this host
                        'Debug\McpServerEnabled' = 'true'; 'Debug\McpServerPort' = "$Port" }
     foreach ($e in $set.GetEnumerator()) {

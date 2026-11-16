@@ -3,6 +3,20 @@ ifeq ($(strip $(YAUL_INSTALL_ROOT)),)
 $(error YAUL_INSTALL_ROOT must point to the Yaul installation)
 endif
 
+# Yaul captures map/output paths while reading build.pre.mk. Set these first;
+# otherwise a fresh original-race build depends on a prior prototype build dir.
+SH_PROGRAM := fzero-x-saturn
+FZX_SIM ?= proto
+FZX_SOURCE_HUD ?= 0
+ifeq ($(FZX_SIM),orig)
+ifeq ($(FZX_SOURCE_HUD),1)
+SH_BUILD_DIR := build-orig-hud/yaul
+SH_OUTPUT_DIR := build-orig-hud
+else
+SH_BUILD_DIR := build-orig/yaul
+SH_OUTPUT_DIR := build-orig
+endif
+endif
 include $(YAUL_INSTALL_ROOT)/share/build.pre.mk
 
 SH2ZAM_ROOT ?= ../third_party/SH2ZAM
@@ -29,7 +43,6 @@ endif
 # Simulation selector, shown on the HUD. proto: the prototype driver.
 # orig: the original race code drives the craft (build it with tools/saturn_orig.sh,
 # which makes FZX_CLOSURE from the decompilation and imports the course).
-FZX_SIM ?= proto
 ifeq ($(FZX_SIM),proto)
 SH_CFLAGS += -DFZX_SIM=FZX_SIM_PROTO
 else ifeq ($(FZX_SIM),orig)
@@ -49,16 +62,11 @@ ifeq ($(FZX_ROM_BOOT),1)
 FZX_ORIG_SRCS += ../generated/rom_boot.c
 SH_CFLAGS += -DFZX_ROM_BOOT=1
 endif
-# Own objects and outputs: Yaul does not rebuild when only the flags change.
-SH_BUILD_DIR := build-orig/yaul
-SH_OUTPUT_DIR := build-orig
 else
 $(error FZX_SIM must be proto or orig)
 endif
 
-SH_PROGRAM := fzero-x-saturn
 # Partial native HUD integration; source scene/audio gates remain open.
-FZX_SOURCE_HUD ?= 0
 ifeq ($(FZX_SOURCE_HUD),1)
 ifneq ($(FZX_SIM),orig)
 $(error FZX_SOURCE_HUD=1 requires the original race simulation)
@@ -72,8 +80,6 @@ $(error Source HUD is not current: $(FZX_HUD_RECEIPT))
 endif
 SH_CFLAGS += -DFZX_SOURCE_HUD=1 -I../generated/source_art
 FZX_HUD_SRCS := ../src/fzx_hud.c hud_native.c
-SH_BUILD_DIR := build-orig-hud/yaul
-SH_OUTPUT_DIR := build-orig-hud
 else ifneq ($(FZX_SOURCE_HUD),0)
 $(error FZX_SOURCE_HUD must be 0 or 1)
 endif

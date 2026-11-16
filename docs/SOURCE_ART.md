@@ -601,7 +601,7 @@ source diagonals while splitting into repeating UV tiles still needs about
 22.4 MB. Visible tile charts reach 2.16 MB. Screen-sized collapsed-triangle
 charts reach 449,072 bytes after required size splits, before HUD/commands.
 Screen-aligned masked charts of each original triangle's clipped polygon are
-estimated at 82,272ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Å“360,176 bytes, plus 14,080 HUD bytes. They are the next
+estimated at 82,272Ã¢â‚¬â€œ360,176 bytes, plus 14,080 HUD bytes. They are the next
 bounded native experiment; sampling/upload cost and raster fidelity are unrun.
 No texture downsampling, topology change or performance acceptance follows
 from these allocation estimates.
@@ -620,7 +620,7 @@ interpolation, painter order, outer walls, material changes and capacity failure
 UBSan and six deliberate coverage/perspective/overflow/order/wall/material faults
 exercise the relevant controls. At 19 saved race camera/plan packets, HOST draws
 at most 419 charts; atlas use is
-69,344Ã¢â‚¬â€œ308,800 bytes and the largest tested rectangle workload is 154,400 pixels.
+69,344â€“308,800 bytes and the largest tested rectangle workload is 154,400 pixels.
 These local views prove bounded generation, not source-reference visual fidelity.
 The new module is not yet linked into the committed race recipe. Native frame
 cost, full-route draw/stack limits, source look comparisons and HARDWARE remain open.
@@ -703,7 +703,7 @@ background state. It does not execute the asset loader, consume simulation RNG,
 or introduce a Saturn rendering path. The selected venue is Mute City, one player;
 cloud velocities, pool choice and pause are explicit inputs.
 
-GCC/Clang at O2 match across T01â€“T10 with unchanged camera-only simulation hashes.
+GCC/Clang at O2 match across T01–T10 with unchanged camera-only simulation hashes.
 The local 9,907-input Mute City replay matches every source packet across both
 compilers and a repeat; simulation trace stays identical and finishes in 121,814 ms.
 Packet SHA-256: `51bf65f08ed7de2d795222ba0a1798c5a24820ddefc85578e37df939c2231898`.
@@ -798,8 +798,8 @@ or console acceptance. Image SHA-256:
 | Isolated game high work RAM end / stack top | 0x060f9a54 / 0x06100000 |
 | Untouched painted stack guard after full replay | 20,856 bytes; allocator prefix preserved |
 
-Sky-only cost across the 19 held views is about 1.34â€“1.88 ms (MODELLED). The
-prior unsimplified sky ranged about 1.34â€“19.76 ms with identical source camera
+Sky-only cost across the 19 held views is about 1.34–1.88 ms (MODELLED). The
+prior unsimplified sky ranged about 1.34–19.76 ms with identical source camera
 and backdrop packets. This comparison isolates the sky timer; debug/HUD recipe
 changes prevent treating it as a whole-frame A/B result. Whole-scene 60 fps,
 complete source-reference appearance, all other memory pools and HARDWARE remain
@@ -842,14 +842,13 @@ Private evidence: `emu/source-skyline-first` under FZX_EVIDENCE.
 | High work RAM end / stack top | 0x060fd0d4 / 0x06100000 |
 | Untouched painted stack guard after full replay | 6,908 bytes |
 | Original low-work-RAM stand-ins end | 0x0026b0c0 |
-| Held-view skyline draw cost | 0.82â€“0.99 ms; mean 0.94 ms, MODELLED |
+| Held-view skyline draw cost | 0.82–0.99 ms; mean 0.94 ms, MODELLED |
 
 This cost excludes state publication and other scene work. Whole-frame 60 fps,
 complete source-reference visual acceptance and HARDWARE are still open. High work
 RAM is now tight: further content needs explicit residency/loading work instead of
 continuing to embed texture arrays there. Floor/clouds, source road/craft and the
 entry/results/audio flow remain incomplete.
-
 
 ## Boot-loaded original skyline (EMULATOR)
 

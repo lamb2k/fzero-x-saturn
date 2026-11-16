@@ -229,3 +229,35 @@ text 81,808 with data/BSS unchanged. CPU image/depth arrays total 98,304 bytes;
 VDP1 image is 32,768 bytes. Divider high-RAM end is 0x0603a5f4, stack top 0x06100000.
 These are static sizes, not stack high-water or the full race-scene memory budget.
 The game ELF and game recipe are untouched by this standalone diagnostic.
+
+
+## Native VDP1 chart experiment
+
+The separate `tools/vdp1_probe` bakes RGB1555 charts for all source triangles in
+all eight diagnostic poses, then submits each as an A/B/C/C distorted sprite.
+Each chart records source triangle/material, corners, dimensions and byte hash.
+The sampler evaluates the original UVs, three-point filter, combiner and lighting
+at the chart samples. Screen-space integer corners, finite chart sampling and
+painter sorting are explicit adaptations. No source triangle is removed.
+This is a fixed-pose cost/representation experiment, not a dynamic game renderer.
+
+HOST: GCC/Clang outputs match. Synthetic corner and perspective checks pass;
+wrong UV and affine-interpolation mutations fail. Bad reciprocal depths, vertex
+indices and material bindings are rejected. ASan/UBSan checks pass. Receipts bind
+the generator, material implementation, input model header and output charts.
+
+EMULATOR: eight views, four samples each verify VRAM hashes and retain 132/96/64/
+24/11 source triangles by LOD. The wrong-hash control is rejected. Still inspection
+and pixel-center comparison against the software probe find silhouette IoU
+0.960-0.979 and mean union RGB error 5.94-11.29 on 0-255 channels. These are observed
+errors, not passing thresholds or comparison against a running source game.
+Source-game still/motion matching and visual acceptance remain open.
+
+MODELLED: command build averages 96-1,081 FRT/32 ticks per view, with a one-field
+steady-state sync wait. One-time upload plus VRAM checksum costs 14,492-72,128
+ticks; each pose uses 16,000-76,096 texture bytes. Lighting and projection are
+baked offline, so these numbers cannot establish whole-game 60 fps or moving
+material cost. All eight poses together: ELF text/data/BSS 451,644/128/60,704 bytes;
+VDP1 reserves 400 KiB texture space and 16 KiB commands. This experiment does not
+change the game image. Next: moving source geometry and materials, measured
+against the software oracle before any race-renderer promotion.

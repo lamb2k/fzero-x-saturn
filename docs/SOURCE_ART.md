@@ -63,8 +63,9 @@ order, alpha, native row padding, source vertex loads, all five LODs and receipt
 Malformed streams, unknown graphics commands, unloaded vertex references,
 wrong ROMs and hand-edited generated output are rejected by negative controls.
 The verified retail export passes all 46 Python tests without skips. The source
-HUD oracle extracts the pinned timer/speed/lap functions and position tables;
-10,010 cases match the native draw list and a wrong-glyph control fails. This is
+HUD oracle extracts the pinned timer/speed/lap/energy functions and tables;
+10,286 cases match native sprites and filled pixels; wrong-glyph and wrong-color
+controls fail. This is
 layout/command equivalence, not an N64-versus-Saturn raster comparison.
 
 ## Native HUD slice
@@ -87,10 +88,10 @@ bash tools/saturn_build.sh FZX_SIM=orig FZX_IMPORTED=1 FZX_ROM_BOOT=1 \
   FZX_CLOSURE=/work/saturn/build-orig/ref_closure.o FZX_SOURCE_HUD=1
 ```
 
-The separate `saturn/build-orig-hud/` image includes source timer/speed/lap artwork
+The separate `saturn/build-orig-hud/` image includes source timer/speed/lap/energy artwork
 and the source timer's +5 ms rounding. Its debug text is moved away from these
 components. It retains the temporary scene and does not implement the full HUD
-state machine: energy, lap flashes, countdown, intervals/results and other modes
+state machine: lap flashes, countdown, intervals/results and other modes
 remain open. This option defaults off and cannot use the synthetic machine build.
 
 EMULATOR: eight static retail display cases were captured locally, including the
@@ -101,7 +102,7 @@ run; that is not used as a fidelity result. `tools/emu/input_replay.ps1` uploads
 and reads back every word, restarts, then holds source state at the exact end
 while presentation runs. All input/state/image evidence remains outside git.
 
-The final source snapshot is `98c7263`: 100 archived tracked files matched their
+The first integrated HUD snapshot was `98c7263`: 100 archived tracked files matched their
 Git blob identities before building. It excludes the local hitch/clip experiments.
 The isolated original-race HUD image and the default synthetic image both build.
 The archived Python run passes 45 tests and skips only the hygiene test requiring
@@ -116,10 +117,27 @@ Current local memory footprint (SH-2 link map, not hardware high-water evidence)
 | Region | Footprint |
 | --- | --- |
 | HUD texture atlas, resident VDP1 | 14,080 bytes of the default 442,336-byte texture partition |
-| Two CPU command buffers | 539 commands each, 34,496 bytes total; includes 24 reserved HUD draws |
-| HUD draw count | At most 19 of 24 reserved commands |
-| Isolated source 98c7263 ELF | text 222,272; data 11,376; BSS 728,768 bytes |
-| High-work-RAM end / stack top | 0x060eef74 / 0x06100000 (69,772-byte gap, not measured stack use) |
+| Two CPU command buffers | 579 commands each, 37,056 bytes total; includes 64 reserved HUD draws |
+| HUD draw count | At most 59 of 64 reserved commands |
+| Isolated source 3c77a61 ELF | text 222,612; data 11,372; BSS 731,968 bytes |
+| High-work-RAM end / stack top | 0x060efd54 / 0x06100000 (66,220-byte gap, not measured stack use) |
+
+The energy addition in `3c77a61` retains the source red/green fill words, including
+the alternating red pixels in row four, zero-width handling and finish suppression.
+The initial source energy equals maxEnergy for this single-human Time Attack
+closure; the native snapshot uses its original rounded ratio. The HOST oracle
+checks all 69 widths in both color states, including finish suppression. GCC and
+Clang compile the native HUD with strict warnings. All 46 checkout Python tests
+pass with the local ROM; the isolated archive skips only the git-hygiene test.
+
+EMULATOR: eight isolated probe states include full-width red energy with four speed
+digits (59 commands). 1,355 rendered energy pixels match the source 5-bit colors.
+The HUD-off program remains byte-identical to `98c7263`, SHA256
+`a3a8469475b0d483b07ab3c8db7fbbeb7dc8bfb1718ebd2b6489157b8a07da87`.
+These are native fill/layout checks, not a source-game screenshot comparison.
+The isolated `3c77a61` image also completes the same 9,907-input replay in 121,814 ms,
+matching the host, with unchanged simulation closure. Its ISO SHA256 is
+`442a1fcaee2efebc238ad1747deb40102e7bc6f685c3d7baefbe48df6c0c7c14`.
 
 Source-reference still/motion comparisons, full scene budgets and physical Saturn
 acceptance are unrun. The next art work is the remaining HUD state plus native

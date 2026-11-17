@@ -1,4 +1,5 @@
 #include "fzx_road_stream_draw.h"
+#include "fzx_road_stream_phase.h"
 #include <limits.h>
 #include <string.h>
 #define U16 fzx_road_u16
@@ -90,17 +91,22 @@ static unsigned fill(fzx_road_stream_draw_work_t *w,const sh2z_view_vertex_t v[4
 static bool piece(draw_t *d,const sh2z_view_vertex_t v[4],unsigned quad,unsigned piece_id,
     unsigned image,unsigned row,unsigned height,unsigned tier,bool solid){
     fzx_road_stream_draw_work_t *w=d->work;bool safe;
+    FZX_RSP(QUAD);FZX_RSP_COUNT(PIECES,1);
     if(fill(w,v,&safe)){++d->stats->culled;return true;}
     unsigned count=4;sh2z_view_guard_vertex_t *corners=w->clip_in;
     if(!safe){const int16_t guard[4]={-900,-900,900,900};
+        FZX_RSP(CLIP);FZX_RSP_COUNT(PIECE_CLIPS,1);
         const int n=sh2z_view_clip_guard_src_center_divu(w->clip_out,&d->view,guard,w->clip_in,4,0,10);
+        FZX_RSP(QUAD);if(n>0)FZX_RSP_COUNT(CLIP_CORNERS,n);
         if(n<0)return fail(d,FZX_RS_CLIP);
         if(n<3){++d->stats->culled;return true;}
         count=(unsigned)n;corners=w->clip_out;++d->stats->clipped;
     }
     if(!area(corners,count)){++d->stats->culled;return true;}
     unsigned fade[16],middle=0;
+    FZX_RSP(FOG);
     for(unsigned i=0;i<count;++i){fade[i]=fog_lookup(w,corners[i].v.z);middle+=fade[i];}
+    FZX_RSP(BUILD);
     middle/=count;unsigned variant=(middle+64)/128;if(variant>2)variant=2;
     const int selected=variant==2?255:(int)variant*128;
     const fzx_road_stream_material_t neutral={0,0,0,0,0,0};
@@ -112,6 +118,7 @@ static bool piece(draw_t *d,const sh2z_view_vertex_t v[4],unsigned quad,unsigned
             if(!(d->flags&FZX_RS_AUDIT_UNALIGNED))return fail(d,FZX_RS_TEXTURE_ALIGNMENT);}
     }
     uint16_t shades[16];
+    FZX_RSP(FOG);
     for(unsigned i=0;i<count;++i){uint16_t packed=0x8000;
         for(unsigned c=0;c<3;++c){int color;
             if(solid)color=((d->plan->primitive[c]*(255-(int)fade[i])+d->plan->fog[c]*(int)fade[i])*31+32512)/65025;
@@ -124,6 +131,7 @@ static bool piece(draw_t *d,const sh2z_view_vertex_t v[4],unsigned quad,unsigned
         }
         shades[i]=packed;
     }
+    FZX_RSP(BUILD);
     for(unsigned first=1;first+1<count;first+=2){
         if(d->stats->commands>=d->capacity)return fail(d,FZX_RS_CAPACITY);
         fzx_road_stream_command_t *out=d->commands+d->stats->commands;
@@ -137,9 +145,11 @@ static bool piece(draw_t *d,const sh2z_view_vertex_t v[4],unsigned quad,unsigned
 static bool edge(draw_t *d,unsigned slot,const sh2z_view_vertex_t *from,const sh2z_view_vertex_t *to,
     int32_t low,int32_t high,unsigned count,unsigned step){
     fzx_road_stream_draw_work_t *w=d->work;unsigned first=0,end=count;
+    FZX_RSP_COUNT(EDGE_CALLS,1);
     while(first<count&&w->boundary[first]<=low)w->edge[slot][first++]=*from;
     while(end>first&&w->boundary[end-1]>=high)w->edge[slot][--end]=*to;
     if(end==first)return true;
+    FZX_RSP_COUNT(STEPPED,end-first);
     return sh2z_view_edge_steps_center_divu(w->edge[slot]+first,&d->view,from,to,
         (uint16_t)(w->boundary[first]-low),(uint16_t)step,(uint16_t)(high-low),end-first);
 }
@@ -156,12 +166,14 @@ static bool quad(draw_t *d,unsigned id){
     if(fill(w,vertices,&safe)){++d->stats->culled;return true;}
     unsigned winding_count=4;sh2z_view_guard_vertex_t *winding=w->clip_in;
     if(!safe){
+        FZX_RSP(CLIP);FZX_RSP_COUNT(QUAD_CLIPS,1);
         const int n=sh2z_view_clip_guard_src_center_divu(w->clip_out,&d->view,d->view.view.clip,w->clip_in,4,0,10);
+        FZX_RSP(QUAD);if(n>0)FZX_RSP_COUNT(CLIP_CORNERS,n);
         if(n<0)return fail(d,FZX_RS_CLIP);
         if(n<3){++d->stats->culled;return true;}winding_count=(unsigned)n;winding=w->clip_out;
     }
     if(area(winding,winding_count)>=0){++d->stats->culled;return true;}
-    if(flags&2u)return piece(d,vertices,id,0,0,0,0,0,true);
+    if(flags&2u){const bool ok=piece(d,vertices,id,0,0,0,0,0,true);FZX_RSP(QUAD);return ok;}
     unsigned left=uv[0][0]<uv[2][0]?0u:3u,right=left==0?3u:0u;
     unsigned le=left==0?1u:2u,re=right==0?1u:2u;
     if(uv[left][1]>uv[le][1]){unsigned tmp=left;left=le;le=tmp;}
@@ -184,7 +196,7 @@ static bool quad(draw_t *d,unsigned id){
     }
     ++d->stats->tiers[tier];
     if(!factor){const sh2z_view_vertex_t whole[4]={vertices[left],vertices[right],vertices[re],vertices[le]};
-        return piece(d,whole,id,0,strip*5+4,0,1,0,false);}
+        const bool ok=piece(d,whole,id,0,strip*5+4,0,1,0,false);FZX_RSP(QUAD);return ok;}
     /* Step at original repetition boundaries, then merge complete periods
      * only when the tagged planner bounds pixel displacement to one pixel.
      * Partial leading/trailing periods must keep their source phase. */
@@ -193,8 +205,10 @@ static bool quad(draw_t *d,unsigned id){
         int32_t end=start+(int32_t)unit-phase;if(end>high)end=high;
         if(count>=65)return fail(d,FZX_RS_STEP);
         w->boundary[count++]=end;start=end;}
+    FZX_RSP_COUNT(BOUNDARIES,count);FZX_RSP(EDGE);
     if(!edge(d,0,vertices+left,vertices+le,l0,l1,count,unit)||
        !edge(d,1,vertices+right,vertices+re,r0,r1,count,unit))return fail(d,FZX_RS_STEP);
+    FZX_RSP(MERGE);FZX_RSP_COUNT(MERGES,1);
     uint32_t merge_rows[65],end_masks[65];uint8_t runs[64];
     for(unsigned j=0;j<count;++j){
         merge_rows[j]=(uint32_t)(w->boundary[j]-low);end_masks[j]=0;
@@ -207,6 +221,7 @@ static bool quad(draw_t *d,unsigned id){
     const uint32_t mask=factor==4?0x16u:factor==2?0x6u:0x2u;
     const int run_count=sh2z_view_merge_runs(runs,w->edge[0],w->edge[1],merge_rows,end_masks,
         count,mask,256u,SH2Z_VIEW_MERGE_PIXELS);
+    FZX_RSP(QUAD);
     if(run_count<1)return fail(d,FZX_RS_STEP);
     unsigned i=0;
     for(unsigned run_index=0;run_index<(unsigned)run_count;++run_index){
@@ -218,7 +233,7 @@ static bool quad(draw_t *d,unsigned id){
         const unsigned height=((unsigned)phase+(unsigned)(w->boundary[i+group]-w->boundary[i])+scale-1)/scale-row;
         if(!height||row+height>period)return fail(d,FZX_RS_STEP);
         if(!piece(d,part,id,i,strip*5+selected_tier,row,height,group,false))return false;
-        i+=group;
+        FZX_RSP(QUAD);i+=group;
     }
     return true;
 }
@@ -234,10 +249,15 @@ bool fzx_road_stream_draw(fzx_road_stream_draw_work_t *w,const fzx_view_t *view,
        plan->count>REF_ROAD_GROUPS||plan->outer>1||plan->fog_start<0||plan->fog_start>996||pb>0||
        view->clip[0]<-900||view->clip[1]<-900||view->clip[2]>901||view->clip[3]>901)return false;
     draw_t d={.work=w,.plan=plan,.commands=commands,.capacity=capacity,.flags=flags,.stats=stats};
+    FZX_RSP(EYE);
     if(!fzx_view16_from_source_center(&d.view,view,eye))return false;
+    FZX_RSP(GATHER);
     if(!fzx_road_stream_gather(w->pack,plan,w->remap,w->remap_capacity,w->positions,w->vertex_capacity,&stats->positions))return fail(&d,FZX_RS_GATHER);
+    FZX_RSP(BATCH);
     if(!sh2z_view_batch_center_divu(w->projected,&d.view,w->positions,sizeof(*w->positions),stats->positions))return fail(&d,FZX_RS_PROJECT);
+    FZX_RSP(FOG);
     fog_prepare(w,&d.view.view,plan,pa,pb,stats);
+    FZX_RSP(QUAD);
     const unsigned chunks=w->pack->count[FZX_RLD_CHUNKS];
     for(unsigned g=0;g<plan->count;++g){const RefRoadGroup *group=plan->groups+g;
         unsigned index=group->direction==1?(group->end+chunks-1)%chunks:group->start,visited=0;
@@ -249,5 +269,6 @@ bool fzx_road_stream_draw(fzx_road_stream_draw_work_t *w,const fzx_view_t *view,
             else {index=(index+1)%chunks;if(index==group->end)break;}
         }while(true);
     }
+    FZX_RSP(REPORT);
     stats->fault=0;stats->error_quad=0;*count=stats->commands;return true;
 }

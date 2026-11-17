@@ -444,6 +444,16 @@ endif
 ifeq ($(FZX_FRAME_PROFILE),1)
 SH_CFLAGS += -DFZX_FRAME_PROFILE=1
 endif
+# Default-off C3 per-phase diagnostic; requires the stream and frame profile.
+FZX_ROAD_STREAM_PHASES ?= 0
+ifeq ($(FZX_ROAD_STREAM_PHASES),1)
+ifneq ($(FZX_FRAME_PROFILE):$(FZX_SOURCE_ROAD_STREAM),1:1)
+$(error FZX_ROAD_STREAM_PHASES requires FZX_FRAME_PROFILE=1 and FZX_SOURCE_ROAD_STREAM=1)
+endif
+SH_CFLAGS += -DFZX_ROAD_STREAM_PHASES=1
+else ifneq ($(FZX_ROAD_STREAM_PHASES),0)
+$(error FZX_ROAD_STREAM_PHASES must be 0 or 1)
+endif
 ifeq ($(FZX_SOURCE_COUNTDOWN),1)
 ifneq ($(FZX_SIM):$(FZX_SOURCE_MACHINE):$(FZX_SOURCE_CAMERA):$(FZX_ROM_BOOT):$(FZX_PLANE_CLOUD_ONLY):$(FZX_NATIVE_CORE_EMPTY),orig:1:1:1:1:1)
 $(error Original countdown requires original race/camera/machine, compact clouds and native core bypass)

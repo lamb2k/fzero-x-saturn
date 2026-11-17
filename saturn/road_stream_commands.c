@@ -1,5 +1,6 @@
 #include "road_stream_commands.h"
 #include <string.h>
+#include "fzx_road_stream_phase.h"
 
 static bool vram_span(uintptr_t address,uint32_t bytes){
     const uintptr_t base=(uintptr_t)VDP1_VRAM(0);
@@ -13,6 +14,7 @@ bool fzx_road_stream_commands(vdp1_cmdt_t *commands,uint32_t capacity,
     const fzx_road_stream_command_t *packets,uint32_t packet_count,
     const void *pixels,uint32_t texture_bytes,void *shades,uint32_t shade_bytes,
     uint32_t *count){
+    FZX_RSP(CONVERT);
     if(!count||(uintptr_t)count%_Alignof(uint32_t))return false;
     *count=0;
     const uintptr_t pixel=(uintptr_t)pixels,shade=(uintptr_t)shades;

@@ -3,6 +3,7 @@
 #include "road_lod_identity.h"
 #include "texture_cd.h"
 #include "road_native.h"
+#include "fzx_road_stream_phase.h"
 #include <string.h>
 
 extern unsigned char sat_stub_data_end[];
@@ -95,6 +96,7 @@ bool fzx_road_stream_load(void *vram){
 bool fzx_road_stream_native(vdp1_cmdt_t *commands,unsigned capacity,const fzx_view_t *view,
     const int32_t eye[3],const RefRoadPlan *plan,int32_t pa,int32_t pb,void *pixels,void *shades,uint32_t *count){
     if(count)*count=0;
+    FZX_RSP(REPORT);
     fzx_road_stream_report[4]=0;fzx_road_stream_report[5]=0;fzx_road_stream_report[6]=0;
     if(!commands||capacity<2||!view||!eye||!plan||!count||fzx_road_stream_status!=1)return false;
     if(!fzx_road_stream_guards()){fzx_road_stream_status=5;return false;}
@@ -106,6 +108,7 @@ bool fzx_road_stream_native(vdp1_cmdt_t *commands,unsigned capacity,const fzx_vi
           shades,FZX_ROAD_STREAM_SHADE_BYTES,&emitted)||emitted!=n){
         fzx_road_stream_status=4;fzx_road_stream_busy=0;return false;
     }
+    FZX_RSP(REPORT);
     memset(commands,0,sizeof(*commands));vdp1_cmdt_user_clip_coord_set(commands);
     commands->cmd_xa=view->clip[0];commands->cmd_ya=view->clip[1];
     commands->cmd_xc=(int16_t)(view->clip[2]-1);commands->cmd_yc=(int16_t)(view->clip[3]-1);

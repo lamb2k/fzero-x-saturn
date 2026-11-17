@@ -38,7 +38,7 @@ Limit: 50 lines. History lives in git.
 - Native stream stays unintegrated: two mapping arms fail p99 1-texel gate (9.33).
 - Shifted texture fixture also fails; stop this approach (ROAD_STREAM.md).
 - Require image-space controls and p99 road CPU <=8 ms MODELLED; >16 ms is no-go.
-- Keep the old runtime road frozen. Do not edit SH2ZAM or invent general kernels.
+- view-guard-1 adopted after HOST/native gates; old road stays frozen (SH2ZAM_GUARD_ADOPTION.md).
 - C8 countdown pack: 23 original quads, 2,352 B metadata / 70,400 B charts; HOST passes.
 - Snapshot/view/pack reader HOST+SH-2 compile pass; draw/audio open (COUNTDOWN.md).
 

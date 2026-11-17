@@ -75,6 +75,6 @@ No release, ROM-derived publication, SD write or physical acceptance occurred.
 
 ## Next
 
-Qualify view-guard-1 natively; C3 also needs a revised mapping architecture.
+View-guard-1 is [adopted](SH2ZAM_GUARD_ADOPTION.md); C3 needs revised mapping.
 Finish original entry/selection, audio/results/effects, pad retry and soak.
 SH2ZAM calibration, HARDWARE and owner appearance acceptance remain open.

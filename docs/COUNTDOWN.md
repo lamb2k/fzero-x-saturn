@@ -94,8 +94,9 @@ evidence only. Run `python3 tests/test_countdown.py` under Linux.
 Clipping remains required: the source sequence includes 23 candidate near-plane
 crossings and five candidate coordinates outside VDP1's signed range. The old
 reference clipper rejects those faces as offscreen, but that does not qualify
-an unchecked native path. The new guard-band library tag still needs native
-adoption measurements before use here. Private evidence: `host/countdown/state-qualification.json`
+an unchecked native path. The guard-band library tag is now
+[qualified and adopted](SH2ZAM_GUARD_ADOPTION.md); the sign caller still needs
+its own clipping gate. Private evidence: `host/countdown/state-qualification.json`
 and `host/countdown/projection-qualification.json`.
 
 `src/fzx_countdown_pack.c` now admits the receipt-bound native pack at boot,

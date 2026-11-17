@@ -63,8 +63,8 @@ explicit source list, so this checkpoint changes no race executable.
 
 ## Remaining C3 work
 
-- Qualify the new `view-guard-1` tag with before/after native measurements.
-  HOST contract checks pass; the repository pointer has not changed.
+- `view-guard-1` is [qualified and adopted](SH2ZAM_GUARD_ADOPTION.md).
+  New callers still need their own image-space and coordinate-bound gates.
 - Implement bounded piece stepping, depth/fog tables including dynamic source
   fog, and prebuilt native command templates behind `FZX_ROAD_STREAM=1`.
 - Bind the compact packs, low-RAM row map and high-RAM transformed output to a

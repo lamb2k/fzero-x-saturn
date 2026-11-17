@@ -49,11 +49,11 @@ C2's [road bake](ROAD_BAKE.md) passes HOST gates: 151,128-byte metadata,
 remain; 140 tier images use bounded lookup conversion or exact RGB fallback.
 Windows/Linux packs match; corruption controls fail. C3's native road stream
 is next. Source fog changes in 415 inputs must remain in its runtime tables.
-The [SH2ZAM view tag](SH2ZAM_VIEW_ADOPTION.md) is adopted after HOST and 13-view
-EMULATOR comparison; packets/hashes match and costs are effectively unchanged.
+[SH2ZAM view-edges-1](SH2ZAM_EDGES_ADOPTION.md) is adopted in pointer-only 36626ea.
+Synthetic checks/calibration pass; old road 112.045 -> 112.033 ms MODELLED.
 C3's [camera/pack/gather helpers](ROAD_STREAM.md) pass HOST and SH-2 compile:
 1,291,264 visible vertex samples stay within 1 px; max gather is 552 records.
-Native stream/image/timing gates and the owner's clipping contract remain open.
+Native stream is blocked on guard-band clipping; near-only fails synthetic bounds.
 The owner's local render plan ranks C1-C8; the full first-course goal remains.
 C8's [countdown pack](COUNTDOWN.md) passes HOST: 23 original quads, 2,352 bytes
 metadata / 70,400 bytes textures; source setup confirms no lighting is required.
@@ -74,6 +74,6 @@ No release, ROM-derived publication, SD write or physical acceptance occurred.
 
 ## Next
 
-Complete the road stream, vehicle rebake, bounded clouds, CPU split and measurement.
+Opus guard-band request: SH2ZAM_EDGES_ADOPTION.md. Vehicle/cloud work is independent.
 Finish original entry/selection, audio/results/effects, pad retry and soak.
 SH2ZAM calibration, HARDWARE and owner appearance acceptance remain open.

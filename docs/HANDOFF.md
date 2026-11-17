@@ -32,10 +32,10 @@ Limit: 50 lines. History lives in git.
   step/channel; 37 RGB images retain exact filtered pixels. Windows/Linux agree.
 - See ROAD_BAKE.md for format, receipts and controls. Far merges remain unqualified.
 - C3 must retain 62 source fog colours across 415 non-base inputs; baked fog is base only.
-- SH2ZAM view-contract-1 is adopted: HOST suites and 13-view native A/B pass;
-  packets/hashes match, costs unchanged. See SH2ZAM_VIEW_ADOPTION.md.
+- SH2ZAM view-edges-1 adopted in pointer-only 36626ea; synthetic/CI calibration pass.
+  Old road 112.045 ->112.033 ms MODELLED; see SH2ZAM_EDGES_ADOPTION.md.
 - C3 camera/pack/gather HOST gates pass: <=1 px, max552 vertices; ROAD_STREAM.md.
-- Native stream is not integrated. Guard-band clipping contract remains requested.
+- Native stream is not integrated. Near-only fails command bounds; guard-band request in report.
 - Require image-space controls and p99 road CPU <=8 ms MODELLED; >16 ms is no-go.
 - Keep the old runtime road frozen. Do not edit SH2ZAM or invent general kernels.
 - C8 countdown pack: 23 original quads, 2,352 B metadata / 70,400 B charts; HOST passes.

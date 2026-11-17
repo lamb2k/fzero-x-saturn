@@ -38,8 +38,8 @@ Limit: 50 lines. History lives in git.
 - Native stream is not integrated. Guard-band clipping contract remains requested.
 - Require image-space controls and p99 road CPU <=8 ms MODELLED; >16 ms is no-go.
 - Keep the old runtime road frozen. Do not edit SH2ZAM or invent general kernels.
-- C8 countdown assets: 23 original quads, nine textures / 20,480 bytes; HOST passes.
-- Countdown snapshot/view HOST+SH-2 compile pass; native draw/light/audio open (COUNTDOWN.md).
+- C8 countdown pack: 23 original quads, 2,352 B metadata / 70,400 B charts; HOST passes.
+- Snapshot/view HOST+SH-2 compile pass; native draw/audio open; unlit source (COUNTDOWN.md).
 
 ## Preserved work and gaps
 

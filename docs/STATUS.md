@@ -55,11 +55,11 @@ C3's [camera/pack/gather helpers](ROAD_STREAM.md) pass HOST and SH-2 compile:
 1,291,264 visible vertex samples stay within 1 px; max gather is 552 records.
 Native stream/image/timing gates and the owner's clipping contract remain open.
 The owner's local render plan ranks C1-C8; the full first-course goal remains.
-C8's [original countdown conversion](COUNTDOWN.md) passes HOST: 23 source quads,
-nine textures / 20,480 bytes; independent geometry/pixel checks and controls pass.
+C8's [countdown pack](COUNTDOWN.md) passes HOST: 23 original quads, 2,352 bytes
+metadata / 70,400 bytes textures; source setup confirms no lighting is required.
 Countdown snapshot/view HOST gates pass: all 9,907 source states unchanged,
 20,384 visible vertex samples within 1 px; SH-2 adapter compiles. Native drawing,
-lighting, animation integration and sound remain open; running game unchanged.
+animation integration and sound remain open; running game unchanged.
 
 The last admitted rendering change remains the RBG0 floor: its 13-view
 floor/cloud A/B/A means are 74.12 / 56.62 / 74.12 ms MODELLED. These cover

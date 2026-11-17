@@ -1,8 +1,8 @@
 # Original race countdown
 
-The original countdown asset conversion and source snapshot/view adapter pass
-HOST checks. Native drawing, lighting, local scene comparison and sound remain
-unimplemented; the running game is unchanged.
+The original countdown asset conversion, native texture pack and source
+snapshot/view adapter pass HOST checks. Native drawing, local scene comparison
+and sound remain unimplemented; the running game is unchanged.
 This is dependency-safe C8 work while C3 waits for its clipping contract.
 
 `tools/countdown_assets.py` reads the stock US rev0 race countdown's three
@@ -32,6 +32,34 @@ python3 tests/test_countdown_assets.py
 Outputs stay in ignored `generated/countdown/` or the configured private evidence
 tree. The receipt binds the generator, its dependencies, source metadata and
 output bytes. This is a conversion intermediate; no native build consumes it yet.
+
+`tools/countdown_pack.py` consumes that receipt and bakes `FZXCDN01` metadata
+(2,352 bytes) and 28 RGB1555 quad charts (70,400 bytes). All 92 vertex records
+and 46 authored triangles remain represented by the 23 original quad pairs.
+The original quads are planar and convex. Each chart point maps back to its
+original triangle's UVs; naive bilinear UV interpolation would distort some
+of these faces. Mirror-wrap is baked offline, including negative coordinates.
+The two mouth states and four digit states remain independently selectable.
+
+The source setup explicitly clears lighting and selects direct texture color
+and alpha (`0xfcffffff / 0xfffcf279`). No countdown lighting pass is required;
+the earlier lighting requirement was mistaken. The native adaptation uses
+nearest source texels instead of the original three-point filter, retaining
+RGB5 channels and binary transparency. This still needs native scene review.
+
+```sh
+python3 tools/countdown_pack.py
+bash tools/check_receipt.sh generated/countdown_pack/countdown_pack.receipt
+python3 tests/test_countdown_pack.py
+```
+
+An independent 3D triangle-coordinate check matches all 35,200 baked pixels;
+Windows/Linux packs are identical. Synthetic controls reject changed UV
+orientation, non-planar/non-convex geometry, material changes, missing triangles
+and invalid texture spans. The actual receipt checker rejects changed metadata
+or texture bytes. Private evidence: `host/countdown/pack-qualification.json`,
+`pack-receipt-controls.json` and `native-charts.png`. Native VRAM residency is
+unrun; the pack is not linked into the running game.
 
 HOST evidence is in `$FZX_EVIDENCE/host/countdown/source-qualification.json`.
 An independent primitive traversal agrees on all 46 triangles, including original
@@ -70,7 +98,7 @@ an unchecked native path. The pending general clipping contract remains with
 the SH2ZAM owner. Private evidence: `host/countdown/state-qualification.json`
 and `host/countdown/projection-qualification.json`.
 
-Remaining gates: native chart/lighting conversion, guarded residency, default-off
+Remaining gates: guarded residency, default-off
 renderer and knob-off identity, native timeline checks, local still/motion
 comparison, sound, and combined memory/performance. No EMULATOR, MODELLED or
 HARDWARE result is claimed by these helpers.

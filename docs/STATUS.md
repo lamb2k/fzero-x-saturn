@@ -44,9 +44,12 @@ All 14 asset payloads match the admitted disc. See [frame measurements](FRAME_PE
 
 C1 passes over all 9,907 HOST views: p99 335 commands, maximum 355; forced
 full repetition control p99 818 fails the 420 budget. GCC/Clang records match.
-Four source-texture tiers fit 140,576 bytes at 16 bits before fog variants;
-only 8/28 strips fit 16 colours losslessly. No runtime road edits yet.
-See [road census](ROAD_LOD_CENSUS.md). C2's receipt-bound road bake is next.
+C2's [road bake](ROAD_BAKE.md) passes HOST gates: 151,128-byte metadata,
+143,976-byte textures including three fog variants. All original rows/quads
+remain; 140 tier images use bounded lookup conversion or exact RGB fallback.
+Windows/Linux packs match; corruption controls fail. C3's native road stream
+is next. Source fog changes in 415 inputs must remain in its runtime tables.
+No runtime road edits yet. See also the [road census](ROAD_LOD_CENSUS.md).
 The owner's local render plan ranks C1-C8; the full first-course goal remains.
 
 The last admitted rendering change remains the RBG0 floor: its 13-view
@@ -62,7 +65,7 @@ No release, ROM-derived publication, SD write or physical acceptance occurred.
 
 ## Next
 
-Complete the road bake and stream,
+Complete the road stream,
 vehicle rebake, bounded clouds, CPU split and combined measurement.
 Finish original entry/selection, audio/results/effects, pad retry and soak.
 SH2ZAM calibration, HARDWARE and owner appearance acceptance remain open.

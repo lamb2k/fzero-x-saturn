@@ -87,6 +87,6 @@ resolved that uncertainty without changing the thresholds.
 Replay SHA-256: `e0ae1fe82819253a53086aae6489339214245cafa9b6164fda5eecfc2cea267e`.
 Road JSON SHA-256: `f0fd05ec5a7e4ce416dac3e042e5f00660dab00999b58dd98328d753c904b34c`.
 
-Next: C2's receipt-bound `FZXRLD01` pack, compact repetition metadata, bounded
-far tiers and offline source-texture tiers. C3 must still pass its image-space
+C2's [receipt-bound bake](ROAD_BAKE.md) now supplies compact repetition metadata,
+far candidates and offline source-texture tiers. C3 must still pass its image-space
 controls and measured CPU budget on the actual native renderer.

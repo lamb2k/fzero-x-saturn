@@ -17,23 +17,24 @@ Limit: 50 lines. History lives in git.
   maximum 466.668 ms, 34,178 missed fields. No 30 or 60 fps acceptance.
 - Mean CPU: road 121.720 ms, machine 52.858, clouds 32.863, floor 14.029;
   simulation 46.134 per catch-up loop and state publication 32.078 ms.
-- Extended clock and counters pass; 16-bit clock controls fail as required.
-- Profile-off binary equals the admitted RBG0 build; 14 asset payloads unchanged.
+- Clock controls pass; profile-off binary equals admitted RBG0; 14 payloads unchanged.
 - Low-RAM recorder 262,144 bytes; all guards pass. Stack guard 5,996 bytes,
   below C7's 16 KB target. Faster full captures will need more than 4,096 rows.
 - Private evidence: emu/frame-profile-v2/race, with exact image/source receipts.
-- First v1 capture timed out at 9,302 inputs. V2 kept the same emulator process
-  through a documented controller handoff at 8,806, with no pause/reset/upload.
 - All owner build/emulator processes are finished. No live capture to restart.
 
-## C1 passed; next: C2
+## C1/C2 passed; next: C3
 
 - All 9,907 HOST views: p99 335, max 355 commands; forced-first control p99 818.
 - GCC/Clang UBSan records match; native views match Python; old road unchanged.
-- Four texture tiers plus mean: 140,576 bytes RGB1555. Three fog copies would
-  exceed budget; only 8/28 strips fit 16 colours losslessly. See ROAD_LOD_CENSUS.md.
-- C2: FZXRLD01 receipt-bound pack, 4-byte repetition records, far chains and
-  source-texture tiers. Bound packs/textures and qualify any palette adaptation.
+- FZXRLD01: 151,128 bytes metadata; textures 143,976 including three fog variants.
+- All original vertices/quads retained. 103 CLUT4 images stay within one RGB5
+  step/channel; 37 RGB images retain exact filtered pixels. Windows/Linux agree.
+- See ROAD_BAKE.md for format, receipts and controls. Far merges remain unqualified.
+- C3 must retain 62 source fog colours across 415 non-base inputs; baked fog is base only.
+- Adopt available SH2ZAM view-contract-1 at this boundary as a separate commit,
+  with before/after gates, then implement the default-off one-CPU road stream.
+- Require image-space controls and p99 road CPU <=8 ms MODELLED; >16 ms is no-go.
 - Keep the old runtime road frozen. Do not edit SH2ZAM or invent general kernels.
 - The latest detailed checkpoint is at the TOP of generated/CONTINUE-CODEX.md.
 

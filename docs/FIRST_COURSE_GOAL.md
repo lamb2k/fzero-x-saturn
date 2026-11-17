@@ -55,7 +55,8 @@ plan, but are not prerequisites for this first-course milestone.
 Current priority follows the owner's `generated/CODEX-RENDER-PLAN.md` C0-C8:
 C0 now establishes a 3.287 fps MODELLED whole-route baseline with 34,178 missed
 fields. C1's full HOST road census passes at p99 335 commands with the forced
-full-repetition control at 818. Next are road bake/stream, vehicle rebake,
+full-repetition control at 818. C2 preserves the source rows/quads in a 151,128-byte
+pack with 143,976-byte textures; HOST gates pass. Next are road stream, vehicle rebake,
 cloud architecture, CPU split and combined measurements. Entry and race-presentation
 work can interleave where the plan allows. The render plan does not replace or
 narrow the completion gates above. A 60 Hz simulation with 30 Hz drawing must be

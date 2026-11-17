@@ -41,7 +41,9 @@ These emulator measurements do not establish physical Saturn performance.
 
 The [road tier census](docs/ROAD_LOD_CENSUS.md) passes its HOST budget over all
 9,907 views: p99 335 commands against a 420 limit, with the forced-full-detail
-control at 818. Source-texture baking and native speed/image checks come next.
+control at 818. The [source road bake](docs/ROAD_BAKE.md) fits its geometry and
+texture budgets with all original rows/quads retained. Native stream integration
+and speed/image checks come next.
 
 The latest [original-floor experiment](docs/FLOOR_PERFORMANCE.md) moves it onto
 VDP2 RBG0. A/B/A held-view checks reduce floor/cloud CPU work from 74.12 to

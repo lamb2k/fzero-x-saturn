@@ -1,9 +1,15 @@
 # Dual rotation background preparation
 
 C5 remains incomplete. The standalone synthetic probe passes in Ymir, including
-actual memory/register readbacks and all six distinguishing controls. Yaba has
-not progressed beyond its boot entry in hidden runs. The two-emulator gate,
-game integration, motion/look comparisons and combined cost remain open.
+actual memory/register readbacks and all six distinguishing controls. The second
+emulator gate remains open. A private headless Yaba software run reaches mode 0
+and passes actual memory/register checks, but differs at 2,720 of 71,680 RGB5
+pixels. Its renderer drops the fractional coefficient start; an independent
+prediction using that sampling rule exactly explains the captured image. The
+original exact-image gate still fails. Mode 1 stalls during HLE startup; a
+bounded real-firmware attempt advances 1,200 emulator frames without reaching the probe.
+Neither result establishes a game-level RBG1 failure or hardware behavior.
+Game integration, motion/look comparisons and combined cost remain open.
 See [the probe](../tools/dual_rbg_probe/README.md) for exact banks and controls.
 
 The proposed game layout needs the floor bitmap to fit one 128 KB VDP2 bank,
@@ -34,5 +40,5 @@ python3 tests/test_floor_indexed.py
 ```
 
 Private evidence: `host/floor-indexed/verification.json`. Generated art remains
-outside Git. The current floor/cloud atlases remain resident until the native
-replacement and its knob-off, motion, residency and combined-cost gates pass.
+outside Git. The cloud renderer and dual-layer game integration remain separate
+from reclaiming the unused VDP1 floor atlas after RBG0 supplies the floor.

@@ -27,7 +27,7 @@ Pad-only end-to-end acceptance, final look approval and HARDWARE remain unrun.
 | Camera/HUD | 19 held camera packets match; timer/speed/lap/energy integrated; countdown/results open |
 | Blue Falcon | Original near model retains 132 triangles, resident textures and live pose/body/lighting; full replay/guards pass; performance and final look remain open |
 | Road | All 300 chunks / 4,966 triangles retained; shared cache reduces 13-view mean 125.92 to 112.04 ms MODELLED; budget blocked |
-| Backdrop | Floor/cloud mean 56.62 ms MODELLED; C5 [dual-layer probe and indexed floor](DUAL_RBG.md) prepared, native integration open |
+| Backdrop | C5 [dual layers](DUAL_RBG.md) unresolved; [compact clouds](PLANE_RESIDENCY.md) reclaim 128 KiB in native checks |
 | Gates 2-5 | Entry/results/effects/audio, native scene budget, pad flow and soak incomplete |
 | Gate 6 | Full-game content, modes, opponents, progression and persistence planned |
 
@@ -40,7 +40,6 @@ and scene packets retained. The 1,982-picture baseline is 3.287 fps MODELLED:
 Road and machine command totals/ranges match HOST at the actual drawn inputs.
 Clock controls, allocation guards and profile-off binary identity pass.
 The diagnostic recorder leaves 5,996 bytes of stack guard, below C7's 16 KB target.
-All 14 asset payloads match the admitted disc. See [frame measurements](FRAME_PERFORMANCE.md).
 
 C1 passes over all 9,907 HOST views: p99 335 commands, maximum 355; forced
 full repetition control p99 818 fails the 420 budget. GCC/Clang records match.
@@ -62,13 +61,14 @@ Countdown snapshot/view HOST gates pass: all 9,907 source states unchanged,
 20,384 visible vertex samples within 1 px; SH-2 adapter/pack reader compile.
 Pack selection and corruption controls pass; drawing/animation/sound remain open.
 
+C5 compact atlas passes 13 native views, exact scene pixels/commands and knob-off
+binary identity; 128 KiB reclaimed. Stack 5,936 B still fails C7. No speed claim.
 C4 [vehicle rebake](MACHINE_REBAKE.md) is default-off and blocked on ordering/cost.
 HOST p99 67 / max 112 commands; 13-view native mean 9.273 ms MODELLED vs 52.112 before.
 The 1 ms/70-command targets and look gate fail; four order policies fail overlap.
 Full race/state/guards pass: 3.837 fps MODELLED; stack guard 2,316 B fails C7.
 
 ## Local experiments retained
-
 Unrelated hitch, clip-divider and software-road WIP remain local and unstaged.
 Use fixed-input replay for comparisons; live autopilot depends on render cadence.
 No release, ROM-derived publication, SD write or physical acceptance occurred.

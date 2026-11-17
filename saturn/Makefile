@@ -25,6 +25,16 @@ FZX_SOURCE_SKY ?= 0
 FZX_SOURCE_SKYLINE ?= 0
 FZX_SOURCE_PLANES ?= 0
 FZX_SOURCE_FLOOR_RBG ?= 0
+FZX_PLANE_CLOUD_ONLY ?= 0
+FZX_PLANES_DIR := ../generated/planes
+ifeq ($(FZX_PLANE_CLOUD_ONLY),1)
+ifneq ($(FZX_SOURCE_FLOOR_RBG):$(FZX_SOURCE_PLANES),1:1)
+$(error FZX_PLANE_CLOUD_ONLY requires original planes and RBG floor)
+endif
+FZX_PLANES_DIR := ../generated/planes_cloud
+else ifneq ($(FZX_PLANE_CLOUD_ONLY),0)
+$(error FZX_PLANE_CLOUD_ONLY must be 0 or 1)
+endif
 FZX_FRAME_PROFILE ?= 0
 ifeq ($(FZX_FRAME_PROFILE),1)
 ifneq ($(FZX_SIM):$(FZX_SOURCE_FLOOR_RBG):$(FZX_SOURCE_MACHINE),orig:1:1)
@@ -231,11 +241,14 @@ ifeq ($(FZX_SOURCE_PLANES),1)
 ifneq ($(FZX_SOURCE_SKY):$(FZX_SOURCE_SKYLINE):$(FZX_SKYLINE_CD):$(FZX_HUD_CD),1:1:1:1)
 $(error FZX_SOURCE_PLANES=1 requires source sky/skyline and both CD asset arms)
 endif
-FZX_PLANES_RECEIPT := $(shell sh ../tools/check_receipt.sh ../generated/planes/planes.receipt 2>&1; echo "rc=$$?")
+FZX_PLANES_RECEIPT := $(shell sh ../tools/check_receipt.sh $(FZX_PLANES_DIR)/planes.receipt 2>&1; echo "rc=$$?")
 ifeq ($(findstring rc=0,$(FZX_PLANES_RECEIPT)),)
 $(error Source plane pack is not current: $(FZX_PLANES_RECEIPT))
 endif
-SH_CFLAGS += -DFZX_SOURCE_PLANES=1 -I../generated/planes
+SH_CFLAGS += -DFZX_SOURCE_PLANES=1 -I$(FZX_PLANES_DIR)
+ifeq ($(FZX_PLANE_CLOUD_ONLY),1)
+SH_CFLAGS += -DFZX_PLANE_CLOUD_ONLY=1
+endif
 FZX_SKY_SRCS += ../src/fzx_planes.c planes_native.c
 else ifneq ($(FZX_SOURCE_PLANES),0)
 $(error FZX_SOURCE_PLANES must be 0 or 1)
@@ -359,12 +372,12 @@ stage-hud-pack:
 	cp ../generated/hud_cd/HUD.PAK $(IMAGE_DIRECTORY)/HUD.PAK
 endif
 ifeq ($(FZX_SOURCE_PLANES),1)
-$(SH_OUTPUT_PATH)/$(SH_PROGRAM).iso: ../generated/planes/PLANES.PAK
+$(SH_OUTPUT_PATH)/$(SH_PROGRAM).iso: $(FZX_PLANES_DIR)/PLANES.PAK
 pre-build-iso: stage-plane-pack
 .PHONY: stage-plane-pack
 stage-plane-pack:
 	mkdir -p $(IMAGE_DIRECTORY)
-	cp ../generated/planes/PLANES.PAK $(IMAGE_DIRECTORY)/PLANES.PAK
+	cp $(FZX_PLANES_DIR)/PLANES.PAK $(IMAGE_DIRECTORY)/PLANES.PAK
 endif
 
 ifeq ($(FZX_SOURCE_FLOOR_RBG),1)

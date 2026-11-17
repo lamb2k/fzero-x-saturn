@@ -694,8 +694,8 @@ main(void)
 #if FZX_SOURCE_PLANES
     const uint32_t plane_offset=sky_shade_offset+FZX_SKY_VRAM_BYTES+FZX_SKYLINE_VRAM_BYTES;
     planes_vram=(void *)((uintptr_t)sky_partitions.texture_base+plane_offset);
-    planes_shades=(void *)((uintptr_t)planes_vram+FZX_PLANE_PACK_BYTES);
-    if(plane_offset+FZX_PLANE_PACK_BYTES+FZX_PLANE_SHADE_BYTES>sky_partitions.texture_size ||
+    planes_shades=(void *)((uintptr_t)planes_vram+FZX_PLANE_RESIDENT_BYTES);
+    if(plane_offset+FZX_PLANE_RESIDENT_BYTES+FZX_PLANE_SHADE_BYTES>sky_partitions.texture_size ||
        !fzx_planes_load(planes_vram)) {
         dbgio_printf("\x1b[H\x1b[2J SOURCE PLANES LOAD FAILED\n");
         dbgio_flush();vdp2_sync();for(;;) {}
@@ -722,7 +722,7 @@ main(void)
 #if FZX_SOURCE_ROAD_TILES
     uint32_t road_tile_offset=sky_shade_offset+FZX_SKY_VRAM_BYTES+FZX_SKYLINE_VRAM_BYTES;
 #if FZX_SOURCE_PLANES
-    road_tile_offset+=FZX_PLANE_PACK_BYTES+FZX_PLANE_SHADE_BYTES;
+    road_tile_offset+=FZX_PLANE_RESIDENT_BYTES+FZX_PLANE_SHADE_BYTES;
 #endif
     road_tile_pixels=(void *)((uintptr_t)sky_partitions.texture_base+road_tile_offset);
     road_tile_shades=(void *)((uintptr_t)road_tile_pixels+FZX_ROAD_TILE_TEXTURE_BYTES);

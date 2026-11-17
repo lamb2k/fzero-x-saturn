@@ -36,6 +36,14 @@
 #if FZX_SIM != FZX_SIM_PROTO && FZX_SIM != FZX_SIM_ORIG
 #error "FZX_SIM: FZX_SIM_PROTO or FZX_SIM_ORIG"
 #endif
+#ifndef FZX_NATIVE_CORE_EMPTY
+#define FZX_NATIVE_CORE_EMPTY 0
+#endif
+#if FZX_NATIVE_CORE_EMPTY
+#if FZX_SIM != FZX_SIM_ORIG || !FZX_SOURCE_ROAD_TILES || !FZX_SOURCE_MACHINE
+#error "FZX_NATIVE_CORE_EMPTY requires original simulation, road tiles and machine"
+#endif
+#endif
 
 /* Positions and radii are Q16.16, at 1/16 original game scale. Bank is
  * SH2ZAM turns; tension is Q16.16 in [0,2]. This explicit layout is also

@@ -46,8 +46,7 @@ full repetition control p99 818 fails the 420 budget. GCC/Clang records match.
 C2's [road bake](ROAD_BAKE.md) passes HOST gates: 151,128-byte metadata,
 147,328-byte textures including three fog variants. All original rows/quads
 remain; 140 tier images use bounded lookup conversion or exact RGB fallback.
-Windows/Linux packs match; corruption controls fail. C3's native road stream
-is next. Source fog changes in 415 inputs must remain in its runtime tables.
+Windows/Linux packs match; corruption controls fail. Retain all 415 fog-changing inputs.
 [SH2ZAM view-edges-1](SH2ZAM_EDGES_ADOPTION.md) is adopted in pointer-only 36626ea.
 Synthetic checks/calibration pass; old road 112.045 -> 112.033 ms MODELLED.
 C3's [camera/pack/gather helpers](ROAD_STREAM.md) pass HOST and SH-2 compile:
@@ -58,8 +57,9 @@ The owner's local render plan ranks C1-C8; the full first-course goal remains.
 C8's [countdown pack](COUNTDOWN.md) passes HOST: 23 original quads, 2,352 bytes
 metadata / 70,400 bytes textures; source setup confirms no lighting is required.
 Countdown builder passes all 9,907 HOST states: max 16 commands, visible
-coverage within 1 px; native adapter compiles. Residency/main integration,
-native scene review and sound remain open (COUNTDOWN.md).
+coverage within 1 px; native adapter compiles. Integration/review/sound open.
+[Unused core renderer bypass](NATIVE_CORE_MEMORY.md) saves 59,736 linked bytes;
+13 native views retain exact scene commands/pixels; stack minimum 65,680 B.
 
 C5 compact atlas passes 13 native views, exact scene pixels/commands and knob-off
 binary identity; 128 KiB reclaimed. Stack 5,936 B still fails C7. No speed claim.

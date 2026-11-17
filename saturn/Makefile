@@ -7,6 +7,14 @@ endif
 # otherwise a fresh original-race build depends on a prior prototype build dir.
 SH_PROGRAM := fzero-x-saturn
 FZX_SIM ?= proto
+FZX_NATIVE_CORE_EMPTY ?= 0
+ifeq ($(FZX_NATIVE_CORE_EMPTY),1)
+ifneq ($(FZX_SIM):$(FZX_SOURCE_ROAD_TILES):$(FZX_SOURCE_MACHINE),orig:1:1)
+$(error FZX_NATIVE_CORE_EMPTY requires original simulation, road tiles and machine)
+endif
+else ifneq ($(FZX_NATIVE_CORE_EMPTY),0)
+$(error FZX_NATIVE_CORE_EMPTY must be 0 or 1)
+endif
 FZX_SOURCE_HUD ?= 0
 FZX_HUD_CD ?= 0
 FZX_SOURCE_CAMERA ?= 0
@@ -329,6 +337,9 @@ endif
 SH_SRCS := $(FZX_FRAME_PROFILE_SRCS) main.c ../src/fzx.c $(FZX_ORIG_SRCS) $(FZX_HUD_SRCS) $(FZX_CAMERA_SRCS) $(FZX_ROAD_SRCS) $(FZX_SKY_SRCS) $(FZX_MACHINE_SRCS) $(wildcard $(SH2ZAM_ROOT)/saturn/src/*.c)
 SH_CFLAGS += -DFZX_SH2_DIVU=1 -O2 -std=c11 -Wall -Wextra -I../include \
              -I$(SH2ZAM_ROOT)/saturn/include -DSH2Z_REQUIRE_SH2=1
+ifeq ($(FZX_NATIVE_CORE_EMPTY),1)
+SH_CFLAGS += -DFZX_NATIVE_CORE_EMPTY=1
+endif
 
 IP_VERSION := V0.100
 IP_RELEASE_DATE := 20261113

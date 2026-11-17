@@ -585,6 +585,15 @@ FZX_EXPORT const fzx_frame_t *
 fzx_render(void)
 {
     if(!initialized) fzx_init();
+#if FZX_NATIVE_CORE_EMPTY
+    /* Both visible layers are owned by the native source renderers. Preserve
+     * the core's public frame header without transforming an undrawn ribbon
+     * or retaining its projection and sorting scratch in high work RAM. */
+    frame.count=0;
+    frame.speed=pose_valid?pose.speed:(uint32_t)(((int64_t)speed*100)/SH2Z_ONE);
+    frame.lap=laps;frame.flags=imported?FZX_FRAME_IMPORTED:0;
+    return &frame;
+#else
     const ring_t *r=&rings[current_ring],*next=&rings[(current_ring+1)%ring_count];
     sh2z_vec3_t forward,up,left,car;
     if (pose_valid) {
@@ -702,4 +711,5 @@ fzx_render(void)
 #endif
     sort_polygons();
     return &frame;
+#endif
 }

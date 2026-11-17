@@ -43,8 +43,8 @@ Limit: 50 lines. History lives in git.
 - Countdown HOST commands + native-adapter compile pass; integration/audio open (COUNTDOWN.md).
 
 ## Preserved work and gaps
-
 - Older clip/hitch/software-road WIP is still local and unstaged.
 - C4 default-off native experiment: 9.273 ms mean MODELLED, HOST p99 67 / max 112 draws.
 - C4 full race/state pass: 3.837 fps MODELLED; cost/order/stack gates FAIL (see doc).
 - C5 dual probe remains open; compact clouds reclaim 128 KiB (PLANE_RESIDENCY.md).
+- Native core bypass saves 59,736 B; 13-view identity passes (NATIVE_CORE_MEMORY.md).

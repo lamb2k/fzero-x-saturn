@@ -61,10 +61,10 @@ Countdown snapshot/view HOST gates pass: all 9,907 source states unchanged,
 20,384 visible vertex samples within 1 px; SH-2 adapter compiles. Native drawing,
 animation integration and sound remain open; running game unchanged.
 
-The last admitted rendering change remains the RBG0 floor: its 13-view
-floor/cloud A/B/A means are 74.12 / 56.62 / 74.12 ms MODELLED. These cover
-different views from the new whole-route baseline. The screen-space fog
-follow-up was withdrawn for insufficient benefit and reduced memory margin.
+C4 [vehicle rebake](MACHINE_REBAKE.md) passes HOST conversion: 21,824 metadata /
+17,064 texture bytes; all source triangles retained, near model 112 faces.
+Conservative plane census: p99 66 / max 71 retained faces; no command/cost gate.
+Native lighting, ordering, drawing and appearance remain unrun; C4 is incomplete.
 
 ## Local experiments retained
 

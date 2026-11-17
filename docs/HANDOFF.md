@@ -44,6 +44,6 @@ Limit: 50 lines. History lives in git.
 ## Preserved work and gaps
 
 - Older clip/hitch/software-road WIP is still local and unstaged.
-- The build isolate currently contains profile-OFF outputs. Qualified ON artifacts
-  are preserved externally; do not overwrite them with OFF outputs.
-- Fog trial withdrawn; other content and physical gates open. No release/SD write.
+- C4 offline vehicle pack passes HOST; MACHINE_REBAKE.md has format and gates.
+- Native C4 unrun; plane census p99 66/max71 is not a command or timing gate.
+- Retain profile-ON artifacts externally; build isolate has OFF. No release/SD write.

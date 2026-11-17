@@ -57,7 +57,8 @@ static void fog_prepare(fzx_road_stream_draw_work_t *w,const sh2z_view_t *view,
         }
         w->fog_depth[i]=depth;
     }
-    /* Bucket index, as shade-1's sh2z_shade_fog_from_depth builds it. */
+    /* STAND-IN pending an SH2ZAM tag: bucket index, as shade-1's
+     * sh2z_shade_fog_from_depth builds it, kept inside the existing work. */
     unsigned monotonic=1,shift=0;
     for(unsigned i=1;i<256;++i)if(w->fog_depth[i]<w->fog_depth[i-1])monotonic=0;
     while((w->fog_depth[255]>>shift)>255u)++shift;
@@ -72,7 +73,8 @@ static void fog_prepare(fzx_road_stream_draw_work_t *w,const sh2z_view_t *view,
 static unsigned fog_lookup(const fzx_road_stream_draw_work_t *w,int32_t z){
     const uint32_t depth=z>0?(uint32_t)z:0;
     if(w->fog_shift!=255u){
-        /* Bounded search inside one bucket; identical to the full search for
+        /* STAND-IN for sh2z_shade_fog_lookup (shade-1), inlined per corner.
+         * Bounded search inside one bucket; identical to the full search for
          * a non-decreasing table. depth>>shift as a multiply-high (the SH-2
          * has no variable shift). */
         const uint32_t b=w->fog_shift?(uint32_t)(((uint64_t)depth*w->fog_scale)>>32):depth;
@@ -93,9 +95,11 @@ typedef struct {
     fzx_road_stream_draw_stats_t *stats;
     int32_t live[3],base[3];   /* per-frame fog colours in RGB5 */
 } draw_t;
-/* Exact replacements for divisions on the per-corner path (no SH-2 divide
- * instruction; libgcc division dominated this stage). Both are checked
- * exhaustively over their whole reachable domain by the HOST tests. */
+/* STAND-IN pending an SH2ZAM tag (owner direction: numeric work goes through
+ * SH2ZAM). Exact replacements for divisions on the per-corner path (no SH-2
+ * divide instruction; libgcc division dominated this stage). Both are checked
+ * exhaustively over their whole reachable domain by the HOST tests. The
+ * shade-1 batch forms (sh2z_shade_fade_offset/_mix) compute the same values. */
 static int32_t div255(int32_t n){      /* trunc(n/255), |n| <= 65534 */
     const uint32_t a=(uint32_t)(n<0?-n:n),q=(a+(a>>8)+1u)>>8;
     return n<0?-(int32_t)q:(int32_t)q;
@@ -172,11 +176,11 @@ static bool piece(draw_t *d,const sh2z_view_vertex_t v[4],unsigned quad,unsigned
             shades[i]=packed;
         }
     } else {
-        /* live-mean and selected*(base-mean) are constant over the piece. */
-        const uint8_t *mean=w->images[base_image].mean;int32_t gain[3],offset[3];
-        for(unsigned c=0;c<3;++c){gain[c]=d->live[c]-mean[c];offset[c]=selected*(d->base[c]-mean[c]);}
+        /* Per-frame live/base fog colours; one image mean per piece. */
+        const uint8_t *means=w->images[base_image].mean;
         for(unsigned i=0;i<count;++i){uint16_t packed=0x8000;const int32_t f=(int32_t)fade[i];
-            for(unsigned c=0;c<3;++c){int32_t color=16+div255(f*gain[c]-offset[c]);
+            for(unsigned c=0;c<3;++c){const int32_t mean=means[c],live=d->live[c],base=d->base[c];int32_t color;
+                color=16+div255(f*(live-mean)-selected*(base-mean));
                 if(color<0)color=0;
                 if(color>31)color=31;
                 packed|=(uint16_t)((unsigned)color<<(c*5));

@@ -28,6 +28,18 @@ FZX_SOURCE_CAMERA ?= 0
 FZX_SOURCE_MACHINE ?= 0
 FZX_MACHINE_REBAKE ?= 0
 FZX_VEHICLE_PROFILE ?= 0
+FZX_VEHICLE_SUBPROFILE ?= 0
+FZX_VEHICLE_FAST ?= 0
+FZX_VEHICLE_NATIVE ?= 0
+ifneq ($(filter $(FZX_VEHICLE_NATIVE),0 1),$(FZX_VEHICLE_NATIVE))
+$(error FZX_VEHICLE_NATIVE must be 0 or 1)
+endif
+ifneq ($(filter $(FZX_VEHICLE_FAST),0 1),$(FZX_VEHICLE_FAST))
+$(error FZX_VEHICLE_FAST must be 0 or 1)
+endif
+ifneq ($(filter $(FZX_VEHICLE_SUBPROFILE),0 1),$(FZX_VEHICLE_SUBPROFILE))
+$(error FZX_VEHICLE_SUBPROFILE must be 0 or 1)
+endif
 ifneq ($(filter $(FZX_MACHINE_REBAKE),0 1),$(FZX_MACHINE_REBAKE))
 $(error FZX_MACHINE_REBAKE must be 0 or 1)
 endif
@@ -405,6 +417,15 @@ ifeq ($(findstring rc=0,$(FZX_VEHICLE_RECEIPT)),)
 $(error Prepared vehicle assets are stale: $(FZX_VEHICLE_RECEIPT))
 endif
 SH_CFLAGS += -DFZX_MACHINE_REBAKE=1 -DFZX_VEHICLE_PROFILE=$(FZX_VEHICLE_PROFILE) -I../generated/machine_rebake
+ifeq ($(FZX_VEHICLE_SUBPROFILE),1)
+SH_CFLAGS += -DFZX_VEHICLE_SUBPROFILE=1
+endif
+ifeq ($(FZX_VEHICLE_FAST),1)
+SH_CFLAGS += -DFZX_VEHICLE_FAST=1
+endif
+ifeq ($(FZX_VEHICLE_NATIVE),1)
+SH_CFLAGS += -DFZX_VEHICLE_NATIVE=1 -DFZX_VEHICLE_FAST=1
+endif
 FZX_MACHINE_SRCS := vehicle_native.c ../src/fzx_vehicle.c ../src/fzx_vehicle_draw.c ../src/fzx_view16.c
 endif
 else ifneq ($(FZX_SOURCE_MACHINE),0)

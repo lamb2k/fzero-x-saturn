@@ -8,11 +8,16 @@ static unsigned emits;
 static bool allow_solid;
 static unsigned solid_emits;
 static uint32_t solid_color_hash;
+/* FNV-1a over every emitted quad's fields (arm-identity witness across all draws). */
+static uint32_t quad_hash=2166136261u;
+static void mix(uint32_t value){for(unsigned i=0;i<4;++i)quad_hash=(quad_hash^((value>>(8*i))&255u))*16777619u;}
 static bool emit(void *ctx,const fzx_vehicle_quad_t *q){
     (void)ctx;
     if((q->solid&&!allow_solid)||q->width%8||q->height%2||q->palette>=64)return false;
     for(unsigned i=0;i<4;++i)if(q->x[i]<-1023||q->x[i]>1023||q->y[i]<-1023||q->y[i]>1023||q->gouraud[i]&0x8000)return false;
     if(q->solid){if(!(q->color&0x8000))return false;++solid_emits;solid_color_hash=(solid_color_hash^q->color)*16777619u;}
+    for(unsigned i=0;i<4;++i){mix((uint16_t)q->x[i]);mix((uint16_t)q->y[i]);mix(q->gouraud[i]);}
+    mix(q->palette);mix(q->face);mix(q->width);mix(q->height);mix(q->color);mix(q->texture);mix(q->solid);
     ++emits;return true;
 }
 static uint32_t hash(const uint8_t *p,unsigned n){uint32_t value=2166136261u;for(unsigned i=0;i<n;++i)value=(value^p[i])*16777619u;return value;}
@@ -56,5 +61,5 @@ int main(int argc,char **argv){
     if(!fzx_vehicle_draw(&pack,&view,&camera,&state,&work,256,emit,0,&stats)||stats.clipped!=clipped||solid_emits!=solids||solid_color_hash==lit)return 13;
     state.normal_body_visible=0;
     if(!fzx_vehicle_draw(&pack,&view,&camera,&state,&work,0,emit,0,&stats)||stats.draws)return 10;
-    puts("vehicle prepared pack, draw, shared palette cache, clipped lighting/fog and bounds PASS");return 0;
+    printf("vehicle prepared pack, draw, shared palette cache, clipped lighting/fog and bounds PASS quads=%08x\n",(unsigned)quad_hash);return 0;
 }

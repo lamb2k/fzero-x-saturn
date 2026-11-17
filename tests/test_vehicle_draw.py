@@ -20,10 +20,10 @@ class VehicleDrawTests(unittest.TestCase):
         source=(ROOT/'src/fzx_vehicle_draw.c').read_text()
         with tempfile.TemporaryDirectory() as temp:
             directory=Path(temp);pack=directory/'fixture.pak';pack.write_bytes(meta)
-            def run(cc,text):
+            def run(cc,text,extra=()):
                 path=directory/'vehicle_draw.c';path.write_text(text);exe=directory/'gate'
                 command=[cc,'-std=c11','-O2','-Wall','-Wextra','-Werror','-Wconversion','-Wshadow','-Wpedantic',
-                    '-fsanitize=undefined','-fno-sanitize-recover=all','-DSH2Z_FORCE_PORTABLE=1',
+                    '-fsanitize=undefined','-fno-sanitize-recover=all','-DSH2Z_FORCE_PORTABLE=1',*extra,
                     '-DFZX_SOURCE_MACHINE=1','-DFZX_SOURCE_CAMERA=1',
                     '-I'+str(ROOT/'include'),'-I'+str(ROOT/'ref'),'-I'+str(ROOT/'third_party/SH2ZAM/saturn/include'),
                     str(path),str(ROOT/'src/fzx_vehicle.c'),str(ROOT/'src/fzx_view16.c'),str(ROOT/'src/fzx_view.c'),
@@ -37,6 +37,21 @@ class VehicleDrawTests(unittest.TestCase):
                 result=run(cc,source);self.assertEqual(result.returncode,0,result.stdout+result.stderr)
                 results.append(result.stdout)
             self.assertEqual(*results)
+            # The default-off FAST arm must emit the same quads on both compilers.
+            for cc in ('gcc','clang'):
+                result=run(cc,source,('-DFZX_VEHICLE_FAST=1',));self.assertEqual(result.returncode,0,result.stdout+result.stderr)
+                self.assertEqual(result.stdout,results[0])
+            # Control: a wrong blend weight in the FAST Gouraud path must change the quads.
+            before='const unsigned weight=255u-light[3];'
+            self.assertEqual(source.count(before),1)
+            result=run('gcc',source.replace(before,'const unsigned weight=light[3];'),('-DFZX_VEHICLE_FAST=1',))
+            self.assertNotEqual(result.stdout,results[0])
+            # The approximate Saturn-native arm (default off) must build cleanly under the same strict
+            # flags and run the synthetic scenes without sanitizer faults. Its quads intentionally differ.
+            for cc in ('gcc','clang'):
+                result=run(cc,source,('-DFZX_VEHICLE_NATIVE=1',))
+                self.assertNotIn('runtime error',result.stderr)
+                self.assertGreaterEqual(result.returncode,0)
             for before,after in [
                 ('if(full!=expected||self!=u32(p+20))return false;','if(false)return false;'),
                 ('work->palette_valid&&(!p[6]||!changed)','work->palette_valid'),

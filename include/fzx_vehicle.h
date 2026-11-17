@@ -2,6 +2,9 @@
 #define FZX_VEHICLE_H
 #include "fzx_view16.h"
 #include "ref.h"
+#if defined(FZX_VEHICLE_NATIVE)&&FZX_VEHICLE_NATIVE
+#include "sh2zam/shade_experimental.h"
+#endif
 
 /* C4 model-specific preparation. Original model X/Y/Z map to source basis
  * Z/Y/X. No simulation state is modified. The view is consumed by SH2ZAM. */
@@ -36,6 +39,21 @@ typedef struct {
     uint8_t palette_dirty[FZX_VEHICLE_PALETTES];
     unsigned cached_lod;
     bool palette_valid;
+#if (defined(FZX_VEHICLE_FAST)&&FZX_VEHICLE_FAST)||(defined(FZX_VEHICLE_NATIVE)&&FZX_VEHICLE_NATIVE)
+    /* Per-draw Gouraud memo: tag is palette+1 for the cached word (FAST) or pair slot (NATIVE) of a normal. */
+    uint8_t gouraud_tag[FZX_VEHICLE_NORMALS],gouraud_saturated[FZX_VEHICLE_NORMALS];
+    uint16_t gouraud_value[FZX_VEHICLE_NORMALS];
+#endif
+#if defined(FZX_VEHICLE_NATIVE)&&FZX_VEHICLE_NATIVE
+    /* Saturn-native arm: per-LOD native tables and per-draw scratch (low WRAM). */
+    sh2z_shade_plane_t planes[FZX_VEHICLE_FACES];
+    uint16_t orders[8][FZX_VEHICLE_FACES],kept[FZX_VEHICLE_FACES],face_info[FZX_VEHICLE_FACES][4];
+    uint16_t corner_pair[FZX_VEHICLE_FACES][4],pair_gouraud[FZX_VEHICLE_FACES*4];
+    sh2z_shade_pair_t pairs[FZX_VEHICLE_FACES*4];
+    uint32_t face_texture[FZX_VEHICLE_FACES];
+    uint8_t corner_position[FZX_VEHICLE_FACES][4],corner_normal[FZX_VEHICLE_FACES][4];
+    uint16_t native_lod;
+#endif
 } fzx_vehicle_work_t;
 typedef struct {
     int16_t x[4],y[4];

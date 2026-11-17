@@ -1,6 +1,7 @@
 # Status
 Limit: 80 lines. History lives in git. Plan: [POC_PLAN.md](POC_PLAN.md).
 Active goal: [first-course boot, selection and race completion](FIRST_COURSE_GOAL.md).
+Current C0-C8 decisions and dependencies: [render programme](RENDER_PLAN_CURRENT.md).
 
 ## Owner direction
 

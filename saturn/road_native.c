@@ -17,7 +17,9 @@ static const unsigned char road_fog[3]=FZX_ROAD_COURSE_FOG;
 static uint32_t planned_frame;
 static bool road_tick_seen,road_plan_seen;
 static sector_buffer_t sector __aligned(32);
-#if FZX_SOURCE_COUNTDOWN
+#if FZX_SOURCE_MACHINE_MENU
+enum { ROOT_ENTRIES=256 };
+#elif FZX_SOURCE_COUNTDOWN
 enum { ROOT_ENTRIES=32 };
 #else
 enum { ROOT_ENTRIES=16 };

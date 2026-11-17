@@ -37,7 +37,8 @@ tree, after resolving symlinks; tracked repository destinations are refused.
 | Mute City floor, skyline, clouds, sky | Eleven source texture/palette objects verified; six skyline instances retain source bindings | Native sky/skyline admitted; original floor uses RBG0 with source-derived fog, clouds remain sprites; full replay passes, scene budget and final look remain open |
 | Dash/pit, other effects, countdown and finish | Source coverage incomplete | Open |
 | Source camera | Original race closure and native view/scissor integration, default off | Source-reference visuals, broader mode coverage and performance remain open |
-| Entry/results UI and audio | Not integrated | Open |
+| Original entry and selection UI | Title/main/course art plus 241 machine/settings images and all 30 original LOD1 machine models converted locally | Native pad navigation and selected race handoff pass; [machine/settings gates](MACHINE_MENU.md) cover all 30 settings screens; owner look and sound remain open |
+| Results UI and audio | Not integrated | Open |
 | Remaining courses, machines, modes, rivals and persistence | Gate 6 ledger required | Open |
 
 ## Source details that matter

@@ -84,7 +84,7 @@ def main():
         if not args.no_build:
             with (OUT/(cc+opt+"-build.log")).open("w") as log:
                 subprocess.run(["bash", "ref/build.sh", cc, opt], cwd=ROOT,
-                               env=dict(os.environ, FZX_SOURCE_CAMERA="1", REF_CAMERA_ART="fixture"),
+                               env=dict(os.environ, FZX_SOURCE_CAMERA="1", REF_CAMERA_ART="fixture", FZX_SOURCE_MACHINE_MENU="0"),
                                stdout=log, stderr=subprocess.STDOUT, check=True)
         for name in names:
             race, camera, rows = run(binary, name)

@@ -8,6 +8,12 @@
 #if FZX_SOURCE_COURSE_MENU
 #include "course_menu_native.h"
 #endif
+#ifndef FZX_SOURCE_MACHINE_MENU
+#define FZX_SOURCE_MACHINE_MENU 0
+#endif
+#if FZX_SOURCE_MACHINE_MENU
+#include "machine_menu_native.h"
+#endif
 
 volatile uint32_t fzx_menu_status,fzx_menu_report[12];
 volatile uint32_t fzx_menu_debug_buttons,fzx_menu_debug_limit,fzx_menu_debug_reset;
@@ -152,6 +158,9 @@ bool fzx_menu_run(volatile const uint32_t *fields,vdp1_cmdt_t *commands,unsigned
             if(!fzx_course_menu_run(fields,commands,capacity,scratch,scratch_bytes)) {
                 fzx_menu_status=8;return false;
             }
+#if FZX_SOURCE_MACHINE_MENU
+            if(fzx_machine_menu_selection.ready){fzx_menu_status=2;return true;}
+#endif
             /* Frontend phases borrow the same VRAM and CD scratch space. */
             if(!fzx_texture_cd_load("MENU.PAK",FZX_MENU_BYTES,FZX_MENU_HASH,(void *)pixels,scratch,scratch_bytes)) {
                 fzx_menu_status=4;return false;

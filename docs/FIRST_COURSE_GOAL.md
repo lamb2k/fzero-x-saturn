@@ -47,7 +47,7 @@ plan, but are not prerequisites for this first-course milestone.
 | Native backdrop and skyline | Original floor now uses RBG0 through a full race; 13-view floor/cloud mean 74.12 -> 56.62 ms MODELLED with A/B/A. Clouds, scene budget and final look remain open |
 | Native road within budget | Native shared tiles finish the original race. Shared vertex cache preserves 9,907 HOST views and 13 native scene checks; road mean 125.92 -> 112.04 ms MODELLED, A/B/A confirmed. Budget remains blocked; pursue larger rendering and source-derived asset adjustments |
 | Native Blue Falcon | Original model now completes the actual race with live pose/body/lighting and guarded resident packs; 0.67-59.93 ms held-view cost MODELLED remains over budget; final appearance acceptance open |
-| Source entry and selection | Integrate the bounded original boot/menu/selection path into the slice; pad-driven transitions required |
+| Source entry and selection | Original pad-driven title/main/course/machine/settings path reaches Mute City 1; selected skin/tuning and diagnostic three-lap replay pass (MACHINE_MENU.md). Ordinary pad-only race completion remains open |
 | Race presentation and audio | Finish HUD/countdown/results/effects, source music and sound cues; integrate retry |
 | Combined scene and performance | Measure actual scene, improve the largest cost, qualify memory/stack and deterministic gameplay on the combined image |
 | First-course acceptance | Clean build, full end-to-end run, soak, local review package and hardware status |
@@ -56,7 +56,7 @@ Current priority follows the owner's `generated/CODEX-RENDER-PLAN.md` C0-C8:
 C0 now establishes a 3.287 fps MODELLED whole-route baseline with 34,178 missed
 fields. C1's full HOST road census passes at p99 335 commands with the forced
 full-repetition control at 818. C2 preserves the source rows/quads in a 151,128-byte
-pack with 143,976-byte textures; HOST gates pass. Next are road stream, vehicle rebake,
+pack with 147,328-byte textures; HOST gates pass. Next are road stream, vehicle rebake,
 cloud architecture, CPU split and combined measurements. Entry and race-presentation
 work can interleave where the plan allows. The render plan does not replace or
 narrow the completion gates above. A 60 Hz simulation with 30 Hz drawing must be

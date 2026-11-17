@@ -15,6 +15,8 @@ SKY=${FZX_SOURCE_SKY:-0}
 SKYLINE=${FZX_SOURCE_SKYLINE:-0}
 MACHINE=${FZX_SOURCE_MACHINE:-0}
 COUNTDOWN=${FZX_SOURCE_COUNTDOWN:-0}
+MACHINE_MENU=${FZX_SOURCE_MACHINE_MENU:-0}
+[ "$MACHINE_MENU" = 0 ] || [ "$MACHINE_MENU" = 1 ] || { echo "invalid FZX_SOURCE_MACHINE_MENU" >&2; exit 1; }
 [ "$COUNTDOWN" = 0 ] || [ "$COUNTDOWN:$CAMERA" = 1:1 ] || { echo "countdown requires source camera" >&2; exit 1; }
 [ "$MACHINE" = 0 ] || [ "$MACHINE:$CAMERA" = 1:1 ] || { echo "machine requires source camera" >&2; exit 1; }
 [ "$SKYLINE" = 0 ] || [ "$SKYLINE:$CAMERA" = 1:1 ] || { echo "skyline requires source camera" >&2; exit 1; }
@@ -34,6 +36,7 @@ if [ "$CAMERA" = 1 ]; then
     bash "$W/tools/check_receipt.sh" "$ASSETS/viewports.receipt"
 fi
 CC="$YAUL_ARCH_SH_PREFIX-gcc"
+if [ "$MACHINE_MENU" = 1 ]; then STUB="${STUB%/stub}-machine-menu/stub"; fi
 # Same defines and float discipline as ref/build.sh; the SH-2 has no FPU, so float is libgcc
 # soft-float (IEEE binary32, round to nearest). sqrtf is ref/sat/soft_sqrtf.c (Yaul has no
 # libm), checked against SSE for all 2^32 inputs.
@@ -45,6 +48,7 @@ CFLAGS="-m2 -mb -O2 -fno-fast-math -fno-unsafe-math-optimizations -ffp-contract=
  -I$W/ref -I$STUB -include $W/ref/overrides.h -include $STUB/asset_syms.h"
 SOURCES="src/game/racer.c src/game/course.c src/game/course_gadgets.c src/sys/math.c src/game/EA90.c src/game/common.c src/sys/controller.c src/overlays/ovl_i2/course_context.c src/overlays/ovl_i3/cpu.c src/game/game_context.c src/game/course_gadget_context.c"
 BRIDGES="bridge hooks"
+if [ "$MACHINE_MENU" = 1 ]; then CFLAGS="$CFLAGS -DFZX_SOURCE_MACHINE_MENU=1 -DFZX_RACE_GFX_EXTERNAL=1"; fi
 if [ "$COUNTDOWN" = 1 ]; then BRIDGES="$BRIDGES countdown_bridge"; fi
 if [ "$PLAN" = 1 ]; then CFLAGS="-I$D/src/game $CFLAGS"; fi
 if [ "$CAMERA" = 1 ]; then

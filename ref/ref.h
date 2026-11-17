@@ -89,6 +89,16 @@ int ref_camera_draw_scissor(float out[4]);
 int ref_load_course(const unsigned char* record, int big_endian); /* 0 on success */
 void ref_set_rom_boot(const unsigned char* boot); /* big-endian (z64) bytes; NULL = CI fixture */
 int ref_race_init(void);                                    /* 0 on success */
+#if FZX_SOURCE_MACHINE_MENU
+/* Explicit first-course handoff. Unsupported machines are rejected, never
+ * substituted. Call before init; restart retains these original racer inputs. */
+int ref_race_set_selection(unsigned int character,unsigned int skin,float engine);
+/* Native storage preserves the entire original graphics pool. Caller owns
+ * zeroing, 32-byte alignment, lifetime and surrounding guards; CPU access only.
+ * HOST retains its static pool unless explicitly rebound for qualification. */
+unsigned int ref_race_gfx_bytes(void);
+int ref_race_gfx_bind(void *memory,unsigned int bytes);
+#endif
 /* Back to the grid on the course already set up: the racer steps of Race_Init again, without
  * Course_Init (seconds on the SH-2). check.sh proves a restarted race replays as a fresh one. */
 void ref_race_restart(void);

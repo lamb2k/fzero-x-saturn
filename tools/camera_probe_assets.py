@@ -26,7 +26,7 @@ def main():
     OUT.mkdir(parents=True,exist_ok=True)
     with (OUT/"host-build.log").open("w") as log:
         subprocess.run(["bash",str(ROOT/"ref/build.sh"),"gcc","-O0"],cwd=ROOT,
-                       env=dict(os.environ,FZX_SOURCE_CAMERA="1",REF_CAMERA_ART="fixture"),
+                       env=dict(os.environ,FZX_SOURCE_CAMERA="1",REF_CAMERA_ART="fixture",FZX_SOURCE_MACHINE_MENU="0"),
                        stdout=log,stderr=subprocess.STDOUT,check=True)
     camera_expected=dict(x.split() for x in (ROOT/"ref/expected/camera.hashes").read_text().splitlines())
     small=OUT/"host-small";small.mkdir(parents=True,exist_ok=True)

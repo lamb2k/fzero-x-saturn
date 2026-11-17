@@ -42,7 +42,7 @@ def main():
         label = cc + opt
         with (out / (label + ".log")).open("w") as log:
             subprocess.run(["bash", str(ROOT / "ref/build.sh"), cc, opt], cwd=ROOT,
-                           env=dict(os.environ, FZX_ROAD_EXPORT="1", FZX_SOURCE_CAMERA="0"),
+                           env=dict(os.environ, FZX_ROAD_EXPORT="1", FZX_SOURCE_CAMERA="0", FZX_SOURCE_MACHINE_MENU="0"),
                            check=True, stdout=log, stderr=subprocess.STDOUT)
         exe = ROOT / "ref/build" / (label + "-road/fzx-ref")
         results = {}

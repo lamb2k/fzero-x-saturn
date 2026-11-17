@@ -29,6 +29,7 @@ The public default circuit and craft remain synthetic test fixtures.
 | Prototype driving | Fixed-step acceleration, braking, lateral steering, boundary slowdown, laps and reset. These are new test controls, not the original game's handling. |
 | Original race route | `FZX_SIM=orig` links the original racer code with binary32 software float; local owner-ROM builds supply Mute City 1 and machine constants. Emulator whole-race finish times have matched host replays. Source-art integration remains open. |
 | Source-art pipeline | Local verified export of five Blue Falcon LODs and 22 textures; native machine, road, backdrop and partial HUD behind explicit flags. [Coverage and build details](docs/SOURCE_ART.md). |
+| Original selection | Original title, main menu, course selection and [machine/settings screens](docs/MACHINE_MENU.md) behind explicit flags. Source models, portraits, colors and engine settings are converted locally; results and audio remain open. |
 | Saturn platform | Yaul build, VDP1 drawing, VDP2 backgrounds, digital pad input and PAL/NTSC tick scheduling. |
 | Web preview | The same C core compiled to WebAssembly, with keyboard/touch controls and local imported-course loading. |
 | Validation | Independent spline oracle, driving/reset/ordering checks, exact prepared/general transform comparisons, importer checks, sanitizers and browser interaction tests. |

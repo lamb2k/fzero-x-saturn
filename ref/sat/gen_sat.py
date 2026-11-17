@@ -87,7 +87,11 @@ def write_stubs(out, host_stubs):
         low_log=os.environ.get("FZX_INPUT_LOG_LOW_RAM","0")
         if low_log not in ("0","1"):raise ValueError("Invalid low-RAM input log flag")
         if low_log=="1":
-            start=(addr+4096+63)&~63
+            machine_menu=os.environ.get("FZX_SOURCE_MACHINE_MENU","0")
+            if machine_menu not in ("0","1"):raise ValueError("Invalid machine-menu flag")
+            # Matches texture_cd.h: 256 directory slots need a larger boot gap.
+            cd_reserve=12288 if machine_menu=="1" else 4096
+            start=(addr+cd_reserve+63)&~63
             if start+12288*4+64>0x00300000:raise ValueError("Input log exceeds low work RAM")
             fh.write("\t.global _fzx_input_log\n\t.set _fzx_input_log, 0x%08X\n" % start)
 

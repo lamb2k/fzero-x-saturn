@@ -7,6 +7,8 @@
 #    ref/bridge.c and ref/hooks.c for SH-2 (soft-float binary32), link with main_sat.c.
 # Needs root for the chroot (WSL default). Synthetic fixture only: no ROM is read.
 set -euo pipefail
+# This probe compares the legacy synthetic fixture hashes, not menu tuning.
+export FZX_SOURCE_MACHINE_MENU=0
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 REF=$ROOT/ref
 SCRIPT=${1:-T02_full_throttle}

@@ -1,7 +1,9 @@
 #include "texture_cd.h"
 #include "road_cd.h"
 #include <string.h>
-#if FZX_SOURCE_COUNTDOWN
+#if FZX_SOURCE_MACHINE_MENU
+enum { ROOT_ENTRIES=256 };
+#elif FZX_SOURCE_COUNTDOWN
 enum { ROOT_ENTRIES=32 };
 #else
 enum { ROOT_ENTRIES=16 };
@@ -13,6 +15,8 @@ typedef struct {
     cdfs_filelist_entry_t entries[ROOT_ENTRIES];
     uint32_t guard_after[8];
 } scratch_t;
+_Static_assert(sizeof(scratch_t)+32u<=FZX_TEXTURE_CD_SCRATCH_RESERVE,
+               "CD scratch crosses the input-log guard; update the reserved gap");
 static scratch_t *workspace;
 volatile fzx_texture_cd_status_t fzx_texture_cd_status;
 enum { GUARD=0x39a5c27e };

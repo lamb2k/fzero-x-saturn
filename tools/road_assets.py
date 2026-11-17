@@ -332,7 +332,8 @@ def main():
     (args.output / "course.bin").write_bytes(record)
     with (args.output / "build.log").open("w") as log:
         subprocess.run(["bash", str(ROOT / "ref/build.sh"), args.cc, "-O" + args.opt], cwd=ROOT,
-                       env=dict(os.environ, FZX_ROAD_EXPORT="1", FZX_SOURCE_CAMERA="0"),
+                       env=dict(os.environ, FZX_ROAD_EXPORT="1", FZX_SOURCE_CAMERA="0",
+                                FZX_ROAD_PLAN="0", FZX_BACKDROP_STATE="0", FZX_SOURCE_MACHINE_MENU="0"),
                        check=True, stdout=log, stderr=subprocess.STDOUT)
     host = ROOT / "ref/build" / (args.cc + "-O" + args.opt + "-road")
     exported = subprocess.check_output([str(host / "fzx-ref"), str((args.output / "course.bin").resolve())])

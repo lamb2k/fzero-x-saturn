@@ -29,8 +29,8 @@ class OfflineTests(unittest.TestCase):
     def test_low_ram_log_reservation_and_rejection(self):
         with tempfile.TemporaryDirectory() as td:
             p=Path(td);stub=p/'stubs.c';stub.write_text('unsigned char fixture[0x6b0c0];\n')
-            def generate(flag):
-                env=dict(os.environ,FZX_INPUT_LOG_LOW_RAM=flag)
+            def generate(flag,machine_menu='0'):
+                env=dict(os.environ,FZX_INPUT_LOG_LOW_RAM=flag,FZX_SOURCE_MACHINE_MENU=machine_menu)
                 return subprocess.run([os.sys.executable,str(ROOT/'ref/sat/gen_sat.py'),
                     '--stubs',str(p/'out'),str(stub)],env=env,capture_output=True)
             self.assertEqual(generate('0').returncode,0)
@@ -40,10 +40,20 @@ class OfflineTests(unittest.TestCase):
             on=(p/'out/sat_stubs_data.s').read_text()
             self.assertTrue(on.startswith(off))
             self.assertIn('.set _fzx_input_log, 0x0026C0C0',on)
+            self.assertEqual(generate('1','1').returncode,0)
+            menu=(p/'out/sat_stubs_data.s').read_text()
+            self.assertTrue(menu.startswith(off))
+            self.assertIn('.set _fzx_input_log, 0x0026E0C0',menu)
+            self.assertNotEqual(generate('1','invalid').returncode,0)
             self.assertNotEqual(generate('invalid').returncode,0)
             stub.write_text('unsigned char too_full[0xf4000];\n')
             result=generate('1');self.assertNotEqual(result.returncode,0)
             self.assertIn(b'Input log exceeds low work RAM',result.stderr)
+            # The 256-entry directory reserve must also reject a layout which
+            # still fits with the old 32-entry directory and 4 KiB gap.
+            stub.write_text('unsigned char tight[0xf2000];\n')
+            self.assertEqual(generate('1').returncode,0)
+            self.assertNotEqual(generate('1','1').returncode,0)
     def test_pair_coverage_and_original_strips(self):
         m,c=synthetic();r,ri=pack(m,c,True);meta,tex,info=road_tiles.convert(m,ri['hash'],[255,0,255])
         self.assertEqual((info['quads'],info['triangles'],info['strips']),(2,4,1))

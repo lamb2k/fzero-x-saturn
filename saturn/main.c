@@ -31,6 +31,13 @@
 #ifndef FZX_SOURCE_MACHINE
 #define FZX_SOURCE_MACHINE 0
 #endif
+#ifndef FZX_SOURCE_MACHINE_MENU
+#define FZX_SOURCE_MACHINE_MENU 0
+#endif
+#if FZX_SOURCE_MACHINE_MENU
+#include "machine_menu_native.h"
+#include "race_workspace_native.h"
+#endif
 #if FZX_SOURCE_MACHINE
 #include "machine_native.h"
 #if FZX_MACHINE_REBAKE
@@ -463,6 +470,11 @@ orig_hud(void)
 static void
 orig_publish(void)
 {
+#if FZX_SOURCE_MACHINE_MENU
+    if(!fzx_race_workspace_guards()) {
+        dbgio_printf("SOURCE GRAPHICS WORKSPACE GUARD FAILED");dbgio_flush();for(;;){}
+    }
+#endif
     fzx_pose_t p;
     ref_pose(&orig_pose);
     p.position = pose_vec(orig_pose.pos, 65536.0f / 16.0f);
@@ -726,6 +738,9 @@ main(void)
                      (void *)title_scratch,0x00300000u-title_scratch)) {
         dbgio_printf("SOURCE MENU FAILED");dbgio_flush();vdp2_sync();for(;;) {}
     }
+#if FZX_SOURCE_MACHINE_MENU
+    if(fzx_machine_menu_selection.ready)break;
+#endif
     }
 #endif
     /* Original selection is the next frontend phase. Until integrated, this
@@ -833,7 +848,19 @@ main(void)
     /* The stand-ins start zeroed, as the host's do. */
     memset((void *)0x00200000, 0,
            (size_t)((uintptr_t)sat_stub_data_end - 0x00200000u));
+#if FZX_SOURCE_MACHINE_MENU
+    if(!fzx_race_workspace_load()) {
+        dbgio_printf("SOURCE GRAPHICS WORKSPACE LOAD FAILED");dbgio_flush();vdp2_sync();for(;;){}
+    }
+#endif
     ref_set_rom_boot(ORIG_ROM_BOOT);
+#if FZX_SOURCE_MACHINE_MENU
+    if(!fzx_machine_menu_selection.ready || fzx_machine_menu_selection.course!=0 ||
+       ref_race_set_selection(fzx_machine_menu_selection.character,fzx_machine_menu_selection.skin,
+                              fzx_machine_menu_selection.engine)!=0) {
+        dbgio_printf("SOURCE RACE SELECTION FAILED");dbgio_flush();vdp2_sync();for(;;) {}
+    }
+#endif
     /* Course_Init takes seconds on the SH-2: say so rather than show a blank screen. */
     dbgio_printf("\x1b[H\x1b[2J\x1b[12;1H           SETTING UP THE COURSE...\n");
     dbgio_flush();

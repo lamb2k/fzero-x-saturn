@@ -3,6 +3,12 @@
 #include "texture_cd.h"
 #include "course_menu_identity.h"
 #include <string.h>
+#ifndef FZX_SOURCE_MACHINE_MENU
+#define FZX_SOURCE_MACHINE_MENU 0
+#endif
+#if FZX_SOURCE_MACHINE_MENU
+#include "machine_menu_native.h"
+#endif
 
 volatile uint32_t fzx_course_menu_status,fzx_course_menu_report[16];
 volatile uint32_t fzx_course_menu_debug_buttons,fzx_course_menu_debug_limit,fzx_course_menu_debug_reset;
@@ -155,11 +161,37 @@ bool fzx_course_menu_run(volatile const uint32_t *fields,vdp1_cmdt_t *commands,u
         fzx_course_menu_report[11]=state.connected;fzx_course_menu_report[12]=(uint32_t)state.selected_ghost;
         fzx_course_menu_status=state.request?2:1;
         if(!draw(commands,capacity,pixels,palettes,&list,false)){fzx_course_menu_status=7;return false;}
+#if FZX_SOURCE_MACHINE_MENU
+        if(state.request==FZX_COURSE_REQUEST_MACHINE) {
+            vdp1_sync_wait();vdp2_sync_wait();
+            for(;;) {
+                uint8_t released_connected;if(!read_buttons(&released_connected))break;
+                vdp2_sync();vdp2_sync_wait();
+            }
+            for(unsigned i=0;i<2;++i) {
+                if(!draw(commands,capacity,pixels,palettes,&list,true)){fzx_course_menu_status=7;return false;}
+                vdp1_sync_wait();vdp2_sync_wait();
+            }
+            bool race_ready=false;
+            if(!fzx_machine_menu_run(fields,commands,capacity,scratch,scratch_bytes,(uint8_t)state.course,&race_ready)) {
+                fzx_course_menu_status=9;return false;
+            }
+            if(race_ready){fzx_course_menu_status=2;return true;}
+            if(!fzx_texture_cd_load("COURSEUI.PAK",FZX_COURSE_MENU_BYTES,FZX_COURSE_MENU_HASH,(void *)pixels,scratch,scratch_bytes)) {
+                fzx_course_menu_status=4;return false;
+            }
+            for(unsigned g=0;g<3;++g)for(unsigned i=0;i<8;++i)guards[g][i]=GUARD;
+            if(!fzx_course_preview_load(scratch,scratch_bytes)){fzx_course_menu_status=8;return false;}
+            config=state.config;config.last_course=(uint8_t)state.course;config.frame=state.frame;
+            if(!fzx_course_menu_reset(&state,&config)){fzx_course_menu_status=6;return false;}
+            last_buttons=0;remainder=0;previous=*fields;fzx_course_menu_status=1;continue;
+        }
+#endif
         if(state.request==FZX_COURSE_REQUEST_MAIN_MENU)break;
     }
     vdp1_sync_wait();vdp2_sync_wait();
     for(;;) {
-        uint8_t connected;if(!read_buttons(&connected))break;
+        uint8_t released_connected;if(!read_buttons(&released_connected))break;
         vdp2_sync();vdp2_sync_wait();
     }
     for(unsigned i=0;i<2;++i) {

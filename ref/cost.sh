@@ -6,6 +6,8 @@
 # per ref_tick, on T01 to T10 and the synthetic course. Then ref/cost_model.py turns the
 # dumps into the ranked table. Needs valgrind; HOST tier. Fixture-only: no ROM is read.
 set -euo pipefail
+# This diagnostic measures the legacy synthetic race arm.
+export FZX_SOURCE_MACHINE_MENU=0
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 REF=$ROOT/ref
 OUT=${1:-${FZX_EVIDENCE:-$HOME/fzx-evidence}/cost}

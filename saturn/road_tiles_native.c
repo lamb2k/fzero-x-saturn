@@ -27,7 +27,7 @@ bool fzx_road_tiles_load(void *vram) {
     if(!cache_bytes || cache_bytes>0x00300000u || cache>0x00300000u-cache_bytes){fzx_road_tile_status=2;return false;}
     end=cache+cache_bytes;
 #endif
-    if(log!=((scratch+4096u+63u)&~(uintptr_t)63u) || scratch<0x00200000u ||
+    if(log!=((scratch+FZX_TEXTURE_CD_SCRATCH_RESERVE+63u)&~(uintptr_t)63u) || scratch<0x00200000u ||
        fzx_texture_cd_scratch_bytes()>log-32u-scratch || end+32u>0x00300000u){fzx_road_tile_status=2;return false;}
     fzx_road_tile_low_start=(uint32_t)log;fzx_road_tile_low_end=(uint32_t)end;
     for(unsigned i=0;i<8;++i){((volatile uint32_t *)log)[(int)i-8]=0x51a7c36du;((volatile uint32_t *)end)[i]=0x51a7c36du;fzx_input_log[12288u+i]=0x51a7c36du;}

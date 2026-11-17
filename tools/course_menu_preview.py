@@ -153,7 +153,7 @@ def scoped_build(output,cc):
                           '-DFZX_PREVIEW_DRIVER=1 -DFZX_SOURCE_CAMERA=$CAMERA -DFZX_ROAD_PLAN=$PLAN')
     script=build/'build.sh';script.write_bytes(source.encode())
     overrides=dict(FZX_SOURCE_CAMERA='1',REF_CAMERA_ART='retail',FZX_ROAD_EXPORT='0',
-                   FZX_ROAD_PLAN='0',FZX_BACKDROP_STATE='0',REF_STUB_CALLS='1')
+                   FZX_ROAD_PLAN='0',FZX_BACKDROP_STATE='0',FZX_SOURCE_MACHINE_MENU='0',REF_STUB_CALLS='1')
     command=['bash',linux_path(script),cc,'-O2']
     if os.name=='nt': command=['wsl','--','env',*(k+'='+v for k,v in overrides.items()),*command]
     with (build/'build.log').open('w') as log:

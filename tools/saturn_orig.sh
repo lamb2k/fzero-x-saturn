@@ -57,6 +57,18 @@ if [ "$SKY" = 1 ]; then python3 "$ROOT/tools/sky_assets.py"; fi
 if [ "$PLAN" = 1 ]; then python3 "$ROOT/tools/road_plan.py"; fi
 STUB_DIR=$ROOT/ref/sat/build/host-small
 ART=fixture
+case "${FZX_SOURCE_MACHINE_MENU:-0}" in
+    0) ;;
+    1)
+        [ "${FZX_SOURCE_COURSE_MENU:-0}:${FZX_SOURCE_CAMERA:-0}:${FZX_SOURCE_MACHINE:-0}" = 1:1:1 ] || { echo 'Machine selection requires original course menu, camera and machine' >&2; exit 1; }
+        [ "${1:-}" = --rom ] || { echo 'Original machine selection requires the owner ROM' >&2; exit 1; }
+        FZX_TEST_ROM="$2" python3 "$ROOT/tools/machine_menu_assets.py"
+        python3 "$ROOT/tools/machine_menu_source.py"
+        FZX_TEST_ROM="$2" python3 "$ROOT/tools/machine_menu_models.py"
+        FZX_TEST_ROM="$2" python3 "$ROOT/tools/machine_menu_camera.py"
+        ;;
+    *) echo 'FZX_SOURCE_MACHINE_MENU must be 0 or 1' >&2; exit 1 ;;
+esac
 if [ "${FZX_SOURCE_COURSE_MENU:-0}" = 1 ]; then
     [ "${FZX_SOURCE_MENU:-0}" = 1 ] || { echo 'Course selection requires original main menu' >&2; exit 1; }
     [ "${1:-}" = --rom ] || { echo 'Original course selection requires the owner ROM' >&2; exit 1; }
@@ -81,6 +93,7 @@ if [ "$CAMERA" = 1 ]; then
     OUT=$ROOT/saturn/build-orig-camera
     STUB_DIR=$STUB_DIR-camera-$ART
 fi
+if [ "${FZX_SOURCE_MACHINE_MENU:-0}" = 1 ]; then STUB_DIR=$STUB_DIR-machine-menu; fi
 [ -f "$IMG/yaul-env.sh" ] || { echo "no Yaul image at $IMG: run tools/fetch_yaul.py $IMG" >&2; exit 1; }
 
 mkdir -p "$OUT" "$ROOT/generated"
@@ -121,9 +134,9 @@ mountpoint -q "$IMG/proc" || mount -t proc proc "$IMG/proc"
 mountpoint -q "$IMG/dev" || mount --bind /dev "$IMG/dev"
 if [ "$CAMERA" = 1 ]; then
     chroot "$IMG" /bin/bash -c "source /yaul-env.sh && export PATH=\"\$YAUL_INSTALL_ROOT/bin:\$PATH\" && \
-        FZX_FASTFLOAT=1 FZX_SOURCE_CAMERA=1 FZX_SOURCE_COUNTDOWN=${FZX_SOURCE_COUNTDOWN:-0} FZX_NATIVE_CORE_EMPTY=${FZX_NATIVE_CORE_EMPTY:-0} FZX_SOURCE_MACHINE=${FZX_SOURCE_MACHINE:-0} FZX_ROAD_PLAN=$PLAN FZX_SOURCE_SKY=$SKY FZX_SOURCE_SKYLINE=$SKYLINE REF_CAMERA_ART=$ART bash /work/ref/sat/closure.sh /work/saturn/build-orig-camera && \
+        FZX_FASTFLOAT=1 FZX_SOURCE_CAMERA=1 FZX_SOURCE_MACHINE_MENU=${FZX_SOURCE_MACHINE_MENU:-0} FZX_SOURCE_COUNTDOWN=${FZX_SOURCE_COUNTDOWN:-0} FZX_NATIVE_CORE_EMPTY=${FZX_NATIVE_CORE_EMPTY:-0} FZX_SOURCE_MACHINE=${FZX_SOURCE_MACHINE:-0} FZX_ROAD_PLAN=$PLAN FZX_SOURCE_SKY=$SKY FZX_SOURCE_SKYLINE=$SKYLINE REF_CAMERA_ART=$ART bash /work/ref/sat/closure.sh /work/saturn/build-orig-camera && \
         make -B -C /work/saturn FZX_SIM=orig FZX_IMPORTED=1 FZX_SOURCE_CAMERA=1 FZX_SOURCE_ROAD=$PLAN \
-          FZX_CLOSURE=/work/saturn/build-orig-camera/ref_closure.o FZX_ROM_BOOT=$ROM_BOOT FZX_SOURCE_COUNTDOWN=${FZX_SOURCE_COUNTDOWN:-0} FZX_NATIVE_CORE_EMPTY=${FZX_NATIVE_CORE_EMPTY:-0} FZX_SOURCE_MACHINE=${FZX_SOURCE_MACHINE:-0} FZX_MACHINE_REBAKE=${FZX_MACHINE_REBAKE:-0} FZX_VEHICLE_PROFILE=${FZX_VEHICLE_PROFILE:-0} FZX_SOURCE_HUD=${FZX_SOURCE_HUD:-0} FZX_SOURCE_SKY=$SKY FZX_SKY_SIMPLIFY=${FZX_SKY_SIMPLIFY:-0} FZX_SOURCE_SKYLINE=$SKYLINE FZX_SKYLINE_CD=${FZX_SKYLINE_CD:-0} FZX_HUD_CD=${FZX_HUD_CD:-0} FZX_SOURCE_PLANES=${FZX_SOURCE_PLANES:-0} FZX_SOURCE_FLOOR_RBG=${FZX_SOURCE_FLOOR_RBG:-0} FZX_PLANE_CLOUD_ONLY=${FZX_PLANE_CLOUD_ONLY:-0} FZX_FRAME_PROFILE=${FZX_FRAME_PROFILE:-0} FZX_SOURCE_TITLE=${FZX_SOURCE_TITLE:-0} FZX_SOURCE_MENU=${FZX_SOURCE_MENU:-0} FZX_SOURCE_COURSE_MENU=${FZX_SOURCE_COURSE_MENU:-0} FZX_SOURCE_ROAD_TILES=${FZX_SOURCE_ROAD_TILES:-0} FZX_ROAD_TILE_PROJECT_CULL=${FZX_ROAD_TILE_PROJECT_CULL:-0} FZX_ROAD_TILE_EDGE_REUSE=${FZX_ROAD_TILE_EDGE_REUSE:-0} FZX_ROAD_TILE_PROFILE=${FZX_ROAD_TILE_PROFILE:-0} FZX_ROAD_TILE_VERTEX_CACHE=${FZX_ROAD_TILE_VERTEX_CACHE:-0}"
+          FZX_CLOSURE=/work/saturn/build-orig-camera/ref_closure.o FZX_ROM_BOOT=$ROM_BOOT FZX_SOURCE_MACHINE_MENU=${FZX_SOURCE_MACHINE_MENU:-0} FZX_SOURCE_COUNTDOWN=${FZX_SOURCE_COUNTDOWN:-0} FZX_NATIVE_CORE_EMPTY=${FZX_NATIVE_CORE_EMPTY:-0} FZX_SOURCE_MACHINE=${FZX_SOURCE_MACHINE:-0} FZX_MACHINE_REBAKE=${FZX_MACHINE_REBAKE:-0} FZX_VEHICLE_PROFILE=${FZX_VEHICLE_PROFILE:-0} FZX_SOURCE_HUD=${FZX_SOURCE_HUD:-0} FZX_SOURCE_SKY=$SKY FZX_SKY_SIMPLIFY=${FZX_SKY_SIMPLIFY:-0} FZX_SOURCE_SKYLINE=$SKYLINE FZX_SKYLINE_CD=${FZX_SKYLINE_CD:-0} FZX_HUD_CD=${FZX_HUD_CD:-0} FZX_SOURCE_PLANES=${FZX_SOURCE_PLANES:-0} FZX_SOURCE_FLOOR_RBG=${FZX_SOURCE_FLOOR_RBG:-0} FZX_PLANE_CLOUD_ONLY=${FZX_PLANE_CLOUD_ONLY:-0} FZX_FRAME_PROFILE=${FZX_FRAME_PROFILE:-0} FZX_SOURCE_TITLE=${FZX_SOURCE_TITLE:-0} FZX_SOURCE_MENU=${FZX_SOURCE_MENU:-0} FZX_SOURCE_COURSE_MENU=${FZX_SOURCE_COURSE_MENU:-0} FZX_SOURCE_ROAD_TILES=${FZX_SOURCE_ROAD_TILES:-0} FZX_ROAD_TILE_PROJECT_CULL=${FZX_ROAD_TILE_PROJECT_CULL:-0} FZX_ROAD_TILE_EDGE_REUSE=${FZX_ROAD_TILE_EDGE_REUSE:-0} FZX_ROAD_TILE_PROFILE=${FZX_ROAD_TILE_PROFILE:-0} FZX_ROAD_TILE_VERTEX_CACHE=${FZX_ROAD_TILE_VERTEX_CACHE:-0}"
     echo "built source-camera original-race image"
     exit 0
 fi
@@ -131,5 +144,5 @@ fi
 chroot "$IMG" /bin/bash -c "source /yaul-env.sh && export PATH=\"\$YAUL_INSTALL_ROOT/bin:\$PATH\" && \
     FZX_FASTFLOAT=1 bash /work/ref/sat/closure.sh /work/saturn/build-orig && \
     rm -f /work/saturn/build-orig/yaul/@work@saturn@main.o /work/saturn/build-orig/yaul/fzero-x-saturn.elf /work/saturn/build-orig/fzero-x-saturn.* && \
-    make -C /work/saturn FZX_SIM=orig FZX_IMPORTED=1 FZX_SOURCE_TITLE=${FZX_SOURCE_TITLE:-0} FZX_SOURCE_MENU=${FZX_SOURCE_MENU:-0} FZX_SOURCE_COURSE_MENU=${FZX_SOURCE_COURSE_MENU:-0} FZX_CLOSURE=/work/saturn/build-orig/ref_closure.o FZX_ROM_BOOT=$ROM_BOOT"
+    make -C /work/saturn FZX_SIM=orig FZX_IMPORTED=1 FZX_SOURCE_TITLE=${FZX_SOURCE_TITLE:-0} FZX_SOURCE_MENU=${FZX_SOURCE_MENU:-0} FZX_SOURCE_COURSE_MENU=${FZX_SOURCE_COURSE_MENU:-0} FZX_SOURCE_MACHINE_MENU=${FZX_SOURCE_MACHINE_MENU:-0} FZX_CLOSURE=/work/saturn/build-orig/ref_closure.o FZX_ROM_BOOT=$ROM_BOOT"
 echo "built $ROOT/saturn/build-orig/fzero-x-saturn.iso (FZX_SIM=orig)"

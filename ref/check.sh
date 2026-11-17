@@ -9,6 +9,8 @@
 #    of the fixture machine) changes the hash of a script that exercises it, so the hash
 #    is not blind to the physics.
 set -euo pipefail
+# These fixed regression hashes belong to the legacy synthetic race arm.
+export FZX_SOURCE_MACHINE_MENU=0
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 REF=$ROOT/ref
 TMP=$(mktemp -d)

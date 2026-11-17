@@ -13,21 +13,35 @@ REF=$(cd "$(dirname "$0")/.." && pwd)
 HOST=$REF/build/gcc-O0
 SMALL=$REF/sat/build/host-small
 CAMERA=${FZX_SOURCE_CAMERA:-0}
+MACHINE_MENU=${FZX_SOURCE_MACHINE_MENU:-0}
+[ "$MACHINE_MENU" = 0 ] || [ "$MACHINE_MENU" = 1 ] || { echo "invalid FZX_SOURCE_MACHINE_MENU" >&2; exit 1; }
 CAMERA_ARGS=()
 if [ "$CAMERA" = 1 ]; then
     ART=${REF_CAMERA_ART:-fixture}
     HOST=$HOST-camera-$ART
     SMALL=$SMALL-camera-$ART
-    bash "$REF/build.sh" gcc -O0 >/dev/null
     CAMERA_ARGS=(--camera-trace "$SMALL/reference-camera.txt")
 fi
-[ -x "$HOST/fzx-ref" ] || bash "$REF/build.sh" gcc -O0 >/dev/null
+if [ "$MACHINE_MENU" = 1 ]; then
+    HOST=$HOST-machine-menu
+    SMALL=$SMALL-machine-menu
+    if [ "$CAMERA" = 1 ]; then CAMERA_ARGS=(--camera-trace "$SMALL/reference-camera.txt"); fi
+fi
+if [ "$CAMERA" = 1 ] || [ "$MACHINE_MENU" = 1 ]; then
+    env -u REF_STUB_SIZES REF_STUB_SIZE=0x40000 bash "$REF/build.sh" gcc -O0 >/dev/null
+fi
+[ -x "$HOST/fzx-ref" ] || env -u REF_STUB_SIZES REF_STUB_SIZE=0x40000 bash "$REF/build.sh" gcc -O0 >/dev/null
 mkdir -p "$SMALL"
+EXPECTED=$REF/expected/fixture.hashes
+# The menu arm supplies the original racer tuning omitted by the legacy path.
+# Size reductions must match that arm's full-storage reference exactly.
+if [ "$MACHINE_MENU" = 1 ]; then EXPECTED=$SMALL/reference-fixture.hashes; : > "$EXPECTED"; fi
 python3 "$REF/fixture_course.py" "$SMALL/course.bin"
 rm -f "$SMALL/extents.txt"
 while read -r name _; do
-    REF_STUB_REPORT="$SMALL/extents.txt" "$HOST/fzx-ref" --course "$SMALL/course.bin" --byte-order big \
-        --inputs "$REF/inputs/$name.txt" >/dev/null
+    full=$(REF_STUB_REPORT="$SMALL/extents.txt" "$HOST/fzx-ref" --course "$SMALL/course.bin" --byte-order big \
+        --inputs "$REF/inputs/$name.txt" | awk '{print $4}')
+    if [ "$MACHINE_MENU" = 1 ]; then printf '%s %s\n' "$name" "$full" >> "$EXPECTED"; fi
     if [ -n "${REF_STUB_EXTRA_COURSE:-}" ]; then
         REF_STUB_REPORT="$SMALL/extents.txt" "$HOST/fzx-ref" --course "$REF_STUB_EXTRA_COURSE" \
             --byte-order big --rom "$REF_STUB_ROM" --inputs "$REF/inputs/$name.txt" >/dev/null
@@ -51,7 +65,7 @@ gcc -m32 -no-pie $objs "$SMALL/stubs.o" -lm -o "$SMALL/fzx-ref"
 while read -r name want; do
     got=$("$SMALL/fzx-ref" --course "$SMALL/course.bin" --byte-order big --inputs "$REF/inputs/$name.txt" | awk '{print $4}')
     [ "$got" = "$want" ] || { echo "sized stubs change $name: $got != $want" >&2; exit 1; }
-done < "$REF/expected/fixture.hashes"
+done < "$EXPECTED"
 if [ -n "${REF_STUB_EXTRA_INPUTS:-}" ]; then
     CAMERA_ARGS=()
     if [ "$CAMERA" = 1 ]; then CAMERA_ARGS=(--camera-trace "$SMALL/small-camera.txt"); fi

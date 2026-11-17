@@ -2,6 +2,8 @@
 # Run in Yaul's environment after tools/camera_probe_assets.py. Synthetic only.
 # Compile the common closure once; only the input data differs between probes.
 set -euo pipefail
+# Synthetic camera receipts use the legacy fixture tuning and stub layout.
+export FZX_SOURCE_MACHINE_MENU=0
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 [ $# -gt 0 ] || set -- camera_controls
 BASE=$ROOT/ref/sat/build/camera

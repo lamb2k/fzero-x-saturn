@@ -10,6 +10,7 @@ FZX_SIM ?= proto
 FZX_SOURCE_TITLE ?= 0
 FZX_SOURCE_MENU ?= 0
 FZX_SOURCE_COURSE_MENU ?= 0
+FZX_SOURCE_MACHINE_MENU ?= 0
 FZX_SOURCE_COUNTDOWN ?= 0
 FZX_NATIVE_CORE_EMPTY ?= 0
 ifeq ($(FZX_NATIVE_CORE_EMPTY),1)
@@ -117,6 +118,12 @@ SH_BUILD_DIR := build-orig-skyline/yaul
 SH_OUTPUT_DIR := build-orig-skyline
 IMAGE_DIRECTORY := build-orig-skyline/cd
 endif
+ifeq ($(FZX_SOURCE_MACHINE_MENU),1)
+# Keep the larger disc directory and compiled arm out of the legacy build.
+SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)-machine-menu
+SH_BUILD_DIR := $(SH_OUTPUT_DIR)/yaul
+IMAGE_DIRECTORY := $(SH_OUTPUT_DIR)/cd
+endif
 include $(YAUL_INSTALL_ROOT)/share/build.pre.mk
 
 SH2ZAM_ROOT ?= ../third_party/SH2ZAM
@@ -174,6 +181,20 @@ SH_CFLAGS += -DFZX_SOURCE_CAMERA=1
 FZX_CAMERA_SRCS := ../src/fzx_view.c
 else ifneq ($(FZX_SOURCE_CAMERA),0)
 $(error FZX_SOURCE_CAMERA must be 0 or 1)
+endif
+
+ifeq ($(FZX_SOURCE_MACHINE_MENU),1)
+ifneq ($(FZX_SOURCE_COURSE_MENU):$(FZX_SOURCE_CAMERA):$(FZX_SOURCE_MACHINE),1:1:1)
+$(error FZX_SOURCE_MACHINE_MENU requires original course menu, camera and machine)
+endif
+FZX_MACHINE_MENU_RECEIPT := $(shell sh ../tools/check_receipt.sh ../generated/machine_menu/machine_menu.receipt 2>&1 && sh ../tools/check_receipt.sh ../generated/machine-menu-source/machine_menu_source.receipt 2>&1 && sh ../tools/check_receipt.sh ../generated/machine_menu_models/machine_models.receipt 2>&1 && sh ../tools/check_receipt.sh ../generated/machine_menu_camera/machine_menu_camera.receipt 2>&1; echo "rc=$$?")
+ifeq ($(findstring rc=0,$(FZX_MACHINE_MENU_RECEIPT)),)
+$(error Original machine menu is not current: $(FZX_MACHINE_MENU_RECEIPT))
+endif
+SH_CFLAGS += -DFZX_SOURCE_MACHINE_MENU=1 -fsigned-char -ffp-contract=off -I../generated/machine_menu -I../generated/machine-menu-source -I../generated/machine_menu_models -I../generated/machine_menu_camera
+FZX_MACHINE_MENU_SRCS := race_workspace_native.c machine_menu_native.c machine_menu_models_native.c ../src/fzx_machine_menu_model.c ../generated/machine-menu-source/machine_menu_source.c
+else ifneq ($(FZX_SOURCE_MACHINE_MENU),0)
+$(error FZX_SOURCE_MACHINE_MENU must be 0 or 1)
 endif
 
 ifeq ($(FZX_SOURCE_COURSE_MENU),1)
@@ -396,7 +417,7 @@ endif
 else ifneq ($(FZX_SOURCE_COUNTDOWN),0)
 $(error FZX_SOURCE_COUNTDOWN must be 0 or 1)
 endif
-SH_SRCS := $(FZX_COURSE_MENU_SRCS) $(FZX_MENU_SRCS) $(FZX_TITLE_SRCS) $(FZX_COUNTDOWN_SRCS) $(FZX_FRAME_PROFILE_SRCS) main.c ../src/fzx.c $(FZX_ORIG_SRCS) $(FZX_HUD_SRCS) $(FZX_CAMERA_SRCS) $(FZX_ROAD_SRCS) $(FZX_SKY_SRCS) $(FZX_MACHINE_SRCS) $(wildcard $(SH2ZAM_ROOT)/saturn/src/*.c)
+SH_SRCS := $(FZX_MACHINE_MENU_SRCS) $(FZX_COURSE_MENU_SRCS) $(FZX_MENU_SRCS) $(FZX_TITLE_SRCS) $(FZX_COUNTDOWN_SRCS) $(FZX_FRAME_PROFILE_SRCS) main.c ../src/fzx.c $(FZX_ORIG_SRCS) $(FZX_HUD_SRCS) $(FZX_CAMERA_SRCS) $(FZX_ROAD_SRCS) $(FZX_SKY_SRCS) $(FZX_MACHINE_SRCS) $(wildcard $(SH2ZAM_ROOT)/saturn/src/*.c)
 SH_CFLAGS += -DFZX_SH2_DIVU=1 -O2 -std=c11 -Wall -Wextra -I../include \
              -I$(SH2ZAM_ROOT)/saturn/include -DSH2Z_REQUIRE_SH2=1
 ifeq ($(FZX_NATIVE_CORE_EMPTY),1)
@@ -522,4 +543,14 @@ pre-build-iso: stage-course-menu-pack
 stage-course-menu-pack:
 	mkdir -p $(IMAGE_DIRECTORY)
 	cp ../generated/course_menu/COURSEUI.PAK ../generated/course_menu_preview/CPREVIEW.PAK $(IMAGE_DIRECTORY)/
+endif
+
+ifeq ($(FZX_SOURCE_MACHINE_MENU),1)
+FZX_MACHINE_MENU_PACKS := $(wildcard ../generated/machine_menu/*.PAK) $(wildcard ../generated/machine_menu_models/*.PAK)
+$(SH_OUTPUT_PATH)/$(SH_PROGRAM).iso: $(FZX_MACHINE_MENU_PACKS)
+pre-build-iso: stage-machine-menu-pack
+.PHONY: stage-machine-menu-pack
+stage-machine-menu-pack:
+	mkdir -p $(IMAGE_DIRECTORY)
+	cp $(FZX_MACHINE_MENU_PACKS) $(IMAGE_DIRECTORY)/
 endif

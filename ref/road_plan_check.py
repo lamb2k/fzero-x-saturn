@@ -30,7 +30,7 @@ def main():
         cc,opt=arm;label=cc+opt
         with (out/(label+'.log')).open('w') as log:
             subprocess.run(['bash',str(ROOT/'ref/build.sh'),cc,opt],cwd=ROOT,
-                env=dict(os.environ,FZX_SOURCE_CAMERA='1',REF_CAMERA_ART='fixture',FZX_ROAD_PLAN='1'),
+                env=dict(os.environ,FZX_SOURCE_CAMERA='1',REF_CAMERA_ART='fixture',FZX_ROAD_PLAN='1',FZX_SOURCE_MACHINE_MENU='0'),
                 stdout=log,stderr=subprocess.STDOUT,check=True)
         folder=ROOT/'ref/build'/(label+'-camera-fixture-plan')
         result=exercise(folder/'fzx-ref',label)

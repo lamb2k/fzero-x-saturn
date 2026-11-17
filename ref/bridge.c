@@ -47,7 +47,22 @@ extern CourseFeature gCourseFeatures[];
 extern CourseEffectsInfo gCourseEffectsInfo;
 extern CourseEffect gCourseEffects[];
 
-static GfxPool sGfxPool;    /* The frame loop's graphics buffer: the intro camera writes matrices to it. */
+#if !FZX_SOURCE_MACHINE_MENU || !FZX_RACE_GFX_EXTERNAL
+static GfxPool sGfxPool;    /* HOST/default storage; native menus use guarded cartridge storage. */
+#endif
+#if FZX_SOURCE_MACHINE_MENU
+#if FZX_RACE_GFX_EXTERNAL
+static GfxPool *sRaceGfxPool;
+#else
+static GfxPool *sRaceGfxPool = &sGfxPool;
+#endif
+unsigned int ref_race_gfx_bytes(void) { return sizeof(GfxPool); }
+int ref_race_gfx_bind(void *memory,unsigned int bytes) {
+    if (!memory || ((unsigned long)memory & 31u) || bytes < sizeof(GfxPool)) return 1;
+    sRaceGfxPool = (GfxPool *)memory;
+    return 0;
+}
+#endif
 static OSPiHandle sCartRom; /* The boot code opens the cartridge; the harness only needs a handle. */
 
 static u32 swap32(u32 v) {
@@ -84,9 +99,28 @@ int ref_load_course(const unsigned char* record, int big_endian) {
     return 0;
 }
 
+#if FZX_SOURCE_MACHINE_MENU
+static float sSelectedEngine = 0.5f;
+static unsigned int sSelectedSkin;
+extern s16 gPlayerMachineSkins[];
+int ref_race_set_selection(unsigned int character,unsigned int skin,float engine) {
+    if (character != CAPTAIN_FALCON || skin >= 4 || !(engine >= 0.0f && engine <= 1.0f)) {
+        return 1;
+    }
+    sSelectedEngine = engine;
+    sSelectedSkin = skin;
+    return 0;
+}
+#endif
+
 int ref_race_init(void) {
     gCartRomHandle = &sCartRom;
+#if FZX_SOURCE_MACHINE_MENU
+    if (!sRaceGfxPool) return 1;
+    gGfxPool = sRaceGfxPool;
+#else
     gGfxPool = &sGfxPool;
+#endif
 
     /* Boot-time set-up the race code relies on (Game init in sys_gfx.c). */
     Math_SinTableInit();
@@ -102,7 +136,18 @@ int ref_race_init(void) {
     gNumPlayers = 1;
     gCourseIndex = COURSE_MUTE_CITY;
     gPlayerCharacters[0] = CAPTAIN_FALCON; /* Blue Falcon. */
+#if FZX_SOURCE_MACHINE_MENU
+    gPlayerEngine[0] = sSelectedEngine;
+    gPlayerMachineSkins[0] = (s16)sSelectedSkin;
+    /* Original settings entry copies character/skin into the racers; leaving
+     * settings converts the engine slider into Racer.unk_1A8. Racer_Init uses
+     * those racer fields directly, so setting only the player arrays is not
+     * a complete handoff. Keep the legacy flag-off race path unchanged. */
+    func_8008969C();
+    func_80089724();
+#else
     gPlayerEngine[0] = 0.5f;               /* Engine slider in the middle, the game's default. */
+#endif
     gPlayerControlPorts[0] = 0;
     gControllersConnected = 1;
 

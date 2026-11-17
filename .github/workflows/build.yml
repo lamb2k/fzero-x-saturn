@@ -43,7 +43,7 @@ jobs:
           git -C upstream/G-Diffuser submodule update --init decomp
           git -C upstream/G-Diffuser submodule update --init libultraship
       - run: sudo apt-get update && sudo apt-get install -y gcc-multilib clang
-      - name: Required original title, main-menu and course-selection controls
+      - name: Required original title, menu and selection controls
         run: |
           test -f upstream/G-Diffuser/decomp/src/overlays/ovl_i4/title.c
           test -f upstream/G-Diffuser/decomp/src/overlays/ovl_i6/main_menu.c
@@ -51,6 +51,7 @@ jobs:
           python3 -m unittest discover -s tests -p 'test_title*.py' -v
           python3 -m unittest discover -s tests -p 'test_menu*.py' -v
           python3 -m unittest discover -s tests -p 'test_course_menu*.py' -v
+          python3 -m unittest discover -s tests -p 'test_machine_menu*.py' -v
       - name: Required source shader material gate and mutation controls
         run: |
           test -f upstream/G-Diffuser/libultraship/src/fast/shaders/opengl/default.shader.glsl

@@ -12,6 +12,8 @@ CAMERA=${FZX_SOURCE_CAMERA:-0}
 ROAD=${FZX_ROAD_EXPORT:-0}
 PLAN=${FZX_ROAD_PLAN:-0}
 BACKDROP=${FZX_BACKDROP_STATE:-0}
+MACHINE_MENU=${FZX_SOURCE_MACHINE_MENU:-0}
+[ "$MACHINE_MENU" = 0 ] || [ "$MACHINE_MENU" = 1 ] || { echo "invalid FZX_SOURCE_MACHINE_MENU" >&2; exit 1; }
 [ "$BACKDROP" = 0 ] || [ "$BACKDROP:$CAMERA:$ROAD:$PLAN" = 1:1:0:0 ] || { echo "backdrop state requires source camera without road tools" >&2; exit 1; }
 [ "$PLAN" = 0 ] || [ "$PLAN:$CAMERA:$ROAD" = 1:1:0 ] || { echo "road planner requires source camera and no offline export" >&2; exit 1; }
 [ "$ROAD" = 0 ] || [ "$ROAD" = 1 ] || { echo "invalid FZX_ROAD_EXPORT" >&2; exit 1; }
@@ -28,10 +30,15 @@ if [ "$CAMERA" = 1 ]; then
 fi
 if [ "$PLAN" = 1 ]; then
     OUT=$OUT-plan
-    python3 "$ROOT/tools/road_plan.py" --output "$OUT/road_plan_course.c"
 fi
 if [ "$BACKDROP" = 1 ]; then
     OUT=$OUT-backdrop
+fi
+if [ "$MACHINE_MENU" = 1 ]; then OUT=$OUT-machine-menu; fi
+if [ "$PLAN" = 1 ]; then
+    python3 "$ROOT/tools/road_plan.py" --output "$OUT/road_plan_course.c"
+fi
+if [ "$BACKDROP" = 1 ]; then
     python3 "$ROOT/tools/backdrop_state.py" --output "$OUT/background.c"
     bash "$ROOT/tools/check_receipt.sh" "$OUT/background.receipt"
 fi
@@ -73,6 +80,7 @@ compile() { # Generated asset headers and asset symbols get empty stand-ins unti
 }
 
 BRIDGES="bridge hooks"
+if [ "$MACHINE_MENU" = 1 ]; then CFLAGS="$CFLAGS -DFZX_SOURCE_MACHINE_MENU=1"; fi
 if [ "$PLAN" = 1 ]; then CFLAGS="-I$D/src/game -DREF_ROAD_PLAN_ORACLE $CFLAGS"; fi
 if [ "$BACKDROP" = 1 ]; then
     # Dimensions from the source asset declarations let the uncalled stock

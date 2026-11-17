@@ -3,47 +3,45 @@ Limit: 50 lines. History lives in git.
 
 ## Goal and direction
 
-- Follow the owner's local render plan C0-C8 and all [first-course gates](FIRST_COURSE_GOAL.md).
-- Selection, Mute City 1, results/retry, audio/effects, pad flow, soak and 60 fps remain; hardware/look open.
-- Convert original assets offline for Saturn; document adaptations.
-- Completed source-only origin/gate1 pushes authorized after gates and hygiene.
+- Full [first-course goal](FIRST_COURSE_GOAL.md) and owner render plan C0-C8 remain active.
+- Preserve original assets through offline Saturn conversion; document adaptations.
+- Source-only origin/gate1 pushes are authorized after gates and hygiene; no retail assets/releases.
+- Results, audio/effects, ordinary pad completion/retry, soak, 60 fps, look and hardware remain open.
 
-## C0 result
+## Current C8 selection checkpoint
 
-- Full 9,907-input native replay: 121,814 ms, same final pose; all scene packets/command totals match HOST.
-- 1,982 pictures: 3.287 fps MODELLED, mean 304.215 ms, p95 433.333 ms,
-  maximum 466.668 ms, 34,178 missed fields. No 30 or 60 fps acceptance.
-- Mean CPU: road 121.720 ms, machine 52.858, clouds 32.863, floor 14.029;
-  simulation 46.134 per catch-up loop and state publication 32.078 ms.
-- Clock controls pass; profile-off binary equals admitted RBG0; 14 payloads unchanged.
-- Low-RAM recorder 262,144 bytes; all guards pass. Stack guard 5,996 bytes,
-  below C7's 16 KB target. Faster full captures will need more than 4,096 rows.
-- Private evidence: emu/frame-profile-v2/race, with exact image/source receipts.
-- The full C0 capture is finished; no replay needs restarting.
+- Original title/main/course/machine/settings pad flow reaches Mute City 1 / Blue Falcon.
+- [Machine/settings](MACHINE_MENU.md): 383 source-script native views cover all 30 models/settings,
+  fresh six, skins, tuning endpoints, cancel/back and disconnect/reconnect; commands/assets/guards match.
+- Three corrupted packs are rejected before race; disabled program remains byte-identical.
+- Enabled handoff corrects original racer tuning omitted by the legacy direct-race arm.
+- Selected skin1 / engine0.5078125 matches all 39 checked racer fields, globals, pose and camera.
+- Diagnostic restart + 7,059-input replay finishes three laps in 110,639 ms; four held views match.
+- Minimum sampled race stack 107,568 B; guarded 182,000 B graphics pool resides on the 4 MiB cartridge.
+- A 12 KiB CD scratch gap supports 256 directory slots. Enabled outputs use -machine-menu paths.
+- Final program fad15cb6310cb35e39e8ec12bd88b4d34fd6196f709ced19af887b417f6306d4.
+- Private evidence: host/machine-menu and emu/machine-menu. No physical or 60 fps acceptance.
 
-## C1/C2 passed; next: C3
+## Performance programme
 
-- All 9,907 HOST views: p99 335, max 355 commands; forced-first control p99 818.
-- GCC/Clang UBSan records match; native views match Python; old road unchanged.
-- FZXRLD01: 151,128 bytes metadata; textures 147,328 including three fog variants.
-- All original vertices/quads retained. 103 CLUT4 images stay within one RGB5
-  step/channel; 37 RGB images retain exact filtered pixels. Windows/Linux agree.
-- See ROAD_BAKE.md for format, receipts and controls. Far merges remain unqualified.
-- C3 must retain 62 source fog colours across 415 non-base inputs; baked fog is base only.
-- SH2ZAM view-edges-1 adopted in pointer-only 36626ea; synthetic/CI calibration pass.
-  Old road 112.045 ->112.033 ms MODELLED; see SH2ZAM_EDGES_ADOPTION.md.
-- C3 camera/pack/gather HOST gates pass: <=1 px, max552 vertices; ROAD_STREAM.md.
-- Native stream stays unintegrated: two mapping arms fail p99 1-texel gate (9.33).
-- Shifted texture fixture also fails; stop this approach (ROAD_STREAM.md).
-- Require image-space controls and p99 road CPU <=8 ms MODELLED; >16 ms is no-go.
-- view-guard-1 adopted after HOST/native gates; old road stays frozen (SH2ZAM_GUARD_ADOPTION.md).
-- C8 countdown native: 24 views/276 commands match HOST; full race state/guards pass.
-- 3.824 fps MODELLED (Ymir), stack 49,068 B; sound/look open (COUNTDOWN.md).
+- C0 frozen legacy-tuning baseline: 9,907 inputs / three laps, 3.287 fps MODELLED;
+  304.215 ms mean, p95 433.333, max466.668, 34,178 missed fields; stack5,996 B fails C7.
+- C1: all9,907 HOST views p99 335 / max355 commands; forced-full p99 818 fails420.
+- C2: source road bake151,128 B metadata /147,328 B textures; all rows/quads retained.
+  HOST corruption/identity gates pass; preserve62 fog colors and415 changing inputs.
+- SH2ZAM view-edges-1 and view-guard-1 adopted; old road reference stays frozen.
+- C3 camera/pack/gather:1,291,264 vertices within1px, max552 gathered; HOST/SH-2 pass.
+  Two native mapping arms fail p99 1-texel gate at9.33; shifted control fails. ROAD_STREAM.md.
+- C4 rebake:9.273 ms mean MODELLED, HOST p99 67/max112 draws; cost/order/stack gates fail.
+- C5 dual probe open; compact cloud atlas reclaims128 KiB, no speed claim.
+- C8 countdown:24views/276commands and source full race pass; sound/look open.
 
-## Preserved work and gaps
-- Older clip/hitch/software-road WIP is still local and unstaged.
-- C4 default-off native experiment: 9.273 ms mean MODELLED, HOST p99 67 / max 112 draws.
-- C4 full race/state pass: 3.837 fps MODELLED; cost/order/stack gates FAIL (see doc).
-- C5 dual probe remains open; compact clouds reclaim 128 KiB (PLANE_RESIDENCY.md).
-- C8 [course selection](COURSE_MENU.md): 47 views/state/commands/assets, back, corrupt packs and off identity pass.
-- TA menu reaches original course selection; machine request held. Next machine/settings screens, then race.
+## Next and preserved work
+
+- Finish original results/finish presentation, source audio/effects, pad retry and soak.
+- Revisit C3/C4/C5 blockers and qualify the actual combined scene against60fps.
+- The selected-tuning replay is distinct from the old9,907-input baseline; do not interchange them.
+- Older clip/hitch/software-road WIP remains local and unstaged. Stage named paths only.
+- Three shared files held mixed WIP during selection: saturn/Makefile, saturn/main.c,
+  tools/saturn_orig.sh. The qualified card uses isolated source-only overlays.
+- No release, SD changes or retail-derived publication. Hardware/look acceptance stays open.

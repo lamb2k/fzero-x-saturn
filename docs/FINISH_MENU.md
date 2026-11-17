@@ -42,6 +42,18 @@ and crops. The receipt accepts the real pack and rejects byte-flipped, truncated
 and altered-header controls. The selected label retains the original animated
 32-color palette. Native residency and palette presentation remain unqualified.
 
+The read-only draw closure captures the original menu rectangles, six labels,
+Font5 cursor, animated colors and reveal scissor into bounded packets. HOST
+checks cover 36,000 combinations (120 frames, five selectable rows, 60 reveal
+states) under GCC and Clang with UBSan, with identical output and unchanged input.
+Six deliberately broken variants per compiler fail: scissor, disabled color,
+glyph scale, glyph ID, label ID and frame identity. Invalid reveal states and
+null inputs fail without publishing output. Windows and Linux generated C is
+byte-identical. Private qualification is in `host/finish-menu-draw/receipt.json`.
+The generated-file receipt accepts the output and rejects an edited copy.
+Native texture sampling, palette presentation and current-frame backdrop
+composition remain unqualified.
+
 ## Ordinary retry still to integrate
 
 Original draw confirmation sets a request; the following menu update dispatches

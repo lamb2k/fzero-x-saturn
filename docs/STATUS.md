@@ -67,7 +67,7 @@ C8 [initial results](RESULTS.md): 12,288 inputs/post-cap clock, 23 captures, fou
 [Records/name entry](RECORDS.md): 7,924 inputs, 29 source-exact captures, 20 native command/residency checks.
 Three diagnostic resets retain AAA; stack minimum 23,064 B; 19 HOST tests and two bad packs pass.
 OFF equals rebuilt pre-records code with the same library; historical library delta is +832 linked B.
-[Finish-menu state](FINISH_MENU.md): HOST requests, dual RNG and recorded sameframe seam pass; native/reload open.
+[Finish menu](FINISH_MENU.md): HOST state/seam/assets and 36,000 draw cases pass; native/reload open.
 Final appearance, pad retry and audio remain open; diagnostic text/HUD obscure the records view.
 
 ## Preserved work and next

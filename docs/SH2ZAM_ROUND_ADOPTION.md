@@ -61,3 +61,48 @@ this dependency adoption.
 Private synthetic evidence and reproducible commands reside in
 `host/view-round-adoption/`. Original assets and retail-derived captures remain
 outside git.
+
+## Integral-centre caller, 2026-11-17
+
+The separate `fzx_view16_from_source_trunc` adapter requires integral Q16
+centres, preserves X/Y without bias, and accepts the full int16 centre range.
+The original adapter remains unchanged for countdown/vehicle callers.
+No native caller selects the new adapter in this checkpoint.
+
+GCC and Clang with UBSan pass 9,807 independent frozen-source projection cases
+per compiler, including negative screen coordinates, translated eyes, exact
+208/192 rows, rotation/clip conversion and transactional rejection. Controls
+using the old rounding, restoring Y-minus-one, or accepting fractional centres
+all fail. Seven targeted caller/reference suites pass; the legacy 4,096-vertex
+hash remains `1cbb2030`. The unchanged regular and +32 road fixtures now pass
+in the private experimental caller, with zero regular-fixture edge error.
+
+The full route is still blocked: 223 of 9,907 source views have fractional Y
+centres. Five are 193 minus 1/65,536 and 218 are 193 plus 1/65,536 pixels.
+The first is input 506. Both compilers agree; these are the converted source
+projection values, not an adapter error. They are rejected, never rounded.
+The library owner is preparing an opt-in Q16-centre contract.
+
+The admitted 9,684-view subset has p99/max 413/445 adaptive commands and
+822/1,033 forced-first commands. This excludes the rejected views and cannot
+establish a full-route pass. All thirteen held views are integral. Using the
+reference clipper with consistent truncation, their texture displacement p99
+is 0.650 px, geometry coverage is within 1 px, and the wrong-repetition control
+fails at 127.684 px. Source/tier texel p99 are 9.305/3.619; 1,078 of 472,110
+samples exceed 1 px (maximum 2.5). There are 258 material mismatches and
+10,116 common mean-row pixels excluded from the phase metric.
+
+A second blocker is the guard clipper's polygon anchor. Its cyclic corner
+order differs from the reference, changing the VDP1 fan and full-rectangle
+texture mapping even when the polygon coverage matches. With library clipping,
+held texture p99 is 365.124 px (forced-first 362.721), while geometry remains
+within 1 px. The first held difference is input 300. The reference visits the
+closing edge before vertex zero; the library starts with vertex zero and its
+following edge. The library owner received this distinct contract request.
+No replacement clip kernel or camera bias was added to the port.
+
+A mixed-rounding diagnostic also failed and remains preserved; its leftover
+old projection call was corrected in the separate consistent experiment.
+The source-UV audit still finds zero start-phase errors in 1,824 commands.
+Evidence and scripts: `host/road-stream-draw/trunc-20261117/`. Native clipping,
+residency, VDP1 images and one-CPU timing remain unqualified.

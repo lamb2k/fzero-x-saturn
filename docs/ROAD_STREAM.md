@@ -173,8 +173,23 @@ preserved; C6 still depends on a qualified C3 renderer.
 
 `view-merge-1` is now [independently qualified and pinned](SH2ZAM_MERGE_ADOPTION.md).
 Its private caller produces the same complete census and held command bytes at
-all three tolerances, including the image numbers above. The historical ×4
+all three tolerances, including the image numbers above. The historical Ã—4
 phase-start audit identifies partial-row quantization of up to 3.65625 source
 rows in the reported 16/20-phase cases; the new complete-period alignment avoids
 that merged-partial case. The +32 single-repetition fixture still fails at
 32 versus 31 commands. No native stream or camera-bias change is admitted.
+
+## Truncation caller update, 2026-11-17
+
+The [opt-in integral-centre adapter](SH2ZAM_ROUND_ADOPTION.md) resolves the
+unchanged regular/+32 fixture mismatch. Its HOST tests pass; no native path
+selects it. Full-route admission now exposes 223 fractional source centres,
+which remain rejected pending the Q16-centre library contract.
+
+The integral subset retains p99 413 commands. Thirteen held images pass with
+the reference clipper and consistent truncation (texture p99 0.650 px), but
+library guard clipping fails texture mapping because it changes the polygon's
+first corner and therefore the emitted fan. This is separate from merge
+selection or texture start phase. Both contract requests went directly to the
+library owner. C3 remains blocked for native adoption, with evidence preserved
+in `host/road-stream-draw/trunc-20261117/`; the old reference remains frozen.

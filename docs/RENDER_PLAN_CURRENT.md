@@ -10,7 +10,7 @@ Targets below remain targets until their stated evidence exists.
 | C0 | Frozen legacy-tuning full route: 3.287 fps MODELLED, 34,178 missed fields; frame clock controls pass | Retain this baseline. Measure the actual selected-tuning combined candidate separately; do not interchange replays |
 | C1 | All 9,907 HOST views: p99 335 road commands; forced-first-tier control fails 420 | Census policy is qualified; native cost is not established |
 | C2 | Source road bake: 151,128 B metadata, 147,328 B textures; receipts and corruption controls pass | Preserve source rows, fog inputs and frozen road reference |
-| C3 | Tagged merge planner: HOST p99 413 commands, texture displacement p99 0.650 px; view-round-1 dependency qualified | Convert road caller, pass unchanged shifted fixture/census/images, then integrate one-CPU stream and measure |
+| C3 | Tagged merge planner: HOST p99 413 commands, texture displacement p99 0.650 px; view-round-1 dependency qualified | Integral caller/fixtures pass; resolve 223 fractional centres and guard anchor order, then native stream |
 | C4 | Rebake mean 9.273 ms MODELLED; HOST p99 67 / max 112 commands | The 1 ms / 70-command and overlap gates fail. Reassess measured costs after C3; this is not a qualified final vehicle path |
 | C5 | Compact cloud atlas reclaims 128 KiB; dual rotation layers remain unproven | Complete independent dual-layer evidence or the specified bounded 4x3 source-cloud fallback |
 | C6 | Not qualified; depends on C3 | Split only a qualified compact road job, preserve simulation, qualify chained submission |
@@ -30,7 +30,9 @@ SH2ZAM requests go directly to the existing Opus integration session. The port
 does not edit the library or duplicate general kernels. Tagged contracts are
 independently qualified at card boundaries. The supplied `view-round-1` contract
 adds final-coordinate truncation. [Dependency adoption](SH2ZAM_ROUND_ADOPTION.md)
-passes HOST suites and old-API output checks; road caller gates remain pending.
+passes HOST suites and old-API output checks. The integral caller and unchanged
+fixtures pass; full-route fractional centres and guard-clip anchor order need
+new opt-in contracts. No native road admission follows.
 A small camera bias remains a diagnostic, not an accepted fix.
 
 The initial 300-cycles-per-piece estimate and 8 ms road target have not been

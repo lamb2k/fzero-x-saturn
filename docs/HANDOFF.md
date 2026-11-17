@@ -33,14 +33,14 @@ Limit: 50 lines. History lives in git.
 - C3 camera/pack/gather:1,291,264 vertices within1px, max552 gathered; HOST/SH-2 pass.
   Owner revised texture gate: 1px merge gives p99 413 commands / 0.650px HOST texture error.
   view-merge-1 adopted (pointer9ff1601), pixel/Q8=256; tagged census unchanged.
-  view-round-1 dependency adopted at4e943c7; caller/image/native gates remain. SH2ZAM_ROUND_ADOPTION.md.
+  view-round-1 at4e943c7: integral adapter/fixtures pass; 223fractional centres and guard anchor block C3.
 - C4 rebake:9.273 ms mean MODELLED, HOST p99 67/max112 draws; cost/order/stack gates fail.
 - C5 dual probe open; compact cloud atlas reclaims128 KiB, no speed claim.
 - C8 countdown:24views/276commands and source full race pass; sound/look open.
 
 ## Next and preserved work
 
-- Implement the opt-in road truncation adapter, then unchanged fixtures, full census and images.
+- Qualify Q16-centre/source-anchor contracts from Opus, then full census/images and native stream.
 - Records/name entry/retry, source audio/effects and soak remain; qualify the combined scene against60fps.
 - The selected-tuning replay is distinct from the old9,907-input baseline; do not interchange them.
 - Older clip/hitch/software-road WIP remains local and unstaged. Stage named paths only.

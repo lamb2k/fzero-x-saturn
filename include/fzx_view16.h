@@ -13,4 +13,12 @@
  * failure. Does not transform vertices or replace any library kernel. */
 bool fzx_view16_from_source(sh2z_view_t *out,const fzx_view_t *view,
                             const int32_t eye[3]);
+
+/* Opt-in final-coordinate truncation adapter. Requires integral Q16.16
+ * centres, preserves both centres without bias and accepts the full int16
+ * centre range. Use only with SH2ZAM's *_trunc projection/edge/clip family.
+ * Rotation, eye placement and half-open clipping follow the legacy adapter;
+ * output and inputs remain unchanged on rejection. */
+bool fzx_view16_from_source_trunc(sh2z_view_t *out,const fzx_view_t *view,
+                                  const int32_t eye[3]);
 #endif

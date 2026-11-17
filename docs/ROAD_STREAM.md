@@ -63,9 +63,8 @@ explicit source list, so this checkpoint changes no race executable.
 
 ## Remaining C3 work
 
-- Obtain the requested guard-band clipping contract from the library owner.
-  The near-only contract leaves source-visible pieces outside VDP1's coordinate
-  range; see [the dependency qualification](SH2ZAM_VIEW_ADOPTION.md).
+- Qualify the new `view-guard-1` tag with before/after native measurements.
+  HOST contract checks pass; the repository pointer has not changed.
 - Implement bounded piece stepping, depth/fog tables including dynamic source
   fog, and prebuilt native command templates behind `FZX_ROAD_STREAM=1`.
 - Bind the compact packs, low-RAM row map and high-RAM transformed output to a
@@ -79,3 +78,25 @@ Private evidence: `host/road-stream/view16-source.json`, `pack-source.json`,
 compiler outputs and logs. Public tests are `test_view16.py` and
 `test_road_stream.py`. No native speedup, image acceptance or HARDWARE result is
 claimed. C3 and the complete first-course goal remain unfinished.
+
+## Bounded command-builder experiment: blocked
+
+The local, unintegrated builder completes all 9,907 HOST views with matching
+GCC/Clang UBSan records and zero unaligned texture rows. Adaptive command count
+is p99 337 / maximum 357; forced first tier is p99 821 / maximum 1,033.
+Geometry in the 13 held views stays within one pixel of the frozen renderer.
+These counts do not establish image or native acceptance.
+
+Two texture-mapping hypotheses fail the required one-source-texel p99 gate:
+matching the reference clipper gives 9.333333 texels; preserving partial
+endpoints while regrouping interior repetitions gives 9.333916 texels. The
+second arm also reaches 429 commands. A shifted synthetic texture fixture
+still emits 32 commands against the reference's 31; its unchanged assertion
+fails. No failing experiment is included in the native build or published as
+an accepted renderer, and the old road remains intact.
+
+This approach is stopped. Reopening requires a revised mapping architecture
+that passes the existing image and shifted-fixture gates within the command
+budget before native integration. Do not restart the same two hypotheses or
+relax the tolerance. Private evidence: `host/road-stream-draw/RESULTS.md` and
+`qualification-blocked.json`. Continue independent C5/C8 work; C6 depends on C3.

@@ -3,7 +3,7 @@
 The original countdown asset conversion, native texture pack and source
 snapshot/view adapter pass HOST checks. Native drawing, local scene comparison
 and sound remain unimplemented; the running game is unchanged.
-This is dependency-safe C8 work while C3 waits for its clipping contract.
+This is dependency-safe C8 work while the C3 road image gate is blocked.
 
 `tools/countdown_assets.py` reads the stock US rev0 race countdown's three
 bounded source recipes. It retains 92 loaded vertex rows, all 46 triangles
@@ -94,9 +94,20 @@ evidence only. Run `python3 tests/test_countdown.py` under Linux.
 Clipping remains required: the source sequence includes 23 candidate near-plane
 crossings and five candidate coordinates outside VDP1's signed range. The old
 reference clipper rejects those faces as offscreen, but that does not qualify
-an unchecked native path. The pending general clipping contract remains with
-the SH2ZAM owner. Private evidence: `host/countdown/state-qualification.json`
+an unchecked native path. The new guard-band library tag still needs native
+adoption measurements before use here. Private evidence: `host/countdown/state-qualification.json`
 and `host/countdown/projection-qualification.json`.
+
+`src/fzx_countdown_pack.c` now admits the receipt-bound native pack at boot,
+checks complete-file identities and every vertex/quad/image span, and selects
+the original mouth and digit charts without allocating memory. The actual
+pack passes GCC/Clang UBSan with 92 positions and all 230 panel/mouth/quad
+selections. Synthetic valid-checksum corruption, truncation, wrong identity,
+insufficient output capacity and wrong-panel controls fail as intended. The
+SH-2 object is 1,477 text bytes with zero static data/BSS; this is compile
+evidence only. The helper remains absent from the native program source list.
+Evidence: `host/countdown/native-pack/qualification.json` and `sh2-compile.txt`.
+Run `python3 tests/test_countdown_native_pack.py` under Linux.
 
 Remaining gates: guarded residency, default-off
 renderer and knob-off identity, native timeline checks, local still/motion

@@ -53,13 +53,14 @@ is next. Source fog changes in 415 inputs must remain in its runtime tables.
 Synthetic checks/calibration pass; old road 112.045 -> 112.033 ms MODELLED.
 C3's [camera/pack/gather helpers](ROAD_STREAM.md) pass HOST and SH-2 compile:
 1,291,264 visible vertex samples stay within 1 px; max gather is 552 records.
-Native stream is blocked on guard-band clipping; near-only fails synthetic bounds.
+Native stream is blocked: two mapping arms fail the 1-texel p99 image gate
+(9.33 texels); the shifted synthetic fixture also fails. See ROAD_STREAM.md.
 The owner's local render plan ranks C1-C8; the full first-course goal remains.
 C8's [countdown pack](COUNTDOWN.md) passes HOST: 23 original quads, 2,352 bytes
 metadata / 70,400 bytes textures; source setup confirms no lighting is required.
 Countdown snapshot/view HOST gates pass: all 9,907 source states unchanged,
-20,384 visible vertex samples within 1 px; SH-2 adapter compiles. Native drawing,
-animation integration and sound remain open; running game unchanged.
+20,384 visible vertex samples within 1 px; SH-2 adapter/pack reader compile.
+Pack selection and corruption controls pass; drawing/animation/sound remain open.
 
 C4 [vehicle rebake](MACHINE_REBAKE.md) is default-off and blocked on ordering/cost.
 HOST p99 67 / max 112 commands; 13-view native mean 9.273 ms MODELLED vs 52.112 before.
@@ -74,6 +75,6 @@ No release, ROM-derived publication, SD write or physical acceptance occurred.
 
 ## Next
 
-New view-guard-1 tag is in qualification; C3 awaits tag-only native comparison.
+Qualify view-guard-1 natively; C3 also needs a revised mapping architecture.
 Finish original entry/selection, audio/results/effects, pad retry and soak.
 SH2ZAM calibration, HARDWARE and owner appearance acceptance remain open.

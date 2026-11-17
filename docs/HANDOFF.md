@@ -35,11 +35,12 @@ Limit: 50 lines. History lives in git.
 - SH2ZAM view-edges-1 adopted in pointer-only 36626ea; synthetic/CI calibration pass.
   Old road 112.045 ->112.033 ms MODELLED; see SH2ZAM_EDGES_ADOPTION.md.
 - C3 camera/pack/gather HOST gates pass: <=1 px, max552 vertices; ROAD_STREAM.md.
-- Native stream is not integrated. Near-only fails command bounds; guard-band request in report.
+- Native stream stays unintegrated: two mapping arms fail p99 1-texel gate (9.33).
+- Shifted texture fixture also fails; stop this approach (ROAD_STREAM.md).
 - Require image-space controls and p99 road CPU <=8 ms MODELLED; >16 ms is no-go.
 - Keep the old runtime road frozen. Do not edit SH2ZAM or invent general kernels.
 - C8 countdown pack: 23 original quads, 2,352 B metadata / 70,400 B charts; HOST passes.
-- Snapshot/view HOST+SH-2 compile pass; native draw/audio open; unlit source (COUNTDOWN.md).
+- Snapshot/view/pack reader HOST+SH-2 compile pass; draw/audio open (COUNTDOWN.md).
 
 ## Preserved work and gaps
 

@@ -15,7 +15,7 @@ Original Time Attack code runs Mute City 1 on the master SH-2 with binary32 soft
 The original camera, Blue Falcon, road, sky/skyline/floor/cloud and partial HUD render
 together behind explicit local flags. A full 9,907-input replay finishes all three
 laps at source time 121,814 ms. This integration remains far over the 60 fps budget.
-The [title](TITLE.md) and [main menu](MAIN_MENU.md) accept pad input; destinations/audio remain open.
+Original title, main menu and [course selection](COURSE_MENU.md) accept pad input; machine/settings/audio remain open.
 Pad-only end-to-end acceptance, final look approval and HARDWARE remain unrun.
 
 ## Gates and evidence
@@ -61,7 +61,7 @@ Source sign/texture residency and corrupt-texture rejection pass; owner look ope
 
 C5 compact atlas passes 13 views and knob-off identity; 128 KiB reclaimed, no speed claim.
 C8 title retains source assets/input; 13 race handoff views match, stack 47,632 B.
-C8 [main menu](MAIN_MENU.md): 20 native views match HOST/pixels; destination screens unintegrated.
+C8 course selection: 47 native views match HOST state/commands/assets; return and corrupt-pack controls pass.
 C4 [vehicle rebake](MACHINE_REBAKE.md) is default-off and blocked on ordering/cost.
 HOST p99 67 / max 112 commands; 13-view native mean 9.273 ms MODELLED vs 52.112 before.
 The 1 ms/70-command targets and look gate fail; four order policies fail overlap.
@@ -75,5 +75,5 @@ No release, ROM-derived publication, SD write or physical acceptance occurred.
 ## Next
 
 View-guard-1 is [adopted](SH2ZAM_GUARD_ADOPTION.md); C3 needs revised mapping.
-Next: original course/machine/settings selection; audio/results/effects, retry and soak.
+Next: original machine/settings selection; audio/results/effects, retry and soak.
 SH2ZAM calibration, HARDWARE and owner appearance acceptance remain open.

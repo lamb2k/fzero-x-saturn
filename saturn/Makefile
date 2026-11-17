@@ -9,6 +9,7 @@ SH_PROGRAM := fzero-x-saturn
 FZX_SIM ?= proto
 FZX_SOURCE_TITLE ?= 0
 FZX_SOURCE_MENU ?= 0
+FZX_SOURCE_COURSE_MENU ?= 0
 FZX_SOURCE_COUNTDOWN ?= 0
 FZX_NATIVE_CORE_EMPTY ?= 0
 ifeq ($(FZX_NATIVE_CORE_EMPTY),1)
@@ -173,6 +174,20 @@ SH_CFLAGS += -DFZX_SOURCE_CAMERA=1
 FZX_CAMERA_SRCS := ../src/fzx_view.c
 else ifneq ($(FZX_SOURCE_CAMERA),0)
 $(error FZX_SOURCE_CAMERA must be 0 or 1)
+endif
+
+ifeq ($(FZX_SOURCE_COURSE_MENU),1)
+ifneq ($(FZX_SOURCE_MENU),1)
+$(error FZX_SOURCE_COURSE_MENU requires original title and main menu)
+endif
+FZX_COURSE_MENU_RECEIPT := $(shell sh ../tools/check_receipt.sh ../generated/course_menu/course_menu.receipt 2>&1 && sh ../tools/check_receipt.sh ../generated/course-menu-source/course_menu_source.receipt 2>&1 && sh ../tools/check_receipt.sh ../generated/course_menu_preview/course_preview.receipt 2>&1; echo "rc=$$?")
+ifeq ($(findstring rc=0,$(FZX_COURSE_MENU_RECEIPT)),)
+$(error Original course menu is not current: $(FZX_COURSE_MENU_RECEIPT))
+endif
+SH_CFLAGS += -DFZX_SOURCE_COURSE_MENU=1 -fsigned-char -ffp-contract=off -I../generated/course_menu -I../generated/course-menu-source -I../generated/course_menu_preview
+FZX_COURSE_MENU_SRCS := course_menu_native.c course_preview_native.c ../src/fzx_course_preview.c ../generated/course-menu-source/course_menu_source.c
+else ifneq ($(FZX_SOURCE_COURSE_MENU),0)
+$(error FZX_SOURCE_COURSE_MENU must be 0 or 1)
 endif
 
 ifeq ($(FZX_SOURCE_MENU),1)
@@ -381,7 +396,7 @@ endif
 else ifneq ($(FZX_SOURCE_COUNTDOWN),0)
 $(error FZX_SOURCE_COUNTDOWN must be 0 or 1)
 endif
-SH_SRCS := $(FZX_MENU_SRCS) $(FZX_TITLE_SRCS) $(FZX_COUNTDOWN_SRCS) $(FZX_FRAME_PROFILE_SRCS) main.c ../src/fzx.c $(FZX_ORIG_SRCS) $(FZX_HUD_SRCS) $(FZX_CAMERA_SRCS) $(FZX_ROAD_SRCS) $(FZX_SKY_SRCS) $(FZX_MACHINE_SRCS) $(wildcard $(SH2ZAM_ROOT)/saturn/src/*.c)
+SH_SRCS := $(FZX_COURSE_MENU_SRCS) $(FZX_MENU_SRCS) $(FZX_TITLE_SRCS) $(FZX_COUNTDOWN_SRCS) $(FZX_FRAME_PROFILE_SRCS) main.c ../src/fzx.c $(FZX_ORIG_SRCS) $(FZX_HUD_SRCS) $(FZX_CAMERA_SRCS) $(FZX_ROAD_SRCS) $(FZX_SKY_SRCS) $(FZX_MACHINE_SRCS) $(wildcard $(SH2ZAM_ROOT)/saturn/src/*.c)
 SH_CFLAGS += -DFZX_SH2_DIVU=1 -O2 -std=c11 -Wall -Wextra -I../include \
              -I$(SH2ZAM_ROOT)/saturn/include -DSH2Z_REQUIRE_SH2=1
 ifeq ($(FZX_NATIVE_CORE_EMPTY),1)
@@ -498,4 +513,13 @@ pre-build-iso: stage-menu-pack
 stage-menu-pack:
 	mkdir -p $(IMAGE_DIRECTORY)
 	cp ../generated/menu/MENU.PAK $(IMAGE_DIRECTORY)/MENU.PAK
+endif
+
+ifeq ($(FZX_SOURCE_COURSE_MENU),1)
+$(SH_OUTPUT_PATH)/$(SH_PROGRAM).iso: ../generated/course_menu/COURSEUI.PAK ../generated/course_menu_preview/CPREVIEW.PAK
+pre-build-iso: stage-course-menu-pack
+.PHONY: stage-course-menu-pack
+stage-course-menu-pack:
+	mkdir -p $(IMAGE_DIRECTORY)
+	cp ../generated/course_menu/COURSEUI.PAK ../generated/course_menu_preview/CPREVIEW.PAK $(IMAGE_DIRECTORY)/
 endif

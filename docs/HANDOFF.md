@@ -45,5 +45,5 @@ Limit: 50 lines. History lives in git.
 - C4 default-off native experiment: 9.273 ms mean MODELLED, HOST p99 67 / max 112 draws.
 - C4 full race/state pass: 3.837 fps MODELLED; cost/order/stack gates FAIL (see doc).
 - C5 dual probe remains open; compact clouds reclaim 128 KiB (PLANE_RESIDENCY.md).
-- C8 title: 13 race views match, stack 47,632 B; menu: 20 views match (MAIN_MENU.md).
-- Menu diagnostic holds destination requests; next course/machine/settings screens, then race.
+- C8 [course selection](COURSE_MENU.md): 47 views/state/commands/assets, back, corrupt packs and off identity pass.
+- TA menu reaches original course selection; machine request held. Next machine/settings screens, then race.

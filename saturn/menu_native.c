@@ -2,6 +2,12 @@
 #include "texture_cd.h"
 #include "menu_identity.h"
 #include <string.h>
+#ifndef FZX_SOURCE_COURSE_MENU
+#define FZX_SOURCE_COURSE_MENU 0
+#endif
+#if FZX_SOURCE_COURSE_MENU
+#include "course_menu_native.h"
+#endif
 
 volatile uint32_t fzx_menu_status,fzx_menu_report[12];
 volatile uint32_t fzx_menu_debug_buttons,fzx_menu_debug_limit,fzx_menu_debug_reset;
@@ -131,6 +137,30 @@ bool fzx_menu_run(volatile const uint32_t *fields,vdp1_cmdt_t *commands,unsigned
         fzx_menu_report[11]=state.connected;
         fzx_menu_status=state.request?2:1;
         if(!draw(commands,pixels,palettes,&list,false)){fzx_menu_status=7;return false;}
+#if FZX_SOURCE_COURSE_MENU
+        if(state.request==FZX_MENU_REQUEST_COURSE && state.selected==1) {
+            /* Consume the menu confirm before the next screen sees input. */
+            vdp1_sync_wait();vdp2_sync_wait();
+            for(;;) {
+                uint8_t attached;if(!read_buttons(&attached))break;
+                vdp2_sync();vdp2_sync_wait();
+            }
+            for(unsigned i=0;i<2;++i) {
+                if(!draw(commands,pixels,palettes,&list,true)){fzx_menu_status=7;return false;}
+                vdp1_sync_wait();vdp2_sync_wait();
+            }
+            if(!fzx_course_menu_run(fields,commands,capacity,scratch,scratch_bytes)) {
+                fzx_menu_status=8;return false;
+            }
+            /* Frontend phases borrow the same VRAM and CD scratch space. */
+            if(!fzx_texture_cd_load("MENU.PAK",FZX_MENU_BYTES,FZX_MENU_HASH,(void *)pixels,scratch,scratch_bytes)) {
+                fzx_menu_status=4;return false;
+            }
+            for(unsigned g=0;g<3;++g)for(unsigned i=0;i<8;++i)guards[g][i]=GUARD;
+            if(!fzx_menu_reset(&state,1,0,false,0)){fzx_menu_status=6;return false;}
+            last_buttons=0;remainder=0;previous=*fields;fzx_menu_status=1;continue;
+        }
+#endif
         if(state.request==FZX_MENU_REQUEST_TITLE)break;
     }
     vdp1_sync_wait();vdp2_sync_wait();

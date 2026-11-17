@@ -3,10 +3,11 @@
 `FZX_SOURCE_MENU=1` adds the original US cartridge main menu after the title.
 It requires `FZX_SOURCE_TITLE=1` and defaults off. The six mode signs, submenu
 choices, confirmation animation and back navigation use the original source
-rules and artwork. This is a diagnostic frontend phase: course, machine,
-settings, options and records destinations are not connected yet.
+rules and artwork. The optional [course-selection flag](COURSE_MENU.md) connects
+Time Attack to its original course screen. Machine, settings, options and records
+destinations are not connected yet.
 
-Source destination requests stay held for inspection; B returns to the menu.
+Other source destination requests stay held for inspection; B returns to the menu.
 A source title request returns to the title. No unsupported selection is
 redirected into the existing Time Attack race. With this diagnostic flag on,
 the frontend therefore does not enter a race. With it off, the qualified title

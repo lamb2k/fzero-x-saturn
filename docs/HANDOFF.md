@@ -20,7 +20,7 @@ Limit: 50 lines. History lives in git.
 - Records OFF equals rebuilt pre-records code with current library; +832 linked B belongs to the library update.
 - Valid control: host/records-native/control-currentlib-2. Initial relative-target control is invalid.
 - Evidence: host/records-native and emu/records/full1. Diagnostic text/HUD obscure final appearance.
-- Ordinary retry must use original finish-menu transitions and both RNG streams; no debug-reset substitution.
+- [Finish-menu state](FINISH_MENU.md): HOST navigation, dual RNG and recorded sameframe seam pass; native/reload open.
 
 ## Performance programme
 

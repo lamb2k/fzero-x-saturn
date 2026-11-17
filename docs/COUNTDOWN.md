@@ -1,8 +1,9 @@
 # Original race countdown
 
-The original countdown asset conversion, native texture pack and source
-snapshot/view adapter pass HOST checks. Native drawing, local scene comparison
-and sound remain unimplemented; the running game is unchanged.
+The original countdown assets, pack reader, snapshot/view adapter and command
+builder pass HOST checks. The native command adapter compiles for SH-2 but is
+not linked into the running game. Native residency, scene comparison and sound
+remain open.
 This is dependency-safe C8 work while the C3 road image gate is blocked.
 
 `tools/countdown_assets.py` reads the stock US rev0 race countdown's three
@@ -91,13 +92,20 @@ samples, invalid states and failing timer/matrix/translation/mutation controls.
 The adapter compiles for SH-2 (660 bytes text, no data/BSS); this is compile
 evidence only. Run `python3 tests/test_countdown.py` under Linux.
 
-Clipping remains required: the source sequence includes 23 candidate near-plane
-crossings and five candidate coordinates outside VDP1's signed range. The old
-reference clipper rejects those faces as offscreen, but that does not qualify
-an unchecked native path. The guard-band library tag is now
-[qualified and adopted](SH2ZAM_GUARD_ADOPTION.md); the sign caller still needs
-its own clipping gate. Private evidence: `host/countdown/state-qualification.json`
-and `host/countdown/projection-qualification.json`.
+The [adopted guard-band contract](SH2ZAM_GUARD_ADOPTION.md) now bounds the
+command builder. Across all 9,907 source states, 459 have a nonzero timer and
+227 emit commands: 3,506 total, maximum 16 per sign. GCC/Clang UBSan records
+match; no source-facing faces, chart selections or phase changes are missing.
+Visible vertices and whole-sign polygon coverage stay within one pixel.
+One offscreen vertex differs by two pixels without exceeding that visible
+coverage bound. Fifty front-facing guard checks reject wholly offscreen faces.
+There are no visible clipped textured faces in the admitted replay.
+
+The builder checks source view-space winding before pixel rounding so thin
+front faces remain represented. Visible textured clipping fails explicitly;
+only the original black panel can emit a clipped solid fan. Synthetic missing
+face, wrong chart, unsafe coordinate and thin-face controls pass. Evidence:
+`host/countdown/draw/qualification.json` and `geometry-coverage.json`.
 
 `src/fzx_countdown_pack.c` now admits the receipt-bound native pack at boot,
 checks complete-file identities and every vertex/quad/image span, and selects
@@ -110,7 +118,28 @@ evidence only. The helper remains absent from the native program source list.
 Evidence: `host/countdown/native-pack/qualification.json` and `sh2-compile.txt`.
 Run `python3 tests/test_countdown_native_pack.py` under Linux.
 
-Remaining gates: guarded residency, default-off
-renderer and knob-off identity, native timeline checks, local still/motion
-comparison, sound, and combined memory/performance. No EMULATOR, MODELLED or
-HARDWARE result is claimed by these helpers.
+`saturn/countdown_draw_native.c` converts prepared commands without loading or
+allocating storage. The caller supplies the admitted pack, verified VRAM span,
+source snapshot/phase and command buffers. Reserve 30 native command slots,
+including user clip. Charts retain RGB1555 transparency and disabled end codes;
+the original black panel remains an opaque polygon. A rejected call writes no
+native commands and returns count zero.
+
+Synthetic API-recorder checks pass with GCC/Clang UBSan over all 461 timer
+values, 10,340 chart commands and 240 black-panel commands. Wrong transparency,
+address, solid kind and capacity controls fail. This recorder checks API use,
+not SDK binary command layout. Strict SH-2 compilation passes: builder 1,604
+text bytes, native adapter 960 text bytes, both with zero static data/BSS.
+Evidence: `host/countdown/native-adapter/qualification.json` and
+`host/countdown/draw-native-compile/sh2-compile.txt`.
+
+```sh
+python3 tests/test_countdown_draw.py
+python3 tests/test_countdown_native.py
+```
+
+Remaining gates: guarded loading/residency, main/build integration with a
+default-off renderer and knob-off identity, native timeline/command checks,
+local still/motion comparison, sound, and combined memory/performance. The
+[compact cloud atlas](PLANE_RESIDENCY.md) provides the required VRAM headroom.
+No countdown EMULATOR, MODELLED or HARDWARE result is claimed by these helpers.

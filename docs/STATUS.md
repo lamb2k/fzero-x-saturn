@@ -57,9 +57,9 @@ Native stream is blocked: two mapping arms fail the 1-texel p99 image gate
 The owner's local render plan ranks C1-C8; the full first-course goal remains.
 C8's [countdown pack](COUNTDOWN.md) passes HOST: 23 original quads, 2,352 bytes
 metadata / 70,400 bytes textures; source setup confirms no lighting is required.
-Countdown snapshot/view HOST gates pass: all 9,907 source states unchanged,
-20,384 visible vertex samples within 1 px; SH-2 adapter/pack reader compile.
-Pack selection and corruption controls pass; drawing/animation/sound remain open.
+Countdown builder passes all 9,907 HOST states: max 16 commands, visible
+coverage within 1 px; native adapter compiles. Residency/main integration,
+native scene review and sound remain open (COUNTDOWN.md).
 
 C5 compact atlas passes 13 native views, exact scene pixels/commands and knob-off
 binary identity; 128 KiB reclaimed. Stack 5,936 B still fails C7. No speed claim.

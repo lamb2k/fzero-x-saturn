@@ -40,7 +40,7 @@ Limit: 50 lines. History lives in git.
 - Require image-space controls and p99 road CPU <=8 ms MODELLED; >16 ms is no-go.
 - view-guard-1 adopted after HOST/native gates; old road stays frozen (SH2ZAM_GUARD_ADOPTION.md).
 - C8 countdown pack: 23 original quads, 2,352 B metadata / 70,400 B charts; HOST passes.
-- Snapshot/view/pack reader HOST+SH-2 compile pass; draw/audio open (COUNTDOWN.md).
+- Countdown HOST commands + native-adapter compile pass; integration/audio open (COUNTDOWN.md).
 
 ## Preserved work and gaps
 

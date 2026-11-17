@@ -53,6 +53,7 @@ jobs:
           python3 -m unittest discover -s tests -p 'test_course_menu*.py' -v
           python3 -m unittest discover -s tests -p 'test_machine_menu*.py' -v
           python3 -m unittest discover -s tests -p 'test_results*.py' -v
+          python3 -m unittest discover -s tests -p 'test_records_assets.py' -v
           python3 -m unittest discover -s tests -p 'test_finish*.py' -v
       - name: Required source shader material gate and mutation controls
         run: |

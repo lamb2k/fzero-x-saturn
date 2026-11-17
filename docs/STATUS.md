@@ -18,8 +18,7 @@ Selected skin 1 / engine 0.5078125 survives the handoff. A separate 7,059-input
 native diagnostic replay completes three laps at source time 110,639 ms.
 The original camera, Blue Falcon, road, sky/skyline/floor/cloud and partial HUD render
 behind explicit local flags, including initial finish/results. Records/retry,
-audio/effects, ordinary pad-only completion,
-soak, final look and HARDWARE remain open. No 30 or 60 fps acceptance.
+audio/effects, ordinary pad-only completion, soak, final look and HARDWARE remain open. No 30 or 60 fps acceptance.
 
 ## Gates and evidence
 
@@ -68,6 +67,7 @@ C8 [initial results](RESULTS.md): 12,288 diagnostic inputs plus post-cap ticks;
 23 captures match source state, 17 active texture views match commands/residency.
 One countdown restoration and three state/record resets pass; stack minimum 81,476 B.
 Four corrupted packs are rejected before race. Records/name entry/retry/audio remain open.
+[Records artwork](RECORDS.md): 229 images / 46,144 B, source pixels and receipt controls pass HOST.
 
 ## Preserved work and next
 

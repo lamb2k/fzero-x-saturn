@@ -42,8 +42,8 @@ Limit: 50 lines. History lives in git.
 
 - Qualify Q16-centre/source-anchor contracts from Opus, then full census/images and native stream.
 - Records/name entry/retry, source audio/effects and soak remain; qualify the combined scene against60fps.
+- [Records assets](RECORDS.md): HOST-only original fonts/sheets prepared; native integration pending.
 - The selected-tuning replay is distinct from the old9,907-input baseline; do not interchange them.
 - Older clip/hitch/software-road WIP remains local and unstaged. Stage named paths only.
-- Three shared files held mixed WIP during selection: saturn/Makefile, saturn/main.c,
-  tools/saturn_orig.sh. The qualified card uses isolated source-only overlays.
+- Shared saturn/Makefile, saturn/main.c and tools/saturn_orig.sh retain mixed WIP; qualified cards use isolated overlays.
 - No release, SD changes or retail-derived publication. Hardware/look acceptance stays open.

@@ -57,7 +57,9 @@ Native stream/image/timing gates and the owner's clipping contract remain open.
 The owner's local render plan ranks C1-C8; the full first-course goal remains.
 C8's [original countdown conversion](COUNTDOWN.md) passes HOST: 23 source quads,
 nine textures / 20,480 bytes; independent geometry/pixel checks and controls pass.
-Native countdown drawing, lighting, animation integration and sound remain open.
+Countdown snapshot/view HOST gates pass: all 9,907 source states unchanged,
+20,384 visible vertex samples within 1 px; SH-2 adapter compiles. Native drawing,
+lighting, animation integration and sound remain open; running game unchanged.
 
 The last admitted rendering change remains the RBG0 floor: its 13-view
 floor/cloud A/B/A means are 74.12 / 56.62 / 74.12 ms MODELLED. These cover
@@ -72,7 +74,6 @@ No release, ROM-derived publication, SD write or physical acceptance occurred.
 
 ## Next
 
-Complete the road stream,
-vehicle rebake, bounded clouds, CPU split and combined measurement.
+Complete the road stream, vehicle rebake, bounded clouds, CPU split and measurement.
 Finish original entry/selection, audio/results/effects, pad retry and soak.
 SH2ZAM calibration, HARDWARE and owner appearance acceptance remain open.

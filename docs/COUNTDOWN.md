@@ -1,7 +1,8 @@
 # Original race countdown
 
-The original countdown asset conversion passes HOST checks. Native drawing,
-live animation, lighting, local scene comparison and sound remain unimplemented.
+The original countdown asset conversion and source snapshot/view adapter pass
+HOST checks. Native drawing, lighting, local scene comparison and sound remain
+unimplemented; the running game is unchanged.
 This is dependency-safe C8 work while C3 waits for its clipping contract.
 
 `tools/countdown_assets.py` reads the stock US rev0 race countdown's three
@@ -47,7 +48,29 @@ timer values, not presentation frames. Sound triggers and pause behavior remain
 source integration work. Preserve the source's existing matrix timing rather
 than reconstructing its animation in the native renderer.
 
+`ref/countdown_bridge.c` copies the existing packed matrix without advancing or
+mutating source state. `src/fzx_countdown.c` selects the mouth/panel from the
+source timer and composes the model matrix with the current camera once per
+sign. SH2ZAM owns the vertex transform and projection. These helpers are not
+linked into the current native program.
+
+The full 9,907-input HOST replay preserves the admitted race and camera traces
+byte for byte; repeated snapshot reads leave source pose/state unchanged. The
+459 nonzero timer states produce 20,384 visible vertex samples within one pixel
+of independently projected source matrices. GCC and Clang agree on the complete
+projected records. Synthetic tests cover all 461 timer values, 800 rotated model
+samples, invalid states and failing timer/matrix/translation/mutation controls.
+The adapter compiles for SH-2 (660 bytes text, no data/BSS); this is compile
+evidence only. Run `python3 tests/test_countdown.py` under Linux.
+
+Clipping remains required: the source sequence includes 23 candidate near-plane
+crossings and five candidate coordinates outside VDP1's signed range. The old
+reference clipper rejects those faces as offscreen, but that does not qualify
+an unchecked native path. The pending general clipping contract remains with
+the SH2ZAM owner. Private evidence: `host/countdown/state-qualification.json`
+and `host/countdown/projection-qualification.json`.
+
 Remaining gates: native chart/lighting conversion, guarded residency, default-off
-renderer and knob-off identity, source timer/matrix checks, local still/motion
+renderer and knob-off identity, native timeline checks, local still/motion
 comparison, sound, and combined memory/performance. No EMULATOR, MODELLED or
-HARDWARE result is claimed by this asset conversion.
+HARDWARE result is claimed by these helpers.

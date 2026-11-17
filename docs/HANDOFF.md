@@ -39,7 +39,7 @@ Limit: 50 lines. History lives in git.
 - Require image-space controls and p99 road CPU <=8 ms MODELLED; >16 ms is no-go.
 - Keep the old runtime road frozen. Do not edit SH2ZAM or invent general kernels.
 - C8 countdown assets: 23 original quads, nine textures / 20,480 bytes; HOST passes.
-- Native countdown integration is next; see COUNTDOWN.md and generated/CONTINUE-CODEX.md.
+- Countdown snapshot/view HOST+SH-2 compile pass; native draw/light/audio open (COUNTDOWN.md).
 
 ## Preserved work and gaps
 

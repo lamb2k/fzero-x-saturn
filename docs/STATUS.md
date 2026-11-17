@@ -50,7 +50,7 @@ Owner revised texture metric: 1 px merge census p99 413 commands / 0.650 px text
 [view-guard-src-1](SH2ZAM_GUARD_SRC_ADOPTION.md): 13 images pass; integral census p99 413.
 C3 still rejects 223 fractional centres pending Q16; native gates remain.
 
-C4 [vehicle rebake](MACHINE_REBAKE.md) stays default-off: mean 9.273 ms MODELLED vs 52.112 before.
+C4 [vehicle rebake](MACHINE_REBAKE.md): 9.273 ms MODELLED, default-off; [shade pin](SH2ZAM_SHADE_ADOPTION.md) HOST-qualified.
 HOST p99 67 / max 112 commands; 1 ms / 70-command and overlap gates fail.
 Its full race matches source at 3.837 fps MODELLED; 2,316 B stack fails C7.
 C5 compact atlas reclaims 128 KiB; 13 views and off identity pass, no speed claim.

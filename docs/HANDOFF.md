@@ -34,7 +34,7 @@ Limit: 50 lines. History lives in git.
   Owner revised texture gate: 1px merge gives p99 413 commands / 0.650px HOST texture error.
   view-merge-1 adopted (pointer9ff1601), pixel/Q8=256; tagged census unchanged.
   view-guard-src-1 at24e4a2b: integral fixtures/13images pass, p99 413; 223fractional views remain.
-- C4 rebake:9.273 ms mean MODELLED, HOST p99 67/max112 draws; cost/order/stack gates fail.
+- C4 rebake:9.273 ms MODELLED; cost/order/stack fail. shade-1 HOST-qualified; callers unchanged.
 - C5 dual probe open; compact cloud atlas reclaims128 KiB, no speed claim.
 - C8 countdown:24views/276commands and source full race pass; sound/look open.
 

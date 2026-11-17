@@ -9,6 +9,12 @@
 
 #include "fzx.h"
 #include "frame_profile.h"
+#ifndef FZX_SOURCE_TITLE
+#define FZX_SOURCE_TITLE 0
+#endif
+#if FZX_SOURCE_TITLE
+#include "title_native.h"
+#endif
 #ifndef FZX_SOURCE_COUNTDOWN
 #define FZX_SOURCE_COUNTDOWN 0
 #endif
@@ -699,6 +705,16 @@ main(void)
     dbgio_init();
     dbgio_dev_default_init(DBGIO_DEV_VDP2_ASYNC);
     dbgio_dev_font_load();
+#if FZX_SOURCE_TITLE
+    const uintptr_t title_scratch=((uintptr_t)sat_stub_data_end+31u)&~(uintptr_t)31u;
+    if(title_scratch<0x00200000u || title_scratch>=0x00300000u ||
+       !fzx_title_run(&video_fields,commands_buf[0],COMMAND_CAPACITY,
+                      (void *)title_scratch,0x00300000u-title_scratch)) {
+        dbgio_printf("SOURCE TITLE FAILED");dbgio_flush();vdp2_sync();for(;;) {}
+    }
+    /* Original selection is the next frontend phase. Until integrated, this
+     * default-off title arm continues into the existing race setup. */
+#endif
 #if FZX_SOURCE_SKY
     vdp1_vram_partitions_get(&sky_partitions);
 #if FZX_SOURCE_HUD

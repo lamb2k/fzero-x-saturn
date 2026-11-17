@@ -7,6 +7,7 @@ endif
 # otherwise a fresh original-race build depends on a prior prototype build dir.
 SH_PROGRAM := fzero-x-saturn
 FZX_SIM ?= proto
+FZX_SOURCE_TITLE ?= 0
 FZX_SOURCE_COUNTDOWN ?= 0
 FZX_NATIVE_CORE_EMPTY ?= 0
 ifeq ($(FZX_NATIVE_CORE_EMPTY),1)
@@ -173,6 +174,20 @@ else ifneq ($(FZX_SOURCE_CAMERA),0)
 $(error FZX_SOURCE_CAMERA must be 0 or 1)
 endif
 
+ifeq ($(FZX_SOURCE_TITLE),1)
+ifneq ($(FZX_SIM):$(FZX_ROM_BOOT),orig:1)
+$(error FZX_SOURCE_TITLE requires the original race and local source content)
+endif
+FZX_TITLE_RECEIPT := $(shell sh ../tools/check_receipt.sh ../generated/title/title.receipt 2>&1 && sh ../tools/check_receipt.sh ../generated/title_state/title_source.receipt 2>&1; echo "rc=$$?")
+ifeq ($(findstring rc=0,$(FZX_TITLE_RECEIPT)),)
+$(error Original title is not current: $(FZX_TITLE_RECEIPT))
+endif
+SH_CFLAGS += -DFZX_SOURCE_TITLE=1 -I../generated/title -I../generated/title_state
+FZX_TITLE_SRCS := title_native.c ../generated/title_state/title_source.c
+else ifneq ($(FZX_SOURCE_TITLE),0)
+$(error FZX_SOURCE_TITLE must be 0 or 1)
+endif
+
 ifeq ($(FZX_SOURCE_SKY),1)
 ifneq ($(FZX_SIM):$(FZX_SOURCE_CAMERA):$(FZX_ROM_BOOT),orig:1:1)
 $(error FZX_SOURCE_SKY=1 requires original simulation, source camera and local retail content)
@@ -240,7 +255,7 @@ SH_CFLAGS += -DFZX_HUD_CD=1 -I../generated/hud_cd
 else ifneq ($(FZX_HUD_CD),0)
 $(error FZX_HUD_CD must be 0 or 1)
 endif
-ifneq ($(filter 1,$(FZX_SKYLINE_CD) $(FZX_HUD_CD) $(FZX_SOURCE_PLANES)),)
+ifneq ($(filter 1,$(FZX_SKYLINE_CD) $(FZX_HUD_CD) $(FZX_SOURCE_PLANES) $(FZX_SOURCE_TITLE)),)
 FZX_SKY_SRCS += texture_cd.c
 ifneq ($(FZX_SOURCE_ROAD),1)
 FZX_SKY_SRCS += road_cd.c
@@ -351,7 +366,7 @@ endif
 else ifneq ($(FZX_SOURCE_COUNTDOWN),0)
 $(error FZX_SOURCE_COUNTDOWN must be 0 or 1)
 endif
-SH_SRCS := $(FZX_COUNTDOWN_SRCS) $(FZX_FRAME_PROFILE_SRCS) main.c ../src/fzx.c $(FZX_ORIG_SRCS) $(FZX_HUD_SRCS) $(FZX_CAMERA_SRCS) $(FZX_ROAD_SRCS) $(FZX_SKY_SRCS) $(FZX_MACHINE_SRCS) $(wildcard $(SH2ZAM_ROOT)/saturn/src/*.c)
+SH_SRCS := $(FZX_TITLE_SRCS) $(FZX_COUNTDOWN_SRCS) $(FZX_FRAME_PROFILE_SRCS) main.c ../src/fzx.c $(FZX_ORIG_SRCS) $(FZX_HUD_SRCS) $(FZX_CAMERA_SRCS) $(FZX_ROAD_SRCS) $(FZX_SKY_SRCS) $(FZX_MACHINE_SRCS) $(wildcard $(SH2ZAM_ROOT)/saturn/src/*.c)
 SH_CFLAGS += -DFZX_SH2_DIVU=1 -O2 -std=c11 -Wall -Wextra -I../include \
              -I$(SH2ZAM_ROOT)/saturn/include -DSH2Z_REQUIRE_SH2=1
 ifeq ($(FZX_NATIVE_CORE_EMPTY),1)
@@ -450,4 +465,13 @@ pre-build-iso: stage-countdown-pack
 stage-countdown-pack:
 	mkdir -p $(IMAGE_DIRECTORY)
 	cp ../generated/countdown_pack/COUNTDN.PAK ../generated/countdown_pack/COUNTDTX.PAK $(IMAGE_DIRECTORY)/
+endif
+
+ifeq ($(FZX_SOURCE_TITLE),1)
+$(SH_OUTPUT_PATH)/$(SH_PROGRAM).iso: ../generated/title/TITLE.PAK
+pre-build-iso: stage-title-pack
+.PHONY: stage-title-pack
+stage-title-pack:
+	mkdir -p $(IMAGE_DIRECTORY)
+	cp ../generated/title/TITLE.PAK $(IMAGE_DIRECTORY)/TITLE.PAK
 endif

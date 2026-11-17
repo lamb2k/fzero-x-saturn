@@ -4,7 +4,7 @@ Limit: 50 lines. History lives in git.
 ## Goal and direction
 
 - Follow the owner's local render plan C0-C8 and all [first-course gates](FIRST_COURSE_GOAL.md).
-- Original boot/selection, Mute City 1, results/retry, audio/effects, pad flow,
+- Original selection, Mute City 1, results/retry, audio/effects, pad flow,
   soak and 60 fps target remain required. Hardware and owner look review are open.
 - Convert original assets offline for Saturn; document adaptations.
 - Completed source-only origin/gate1 pushes authorized after gates and hygiene.
@@ -47,4 +47,4 @@ Limit: 50 lines. History lives in git.
 - C4 default-off native experiment: 9.273 ms mean MODELLED, HOST p99 67 / max 112 draws.
 - C4 full race/state pass: 3.837 fps MODELLED; cost/order/stack gates FAIL (see doc).
 - C5 dual probe remains open; compact clouds reclaim 128 KiB (PLANE_RESIDENCY.md).
-- Native core bypass saves 59,736 B; 13-view identity passes (NATIVE_CORE_MEMORY.md).
+- C8 title gated: original images/pad; 13 race views match, stack 47,632 B (TITLE.md).

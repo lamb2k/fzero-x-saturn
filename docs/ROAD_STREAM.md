@@ -193,3 +193,15 @@ first corner and therefore the emitted fan. This is separate from merge
 selection or texture start phase. Both contract requests went directly to the
 library owner. C3 remains blocked for native adoption, with evidence preserved
 in `host/road-stream-draw/trunc-20261117/`; the old reference remains frozen.
+
+## Source-order guard adoption, 2026-11-17
+
+[view-guard-src-1](SH2ZAM_GUARD_SRC_ADOPTION.md) is independently qualified and
+pinned at e93dd4b (pointer-only commit 24e4a2b). The experimental command builder
+uses its source-order truncating guard at both call sites, with max_out=10 and
+negative-return failure preserved. The frozen reference is unchanged.
+Regular/+32 fixtures pass both compilers, including mutation controls. All 13
+held images pass (texture p99 0.650 px; geometry within 1 px). The integral
+census admits 9,684 views, p99 413 commands; forced-first-tier p99 822 fails 420.
+The 223 fractional views still require Q16 centres. Native adoption remains
+blocked on that contract and native alignment/memory/timing/look gates.

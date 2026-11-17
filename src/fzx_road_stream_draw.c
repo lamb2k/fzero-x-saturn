@@ -1,0 +1,233 @@
+#include "fzx_road_stream_draw.h"
+#include <limits.h>
+#include <string.h>
+#define U16 fzx_road_u16
+#define U32 fzx_road_u32
+
+static int32_t s16(const uint8_t *p){return (int16_t)U16(p);}
+bool fzx_road_stream_draw_prepare(fzx_road_stream_draw_work_t *w,
+    const fzx_road_stream_pack_t *p,const void *textures,uint32_t bytes,uint32_t expected){
+    if(!w)return false;
+    w->prepared=false;w->fog_valid=false;
+    const uint8_t *t=textures;
+    if(!p||!p->data||!t||bytes!=p->texture_bytes||bytes<64||!expected||
+       fzx_road_hash(t,bytes)!=expected||memcmp(t,"FZXRTX01",8)||U32(t+8)!=1||
+       U32(t+12)!=bytes||!w->images||w->image_capacity<p->count[FZX_RLD_IMAGES]||
+       !w->remap||w->remap_capacity<p->count[FZX_RLD_VERTICES]||
+       !w->positions||!w->projected||!w->vertex_capacity||w->vertex_capacity>65535)return false;
+    for(uint32_t i=0;i<p->count[FZX_RLD_IMAGES];++i){
+        const uint8_t *im=fzx_road_stream_record(p,FZX_RLD_IMAGES,i);
+        fzx_road_stream_image_t *out=w->images+i;
+        const unsigned mode=U16(im),width=U16(im+2),height=U16(im+4);
+        for(unsigned v=0;v<3;++v)out->variant[v]=(fzx_road_stream_material_t){
+            U32(im+8+v*4),U32(im+20+v*4),(uint16_t)width,(uint16_t)height,(uint16_t)mode,0};
+        uint32_t sums[3]={0,0,0};
+        for(unsigned pixel=0;pixel<width*height;++pixel){
+            unsigned color;
+            if(mode){const unsigned b=t[U32(im+8)+pixel/2],index=(pixel&1u)?b&15u:b>>4;
+                color=U16(t+U32(im+20)+index*2);}
+            else color=U16(t+U32(im+8)+pixel*2);
+            for(unsigned c=0;c<3;++c)sums[c]+=(color>>(c*5))&31u;
+        }
+        for(unsigned c=0;c<3;++c)out->mean[c]=(uint8_t)((sums[c]+width*height/2)/(width*height));
+        out->reserved=0;
+    }
+    w->pack=p;w->prepared=true;return true;
+}
+
+static void fog_prepare(fzx_road_stream_draw_work_t *w,const sh2z_view_t *view,
+    const RefRoadPlan *plan,int32_t pa,int32_t pb,fzx_road_stream_draw_stats_t *stats){
+    if(w->fog_valid&&w->fog_pa==pa&&w->fog_pb==pb&&w->fog_start==plan->fog_start&&
+       w->fog_near==view->near_z&&w->fog_far==view->far_z)return;
+    const int32_t fm=128000/(1000-plan->fog_start),fo=(500-plan->fog_start)*256/(1000-plan->fog_start);
+    const uint64_t numerator=(uint64_t)(-(int64_t)pb)*UINT64_C(1073741824);
+    w->fog_depth[0]=0;
+    for(unsigned i=1;i<256;++i){
+        /* fade >= i iff ratio >= ceil((i-fo)*2^30/fm). For pb<=0,
+         * ratio = pa-floor(-pb*2^30/z_q12), hence z_q12>N/(M+1). */
+        const int64_t n=((int64_t)i-fo)*INT64_C(1073741824);
+        const int64_t required=n/fm+(n%fm>0);
+        uint32_t depth=(uint32_t)view->far_z+1u;
+        if(required<=-INT64_C(1073741824))depth=0;
+        else if(required<=INT64_C(1073741824)){
+            const int64_t m=(int64_t)pa-required;
+            if(m>=0){const uint64_t q12=numerator/((uint64_t)m+1u)+1u;
+                if(q12<=(uint32_t)view->far_z/4u)depth=(uint32_t)q12*4u;}
+        }
+        w->fog_depth[i]=depth;
+    }
+    w->fog_pa=pa;w->fog_pb=pb;w->fog_start=plan->fog_start;
+    w->fog_near=view->near_z;w->fog_far=view->far_z;w->fog_valid=true;
+    stats->fog_updates=1;
+}
+static unsigned fog_lookup(const fzx_road_stream_draw_work_t *w,int32_t z){
+    unsigned lo=0,hi=256;const uint32_t depth=z>0?(uint32_t)z:0;
+    while(lo+1<hi){const unsigned middle=(lo+hi)/2;
+        if(depth>=w->fog_depth[middle])lo=middle;else hi=middle;}
+    return lo;
+}
+typedef struct {
+    fzx_road_stream_draw_work_t *work;const RefRoadPlan *plan;sh2z_view_t view;
+    fzx_road_stream_command_t *commands;uint32_t capacity;unsigned flags;
+    fzx_road_stream_draw_stats_t *stats;
+} draw_t;
+static bool fail(draw_t *d,unsigned fault){d->stats->fault=fault;return false;}
+/* Inputs to area are clipped to +/-900, bounding the 16-corner sum in int32. */
+static int32_t area(const sh2z_view_guard_vertex_t *v,unsigned count){
+    int32_t sum=0;for(unsigned i=0;i<count;++i){unsigned j=(i+1)%count;
+        sum+=(int32_t)v[i].v.sx*v[j].v.sy-(int32_t)v[i].v.sy*v[j].v.sx;}
+    return sum;
+}
+static unsigned fill(fzx_road_stream_draw_work_t *w,const sh2z_view_vertex_t v[4],bool *safe){
+    /* Preserve source order: original quad order for culling, or left-start,
+     * right-start, right-end, left-end for textured pieces. Do not rotate the
+     * polygon: the first clipped corner anchors the VDP1 texture fan. */
+    unsigned all=63;*safe=true;
+    for(unsigned i=0;i<4;++i){w->clip_in[i].v=v[i];all&=v[i].outcode;
+        if((v[i].outcode&SH2Z_OUT_NEAR)||v[i].sx< -900||v[i].sx>900||v[i].sy< -900||v[i].sy>900)*safe=false;}
+    return all;
+}
+static bool piece(draw_t *d,const sh2z_view_vertex_t v[4],unsigned quad,unsigned piece_id,
+    unsigned image,unsigned row,unsigned height,unsigned tier,bool solid){
+    fzx_road_stream_draw_work_t *w=d->work;bool safe;
+    if(fill(w,v,&safe)){++d->stats->culled;return true;}
+    unsigned count=4;sh2z_view_guard_vertex_t *corners=w->clip_in;
+    if(!safe){const int16_t guard[4]={-900,-900,900,900};
+        const int n=sh2z_view_clip_guard_src_trunc_divu(w->clip_out,&d->view,guard,w->clip_in,4,0,10);
+        if(n<0)return fail(d,FZX_RS_CLIP);
+        if(n<3){++d->stats->culled;return true;}
+        count=(unsigned)n;corners=w->clip_out;++d->stats->clipped;
+    }
+    if(!area(corners,count)){++d->stats->culled;return true;}
+    unsigned fade[16],middle=0;
+    for(unsigned i=0;i<count;++i){fade[i]=fog_lookup(w,corners[i].v.z);middle+=fade[i];}
+    middle/=count;unsigned variant=(middle+64)/128;if(variant>2)variant=2;
+    const int selected=variant==2?255:(int)variant*128;
+    const fzx_road_stream_material_t neutral={0,0,0,0,0,0};
+    fzx_road_stream_material_t material=solid?neutral:w->images[image].variant[variant];
+    if(!solid){
+        const uint32_t stride=material.mode?material.width/2u:material.width*2u;
+        material.pixels+=row*stride;material.height=(uint16_t)height;
+        if(material.pixels&7u){++d->stats->unaligned;
+            if(!(d->flags&FZX_RS_AUDIT_UNALIGNED))return fail(d,FZX_RS_TEXTURE_ALIGNMENT);}
+    }
+    uint16_t shades[16];
+    for(unsigned i=0;i<count;++i){uint16_t packed=0x8000;
+        for(unsigned c=0;c<3;++c){int color;
+            if(solid)color=((d->plan->primitive[c]*(255-(int)fade[i])+d->plan->fog[c]*(int)fade[i])*31+32512)/65025;
+            else {const int mean=w->images[image-image%5].mean[c];
+                const int live=(d->plan->fog[c]*31+127)/255,base=(w->pack->base_fog[c]*31+127)/255;
+                color=16+((int)fade[i]*(live-mean)-selected*(base-mean))/255;}
+            if(color<0)color=0;
+            if(color>31)color=31;
+            packed|=(uint16_t)((unsigned)color<<(c*5));
+        }
+        shades[i]=packed;
+    }
+    for(unsigned first=1;first+1<count;first+=2){
+        if(d->stats->commands>=d->capacity)return fail(d,FZX_RS_CAPACITY);
+        fzx_road_stream_command_t *out=d->commands+d->stats->commands;
+        out->material=material;out->quad=(uint16_t)quad;out->piece=(uint16_t)piece_id;out->tier=(uint16_t)tier;out->solid=(uint16_t)solid;
+        const unsigned order[4]={0,first,first+1,first+2<count?first+2:count-1};
+        for(unsigned i=0;i<4;++i){out->x[i]=corners[order[i]].v.sx;out->y[i]=corners[order[i]].v.sy;out->shade[i]=shades[order[i]];}
+        ++d->stats->commands;
+    }
+    return true;
+}
+static bool edge(draw_t *d,unsigned slot,const sh2z_view_vertex_t *from,const sh2z_view_vertex_t *to,
+    int32_t low,int32_t high,unsigned count,unsigned step){
+    fzx_road_stream_draw_work_t *w=d->work;unsigned first=0,end=count;
+    while(first<count&&w->boundary[first]<=low)w->edge[slot][first++]=*from;
+    while(end>first&&w->boundary[end-1]>=high)w->edge[slot][--end]=*to;
+    if(end==first)return true;
+    return sh2z_view_edge_steps_trunc_divu(w->edge[slot]+first,&d->view,from,to,
+        (uint16_t)(w->boundary[first]-low),(uint16_t)step,(uint16_t)(high-low),end-first);
+}
+static bool quad(draw_t *d,unsigned id){
+    fzx_road_stream_draw_work_t *w=d->work;const fzx_road_stream_pack_t *p=w->pack;
+    const uint8_t *q=fzx_road_stream_record(p,FZX_RLD_QUADS,id);const unsigned flags=U16(q+10);
+    if(!d->plan->outer&&(flags&1u))return true;
+    ++d->stats->quads;d->stats->error_quad=id;
+    sh2z_view_vertex_t vertices[4];int32_t uv[4][2];bool front=true,safe;
+    for(unsigned i=0;i<4;++i){const unsigned row=U16(q+i*2),mapped=w->remap[row];
+        if(mapped>=d->stats->positions)return fail(d,FZX_RS_GATHER);
+        vertices[i]=w->projected[mapped];if(vertices[i].outcode&SH2Z_OUT_NEAR)front=false;
+        const uint8_t *v=fzx_road_stream_record(p,FZX_RLD_VERTICES,row);uv[i][0]=s16(v+6);uv[i][1]=s16(v+8);}
+    if(fill(w,vertices,&safe)){++d->stats->culled;return true;}
+    unsigned winding_count=4;sh2z_view_guard_vertex_t *winding=w->clip_in;
+    if(!safe){
+        const int n=sh2z_view_clip_guard_src_trunc_divu(w->clip_out,&d->view,d->view.clip,w->clip_in,4,0,10);
+        if(n<0)return fail(d,FZX_RS_CLIP);
+        if(n<3){++d->stats->culled;return true;}winding_count=(unsigned)n;winding=w->clip_out;
+    }
+    if(area(winding,winding_count)>=0){++d->stats->culled;return true;}
+    if(flags&2u)return piece(d,vertices,id,0,0,0,0,0,true);
+    unsigned left=uv[0][0]<uv[2][0]?0u:3u,right=left==0?3u:0u;
+    unsigned le=left==0?1u:2u,re=right==0?1u:2u;
+    if(uv[left][1]>uv[le][1]){unsigned tmp=left;left=le;le=tmp;}
+    if(uv[right][1]>uv[re][1]){unsigned tmp=right;right=re;re=tmp;}
+    const int32_t l0=uv[left][1],l1=uv[le][1],r0=uv[right][1],r1=uv[re][1];
+    const int32_t low=l0<r0?l0:r0,high=l1>r1?l1:r1,span=high-low;
+    const unsigned strip=U16(q+8);const uint8_t *s=fzx_road_stream_record(p,FZX_RLD_STRIPS,strip);
+    const unsigned period=U16(s+4);int32_t screen=0;
+    if(front)for(unsigned i=0;i<4;++i)for(unsigned j=i+1;j<4;++j){
+        int dx=vertices[i].sx-vertices[j].sx,dy=vertices[i].sy-vertices[j].sy;
+        if(dx<0)dx=-dx;
+        if(dy<0)dy=-dy;
+        if(dx+dy>screen)screen=dx+dy;}
+    unsigned tier=0,factor=1;
+    if(front&&!(d->flags&FZX_RS_FORCE_FIRST)){
+        const int64_t pixels=(int64_t)screen*period*32;
+        if(pixels<(int64_t)span*4){tier=3;factor=0;}
+        else if(pixels<(int64_t)span*8){tier=2;factor=4;}
+        else if(pixels<(int64_t)span*16){tier=1;factor=2;}
+    }
+    ++d->stats->tiers[tier];
+    if(!factor){const sh2z_view_vertex_t whole[4]={vertices[left],vertices[right],vertices[re],vertices[le]};
+        return piece(d,whole,id,0,strip*5+4,0,1,0,false);}
+    const unsigned unit=period*32*factor;unsigned count=1;w->boundary[0]=low;
+    for(int32_t start=low;start<high;){int32_t phase=start%(int32_t)unit;if(phase<0)phase+=(int32_t)unit;
+        int32_t end=start+(int32_t)unit-phase;if(end>high)end=high;
+        if(count>=65)return fail(d,FZX_RS_STEP);
+        w->boundary[count++]=end;start=end;}
+    if(!edge(d,0,vertices+left,vertices+le,l0,l1,count,unit)||
+       !edge(d,1,vertices+right,vertices+re,r0,r1,count,unit))return fail(d,FZX_RS_STEP);
+    for(unsigned i=0;i+1<count;++i){
+        const sh2z_view_vertex_t part[4]={w->edge[0][i],w->edge[1][i],w->edge[1][i+1],w->edge[0][i+1]};
+        int32_t phase=w->boundary[i]%(int32_t)unit;if(phase<0)phase+=(int32_t)unit;
+        const unsigned scale=32*factor,row=(unsigned)phase/scale;
+        const unsigned height=((unsigned)phase+(unsigned)(w->boundary[i+1]-w->boundary[i])+scale-1)/scale-row;
+        if(!height||row+height>period)return fail(d,FZX_RS_STEP);
+        if(!piece(d,part,id,i,strip*5+tier,row,height,factor,false))return false;
+    }
+    return true;
+}
+bool fzx_road_stream_draw(fzx_road_stream_draw_work_t *w,const fzx_view_t *view,
+    const int32_t eye[3],const RefRoadPlan *plan,int32_t pa,int32_t pb,unsigned flags,
+    fzx_road_stream_command_t *commands,uint32_t capacity,uint32_t *count,
+    fzx_road_stream_draw_stats_t *stats){
+    if(count)*count=0;
+    if(!stats)return false;
+    *stats=(fzx_road_stream_draw_stats_t){0};stats->fault=FZX_RS_INVALID;
+    if(!count||!w||!w->prepared||!w->pack||!view||!eye||!plan||!commands||!capacity||
+       (flags&~(unsigned)(FZX_RS_FORCE_FIRST|FZX_RS_AUDIT_UNALIGNED))||plan->faults||
+       plan->count>REF_ROAD_GROUPS||plan->outer>1||plan->fog_start<0||plan->fog_start>996||pb>0||
+       view->clip[0]<-900||view->clip[1]<-900||view->clip[2]>901||view->clip[3]>901)return false;
+    draw_t d={.work=w,.plan=plan,.commands=commands,.capacity=capacity,.flags=flags,.stats=stats};
+    if(!fzx_view16_from_source_trunc(&d.view,view,eye))return false;
+    if(!fzx_road_stream_gather(w->pack,plan,w->remap,w->remap_capacity,w->positions,w->vertex_capacity,&stats->positions))return fail(&d,FZX_RS_GATHER);
+    if(!sh2z_view_batch_trunc_divu(w->projected,&d.view,w->positions,sizeof(*w->positions),stats->positions))return fail(&d,FZX_RS_PROJECT);
+    fog_prepare(w,&d.view,plan,pa,pb,stats);
+    const unsigned chunks=w->pack->count[FZX_RLD_CHUNKS];
+    for(unsigned g=0;g<plan->count;++g){const RefRoadGroup *group=plan->groups+g;
+        unsigned index=group->direction==1?(group->end+chunks-1)%chunks:group->start,visited=0;
+        do {if(visited++==chunks)return fail(&d,FZX_RS_INVALID);++stats->chunks;
+            const uint8_t *c=fzx_road_stream_record(w->pack,FZX_RLD_CHUNKS,index);
+            const unsigned first=U32(c),number=U32(c+4);
+            for(unsigned i=first;i<first+number;++i)if(!quad(&d,i))return false;
+            if(group->direction==1){if(index==group->start)break;index=(index+chunks-1)%chunks;}
+            else {index=(index+1)%chunks;if(index==group->end)break;}
+        }while(true);
+    }
+    stats->fault=0;stats->error_quad=0;*count=stats->commands;return true;
+}

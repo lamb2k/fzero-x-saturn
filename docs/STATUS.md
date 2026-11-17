@@ -4,7 +4,6 @@ Active goal: [first-course boot, selection and race completion](FIRST_COURSE_GOA
 Current C0-C8 decisions and dependencies: [render programme](RENDER_PLAN_CURRENT.md).
 
 ## Owner direction
-
 Preserve F-Zero X on Saturn using original assets, prebaked into compatible formats.
 Similar-quality rendering and behavior adaptations are authorized where exactness
 is impractical. Preserve identity and playability; document meaningful differences.
@@ -48,7 +47,8 @@ C3 [camera/pack/gather](ROAD_STREAM.md): 1,291,264 samples within 1 px, max gath
 Owner revised texture metric: 1 px merge census p99 413 commands / 0.650 px texture; HOST only.
 [view-merge-1](SH2ZAM_MERGE_ADOPTION.md) adopted after synthetic gates; tagged census unchanged.
 [view-round-1](SH2ZAM_ROUND_ADOPTION.md): integral adapter and unchanged fixtures pass HOST.
-C3 blocked by 223 fractional centres and guard-clip anchor order; native gates remain.
+[view-guard-src-1](SH2ZAM_GUARD_SRC_ADOPTION.md): 13 images pass; integral census p99 413.
+C3 still rejects 223 fractional centres pending Q16; native gates remain.
 
 C4 [vehicle rebake](MACHINE_REBAKE.md) stays default-off: mean 9.273 ms MODELLED vs 52.112 before.
 HOST p99 67 / max 112 commands; 1 ms / 70-command and overlap gates fail.
@@ -73,7 +73,7 @@ Four corrupted packs are rejected before race. Records/name entry/retry/audio re
 
 Older hitch, clip-divider and software-road WIP remain local and unstaged.
 Use fixed-input replay for comparisons; live autopilot depends on render cadence.
-Next: qualify Q16-centre and source-anchor library contracts, then full census/images;
+Next: qualify Q16-centre library contract, then full census/images;
 records/name entry/retry, audio/effects, ordinary pad completion and soak remain.
 C3/C4/C5 performance blockers and full combined 60 fps qualification remain.
 No release, retail-derived publication, SD write or physical acceptance occurred.

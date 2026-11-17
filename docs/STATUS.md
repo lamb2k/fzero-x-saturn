@@ -49,7 +49,10 @@ C2's [road bake](ROAD_BAKE.md) passes HOST gates: 151,128-byte metadata,
 remain; 140 tier images use bounded lookup conversion or exact RGB fallback.
 Windows/Linux packs match; corruption controls fail. C3's native road stream
 is next. Source fog changes in 415 inputs must remain in its runtime tables.
-No runtime road edits yet. See also the [road census](ROAD_LOD_CENSUS.md).
+The [SH2ZAM view tag](SH2ZAM_VIEW_ADOPTION.md) is adopted after HOST and 13-view
+EMULATOR comparison; packets/hashes match and costs are effectively unchanged.
+C3 needs the owner's guard-band clip contract; camera/pack work can proceed.
+No runtime road edits yet. See the [road census](ROAD_LOD_CENSUS.md).
 The owner's local render plan ranks C1-C8; the full first-course goal remains.
 
 The last admitted rendering change remains the RBG0 floor: its 13-view

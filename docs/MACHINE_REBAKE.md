@@ -1,15 +1,18 @@
 # Prepared vehicle conversion
 
-C4 is in progress. The offline `FZXMCH02` pack passes HOST conversion checks;
-the runtime still uses `FZXMCH01`. No native speed or appearance improvement is
-claimed. The 70-command / 1 ms target, local still comparisons and knob-off
-identity remain open.
+C4 is blocked on ordering and cost. The offline `FZXMCH02` pack and default-off
+native experiment have been exercised. Thirteen held views reduce machine CPU
+from 52.112 to 9.273 ms mean MODELLED, but miss the 1 ms target and expose an
+overlap defect. The default renderer remains `FZXMCH01`. This is an experimental
+checkpoint, not an admitted replacement or a completed C4 card.
 
 Run `python3 tools/machine_rebake.py` from Linux with the existing private
 `generated/source_art` receipt current. Check the resulting receipt with
 `bash tools/check_receipt.sh generated/machine_rebake/machine_rebake.receipt`.
-The tool writes generated packs and their identity header locally; no build
-or runtime consumer is enabled by this change.
+The tool writes generated packs and their identity header locally. The optional
+`FZX_MACHINE_REBAKE=1` build selects the new consumer and checks its receipt. It
+requires `FZX_SOURCE_MACHINE=1`; the normal recipe leaves it off. On disc the
+new packs reuse `MACHINE.PAK` and `MACHTX.PAK` to stay within the CD root limit.
 
 The converter pairs coplanar convex triangles only when shared position, UV,
 normal and material identities agree. It preserves original vertex rows and
@@ -26,8 +29,10 @@ prove total runtime RAM or VRAM residency.
 
 Fixed-body unlit palettes are prebaked. Original material colors and texel
 RGBA remain available for shared updates when source body colors change.
-Lighting, reflection and fog still need a bounded native implementation;
-freezing those source changes is not part of this conversion.
+The experimental runtime updates shared palettes on body-color changes and
+computes per-normal lighting/reflection with Gouraud adjustment. Fog remains
+source-driven. The half-intensity palette representation is an approximation;
+its visual gate has not passed.
 
 ## Format
 
@@ -78,4 +83,68 @@ Eight centroid orders are only candidate orders. Different camera directions
 inside one octant can reverse overlap order. Native comparisons must include
 interior directions and octant crossings, CLUT indices 0/15, dynamic body
 colors, lighting/reflection/fog, clipping, motion and full-scene residency.
-No source renderer was replaced, and C4 is not complete.
+The frozen source renderer remains the default, and C4 is not complete.
+
+## Native experiment and failed gates
+
+The pose adapter maps original model axes into the source racer basis, composes
+one model-to-camera transform and calls SH2ZAM's batch projection. Over 9,907
+HOST states, 599,449 on-screen vertices stay within one pixel of the reference.
+GCC and Clang UBSan records agree. Culling is disabled when the inverse-basis
+error bound cannot be certified; 36 views therefore retain extra faces.
+
+HOST rendering emits p99 67 commands, maximum 112, with no clipped faces on this
+route. This fails the strict maximum of 70. Synthetic tests exercise corruption,
+capacity, dynamic palettes and repeated draws; altered hash/capacity/palette
+controls fail. The code still has a callback per emitted face and a slow clipping
+fallback. Clipped solids use representative material color and averaged current
+lighting/reflection/fog; they remain a texture approximation. A synthetic clipping
+test verifies lighting and fog independently change the output and rejects the
+old half-intensity static-color control. Neither path is presented as the final
+bounded architecture.
+
+The native 13-view comparison uses identical 685 inputs and admitted source packs.
+Camera, machine, road and backdrop packets and other draw hashes remain unchanged.
+Machine mean/max CPU changes from 52.112/60.049 to 9.273/10.887 ms MODELLED. Separate
+phase profiling attributes mean 0.694 ms to pose, 0.553 to projection, 0.103 to
+palettes, 1.298 to lighting and 5.863 to command construction. These are subsystem
+measurements, not frame rate. The knob-off executable is byte-identical to the
+admitted view-edges baseline. Physical hardware is UNRUN.
+
+Local stills expose a missing wing marking at held input 624. A HOST perspective
+depth comparison over 15 views finds 572 wrong overlap pixels with the eight
+centroid orders. Nearest-vertex, farthest-vertex and per-view centroid alternatives
+also fail (395, 906 and 581 pixels respectively). Those alternatives were tested
+on the host only; the candidate pack was not silently changed. A qualified offline
+occlusion order or face partition is needed before reopening the look gate.
+
+All checked allocation guards survive the held run, but only 2,612 painted stack
+bytes remain untouched, below C7's 16 KB requirement. The low-RAM metadata/work
+allocation occupies 28,492 bytes, excluding surrounding guards.
+
+The uninterrupted experimental race completes all 9,907 inputs, all three laps,
+source time 121,814 ms and the same final pose. Camera, machine, road and backdrop
+packets match the baseline. At the actual 1,981 presented inputs, road and machine
+command totals and ranges match independent HOST records. Whole-scene delivery is
+3.837 fps MODELLED: mean 260.606 ms, p95 383.333 ms, maximum 416.667 ms and 28,980
+missed fields. Machine CPU mean/max is 9.315/13.283 ms. All allocation guards pass;
+only 2,316 painted stack bytes survive, failing the 16 KB target. The 16-bit wrapped
+clock control is rejected. This is far below the required 60 fps.
+
+That full replay used the retained pre-fix binary below. The clipped-solid fix is
+not exercised by this route: all 9,907 HOST command records are byte-identical
+before/after, with zero clipped faces. The final binary passes all 13 held-view checks with identical source packets and
+render statistics, allocation guards intact and 2,388 painted stack bytes left.
+Its ISO SHA256 is `1b897fcbc1f008b381b56b4f9486f7fde6cfd3f35c7c593cd986ccfdfc9f7029`.
+This does not relabel the earlier full race. The final knob-off executable matches
+the admitted baseline byte for byte.
+
+Private evidence: `host/machine-rebake/native-comparison-v1.json`, `pose-*`,
+`draw-*`, `order-comparison-*`, and `emu/machine-rebake/1-v2` / `1-profile` / `race`.
+Candidate ISO SHA256: `06b3bc335281e28025d893537825e6df7272b4bfc1608218a1d94e2938744f00`.
+
+Unblock conditions: a source-preserving ordering/partition passes overlap and
+native still checks; actual emitted commands stay within 70; vehicle CPU reaches
+1 ms with bounded work; the combined memory and frame gates pass. Do not retry
+small ordering-key changes without a new mechanism. Move to dependency-safe C5
+or C8 work while these requirements remain open.

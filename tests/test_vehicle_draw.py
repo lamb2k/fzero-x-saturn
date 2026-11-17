@@ -1,0 +1,56 @@
+"""Synthetic prepared native vehicle renderer and corruption controls."""
+from pathlib import Path
+import os
+import subprocess
+import sys
+import tempfile
+import unittest
+
+ROOT=Path(__file__).resolve().parents[1]
+sys.path.insert(0,str(ROOT/'tools'))
+from machine_rebake import build
+from model_probe.make_fixture import fixture_data
+
+
+@unittest.skipIf(os.name=='nt','Use Linux host compilers')
+class VehicleDrawTests(unittest.TestCase):
+    def test_renderer_and_controls(self):
+        args=list(fixture_data());args[0][0]['materials'][0]['environment']='racer.bodyRGB'
+        meta,_,_=build(*args,fixture=True)
+        source=(ROOT/'src/fzx_vehicle_draw.c').read_text()
+        with tempfile.TemporaryDirectory() as temp:
+            directory=Path(temp);pack=directory/'fixture.pak';pack.write_bytes(meta)
+            def run(cc,text):
+                path=directory/'vehicle_draw.c';path.write_text(text);exe=directory/'gate'
+                command=[cc,'-std=c11','-O2','-Wall','-Wextra','-Werror','-Wconversion','-Wshadow','-Wpedantic',
+                    '-fsanitize=undefined','-fno-sanitize-recover=all','-DSH2Z_FORCE_PORTABLE=1',
+                    '-DFZX_SOURCE_MACHINE=1','-DFZX_SOURCE_CAMERA=1',
+                    '-I'+str(ROOT/'include'),'-I'+str(ROOT/'ref'),'-I'+str(ROOT/'third_party/SH2ZAM/saturn/include'),
+                    str(path),str(ROOT/'src/fzx_vehicle.c'),str(ROOT/'src/fzx_view16.c'),str(ROOT/'src/fzx_view.c'),
+                    *map(str,(ROOT/'third_party/SH2ZAM/saturn/src').glob('*.c')),
+                    str(ROOT/'tests/vehicle_draw_driver.c'),'-lm','-o',str(exe)]
+                result=subprocess.run(command,capture_output=True,text=True)
+                self.assertEqual(result.returncode,0,result.stdout+result.stderr)
+                return subprocess.run([str(exe),str(pack)],capture_output=True,text=True)
+            results=[]
+            for cc in ('gcc','clang'):
+                result=run(cc,source);self.assertEqual(result.returncode,0,result.stdout+result.stderr)
+                results.append(result.stdout)
+            self.assertEqual(*results)
+            for before,after in [
+                ('if(full!=expected||self!=u32(p+20))return false;','if(false)return false;'),
+                ('work->palette_valid&&(!p[6]||!changed)','work->palette_valid'),
+                ('stats->draws>=capacity','stats->draws>capacity'),
+                ('q.color=solid_color(work->representative[q.palette],average,state->fog);',
+                 'q.color=work->palette[q.palette][0];(void)solid_color;(void)average;')]:
+                self.assertEqual(source.count(before),1)
+                # Keep strict unused-variable diagnostics meaningful in controls.
+                altered=source.replace(before,after)
+                if before.startswith('if(full'):altered=altered.replace('if(false)return false;','(void)expected;if(false)return false;')
+                if 'palette_valid&&' in before:altered=altered.replace('if(work->palette_valid)continue;','(void)changed;if(work->palette_valid)continue;')
+                result=run('gcc',altered)
+                self.assertNotEqual(result.returncode,0)
+            print(results[0].strip())
+
+
+if __name__=='__main__':unittest.main()

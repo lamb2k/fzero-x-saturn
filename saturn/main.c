@@ -14,7 +14,11 @@
 #endif
 #if FZX_SOURCE_MACHINE
 #include "machine_native.h"
+#if FZX_MACHINE_REBAKE
+#include "vehicle_identity.h"
+#else
 #include "machine_identity.h"
+#endif
 static void *machine_pixels,*machine_shades;
 #endif
 #ifndef FZX_SOURCE_ROAD_TILES

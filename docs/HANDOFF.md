@@ -44,6 +44,6 @@ Limit: 50 lines. History lives in git.
 ## Preserved work and gaps
 
 - Older clip/hitch/software-road WIP is still local and unstaged.
-- C4 offline vehicle pack passes HOST; MACHINE_REBAKE.md has format and gates.
-- Native C4 unrun; plane census p99 66/max71 is not a command or timing gate.
+- C4 default-off native experiment: 9.273 ms mean MODELLED, HOST p99 67 / max 112 draws.
+- C4 full race/state pass: 3.837 fps MODELLED; cost/order/stack gates FAIL (see doc).
 - Retain profile-ON artifacts externally; build isolate has OFF. No release/SD write.

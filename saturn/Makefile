@@ -11,6 +11,16 @@ FZX_SOURCE_HUD ?= 0
 FZX_HUD_CD ?= 0
 FZX_SOURCE_CAMERA ?= 0
 FZX_SOURCE_MACHINE ?= 0
+FZX_MACHINE_REBAKE ?= 0
+FZX_VEHICLE_PROFILE ?= 0
+ifneq ($(filter $(FZX_MACHINE_REBAKE),0 1),$(FZX_MACHINE_REBAKE))
+$(error FZX_MACHINE_REBAKE must be 0 or 1)
+endif
+ifeq ($(FZX_MACHINE_REBAKE),1)
+ifneq ($(FZX_SOURCE_MACHINE),1)
+$(error Vehicle rebake requires source machine)
+endif
+endif
 FZX_SOURCE_SKY ?= 0
 FZX_SOURCE_SKYLINE ?= 0
 FZX_SOURCE_PLANES ?= 0
@@ -281,12 +291,22 @@ ifeq ($(FZX_SOURCE_MACHINE),1)
 ifneq ($(FZX_SOURCE_CAMERA):$(FZX_SOURCE_ROAD_TILES),1:1)
 $(error Source machine requires source camera and native road tiles)
 endif
+ifneq ($(FZX_MACHINE_REBAKE),1)
 FZX_MACHINE_RECEIPT := $(shell sh ../tools/check_receipt.sh ../generated/machine/machine.receipt 2>&1; echo "rc=$$?")
 ifeq ($(findstring rc=0,$(FZX_MACHINE_RECEIPT)),)
 $(error Source machine assets are stale: $(FZX_MACHINE_RECEIPT))
 endif
+endif
 SH_CFLAGS += -DFZX_SOURCE_MACHINE=1 -I../generated/machine
 FZX_MACHINE_SRCS := machine_native.c ../src/fzx_machine_draw.c ../src/fzx_machine.c ../src/fzx_material.c
+ifeq ($(FZX_MACHINE_REBAKE),1)
+FZX_VEHICLE_RECEIPT := $(shell sh ../tools/check_receipt.sh ../generated/machine_rebake/machine_rebake.receipt 2>&1; echo "rc=$$?")
+ifeq ($(findstring rc=0,$(FZX_VEHICLE_RECEIPT)),)
+$(error Prepared vehicle assets are stale: $(FZX_VEHICLE_RECEIPT))
+endif
+SH_CFLAGS += -DFZX_MACHINE_REBAKE=1 -DFZX_VEHICLE_PROFILE=$(FZX_VEHICLE_PROFILE) -I../generated/machine_rebake
+FZX_MACHINE_SRCS := vehicle_native.c ../src/fzx_vehicle.c ../src/fzx_vehicle_draw.c ../src/fzx_view16.c
+endif
 else ifneq ($(FZX_SOURCE_MACHINE),0)
 $(error FZX_SOURCE_MACHINE must be 0 or 1)
 endif
@@ -366,10 +386,18 @@ stage-road-tiles:
 endif
 
 ifeq ($(FZX_SOURCE_MACHINE),1)
-$(SH_OUTPUT_PATH)/$(SH_PROGRAM).iso: ../generated/machine/MACHINE.PAK ../generated/machine/MACHTX.PAK
 pre-build-iso: stage-machine-pack
 .PHONY: stage-machine-pack
+ifeq ($(FZX_MACHINE_REBAKE),1)
+$(SH_OUTPUT_PATH)/$(SH_PROGRAM).iso: ../generated/machine_rebake/MACHRLD.PAK ../generated/machine_rebake/MACHRTX.PAK
+stage-machine-pack:
+	mkdir -p $(IMAGE_DIRECTORY)
+	cp ../generated/machine_rebake/MACHRLD.PAK $(IMAGE_DIRECTORY)/MACHINE.PAK
+	cp ../generated/machine_rebake/MACHRTX.PAK $(IMAGE_DIRECTORY)/MACHTX.PAK
+else
+$(SH_OUTPUT_PATH)/$(SH_PROGRAM).iso: ../generated/machine/MACHINE.PAK ../generated/machine/MACHTX.PAK
 stage-machine-pack:
 	mkdir -p $(IMAGE_DIRECTORY)
 	cp ../generated/machine/MACHINE.PAK ../generated/machine/MACHTX.PAK $(IMAGE_DIRECTORY)/
+endif
 endif

@@ -61,10 +61,10 @@ Countdown snapshot/view HOST gates pass: all 9,907 source states unchanged,
 20,384 visible vertex samples within 1 px; SH-2 adapter compiles. Native drawing,
 animation integration and sound remain open; running game unchanged.
 
-C4 [vehicle rebake](MACHINE_REBAKE.md) passes HOST conversion: 21,824 metadata /
-17,064 texture bytes; all source triangles retained, near model 112 faces.
-Conservative plane census: p99 66 / max 71 retained faces; no command/cost gate.
-Native lighting, ordering, drawing and appearance remain unrun; C4 is incomplete.
+C4 [vehicle rebake](MACHINE_REBAKE.md) is default-off and blocked on ordering/cost.
+HOST p99 67 / max 112 commands; 13-view native mean 9.273 ms MODELLED vs 52.112 before.
+The 1 ms/70-command targets and look gate fail; four order policies fail overlap.
+Full race/state/guards pass: 3.837 fps MODELLED; stack guard 2,316 B fails C7.
 
 ## Local experiments retained
 
@@ -74,6 +74,6 @@ No release, ROM-derived publication, SD write or physical acceptance occurred.
 
 ## Next
 
-Opus guard-band request: SH2ZAM_EDGES_ADOPTION.md. Vehicle/cloud work is independent.
+New view-guard-1 tag is in qualification; C3 awaits tag-only native comparison.
 Finish original entry/selection, audio/results/effects, pad retry and soak.
 SH2ZAM calibration, HARDWARE and owner appearance acceptance remain open.

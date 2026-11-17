@@ -95,8 +95,76 @@ still emits 32 commands against the reference's 31; its unchanged assertion
 fails. No failing experiment is included in the native build or published as
 an accepted renderer, and the old road remains intact.
 
-This approach is stopped. Reopening requires a revised mapping architecture
-that passes the existing image and shifted-fixture gates within the command
-budget before native integration. Do not restart the same two hypotheses or
-relax the tolerance. Private evidence: `host/road-stream-draw/RESULTS.md` and
-`qualification-blocked.json`. Continue independent C5/C8 work; C6 depends on C3.
+That experiment was stopped. Private evidence: `host/road-stream-draw/RESULTS.md`
+and `qualification-blocked.json`. Its failed arms remain unqualified.
+
+## Reopened texture investigation, owner authorization 2026-11-17
+
+The owner explicitly permits changing the texture metric from one original-source
+texel. The selected replacement is p99 at most one screen pixel, measured as
+Chebyshev displacement of texture rows against the per-repetition reference.
+Source-texel and drawn-tier-texel p99 remain required reports beside that metric.
+The one-pixel geometry bound, 420-command budget, shifted +32 synthetic fixture,
+and existing image-gate method remain unchanged. No native acceptance follows
+from this authorization alone.
+
+The HOST census tested both rails at every interior repetition boundary using
+exact integer products, at 0.5, 1 and 2 screen pixels. Partial first/last
+repetitions stay in the single-repetition tier; a merged run starts at phase
+zero and spans only complete repetitions. No SH2ZAM file was changed.
+
+| Boundary tolerance | Commands p99 / max, 9,907 views | Texture-row screen p99, 13 held views | Source / drawn-tier texel p99 |
+| --- | --- | --- | --- |
+| 0.5 px | 424 / 451 | 0.500 px | 8.000 / 3.868 |
+| 1 px | 413 / 445 | 0.650 px | 9.328 / 3.633 |
+| 2 px | 406 / 432 | 1.109 px | 9.333 / 3.620 |
+
+**Choose `view-merge-1` pixel mode, tolerance 256 in Q8 (1 px).** Only this
+arm meets both the command p99 and texture-row p99 limits in this experiment.
+Its worst individual held-view p99 is 0.954 px; geometry coverage stays within
+1 px in every held view. GCC and Clang/UBSan produce identical complete census
+and held-command files for the 1 px arm. Forced first tier remains p99 821 /
+max 1,033, failing the unchanged command budget.
+
+The image check retains the frozen ideal ruled-quad inverse mapping, pixel
+centres, painter order and periodic/mirrored texture equivalence. For each
+comparable pixel it measures the displacement of the candidate texture row
+along the reference piece at the same transverse coordinate. The reference
+rail is locally extended when the equivalent row crosses a piece boundary;
+this is a HOST local mapping metric, not native VDP1 raster acceptance.
+Source-texel error remains reported and is not relabelled as passing its old
+limit. The 1 px arm has 472,098 comparable textured samples; 1,086 exceed 1 px
+and the maximum is 14.521 px. Separately excluded/reported are 270 material
+mismatches and 10,116 common mean-row pixels with undefined longitudinal phase.
+These tails and exclusions remain visible for native look qualification.
+
+Analytic checks give zero for identity/full-period shifts, 1 px for a known
+one-pixel row shift, and 49.5 px p99 for a doubled-repetition control. Doubling
+repetitions in the actual held commands also fails (127.509 px p99). A separate
+source-UV audit checks 1,824 textured held commands: 509 aligned merged runs,
+691 single-repetition partials, and zero wrong start rows.
+
+### Shifted fixture: projection-rounding diagnosis, still open
+
+The unchanged +32 fixture fails at 32 versus 31 commands in the census arm.
+The first extra command is quad 0's final partial repetition: its endpoint
+projects to Y=191 while the frozen renderer projects Y=192, making a one-pixel
+sliver that the reference discards. The following quad starts one pixel higher
+in the reference. This failure is distinct from choosing the texture start row.
+
+A private diagnostic subtracting 1 Q18.14 unit from view-space Y has no effect;
+subtracting 16 units makes both regular and shifted fixtures pass unchanged,
+including zero edge error. This is evidence of the rounding cause, not an
+accepted camera adjustment. Its full-route GCC/Clang census still gives p99
+413 / max 445 and its held-view texture p99 stays 0.650 px. The tagged projector floors its Q16 quotient
+before subtracting from integer centre Y; the source truncates the final
+projected coordinate. The existing centre-minus-one adapter differs at exact
+integer boundaries. Resolve that contract with the SH2ZAM owner before runtime
+adoption; do not change the frozen reference or weaken the shifted assertion.
+
+Private evidence: `host/road-stream-draw/bounded-merge-20261117/`, including
+`census.json`, `image-px*.json`, `metric-controls.json`, `phase-audit.json` and
+shift diagnostics. The experiment and original failed evidence stay private.
+C3 remains unintegrated: tagged planner adoption, shifted fixture resolution,
+native memory/timing and VDP1 look gates are open. C8 finish/results WIP is
+preserved; C6 still depends on a qualified C3 renderer.

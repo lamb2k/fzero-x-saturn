@@ -31,7 +31,8 @@ Limit: 50 lines. History lives in git.
   HOST corruption/identity gates pass; preserve62 fog colors and415 changing inputs.
 - SH2ZAM view-edges-1 and view-guard-1 adopted; old road reference stays frozen.
 - C3 camera/pack/gather:1,291,264 vertices within1px, max552 gathered; HOST/SH-2 pass.
-  Two native mapping arms fail p99 1-texel gate at9.33; shifted control fails. ROAD_STREAM.md.
+  Owner revised texture gate: 1px merge gives p99 413 commands / 0.650px HOST texture error.
+  Choose view-merge-1 pixel mode/Q8=256; shifted fixture rounding and native gates open. ROAD_STREAM.md.
 - C4 rebake:9.273 ms mean MODELLED, HOST p99 67/max112 draws; cost/order/stack gates fail.
 - C5 dual probe open; compact cloud atlas reclaims128 KiB, no speed claim.
 - C8 countdown:24views/276commands and source full race pass; sound/look open.

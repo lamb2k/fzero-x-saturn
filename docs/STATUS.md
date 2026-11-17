@@ -44,7 +44,8 @@ C2's [road bake](ROAD_BAKE.md) retains original rows/quads: 151,128 B metadata /
 Windows/Linux outputs and corruption controls pass; retain all 415 fog-changing inputs.
 [SH2ZAM view-edges-1](SH2ZAM_EDGES_ADOPTION.md) and [view-guard-1](SH2ZAM_GUARD_ADOPTION.md) are adopted.
 C3 [camera/pack/gather](ROAD_STREAM.md): 1,291,264 samples within 1 px, max gather 552; HOST/SH-2 pass.
-Native stream remains blocked: two mapping arms fail p99 1-texel gate at 9.33; shifted control fails.
+Owner revised texture metric: 1 px merge census p99 413 commands / 0.650 px texture; HOST only.
+Shifted fixture rounding still open; tagged merge planner and native stream/timing remain unqualified.
 
 C4 [vehicle rebake](MACHINE_REBAKE.md) stays default-off: mean 9.273 ms MODELLED vs 52.112 before.
 HOST p99 67 / max 112 commands; 1 ms / 70-command and overlap gates fail.

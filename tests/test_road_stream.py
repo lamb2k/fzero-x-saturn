@@ -49,6 +49,7 @@ class RoadStreamTests(unittest.TestCase):
             wrong_repeat = mutations[-1]
             mutate(offsets[3], '>I', 1)  # missing source coverage
             mutate(offsets[4]+4, '>H', 7)  # unsupported period
+            mutate(offsets[5]+2, '>H', struct.unpack_from('>H', metadata, offsets[4]+2)[0])  # old unaligned CLUT width
             mutate(offsets[5]+6, '>H', 8)  # wrong tier
             mutate(offsets[5]+8, '>I', len(textures))  # pixels outside bank
             mutate(offsets[5]+20, '>I', 65)  # misaligned palette

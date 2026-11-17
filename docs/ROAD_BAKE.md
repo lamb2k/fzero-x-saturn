@@ -2,7 +2,7 @@
 
 The `FZXRLD01` bake preserves all 2,613 original vertex records and 2,483
 quads in **151,128 bytes**, below the 160,000-byte limit. Its source-derived
-texture bank occupies **143,976 bytes**, below 150,000 bytes, including three
+texture bank occupies **147,328 bytes**, below 150,000 bytes, including three
 fog variants. This is HOST asset preparation. The new pack is not yet used by
 the Saturn renderer and does not change the measured frame rate.
 
@@ -26,7 +26,13 @@ the Saturn renderer and does not change the measured frame rate.
 Textures are converted offline from the existing original-road strips. Each
 strip has images containing one, two, four and eight repetitions at its base
 height, plus the existing mean row. Higher tiers use periodic box filtering.
-The original three fog variants are filtered independently.
+The original three fog variants are filtered independently. For lookup images
+whose source strip width is not a multiple of 16, each pixel is duplicated
+horizontally (8 to 16 or 24 to 48 pixels in this course). This keeps every partial
+row start aligned to VDP1's eight-byte texture-address unit. All decoded colors,
+normalized horizontal sampling, source UVs and geometry remain unchanged; 55
+images need this expansion. The original strip width remains in the strip record,
+while the image record contains the stored width.
 
 Of the 140 tier images, 103 use 4-bit lookup indices with three RGB1555 palettes;
 37 retain 16-bit pixels in all three fog variants. Lookup conversion is admitted
@@ -35,7 +41,7 @@ source-derived filtered image, in every fog variant. More colourful images use
 the RGB fallback. This fixed error bound was not increased to meet memory.
 
 Exact texture and palette byte sequences share storage. This reduces the
-203,240-byte unshared bank to 143,976 bytes, including its header. The mixed bank
+208,640-byte unshared bank to 147,328 bytes, including its header. The mixed bank
 fits the 150 KB ceiling; it does not claim to meet the 96 KB all-lookup target.
 
 ## Binary contract
@@ -75,6 +81,9 @@ Image order per strip is 1, 2, 4, 8 repetitions, then factor 0 for the mean row.
 Mode 0 stores RGB1555 pixels; its palette addresses are zero. Mode 1 stores
 4-bit indices, first pixel in the high nibble, with 16 RGB1555 entries per palette.
 Its three pixel addresses are equal; palette selection supplies the fog variant.
+Lookup rows must have an eight-byte stride. Their stored width is twice the
+source width when that width is not divisible by 16; otherwise it is unchanged.
+RGB image widths always match the source strip. Widths exceeding 504 are rejected.
 Addresses are absolute offsets into `ROADLTX.PAK`, including its header.
 
 `ROADLTX.PAK` has a 64-byte header: `FZXRTX01`, then u32 version/total/checksum/
@@ -94,8 +103,10 @@ negative and unequal UV phases, periodic filtering, palette fallback and
 valid-checksum corruptions. Wrong repetition counts, missing coverage, bad
 image addresses, nonopaque palettes and understated far error bounds fail.
 The original asset conversion checks every compact vertex/quad and all 140
-images against the admitted native assets: 194,599 of 210,864 compared pixels
-are exact; 16,265 differ by at most one RGB5 step per channel. Windows and Linux builds agree.
+images against the admitted native assets: before horizontal duplication, 194,599 of 210,864 compared source pixels
+are exact; 16,265 differ by at most one RGB5 step per channel. The aligned-bank
+check decodes all 140 images and proves exact pixel duplication from that bank,
+with every partial-row address aligned. Windows and Linux payloads agree.
 The receipt rejects a deliberately altered output.
 
 The stored fog variants use the course base colour, matching the admitted
@@ -115,8 +126,8 @@ python3 -m unittest discover -s tests -p test_road_bake.py -v
 
 The public tests synthesize their own road. Original generated packs, colour
 reports and source comparisons remain private. Evidence is under
-`host/road-bake/source-qualification.json`; C1's command result is in
+`host/road-bake/source-qualification.json` and `host/road-row-align/comparison.json`; C1's command result is in
 [ROAD_LOD_CENSUS.md](ROAD_LOD_CENSUS.md).
 
-Metadata SHA-256: `222dcea156f176171610f0c86d2a22abe9d92c89e5affc9294b1f783820a1ab0`.
-Texture SHA-256: `155082ba2515e3827afd9798ba01f06ecacaab99af855ed1cae2d0c16d5b30e7`.
+Metadata SHA-256: `cbf9e55186fcb2103e6b6d8d57fc92da4c5ff6bafff82c2bed07bd125d62308e`.
+Texture SHA-256: `fd5b47f24d4abed280c1d4889e96c3e14fe40702efc76fab93f9d55a4cde1e6d`.

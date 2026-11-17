@@ -80,7 +80,8 @@ bool fzx_road_stream_open(fzx_road_stream_pack_t *out,const void *data,uint32_t 
     for(uint32_t i=0;i<ni;++i) {
         const uint8_t *im=fzx_road_stream_record(&pack,FZX_RLD_IMAGES,i),*s=fzx_road_stream_record(&pack,FZX_RLD_STRIPS,i/5);
         const unsigned mode=U16(im),width=U16(im+2),height=U16(im+4),factor=U16(im+6);
-        if(mode>1 || width!=U16(s+2) || factor!=factors[i%5] || height!=(factor?U16(s+4):1u))return false;
+        const unsigned source_width=U16(s+2),expected_width=mode && (source_width&15u)?source_width*2:source_width;
+        if(mode>1 || width!=expected_width || width>504 || factor!=factors[i%5] || height!=(factor?U16(s+4):1u))return false;
         const uint32_t length=mode?width*height/2:width*height*2;
         for(unsigned j=0;j<3;++j) {
             const uint32_t at=U32(im+8+j*4),palette=U32(im+20+j*4);

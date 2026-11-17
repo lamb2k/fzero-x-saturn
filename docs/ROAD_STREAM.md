@@ -39,9 +39,9 @@ It allocates no storage. The texture loader must verify the separately compiled
 complete texture-file hash before drawing; the offline receipt retains pixel,
 palette and far-chord proofs. Far records are not activated by admission.
 
-The bake now emits complete-file FNV identities for both files. Regeneration
-leaves the metadata and texture payloads byte-identical to C2, at 151,128 and
-143,976 bytes. The original pack passes GCC and Clang with ASan/UBSan. Synthetic
+The bake now emits complete-file FNV identities for both files. The row-alignment correction retains source geometry/UV records and
+duplicates lookup pixels horizontally where required. Packs occupy 151,128 and
+147,328 bytes; the reader rejects the old unaligned lookup image widths. The original pack passes GCC and Clang with ASan/UBSan. Synthetic
 valid-checksum corruptions, wrong identity, truncated payloads and insufficient
 texture extent are rejected. A control disabling repetition validation admits
 the deliberately wrong repetition record, proving the rejection test is active.

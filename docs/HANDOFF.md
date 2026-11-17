@@ -27,7 +27,7 @@ Limit: 50 lines. History lives in git.
 
 - All 9,907 HOST views: p99 335, max 355 commands; forced-first control p99 818.
 - GCC/Clang UBSan records match; native views match Python; old road unchanged.
-- FZXRLD01: 151,128 bytes metadata; textures 143,976 including three fog variants.
+- FZXRLD01: 151,128 bytes metadata; textures 147,328 including three fog variants.
 - All original vertices/quads retained. 103 CLUT4 images stay within one RGB5
   step/channel; 37 RGB images retain exact filtered pixels. Windows/Linux agree.
 - See ROAD_BAKE.md for format, receipts and controls. Far merges remain unqualified.

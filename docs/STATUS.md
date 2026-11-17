@@ -45,7 +45,7 @@ All 14 asset payloads match the admitted disc. See [frame measurements](FRAME_PE
 C1 passes over all 9,907 HOST views: p99 335 commands, maximum 355; forced
 full repetition control p99 818 fails the 420 budget. GCC/Clang records match.
 C2's [road bake](ROAD_BAKE.md) passes HOST gates: 151,128-byte metadata,
-143,976-byte textures including three fog variants. All original rows/quads
+147,328-byte textures including three fog variants. All original rows/quads
 remain; 140 tier images use bounded lookup conversion or exact RGB fallback.
 Windows/Linux packs match; corruption controls fail. C3's native road stream
 is next. Source fog changes in 415 inputs must remain in its runtime tables.

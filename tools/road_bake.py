@@ -156,17 +156,23 @@ def texture_images(mesh, strips, source_sha, fog):
                           for p, i in zip(image, indices)) for image, pal in zip(images, palettes)]
             # This is a fixed quality bound, not a knob adjusted to fit memory.
             # More complex images remain source-derived RGB1555 in all fog banks.
-            lookup = max(errors) <= 1
+            lookup = max(errors) <= 1 and (width % 16 == 0 or width*2 <= 504)
+            stored_width = width*2 if lookup and width % 16 else width
             if lookup:
+                # Every partial-row start must be a legal 8-byte VDP1 address.
+                # Duplicate horizontally; normalized sampling and all colors stay unchanged.
+                if stored_width != width:
+                    indices = [i for i in indices for _ in range(2)]
                 packed = bytes((indices[i] << 4) | indices[i+1] for i in range(0, len(indices), 2))
                 offsets = [pool.add(packed)]*3
                 palette_offsets = [pool.add(words_bytes(p)) for p in palettes]
             else:
                 offsets = [pool.add(words_bytes(image)) for image in images]
                 palette_offsets = [0, 0, 0]
-            records += struct.pack('>4H6I', int(lookup), width, height if repetitions else 1,
+            records += struct.pack('>4H6I', int(lookup), stored_width, height if repetitions else 1,
                                    repetitions, *offsets, *palette_offsets)
             reports.append(dict(strip=number, repetitions=repetitions, mode='CLUT4' if lookup else 'RGB1555',
+                                source_width=width, stored_width=stored_width,
                                 source_colors=quant['unique_colors'], quantizer=quant,
                                 stored_max_channel_error=max(errors) if lookup else 0,
                                 fog_variant_max_errors=errors if lookup else [0, 0, 0]))
@@ -397,7 +403,8 @@ def validate(metadata, textures):
         image = struct.unpack_from('>4H6I', metadata, offsets[5]+i*32)
         mode, width, height, repetitions, *addresses = image
         s = strips[i//5]
-        if mode not in (0, 1) or width != s[1] or repetitions != (1, 2, 4, 8, 0)[i % 5] or height != (s[2] if repetitions else 1):
+        expected_width = s[1]*2 if mode == 1 and s[1] % 16 else s[1]
+        if mode not in (0, 1) or width != expected_width or width > 504 or repetitions != (1, 2, 4, 8, 0)[i % 5] or height != (s[2] if repetitions else 1):
             raise ArtError('Invalid road tier image')
         pixel_bytes = width*height*2 if mode == 0 else width*height//2
         for at in addresses[:3]:

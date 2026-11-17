@@ -103,9 +103,38 @@ class RoadBakeTests(unittest.TestCase):
                 bank = values[v*stride:(v+1)*stride]
                 source = bake.periodic_tier(bank[:width*height], width, height, repetitions) if repetitions else bank[width*height:]
                 stored = decode_image(metadata, textures, t, v)
+                if report['images'][t]['stored_width'] == 2*width:
+                    source = [p for p in source for _ in range(2)]
                 self.assertEqual(len(source), len(stored))
                 self.assertLessEqual(max(abs(a-b) for p, q in zip(source, stored) for a, b in zip(bake.rgb(p), bake.rgb(q))), 1)
         self.assertLess(report['texture_bytes'], report['unshared_texture_bytes'])
+
+    def test_clut_partial_rows_are_aligned_without_new_colors(self):
+        for u1 in (96, 768):  # source widths 8 and 24, both require even 8-byte row strides
+            mesh = fixture()
+            for vertex in mesh['vertices']:
+                if vertex[3] == 96: vertex[3] = u1
+            metadata, textures, report = bake.build(mesh, bytes(32), [252, 192, 253])
+            _, offsets = bake.validate(metadata, textures)
+            padded = 0
+            for i, info in enumerate(report['images']):
+                mode, width, height, _, *addresses = struct.unpack_from('>4H6I', metadata, offsets[5]+32*i)
+                row_bytes = width//2 if mode else width*2
+                for at in addresses[:3]:
+                    for row in range(height):
+                        self.assertEqual((at+row*row_bytes) % 8, 0)
+                if width != info['source_width']:
+                    padded += 1
+                    self.assertEqual(mode, 1)
+                    self.assertEqual(width, info['source_width']*2)
+                    for fog in range(3):
+                        pixels = decode_image(metadata, textures, i, fog)
+                        self.assertEqual(pixels[::2], pixels[1::2])
+                    bad = bytearray(metadata)
+                    struct.pack_into('>H', bad, offsets[5]+32*i+2, info['source_width'])
+                    with self.assertRaises(bake.ArtError):
+                        bake.validate(rehash(bad), textures)
+            self.assertGreater(padded, 0)
 
     def test_negative_phase_and_uneven_edges(self):
         mesh = fixture()

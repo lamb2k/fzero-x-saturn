@@ -38,12 +38,12 @@ Limit: 50 lines. History lives in git.
 - Native stream is not integrated. Guard-band clipping contract remains requested.
 - Require image-space controls and p99 road CPU <=8 ms MODELLED; >16 ms is no-go.
 - Keep the old runtime road frozen. Do not edit SH2ZAM or invent general kernels.
-- The latest detailed checkpoint is at the TOP of generated/CONTINUE-CODEX.md.
+- C8 countdown assets: 23 original quads, nine textures / 20,480 bytes; HOST passes.
+- Native countdown integration is next; see COUNTDOWN.md and generated/CONTINUE-CODEX.md.
 
 ## Preserved work and gaps
 
 - Older clip/hitch/software-road WIP is still local and unstaged.
 - The build isolate currently contains profile-OFF outputs. Qualified ON artifacts
   are preserved externally; do not overwrite them with OFF outputs.
-- The screen-space fog trial remains withdrawn. Other source-art/content cards
-  and all physical acceptance remain open. No release or SD write occurred.
+- Fog trial withdrawn; other content and physical gates open. No release/SD write.

@@ -6,6 +6,7 @@ sys.path.insert(0,str(ROOT/'tools'))
 from title_source import closure,sound_header,SOURCE,DECOMP
 
 
+@unittest.skipUnless(SOURCE.is_file(),'pinned source submodule required')
 @unittest.skipUnless(os.name!='nt' and shutil.which('gcc') and shutil.which('clang'),'Linux host compilers required')
 class TitleStateTests(unittest.TestCase):
     def test_source_timeline_and_negative_controls(self):

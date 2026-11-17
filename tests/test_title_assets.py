@@ -57,6 +57,7 @@ class TitleAssetsTests(unittest.TestCase):
         with self.assertRaises(ArtError):extract(bytes(broken),rows)
         with self.assertRaises(ArtError):extract(data[:-1],rows)
 
+    @unittest.skipUnless((DECOMP/SOURCE).is_file(),'pinned source submodule required')
     def test_original_layout_binding(self):
         source=(DECOMP/SOURCE).read_text()
         verify_layout(source)

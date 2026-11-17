@@ -7,6 +7,7 @@ from menu_source import closure,cartridge,SOURCE,DECOMP,ArtError
 from title_source import sound_header
 
 
+@unittest.skipUnless(SOURCE.is_file(),'pinned source submodule required')
 class MenuExtractionTests(unittest.TestCase):
     def test_us_cartridge_branch(self):
         text=cartridge(SOURCE.read_text())
@@ -17,6 +18,7 @@ class MenuExtractionTests(unittest.TestCase):
             with self.assertRaises(ArtError):cartridge(invalid)
 
 
+@unittest.skipUnless(SOURCE.is_file(),'pinned source submodule required')
 @unittest.skipUnless(os.name!='nt' and shutil.which('gcc') and shutil.which('clang'),'Linux host compilers required')
 class MenuStateTests(unittest.TestCase):
     def test_source_navigation_draws_and_negative_controls(self):

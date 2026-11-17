@@ -27,7 +27,7 @@ Pad-only end-to-end acceptance, final look approval and HARDWARE remain unrun.
 | Camera/HUD | 19 held camera packets match; timer/speed/lap/energy integrated; countdown/results open |
 | Blue Falcon | Original near model retains 132 triangles, resident textures and live pose/body/lighting; full replay/guards pass; performance and final look remain open |
 | Road | All 300 chunks / 4,966 triangles retained; shared cache reduces 13-view mean 125.92 to 112.04 ms MODELLED; budget blocked |
-| Backdrop | Original floor now uses RBG0; floor/cloud mean 74.12 to 56.62 ms MODELLED over 13 views; clouds remain expensive |
+| Backdrop | Floor/cloud mean 56.62 ms MODELLED; C5 [dual-layer probe and indexed floor](DUAL_RBG.md) prepared, native integration open |
 | Gates 2-5 | Entry/results/effects/audio, native scene budget, pad flow and soak incomplete |
 | Gate 6 | Full-game content, modes, opponents, progression and persistence planned |
 

@@ -1,0 +1,8 @@
+build*/
+cd*/
+audio-tracks/
+out/
+*.iso
+*.cue
+*.bin
+__pycache__/

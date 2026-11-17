@@ -8,9 +8,10 @@ An experimental native Sega Saturn port foundation using
 
 **Target: the real F-Zero X on Saturn, preserving its original art and gameplay.**
 The local `FZX_SIM=orig` build runs the original one-racer code on Mute City 1,
-including a three-lap race and retry. Local experimental options draw the original
-Blue Falcon, road, backdrop and partial race HUD. Rendering is far over budget, and entry/results/audio/effects
-remain incomplete, so this is not the finished game. Original models, textures,
+including a three-lap diagnostic replay and restart. Local experimental options draw the original
+Blue Falcon, road, backdrop, entry/selection, race HUD and initial finish/results.
+Rendering is far over budget; records/retry flow, audio and effects remain incomplete,
+so this is not the finished game. Original models, textures,
 scenery, effects, HUD/fonts, menus and audio are required port content.
 The public default circuit and craft remain synthetic test fixtures.
 
@@ -29,7 +30,8 @@ The public default circuit and craft remain synthetic test fixtures.
 | Prototype driving | Fixed-step acceleration, braking, lateral steering, boundary slowdown, laps and reset. These are new test controls, not the original game's handling. |
 | Original race route | `FZX_SIM=orig` links the original racer code with binary32 software float; local owner-ROM builds supply Mute City 1 and machine constants. Emulator whole-race finish times have matched host replays. Source-art integration remains open. |
 | Source-art pipeline | Local verified export of five Blue Falcon LODs and 22 textures; native machine, road, backdrop and partial HUD behind explicit flags. [Coverage and build details](docs/SOURCE_ART.md). |
-| Original selection | Original title, main menu, course selection and [machine/settings screens](docs/MACHINE_MENU.md) behind explicit flags. Source models, portraits, colors and engine settings are converted locally; results and audio remain open. |
+| Original selection | Original title, main menu, course selection and [machine/settings screens](docs/MACHINE_MENU.md) behind explicit flags. Source models, portraits, colors and engine settings are converted locally. |
+| Finish/results | Original FINISH animation and initial lap/time/max-speed panel behind `FZX_SOURCE_RESULTS=1`; [source and native checks](docs/RESULTS.md). Records, name entry, ordinary retry and audio remain open. |
 | Saturn platform | Yaul build, VDP1 drawing, VDP2 backgrounds, digital pad input and PAL/NTSC tick scheduling. |
 | Web preview | The same C core compiled to WebAssembly, with keyboard/touch controls and local imported-course loading. |
 | Validation | Independent spline oracle, driving/reset/ordering checks, exact prepared/general transform comparisons, importer checks, sanitizers and browser interaction tests. |

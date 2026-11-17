@@ -9,6 +9,12 @@
 
 #include "fzx.h"
 #include "frame_profile.h"
+#ifndef FZX_SOURCE_RESULTS
+#define FZX_SOURCE_RESULTS 0
+#endif
+#if FZX_SOURCE_RESULTS
+#include "results_scene.h"
+#endif
 #ifndef FZX_SOURCE_MENU
 #define FZX_SOURCE_MENU 0
 #endif
@@ -326,6 +332,12 @@ logged_tick(uint16_t buttons, int8_t sx, int8_t sy)
         fzx_input_count = n + 1u;
     }
     ref_tick(buttons, sx, sy);
+#if FZX_SOURCE_RESULTS
+    if(!fzx_results_tick(digital.connected!=0)) {
+        dbgio_printf("SOURCE RESULTS TICK FAILED %lu",(unsigned long)fzx_results_status);
+        dbgio_flush();for(;;){}
+    }
+#endif
 #if FZX_SOURCE_ROAD
     fzx_road_note_tick();
 #endif
@@ -372,6 +384,9 @@ orig_tick(void)
         return;
     }
     if (d & (PERIPHERAL_DIGITAL_A | PERIPHERAL_DIGITAL_C)) n64 |= 0x8000;
+#if FZX_SOURCE_RESULTS
+    if (d & PERIPHERAL_DIGITAL_START) n64 |= 0x1000;
+#endif
     if (d & PERIPHERAL_DIGITAL_B) n64 |= 0x4000;
     if (d & PERIPHERAL_DIGITAL_L) n64 |= 0x2000;
     if (d & PERIPHERAL_DIGITAL_R) n64 |= 0x0010;
@@ -415,6 +430,12 @@ volatile uint32_t fzx_init_fields;
 static void
 orig_restart(void)
 {
+#if FZX_SOURCE_RESULTS
+    vdp1_sync_wait();vdp2_sync_wait();
+    if(!fzx_results_restart()) {
+        dbgio_printf("SOURCE RESULTS RESET FAILED");dbgio_flush();for(;;){}
+    }
+#endif
     ref_race_restart();
 #if FZX_SOURCE_SKYLINE
     fzx_skyline_restart();
@@ -449,7 +470,11 @@ orig_hud(void)
     for (uint32_t i = 0; i < 20; ++i) bar[i] = i < fill ? '#' : '.';
     bar[20] = '\0';
     const char *status = "                              ";
+#if FZX_SOURCE_RESULTS
+    if (p->state_flags & RACER_FINISHED) status = "FINISHED                     ";
+#else
     if (p->state_flags & RACER_FINISHED) status = "FINISHED   START: RACE AGAIN  ";
+#endif
     else if (p->state_flags & RACER_RETIRED) status = "RETIRED    START: RETRY       ";
     else if (p->intro > 0) status = "GET READY                     ";
 #if FZX_SOURCE_HUD
@@ -707,6 +732,16 @@ commands_build(const fzx_frame_t *frame)
 #endif
     draw_count += hud_draws.count;
 #endif
+#if FZX_SOURCE_RESULTS
+    unsigned results_count=0;
+    if(draw_count>=COMMAND_CAPACITY-COMMAND_FIRST_POLYGON-1u ||
+       !fzx_results_native(&commands[COMMAND_FIRST_POLYGON+draw_count],
+            COMMAND_CAPACITY-COMMAND_FIRST_POLYGON-draw_count-1u,&results_count)) {
+        dbgio_printf("SOURCE RESULTS DRAW FAILED %lu",(unsigned long)fzx_results_status);
+        dbgio_flush();vdp2_sync();for(;;){}
+    }
+    draw_count+=results_count;
+#endif
     vdp1_cmdt_t *end = &commands[COMMAND_FIRST_POLYGON + draw_count];
     memset(end, 0, sizeof(*end));
     vdp1_cmdt_end_set(end);
@@ -875,6 +910,13 @@ main(void)
         for (;;) {
         }
     }
+#if FZX_SOURCE_RESULTS
+    if(!fzx_results_load(fzx_countdown_low_end,fzx_race_workspace_report[4],
+                         countdown_pixels,FZX_COUNTDOWN_TEXTURE_BYTES)) {
+        dbgio_printf("SOURCE RESULTS LOAD FAILED %lu",(unsigned long)fzx_results_status);
+        dbgio_flush();vdp2_sync();for(;;){}
+    }
+#endif
     fzx_init_fields = video_fields - init_start;
     orig_publish();
     if (orig_pose.energy > 0.0f) orig_start_energy = orig_pose.energy;
@@ -913,7 +955,9 @@ main(void)
     vblank_frt = cpu_frt_count_get();
     fzx_timing.magic = 0x465A5854u;
 #if FZX_FRAME_PROFILE
-#if FZX_SOURCE_COUNTDOWN
+#if FZX_SOURCE_RESULTS
+    if(!fzx_fp_init(fzx_results_low_end,fields_per_second)) {
+#elif FZX_SOURCE_COUNTDOWN
     if(!fzx_fp_init(fzx_countdown_low_end,fields_per_second)) {
 #else
     if(!fzx_fp_init(fzx_machine_low_end,fields_per_second)) {
@@ -930,7 +974,13 @@ main(void)
 #endif
         const uint16_t loop_start = cpu_frt_count_get();
         const uint32_t buttons = buttons_read();
+#if FZX_SOURCE_RESULTS
+        /* Start belongs to original results after finishing. The debugger's
+         * explicit restart remains separate from this ordinary pad flow. */
+        if(!(orig_pose.state_flags&RACER_FINISHED))pending_reset|=buttons&FZX_RESET;
+#else
         pending_reset |= buttons & FZX_RESET;
+#endif
         const uint32_t field = video_fields;
         uint32_t elapsed = field - previous_field;
         previous_field = field;

@@ -11,6 +11,7 @@ FZX_SOURCE_TITLE ?= 0
 FZX_SOURCE_MENU ?= 0
 FZX_SOURCE_COURSE_MENU ?= 0
 FZX_SOURCE_MACHINE_MENU ?= 0
+FZX_SOURCE_RESULTS ?= 0
 FZX_SOURCE_COUNTDOWN ?= 0
 FZX_NATIVE_CORE_EMPTY ?= 0
 ifeq ($(FZX_NATIVE_CORE_EMPTY),1)
@@ -121,6 +122,11 @@ endif
 ifeq ($(FZX_SOURCE_MACHINE_MENU),1)
 # Keep the larger disc directory and compiled arm out of the legacy build.
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)-machine-menu
+SH_BUILD_DIR := $(SH_OUTPUT_DIR)/yaul
+IMAGE_DIRECTORY := $(SH_OUTPUT_DIR)/cd
+endif
+ifeq ($(FZX_SOURCE_RESULTS),1)
+SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)-results
 SH_BUILD_DIR := $(SH_OUTPUT_DIR)/yaul
 IMAGE_DIRECTORY := $(SH_OUTPUT_DIR)/cd
 endif
@@ -417,7 +423,21 @@ endif
 else ifneq ($(FZX_SOURCE_COUNTDOWN),0)
 $(error FZX_SOURCE_COUNTDOWN must be 0 or 1)
 endif
-SH_SRCS := $(FZX_MACHINE_MENU_SRCS) $(FZX_COURSE_MENU_SRCS) $(FZX_MENU_SRCS) $(FZX_TITLE_SRCS) $(FZX_COUNTDOWN_SRCS) $(FZX_FRAME_PROFILE_SRCS) main.c ../src/fzx.c $(FZX_ORIG_SRCS) $(FZX_HUD_SRCS) $(FZX_CAMERA_SRCS) $(FZX_ROAD_SRCS) $(FZX_SKY_SRCS) $(FZX_MACHINE_SRCS) $(wildcard $(SH2ZAM_ROOT)/saturn/src/*.c)
+ifeq ($(FZX_SOURCE_RESULTS),1)
+ifneq ($(FZX_SOURCE_COUNTDOWN):$(FZX_SOURCE_MACHINE_MENU):$(FZX_SOURCE_HUD),1:1:1)
+$(error FZX_SOURCE_RESULTS requires original countdown, machine selection and HUD)
+endif
+FZX_RESULTS_RECEIPT := $(shell sh ../tools/check_receipt.sh ../generated/results_ui/results_ui.receipt 2>&1 && sh ../tools/check_receipt.sh ../generated/results-source/results_source.receipt 2>&1 && sh ../tools/check_receipt.sh ../generated/finish/pack/finish_pack.receipt 2>&1; echo "rc=$$?")
+ifeq ($(findstring rc=0,$(FZX_RESULTS_RECEIPT)),)
+$(error Original results packs are not current: $(FZX_RESULTS_RECEIPT))
+endif
+SH_CFLAGS += -DFZX_SOURCE_RESULTS=1 -fsigned-char -ffp-contract=off -I../generated/results_ui -I../generated/results-source -I../generated/finish/pack -Wno-unused-function
+FZX_RESULTS_SRCS := results_scene.c results_native.c ../src/fzx_results_draw.c ../src/fzx_finish_draw.c ../src/fzx_finish_pack.c
+else ifneq ($(FZX_SOURCE_RESULTS),0)
+$(error FZX_SOURCE_RESULTS must be 0 or 1)
+endif
+
+SH_SRCS := $(FZX_RESULTS_SRCS) $(FZX_MACHINE_MENU_SRCS) $(FZX_COURSE_MENU_SRCS) $(FZX_MENU_SRCS) $(FZX_TITLE_SRCS) $(FZX_COUNTDOWN_SRCS) $(FZX_FRAME_PROFILE_SRCS) main.c ../src/fzx.c $(FZX_ORIG_SRCS) $(FZX_HUD_SRCS) $(FZX_CAMERA_SRCS) $(FZX_ROAD_SRCS) $(FZX_SKY_SRCS) $(FZX_MACHINE_SRCS) $(wildcard $(SH2ZAM_ROOT)/saturn/src/*.c)
 SH_CFLAGS += -DFZX_SH2_DIVU=1 -O2 -std=c11 -Wall -Wextra -I../include \
              -I$(SH2ZAM_ROOT)/saturn/include -DSH2Z_REQUIRE_SH2=1
 ifeq ($(FZX_NATIVE_CORE_EMPTY),1)
@@ -553,4 +573,14 @@ pre-build-iso: stage-machine-menu-pack
 stage-machine-menu-pack:
 	mkdir -p $(IMAGE_DIRECTORY)
 	cp $(FZX_MACHINE_MENU_PACKS) $(IMAGE_DIRECTORY)/
+endif
+
+ifeq ($(FZX_SOURCE_RESULTS),1)
+FZX_RESULTS_PACKS := ../generated/results_ui/RESULTUI.PAK ../generated/results_ui/RESTINT.PAK ../generated/finish/pack/FINISH.PAK ../generated/finish/pack/FINISHTX.PAK
+$(SH_OUTPUT_PATH)/$(SH_PROGRAM).iso: $(FZX_RESULTS_PACKS)
+pre-build-iso: stage-results-pack
+.PHONY: stage-results-pack
+stage-results-pack:
+	mkdir -p $(IMAGE_DIRECTORY)
+	cp $(FZX_RESULTS_PACKS) $(IMAGE_DIRECTORY)/
 endif

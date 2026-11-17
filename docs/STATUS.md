@@ -17,7 +17,8 @@ Original pad-driven title/main/course/machine/settings screens now reach the rac
 Selected skin 1 / engine 0.5078125 survives the handoff. A separate 7,059-input
 native diagnostic replay completes three laps at source time 110,639 ms.
 The original camera, Blue Falcon, road, sky/skyline/floor/cloud and partial HUD render
-behind explicit local flags. Results, audio/effects, ordinary pad-only completion,
+behind explicit local flags, including initial finish/results. Records/retry,
+audio/effects, ordinary pad-only completion,
 soak, final look and HARDWARE remain open. No 30 or 60 fps acceptance.
 
 ## Gates and evidence
@@ -26,11 +27,11 @@ soak, final look and HARDWARE remain open. No 30 or 60 fps acceptance.
 | --- | --- |
 | Gate 0 | Source-only hygiene, receipt rejection and private evidence boundaries established |
 | Simulation | Selected native handoff and full replay match HOST state/pose/camera; legacy disabled arm remains unchanged |
-| Camera/HUD | Source camera, timer/speed/lap/energy/countdown integrated; results and appearance acceptance open |
+| Camera/HUD | Source camera, timer/speed/lap/energy/countdown and initial results integrated; final appearance open |
 | Entry | [Machine/settings](MACHINE_MENU.md): 383 native views, all 30 models/settings screens, source state/commands/assets/guards, three corrupt packs and off identity pass |
 | Road | All 300 chunks / 4,966 triangles retained; shared cache reduces 13-view mean 125.92 to 112.04 ms MODELLED; budget blocked |
 | Backdrop | C5 [dual layers](DUAL_RBG.md) unresolved; [compact clouds](PLANE_RESIDENCY.md) reclaim 128 KiB in native checks |
-| Gates 2-5 | Results/effects/audio, native scene budget, ordinary pad race flow and soak incomplete |
+| Gates 2-5 | Records/retry, effects/audio, native scene budget, ordinary pad race flow and soak incomplete |
 | Gate 6 | Full-game content, modes, opponents, progression and persistence planned |
 
 ## Current cards
@@ -62,10 +63,16 @@ A guarded 182,000 B graphics pool uses the required 4 MiB cartridge; CD scratch 
 Final selected replay: four held views / 39 racer fields, guards and mutation controls pass;
 minimum sampled stack 107,568 B. This is diagnostic replay, not pad-only or speed acceptance.
 
+C8 [initial results](RESULTS.md): 12,288 diagnostic inputs plus post-cap ticks;
+23 captures match source state, 17 active texture views match commands/residency.
+One countdown restoration and three state/record resets pass; stack minimum 81,476 B.
+Four corrupted packs are rejected before race. Records/name entry/retry/audio remain open.
+
 ## Preserved work and next
 
 Older hitch, clip-divider and software-road WIP remain local and unstaged.
 Use fixed-input replay for comparisons; live autopilot depends on render cadence.
-Next: original results/finish presentation, audio/effects, ordinary pad retry and soak;
+Next: qualify/adopt the supplied projection-rounding tag, then C3 road gates;
+records/name entry/retry, audio/effects, ordinary pad completion and soak remain.
 C3/C4/C5 performance blockers and full combined 60 fps qualification remain.
 No release, retail-derived publication, SD write or physical acceptance occurred.

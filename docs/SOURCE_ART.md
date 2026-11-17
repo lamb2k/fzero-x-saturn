@@ -32,13 +32,15 @@ tree, after resolving symlinks; tracked repository destinations are refused.
 | Required content | Extraction | Native rendering / acceptance |
 | --- | --- | --- |
 | Blue Falcon, five authored LODs | Verified retail export, eight texture slots and bounded race-setup decoder gates pass | Original near model, live source pose/body/lighting and resident charts complete the race; performance and final look remain open |
-| Basic speed/time/lap/energy HUD sheets | Verified retail RGBA16 export; 14,080-byte native atlas | Timer/speed/lap/energy and lap flash draw on VDP1; countdown/results and source-reference comparison open |
+| Basic speed/time/lap/energy HUD sheets | Verified retail RGBA16 export; 14,080-byte native atlas | Timer/speed/lap/energy and lap flash draw on VDP1; countdown and initial results integrated separately, final appearance open |
 | Mute City road materials | Verified retail MIO0 decode and seven RGBA16 surfaces | Native shared strips and source geometry complete a full replay locally; performance and final source-reference look remain open |
 | Mute City floor, skyline, clouds, sky | Eleven source texture/palette objects verified; six skyline instances retain source bindings | Native sky/skyline admitted; original floor uses RBG0 with source-derived fog, clouds remain sprites; full replay passes, scene budget and final look remain open |
-| Dash/pit, other effects, countdown and finish | Source coverage incomplete | Open |
+| Countdown and FINISH | Original countdown sheets; FINISH retains 256 vertices and 222 triangles | [Countdown](COUNTDOWN.md) and [initial results](RESULTS.md) native gates; final appearance and sound open |
+| Dash/pit and other effects | Source coverage incomplete | Open |
 | Source camera | Original race closure and native view/scissor integration, default off | Source-reference visuals, broader mode coverage and performance remain open |
 | Original entry and selection UI | Title/main/course art plus 241 machine/settings images and all 30 original LOD1 machine models converted locally | Native pad navigation and selected race handoff pass; [machine/settings gates](MACHINE_MENU.md) cover all 30 settings screens; owner look and sound remain open |
-| Results UI and audio | Not integrated | Open |
+| Initial results UI | 54 source images, 234 Font3 slots and offline red-pulse banks | Native finish/run-out/lap/time/max-speed panel; records/name entry/retry and final appearance open. [Details](RESULTS.md) |
+| Audio | Not integrated | Open |
 | Remaining courses, machines, modes, rivals and persistence | Gate 6 ledger required | Open |
 
 ## Source details that matter

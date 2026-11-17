@@ -3,8 +3,8 @@
 `FZX_SOURCE_TITLE=1` adds the original cartridge's first title screen before
 race setup. It uses a receipt-bound copy of the source `Title_Update` routine,
 original images, and the Saturn pad. The flag defaults off. This is a frontend
-foundation: the main menu, course/machine/settings selection and audio remain
-unfinished, and this diagnostic arm currently continues directly into the race.
+foundation: course/machine/settings selection and audio remain unfinished.
+Without the separate [main-menu diagnostic](MAIN_MENU.md), this arm continues directly into the race.
 It does not satisfy the complete boot/selection/race/results/retry gate.
 
 ## Content and state

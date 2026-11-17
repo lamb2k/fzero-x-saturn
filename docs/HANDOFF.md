@@ -4,15 +4,13 @@ Limit: 50 lines. History lives in git.
 ## Goal and direction
 
 - Follow the owner's local render plan C0-C8 and all [first-course gates](FIRST_COURSE_GOAL.md).
-- Original selection, Mute City 1, results/retry, audio/effects, pad flow,
-  soak and 60 fps target remain required. Hardware and owner look review are open.
+- Selection, Mute City 1, results/retry, audio/effects, pad flow, soak and 60 fps remain; hardware/look open.
 - Convert original assets offline for Saturn; document adaptations.
 - Completed source-only origin/gate1 pushes authorized after gates and hygiene.
 
 ## C0 result
 
-- Full 9,907-input native replay passes; source finish time 121,814 ms, same final pose.
-- All final scene packets and whole-capture road/machine command counts match HOST.
+- Full 9,907-input native replay: 121,814 ms, same final pose; all scene packets/command totals match HOST.
 - 1,982 pictures: 3.287 fps MODELLED, mean 304.215 ms, p95 433.333 ms,
   maximum 466.668 ms, 34,178 missed fields. No 30 or 60 fps acceptance.
 - Mean CPU: road 121.720 ms, machine 52.858, clouds 32.863, floor 14.029;
@@ -47,4 +45,5 @@ Limit: 50 lines. History lives in git.
 - C4 default-off native experiment: 9.273 ms mean MODELLED, HOST p99 67 / max 112 draws.
 - C4 full race/state pass: 3.837 fps MODELLED; cost/order/stack gates FAIL (see doc).
 - C5 dual probe remains open; compact clouds reclaim 128 KiB (PLANE_RESIDENCY.md).
-- C8 title gated: original images/pad; 13 race views match, stack 47,632 B (TITLE.md).
+- C8 title: 13 race views match, stack 47,632 B; menu: 20 views match (MAIN_MENU.md).
+- Menu diagnostic holds destination requests; next course/machine/settings screens, then race.

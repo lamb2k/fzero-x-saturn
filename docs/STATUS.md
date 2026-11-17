@@ -15,7 +15,7 @@ Original Time Attack code runs Mute City 1 on the master SH-2 with binary32 soft
 The original camera, Blue Falcon, road, sky/skyline/floor/cloud and partial HUD render
 together behind explicit local flags. A full 9,907-input replay finishes all three
 laps at source time 121,814 ms. This integration remains far over the 60 fps budget.
-The [original title](TITLE.md) now accepts pad input; selection/results/audio and effects remain open.
+The [title](TITLE.md) and [main menu](MAIN_MENU.md) accept pad input; destinations/audio remain open.
 Pad-only end-to-end acceptance, final look approval and HARDWARE remain unrun.
 
 ## Gates and evidence
@@ -33,8 +33,7 @@ Pad-only end-to-end acceptance, final look approval and HARDWARE remain unrun.
 
 ## Current card
 
-C0 frame profiling is gated: 9,907 inputs, all three laps, original final state
-and scene packets retained. The 1,982-picture baseline is 3.287 fps MODELLED:
+C0 profiling is gated: 9,907 inputs, three laps, original final state and scene packets. The 1,982-picture baseline is 3.287 fps MODELLED:
 304.215 ms mean presentation interval, p95 433.333 ms, maximum 466.668 ms;
 34,178 missed fields. These are complete-scene measurements, not physical FPS.
 Road and machine command totals/ranges match HOST at the actual drawn inputs.
@@ -51,8 +50,7 @@ Windows/Linux packs match; corruption controls fail. Retain all 415 fog-changing
 Synthetic checks/calibration pass; old road 112.045 -> 112.033 ms MODELLED.
 C3's [camera/pack/gather helpers](ROAD_STREAM.md) pass HOST and SH-2 compile:
 1,291,264 visible vertex samples stay within 1 px; max gather is 552 records.
-Native stream is blocked: two mapping arms fail the 1-texel p99 image gate
-(9.33 texels); the shifted synthetic fixture also fails. See ROAD_STREAM.md.
+Native stream blocked: two mapping arms fail p99 1-texel gate (9.33); shifted control fails (ROAD_STREAM.md).
 The owner's local render plan ranks C1-C8; the full first-course goal remains.
 C8 [countdown](COUNTDOWN.md) is native: 24 timeline views / 276 submitted commands
 match HOST; three-lap final state/time and all guards pass. Sound remains open.
@@ -62,7 +60,8 @@ Source sign/texture residency and corrupt-texture rejection pass; owner look ope
 13 native views retain exact scene commands/pixels; stack minimum 65,680 B.
 
 C5 compact atlas passes 13 views and knob-off identity; 128 KiB reclaimed, no speed claim.
-C8 [title](TITLE.md) retains source assets/input rules; 13 race handoff views match, stack 47,632 B.
+C8 title retains source assets/input; 13 race handoff views match, stack 47,632 B.
+C8 [main menu](MAIN_MENU.md): 20 native views match HOST/pixels; destination screens unintegrated.
 C4 [vehicle rebake](MACHINE_REBAKE.md) is default-off and blocked on ordering/cost.
 HOST p99 67 / max 112 commands; 13-view native mean 9.273 ms MODELLED vs 52.112 before.
 The 1 ms/70-command targets and look gate fail; four order policies fail overlap.
@@ -76,5 +75,5 @@ No release, ROM-derived publication, SD write or physical acceptance occurred.
 ## Next
 
 View-guard-1 is [adopted](SH2ZAM_GUARD_ADOPTION.md); C3 needs revised mapping.
-Next: original main menu, course/machine/settings selection; audio/results/effects, retry and soak.
+Next: original course/machine/settings selection; audio/results/effects, retry and soak.
 SH2ZAM calibration, HARDWARE and owner appearance acceptance remain open.

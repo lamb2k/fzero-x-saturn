@@ -9,6 +9,12 @@
 
 #include "fzx.h"
 #include "frame_profile.h"
+#ifndef FZX_SOURCE_MENU
+#define FZX_SOURCE_MENU 0
+#endif
+#if FZX_SOURCE_MENU
+#include "menu_native.h"
+#endif
 #ifndef FZX_SOURCE_TITLE
 #define FZX_SOURCE_TITLE 0
 #endif
@@ -707,11 +713,21 @@ main(void)
     dbgio_dev_font_load();
 #if FZX_SOURCE_TITLE
     const uintptr_t title_scratch=((uintptr_t)sat_stub_data_end+31u)&~(uintptr_t)31u;
+#if FZX_SOURCE_MENU
+    for(;;) {
+#endif
     if(title_scratch<0x00200000u || title_scratch>=0x00300000u ||
        !fzx_title_run(&video_fields,commands_buf[0],COMMAND_CAPACITY,
                       (void *)title_scratch,0x00300000u-title_scratch)) {
         dbgio_printf("SOURCE TITLE FAILED");dbgio_flush();vdp2_sync();for(;;) {}
     }
+#if FZX_SOURCE_MENU
+    if(!fzx_menu_run(&video_fields,commands_buf[0],COMMAND_CAPACITY,
+                     (void *)title_scratch,0x00300000u-title_scratch)) {
+        dbgio_printf("SOURCE MENU FAILED");dbgio_flush();vdp2_sync();for(;;) {}
+    }
+    }
+#endif
     /* Original selection is the next frontend phase. Until integrated, this
      * default-off title arm continues into the existing race setup. */
 #endif

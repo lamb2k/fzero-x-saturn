@@ -13,7 +13,7 @@ import struct
 def delta(a,b):return (a-b)&0xffffffff
 def stats(values):
     s=sorted(values)
-    return dict(mean=sum(s)/len(s),p95=s[math.ceil(.95*len(s))-1],maximum=s[-1])
+    return dict(mean=sum(s)/len(s),p95=s[math.ceil(.95*len(s))-1],p99=s[math.ceil(.99*len(s))-1],maximum=s[-1])
 
 def decode(data):
     h=struct.unpack('>16I',bytes.fromhex(data['header_hex']))
@@ -65,12 +65,29 @@ def decode(data):
                 mean_cpu_ms=total_ticks*tick_ms/calls,max_cpu_ms=peak_ticks*tick_ms)
         if tick_total>sum(delta(r[7],r[6]) for r in rows):
             raise ValueError('subsystem ticks exceed scene construction')
+    road_samples={}
+    if 'road_profile_header_hex' in data:
+        rh=struct.unpack('>8I',bytes.fromhex(data['road_profile_header_hex']))
+        rr=bytes.fromhex(data.get('road_profile_rows_hex',''))
+        if (h[1]!=2 or rh[0]!=0x43335046 or rh[1]!=1 or rh[2]!=h[3]+h[5]*64 or
+            rh[3]!=h[5] or rh[4]!=8 or rh[5]!=len(rows) or rh[5]>rh[3] or
+            rh[6]!=h[7] or rh[6]!=rh[2]+rh[3]*8 or rh[7]!=0 or len(rr)!=len(rows)*8):
+            raise ValueError('road profile layout disagrees with frame recording')
+        samples=list(struct.iter_unpack('>2I',rr))
+        road=subsystems['road']
+        if (sum(t for t,c in samples)!=road['frt_ticks'] or sum(c for t,c in samples)!=road['commands'] or
+            max(t for t,c in samples)*tick_ms!=road['max_cpu_ms'] or
+            min(c for t,c in samples)!=road['min_commands'] or max(c for t,c in samples)!=road['max_commands'] or
+            any(t>delta(r[7],r[6]) for (t,c),r in zip(samples,rows))):
+            raise ValueError('road samples disagree with subsystem totals or scene timing')
+        road_samples=dict(cpu_ms=stats([t*tick_ms for t,c in samples]),
+            commands=stats([c for t,c in samples]),scope='Scene4 including native user clip and command conversion')
     return dict(tier='MODELLED',hardware='UNRUN',iso_sha256=data.get('iso_sha256'),rows=len(rows),
         input_begin=rows[0][0],input_end=rows[-1][1],presented_fields=fields,
         video_hz=h[10],ccr=h[11],clock_max_gap=h[9],frt_ticks_per_field=ticks/fields,
         delivered_fps=(len(rows)-1)*h[10]/fields,presentation_ms=stats(intervals),
         missed_fields=sum(max(0,g-1) for g in gaps),max_presentation_field_gap=max(gaps),
-        simulation_steps=stats([r[14] for r in rows]),phases_ms=phases,subsystems=subsystems,
+        simulation_steps=stats([r[14] for r in rows]),phases_ms=phases,subsystems=subsystems,road_samples=road_samples,
         scope='Uninterrupted replay after restart frame; callback before framebuffer change, not pure GPU time. Phase sums may overlap presentation latency.')
 
 def main():

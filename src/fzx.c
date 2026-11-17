@@ -24,7 +24,9 @@ typedef struct {
 
 static fzx_course_t active_course, upload_course;
 static ring_t rings[MAX_RINGS];
+#if !(FZX_NATIVE_CORE_EMPTY && FZX_SOURCE_ROAD_STREAM)
 static sh2z_vec3_t track_mesh[MAX_RINGS * RING_VERTS];
+#endif
 static sh2z_vec3_t transformed[MAX_RINGS * RING_VERTS];
 /* Per transformed vertex in the drawn window: bit p of out_codes set when it surely lies outside
  * clip plane p, in_codes all six bits set when it surely lies inside every plane; such a vertex
@@ -217,14 +219,18 @@ build_track(void)
                                    active_course.points[next].radius_left,t);
             r->width_right=sh2z_lerp(active_course.points[cp].radius_right,
                                     active_course.points[next].radius_right,t);
+#if !(FZX_NATIVE_CORE_EMPTY && FZX_SOURCE_ROAD_STREAM)
             track_mesh[i*4]=scaled_add(r->center,r->left,r->width_left);
             track_mesh[i*4+1]=scaled_add(r->center,r->left,-r->width_right);
             track_mesh[i*4+2]=scaled_add(track_mesh[i*4],r->up,SH2Z_ONE);
             track_mesh[i*4+3]=scaled_add(track_mesh[i*4+1],r->up,SH2Z_ONE);
+#endif
             done+=r->length;
         }
     }
+#if !(FZX_NATIVE_CORE_EMPTY && FZX_SOURCE_ROAD_STREAM)
     (void)sh2z_mesh_view_init(&mesh_view,track_mesh,ring_count*4u);
+#endif
     current_ring=0; travel=0; speed=0; lateral=0; laps=1; pose_tracked=false;
 }
 

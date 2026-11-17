@@ -2,6 +2,9 @@
 #include "race_workspace_native.h"
 #include "road_native.h"
 #include "ref.h"
+#if FZX_SOURCE_ROAD_STREAM
+#include "road_stream_native.h"
+#endif
 
 volatile uint32_t fzx_race_workspace_report[8];
 static volatile uint32_t *before,*after;
@@ -25,7 +28,14 @@ bool fzx_race_workspace_load(void) {
     if(dram_cart_id_get()!=DRAM_CART_ID_4MIB || size!=FZX_ROAD_MAX_BYTES ||
        !base || (base&31u) || base!=(uintptr_t)fzx_native_road.data || fzx_road_load_status.status!=1 ||
        !bytes || bytes>size-GUARD_BYTES*2u || fzx_native_road.bytes>size)return false;
+#if FZX_SOURCE_ROAD_STREAM
+    if(fzx_road_stream_status!=1||!fzx_road_stream_guards()||
+       fzx_road_stream_cart_end<base+fzx_native_road.bytes||
+       fzx_road_stream_cart_end>base+size-GUARD_BYTES)return false;
+    const uint32_t offset=(uint32_t)((fzx_road_stream_cart_end-base+95u)&~(uintptr_t)31u);
+#else
     const uint32_t offset=(fzx_native_road.bytes+63u)&~31u;
+#endif
     const uint32_t padded=(bytes+31u)&~31u;
     if(offset>size || padded>size-offset || GUARD_BYTES>size-offset-padded)return false;
     before=(volatile uint32_t *)(base+offset-GUARD_BYTES);

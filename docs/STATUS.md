@@ -16,7 +16,7 @@ Original pad-driven title/main/course/machine/settings screens now reach the rac
 Selected skin 1 / engine 0.5078125 survives the handoff. A separate 7,059-input
 native diagnostic replay completes three laps at source time 110,639 ms.
 The original camera, Blue Falcon, road, sky/skyline/floor/cloud and partial HUD render
-behind explicit local flags, including initial finish/results. Records/retry,
+behind explicit local flags, including finish/results and records/name entry. Retry,
 audio/effects, ordinary pad-only completion, soak, final look and HARDWARE remain open. No 30 or 60 fps acceptance.
 
 ## Gates and evidence
@@ -63,17 +63,17 @@ A guarded 182,000 B graphics pool uses the required 4 MiB cartridge; CD scratch 
 Final selected replay: four held views / 39 racer fields, guards and mutation controls pass;
 minimum sampled stack 107,568 B. This is diagnostic replay, not pad-only or speed acceptance.
 
-C8 [initial results](RESULTS.md): 12,288 diagnostic inputs plus post-cap ticks;
-23 captures match source state, 17 active texture views match commands/residency.
-One countdown restoration and three state/record resets pass; stack minimum 81,476 B.
-Four corrupted packs are rejected before race. Records/name entry/retry/audio remain open.
-[Records artwork](RECORDS.md): 229 images / 46,144 B, source pixels and receipt controls pass HOST.
+C8 [initial results](RESULTS.md): 12,288 inputs/post-cap clock, 23 captures, four bad packs pass.
+[Records/name entry](RECORDS.md): 7,924 inputs, 29 source-exact captures, 20 native command/residency checks.
+Three diagnostic resets retain AAA; stack minimum 23,064 B; 19 HOST tests and two bad packs pass.
+OFF equals rebuilt pre-records code with the same library; historical library delta is +832 linked B.
+Final appearance, ordinary pad retry and audio remain open; diagnostic text/HUD obscure the records view.
 
 ## Preserved work and next
 
 Older hitch, clip-divider and software-road WIP remain local and unstaged.
 Use fixed-input replay for comparisons; live autopilot depends on render cadence.
 Next: [F Zero S branding](BRANDING.md), [all-3D coverage](ASSET_COVERAGE.md), guest art and native C3;
-records/name entry/retry, audio/effects, ordinary pad completion and soak remain.
+ordinary retry, audio/effects, pad-only race completion and soak remain.
 C3/C4/C5 performance blockers and full combined 60 fps qualification remain.
 No release, retail-derived publication, SD write or physical acceptance occurred.

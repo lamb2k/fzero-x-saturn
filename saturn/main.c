@@ -955,7 +955,9 @@ main(void)
     vblank_frt = cpu_frt_count_get();
     fzx_timing.magic = 0x465A5854u;
 #if FZX_FRAME_PROFILE
-#if FZX_SOURCE_RESULTS
+#if FZX_SOURCE_RECORDS
+    if(!fzx_fp_init(fzx_records_low_end,fields_per_second)) {
+#elif FZX_SOURCE_RESULTS
     if(!fzx_fp_init(fzx_results_low_end,fields_per_second)) {
 #elif FZX_SOURCE_COUNTDOWN
     if(!fzx_fp_init(fzx_countdown_low_end,fields_per_second)) {

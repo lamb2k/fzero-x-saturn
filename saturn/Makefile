@@ -12,6 +12,7 @@ FZX_SOURCE_MENU ?= 0
 FZX_SOURCE_COURSE_MENU ?= 0
 FZX_SOURCE_MACHINE_MENU ?= 0
 FZX_SOURCE_RESULTS ?= 0
+FZX_SOURCE_RECORDS ?= 0
 FZX_SOURCE_COUNTDOWN ?= 0
 FZX_NATIVE_CORE_EMPTY ?= 0
 ifeq ($(FZX_NATIVE_CORE_EMPTY),1)
@@ -127,6 +128,11 @@ IMAGE_DIRECTORY := $(SH_OUTPUT_DIR)/cd
 endif
 ifeq ($(FZX_SOURCE_RESULTS),1)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)-results
+SH_BUILD_DIR := $(SH_OUTPUT_DIR)/yaul
+IMAGE_DIRECTORY := $(SH_OUTPUT_DIR)/cd
+endif
+ifeq ($(FZX_SOURCE_RECORDS),1)
+SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)-records
 SH_BUILD_DIR := $(SH_OUTPUT_DIR)/yaul
 IMAGE_DIRECTORY := $(SH_OUTPUT_DIR)/cd
 endif
@@ -437,7 +443,21 @@ else ifneq ($(FZX_SOURCE_RESULTS),0)
 $(error FZX_SOURCE_RESULTS must be 0 or 1)
 endif
 
-SH_SRCS := $(FZX_RESULTS_SRCS) $(FZX_MACHINE_MENU_SRCS) $(FZX_COURSE_MENU_SRCS) $(FZX_MENU_SRCS) $(FZX_TITLE_SRCS) $(FZX_COUNTDOWN_SRCS) $(FZX_FRAME_PROFILE_SRCS) main.c ../src/fzx.c $(FZX_ORIG_SRCS) $(FZX_HUD_SRCS) $(FZX_CAMERA_SRCS) $(FZX_ROAD_SRCS) $(FZX_SKY_SRCS) $(FZX_MACHINE_SRCS) $(wildcard $(SH2ZAM_ROOT)/saturn/src/*.c)
+ifeq ($(FZX_SOURCE_RECORDS),1)
+ifneq ($(FZX_SOURCE_RESULTS),1)
+$(error FZX_SOURCE_RECORDS requires original results)
+endif
+FZX_RECORDS_RECEIPT := $(shell sh ../tools/check_receipt.sh ../generated/records_ui/records_ui.receipt 2>&1 && sh ../tools/check_receipt.sh ../generated/records-source/records_source.receipt 2>&1 && sh ../tools/check_receipt.sh ../generated/records-draw-source/records_draw_source.receipt 2>&1 && sh ../tools/check_receipt.sh ../generated/records_models/records_models.receipt 2>&1; echo "rc=$$?")
+ifeq ($(findstring rc=0,$(FZX_RECORDS_RECEIPT)),)
+$(error Original records packs are not current: $(FZX_RECORDS_RECEIPT))
+endif
+SH_CFLAGS += -DFZX_SOURCE_RECORDS=1 -I../generated/records_ui -I../generated/records_models
+FZX_RECORDS_SRCS := records_scene.c records_native.c ../src/fzx_records_draw.c
+else ifneq ($(FZX_SOURCE_RECORDS),0)
+$(error FZX_SOURCE_RECORDS must be 0 or 1)
+endif
+
+SH_SRCS := $(FZX_RECORDS_SRCS) $(FZX_RESULTS_SRCS) $(FZX_MACHINE_MENU_SRCS) $(FZX_COURSE_MENU_SRCS) $(FZX_MENU_SRCS) $(FZX_TITLE_SRCS) $(FZX_COUNTDOWN_SRCS) $(FZX_FRAME_PROFILE_SRCS) main.c ../src/fzx.c $(FZX_ORIG_SRCS) $(FZX_HUD_SRCS) $(FZX_CAMERA_SRCS) $(FZX_ROAD_SRCS) $(FZX_SKY_SRCS) $(FZX_MACHINE_SRCS) $(wildcard $(SH2ZAM_ROOT)/saturn/src/*.c)
 SH_CFLAGS += -DFZX_SH2_DIVU=1 -O2 -std=c11 -Wall -Wextra -I../include \
              -I$(SH2ZAM_ROOT)/saturn/include -DSH2Z_REQUIRE_SH2=1
 ifeq ($(FZX_NATIVE_CORE_EMPTY),1)
@@ -583,4 +603,14 @@ pre-build-iso: stage-results-pack
 stage-results-pack:
 	mkdir -p $(IMAGE_DIRECTORY)
 	cp $(FZX_RESULTS_PACKS) $(IMAGE_DIRECTORY)/
+endif
+
+ifeq ($(FZX_SOURCE_RECORDS),1)
+FZX_RECORDS_PACKS := ../generated/records_ui/RECORDUI.PAK ../generated/records_models/RMODELS.PAK
+$(SH_OUTPUT_PATH)/$(SH_PROGRAM).iso: $(FZX_RECORDS_PACKS)
+pre-build-iso: stage-records-pack
+.PHONY: stage-records-pack
+stage-records-pack:
+	mkdir -p $(IMAGE_DIRECTORY)
+	cp $(FZX_RECORDS_PACKS) $(IMAGE_DIRECTORY)/
 endif

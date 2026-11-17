@@ -6,21 +6,21 @@ Limit: 50 lines. History lives in git.
 - Full [first-course goal](FIRST_COURSE_GOAL.md) and owner render plan C0-C8 remain active.
 - Preserve original assets through offline Saturn conversion; document adaptations.
 - Source-only origin/gate1 pushes are authorized after gates and hygiene; no retail assets/releases.
-- Records/name entry, audio/effects, ordinary pad completion/retry, soak, 60 fps, look and hardware remain open.
+- Ordinary pad completion/retry, audio/effects, soak, 60 fps, look and hardware remain open.
 
-## Current C8 selection and initial results
+## Current C8 selection, results and records
 
 - Original title/main/course/machine/settings pad flow reaches Mute City 1 / Blue Falcon.
 - [Machine/settings](MACHINE_MENU.md): 383 native views cover all 30 models/settings and navigation.
 - Selected skin1 / engine0.5078125 completes three diagnostic laps in 110,639 ms.
 - A guarded 182,000 B graphics pool uses the required 4 MiB cartridge; CD scratch reserves 12 KiB.
 - [Initial results](RESULTS.md): 12,288 inputs through finish/panel/slide-out; post-cap source frame 12,322.
-- All 23 captures match source inputs/results plus 39 racer fields, globals, pose and camera.
-- Three diagnostic state/record resets pass; the first restores all 70,400 B of countdown VRAM.
-- All 17 active results-texture views match commands/assets/palettes; minimum sampled stack 81,476 B.
-- Results disabled arm is byte-identical to the admitted selection program; four corrupted packs rejected.
-- Results program 51337d2e59106a44776386b4b16a8c67d01fc3851cc2fdaad8fc682bbdd65f64.
-- Private evidence: host/results-native, host/finish and emu/results/long2. No pad-only, 60 fps or hardware acceptance.
+- [Records/name entry](RECORDS.md): 7,924 inputs, 29 source-exact captures and 20 native command/residency checks.
+- Three diagnostic resets retain AAA; 19 HOST tests and two corrupted packs pass; stack minimum 23,064 B.
+- Records OFF equals rebuilt pre-records code with current library; +832 linked B belongs to the library update.
+- Valid control: host/records-native/control-currentlib-2. Initial relative-target control is invalid.
+- Evidence: host/records-native and emu/records/full1. Diagnostic text/HUD obscure final appearance.
+- Ordinary retry must use original finish-menu transitions and both RNG streams; no debug-reset substitution.
 
 ## Performance programme
 
@@ -41,8 +41,8 @@ Limit: 50 lines. History lives in git.
 ## Next and preserved work
 
 - Owner extension: [F Zero S cover/title branding](BRANDING.md) and [all-3D coverage](ASSET_COVERAGE.md); guest art then native stream.
-- Records/name entry/retry, source audio/effects and soak remain; qualify the combined scene against60fps.
-- [Records assets](RECORDS.md): HOST-only original fonts/sheets prepared; native integration pending.
+- Ordinary retry, source audio/effects and soak remain; qualify the combined scene against60fps.
+- [Records](RECORDS.md) native state/commands qualified; final presentation cleanup remains.
 - The selected-tuning replay is distinct from the old9,907-input baseline; do not interchange them.
 - Older clip/hitch/software-road WIP remains local and unstaged. Stage named paths only.
 - Shared saturn/Makefile, saturn/main.c and tools/saturn_orig.sh retain mixed WIP; qualified cards use isolated overlays.

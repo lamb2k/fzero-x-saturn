@@ -96,6 +96,9 @@ bool fzx_results_load(uint32_t low_end,uint32_t cart_end,void *vram,unsigned byt
     if(!fzx_results_default_config(&config)||!fzx_results_reset(&scene->state,&config,NULL))return fail(FZX_RESULTS_STATE);
     fzx_source_results=&scene->snapshot;fzx_results_vram_start=(uint32_t)pixels;fzx_results_vram_bytes=required;
     if(!fzx_results_guards())return fail(FZX_RESULTS_GUARD);
+#if FZX_SOURCE_RECORDS
+    if(!fzx_records_load(fzx_results_low_end,fzx_results_cart_end,vram,bytes,scene->tints))return fail(FZX_RESULTS_ASSET);
+#endif
     fzx_results_status=FZX_RESULTS_READY;fzx_results_busy=0;return true;
 }
 bool fzx_results_tick(bool connected) {
@@ -108,6 +111,9 @@ bool fzx_results_tick(bool connected) {
        !ref_results_input(&fzx_source_results_input,scene->frame+1u,connected)||
        !fzx_results_step(&scene->state,&fzx_source_results_input)||
        !fzx_results_snapshot(&scene->state,&scene->snapshot))return fail(FZX_RESULTS_STATE);
+#if FZX_SOURCE_RECORDS
+    if(!fzx_records_tick(&scene->state,scene->frame+1u,connected))return fail(FZX_RESULTS_STATE);
+#endif
     if(!fzx_results_guards())return fail(FZX_RESULTS_GUARD);
     ++scene->frame;scene->published=true;fzx_results_busy=0;return true;
 }
@@ -117,6 +123,9 @@ bool fzx_results_restart(void) {
     fzx_results_busy=1;
     if(fzx_results_texture_borrowed&&
        !load("COUNTDTX.PAK",FZX_COUNTDOWN_TEXTURE_BYTES,FZX_COUNTDOWN_TEXTURE_HASH,scene->vram))return fail(FZX_RESULTS_ASSET);
+#if FZX_SOURCE_RECORDS
+    if(!fzx_records_restart())return fail(FZX_RESULTS_STATE);
+#endif
     /* reset() handles aliased prior records with an internal copy. */
     if(!fzx_results_reset(&scene->state,&scene->state.config,&scene->state.records)||
        !fzx_results_snapshot(&scene->state,&scene->snapshot))return fail(FZX_RESULTS_STATE);
@@ -129,6 +138,13 @@ bool fzx_results_native(vdp1_cmdt_t *commands,unsigned capacity,unsigned *count)
     if(count)*count=0;fzx_results_command_start=0;fzx_results_command_count=0;
     if(!count||!commands||fzx_results_status!=FZX_RESULTS_READY)return false;
     if(!fzx_results_guards())return fail(FZX_RESULTS_GUARD);
+#if FZX_SOURCE_RECORDS
+    if(fzx_records_active) {
+        if(!fzx_records_scene_draw(commands,capacity,count))return fail(FZX_RESULTS_DRAW);
+        fzx_results_texture_borrowed=1;
+        return true;
+    }
+#endif
     if(!scene->published||(!scene->snapshot.finish.visible&&!scene->snapshot.count))return true;
     fzx_results_busy=1;
     if(fzx_source_countdown.timer)return fail(FZX_RESULTS_STATE);

@@ -10,7 +10,7 @@ Targets below remain targets until their stated evidence exists.
 | C0 | Frozen legacy-tuning full route: 3.287 fps MODELLED, 34,178 missed fields; frame clock controls pass | Retain this baseline. Measure the actual selected-tuning combined candidate separately; do not interchange replays |
 | C1 | All 9,907 HOST views: p99 335 road commands; forced-first-tier control fails 420 | Census policy is qualified; native cost is not established |
 | C2 | Source road bake: 151,128 B metadata, 147,328 B textures; receipts and corruption controls pass | Preserve source rows, fog inputs and frozen road reference |
-| C3 | Tagged merge planner: HOST p99 413 commands, texture displacement p99 0.650 px; view-round-1 dependency qualified | Integral caller/fixtures pass; resolve 223 fractional centres and guard anchor order, then native stream |
+| C3 | Tagged centre/source-order guard/merge caller: all 9,907 HOST views, zero exclusions, p99 413 commands; 13 views pass at texture p99 0.650 px | Native stream integration, memory/stack, timing and VDP1 look gates |
 | C4 | Rebake mean 9.273 ms MODELLED; HOST p99 67 / max 112 commands | The 1 ms / 70-command and overlap gates fail. Reassess measured costs after C3; this is not a qualified final vehicle path |
 | C5 | Compact cloud atlas reclaims 128 KiB; dual rotation layers remain unproven | Complete independent dual-layer evidence or the specified bounded 4x3 source-cloud fallback |
 | C6 | Not qualified; depends on C3 | Split only a qualified compact road job, preserve simulation, qualify chained submission |
@@ -30,9 +30,10 @@ SH2ZAM requests go directly to the existing Opus integration session. The port
 does not edit the library or duplicate general kernels. Tagged contracts are
 independently qualified at card boundaries. The supplied `view-round-1` contract
 adds final-coordinate truncation. [Dependency adoption](SH2ZAM_ROUND_ADOPTION.md)
-passes HOST suites and old-API output checks. The integral caller and unchanged
-fixtures pass; full-route fractional centres and guard-clip anchor order need
-new opt-in contracts. No native road admission follows.
+passes HOST suites and old-API output checks. The subsequent source-order guard
+and Q16-centre contracts resolve the anchor and fractional-centre blockers;
+[centre adoption](SH2ZAM_CENTER_ADOPTION.md) qualifies all 9,907 HOST views and
+the unchanged fixtures. No native road admission follows.
 A small camera bias remains a diagnostic, not an accepted fix.
 
 The initial 300-cycles-per-piece estimate and 8 ms road target have not been
@@ -40,6 +41,13 @@ demonstrated by the native stream. Keep the decisive experiment bounded:
 qualify its images and memory, measure one CPU, and stop this approach above
 16 ms p99. Do not treat an API adoption or HOST command reduction as that test.
 The selected configuration needs its own full-route measurement.
+
+The owner's [SCU DSP development notes](https://segaxtreme.net/threads/saturn-scu-dsp-notes.25289/)
+are a follow-up reference for a bounded visibility or lighting experiment after
+the SH-2 paths are measured. The author's reported gain is from another game;
+it is not a port measurement. Any candidate must include transfer, synchronization
+and contention costs in a whole-frame comparison. This does not change C0-C8
+ordering or authorize duplicating SH2ZAM kernels in the port.
 
 C8 may advance while a rendering dependency is pending. Missing results,
 audio/effects or retry do not count as an approved Saturn adaptation. Original

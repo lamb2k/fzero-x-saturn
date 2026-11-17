@@ -205,3 +205,17 @@ held images pass (texture p99 0.650 px; geometry within 1 px). The integral
 census admits 9,684 views, p99 413 commands; forced-first-tier p99 822 fails 420.
 The 223 fractional views still require Q16 centres. Native adoption remains
 blocked on that contract and native alignment/memory/timing/look gates.
+
+## Q16 centre and committed bounded planner, 2026-11-17
+
+[view-center-1](SH2ZAM_CENTER_ADOPTION.md) is independently qualified, with
+pointer-only commit 8a61816. The separate centre adapter preserves fractional
+centres; the experimental caller now uses centre batch/edge/source-order guard
+APIs and the previously private bounded-merge planner. The simple grouping arm
+failed texture p99 at 1.308 px; its evidence remains preserved.
+The actual updated caller admits all 9,907 views, no exclusions, with identical
+GCC/Clang outputs: p99 413 / max 445 commands, forced-first p99 821 fails 420.
+All 13 held views pass (texture p99 0.650 px; geometry within 1 px), and regular
+and shifted synthetic fixtures plus mutation controls pass unchanged.
+This closes the HOST fractional-centre/anchor/merge image blockers. Native
+integration, memory/stack, timing and VDP1 look qualification remain open.

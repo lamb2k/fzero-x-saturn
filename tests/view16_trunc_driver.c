@@ -39,6 +39,11 @@ static void check_point(const fzx_view_t *source,const sh2z_view_t *view,
     if(batch.sy<source->clip[1])bits|=SH2Z_OUT_TOP;
     if(batch.sy>=source->clip[3])bits|=SH2Z_OUT_BOTTOM;
     assert(batch.outcode==bits);
+    sh2z_view_center_t centered;
+    assert(sh2z_view_center_init(&centered,view,source->center[0],source->center[1]));
+    sh2z_view_vertex_t exact;
+    assert(sh2z_view_batch_center_divu(&exact,&centered,point,sizeof(*point),1));
+    assert(!memcmp(&exact,&batch,sizeof(exact)));
     ++samples;
 }
 
@@ -126,8 +131,50 @@ static void rejection(void) {
     assert(!memcmp(&out,&sentinel,sizeof(out)));
 }
 
+
+static void fractional_projection(void) {
+    const int32_t centers[]={12648447,12648449,12615680,-65537,-32768,1};
+    const int32_t eye[3]={0};unsigned count=0;
+    for(unsigned c=0;c<sizeof(centers)/sizeof(centers[0]);++c) {
+        fzx_view_t source=source_view();source.center[1]=centers[c];
+        source.center[0]=160*65536+(c%2?1:-1);
+        const fzx_view_t saved=source;
+        sh2z_view_center_t view;
+        assert(fzx_view16_from_source_center(&view,&source,eye));
+        assert(view.center_x16==source.center[0] && view.center_y16==source.center[1]);
+        assert(!memcmp(&saved,&source,sizeof(source)));
+        for(int z=255;z<=257;++z)for(int x=-160;x<=160;x+=16)
+        for(int y=-112;y<=112;++y) {
+            const sh2z_pos16_t point={(int16_t)x,(int16_t)y,(int16_t)z};
+            const int32_t world[3]={x*4096,y*4096,z*4096};
+            int32_t camera[3],screen[2];sh2z_view_vertex_t a,b,p;
+            assert(fzx_view_transform(&source,world,camera));
+            assert(fzx_view_project(&source,camera,screen));
+            assert(sh2z_view_batch_center(&a,&view,&point,sizeof(point),1));
+            assert(sh2z_view_batch_center_divu(&b,&view,&point,sizeof(point),1));
+            assert(!memcmp(&a,&b,sizeof(a)));
+            assert(sh2z_view_project_center_divu(&p,&view,&a,1));
+            assert(!memcmp(&a,&p,sizeof(a)));
+            assert(a.sx==screen[0]/65536 && a.sy==screen[1]/65536);
+            ++count;
+        }
+        sh2z_view_vertex_t sentinel,out;memset(&sentinel,0xa5,sizeof(sentinel));out=sentinel;
+        const sh2z_pos16_t point={0,0,256};++view.view.center_y;
+        assert(!sh2z_view_batch_center_divu(&out,&view,&point,sizeof(point),1));
+        assert(!memcmp(&sentinel,&out,sizeof(out)));
+    }
+    fzx_view_t source=source_view();sh2z_view_center_t sentinel,out;
+    memset(&sentinel,0xa5,sizeof(sentinel));out=sentinel;
+    assert(!fzx_view16_from_source_center(NULL,&source,eye));
+    assert(!fzx_view16_from_source_center(&out,NULL,eye));
+    assert(!fzx_view16_from_source_center(&out,&source,NULL));
+    source.focal[0]=0;assert(!fzx_view16_from_source_center(&out,&source,eye));
+    assert(!memcmp(&out,&sentinel,sizeof(out)));
+    printf("view16 center %u exact fractional source-projection samples pass\n",count);
+}
+
 int main(void) {
-    exact_projection();conversion();rejection();
+    exact_projection();conversion();rejection();fractional_projection();
     printf("view16 trunc %u exact source-projection samples pass\n",samples);
     return 0;
 }

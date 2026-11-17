@@ -21,4 +21,10 @@ bool fzx_view16_from_source(sh2z_view_t *out,const fzx_view_t *view,
  * output and inputs remain unchanged on rejection. */
 bool fzx_view16_from_source_trunc(sh2z_view_t *out,const fzx_view_t *view,
                                   const int32_t eye[3]);
+/* Opt-in Q16-centre adapter. Preserve the source centre without rounding;
+ * use only with the *_center family. Same rotation/placement/clip conversion
+ * as the integral adapter, with no fractional-centre exclusion. Unchanged
+ * output on rejection. Link fzx_view16_center.c when selecting this path. */
+bool fzx_view16_from_source_center(sh2z_view_center_t *out,const fzx_view_t *view,
+                                   const int32_t eye[3]);
 #endif

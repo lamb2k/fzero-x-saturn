@@ -47,8 +47,8 @@ C3 [camera/pack/gather](ROAD_STREAM.md): 1,291,264 samples within 1 px, max gath
 Owner revised texture metric: 1 px merge census p99 413 commands / 0.650 px texture; HOST only.
 [view-merge-1](SH2ZAM_MERGE_ADOPTION.md) adopted after synthetic gates; tagged census unchanged.
 [view-round-1](SH2ZAM_ROUND_ADOPTION.md): integral adapter and unchanged fixtures pass HOST.
-[view-guard-src-1](SH2ZAM_GUARD_SRC_ADOPTION.md): 13 images pass; integral census p99 413.
-C3 still rejects 223 fractional centres pending Q16; native gates remain.
+[view-center-1](SH2ZAM_CENTER_ADOPTION.md): all9,907 views, zero exclusions, p99 413; 13 images pass.
+C3 committed experimental caller includes bounded merging; native integration/timing/look remain.
 
 C4 [vehicle rebake](MACHINE_REBAKE.md): 9.273 ms MODELLED, default-off; [shade pin](SH2ZAM_SHADE_ADOPTION.md) HOST-qualified.
 HOST p99 67 / max 112 commands; 1 ms / 70-command and overlap gates fail.
@@ -73,7 +73,7 @@ Four corrupted packs are rejected before race. Records/name entry/retry/audio re
 
 Older hitch, clip-divider and software-road WIP remain local and unstaged.
 Use fixed-input replay for comparisons; live autopilot depends on render cadence.
-Next: qualify Q16-centre library contract, then full census/images;
+Next: private guest-racer production art (owner priority), then native C3 integration;
 records/name entry/retry, audio/effects, ordinary pad completion and soak remain.
 C3/C4/C5 performance blockers and full combined 60 fps qualification remain.
 No release, retail-derived publication, SD write or physical acceptance occurred.

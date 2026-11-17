@@ -46,10 +46,12 @@ class RoadStreamDrawTests(unittest.TestCase):
                     '-fsanitize=undefined','-fno-sanitize-recover=all','-DSH2Z_FORCE_PORTABLE=1',
                     '-I'+str(ROOT/'include'),'-I'+str(ROOT/'ref'),'-I'+str(LIB/'saturn/include'),str(unit),
                     *[str(ROOT/p) for p in ('src/fzx_road_stream.c','src/fzx_road_pack.c','src/fzx_view.c',
-                        'src/fzx_view16.c','tests/road_stream_draw_driver.c')],
+                        'src/fzx_view16.c','src/fzx_view16_center.c','tests/road_stream_draw_driver.c')],
                     str(old_object),str(LIB/'saturn/src/sh2zam_view.c'),
                     str(LIB/'saturn/src/sh2zam_view_round.c'),
-                    str(LIB/'saturn/src/sh2zam_view_guard_src.c'),'-lm','-o',str(exe)]
+                    str(LIB/'saturn/src/sh2zam_view_guard_src.c'),
+                    str(LIB/'saturn/src/sh2zam_view_center.c'),
+                    str(LIB/'saturn/src/sh2zam_view_guard_src_center.c'),'-lm','-o',str(exe)]
                 result=subprocess.run(args,capture_output=True,text=True)
                 self.assertEqual(result.returncode,0,result.stdout+result.stderr)
                 return exe
@@ -65,7 +67,7 @@ class RoadStreamDrawTests(unittest.TestCase):
             self.assertEqual(*captures)
             paths=assets()
             for before,after in [
-                ('period*32*factor','period*16*factor'),
+                ('unit=period*32','unit=period*16'),
                 ('d->stats->commands>=d->capacity','d->stats->commands>d->capacity'),
                 ('selected*(base-mean)','selected*(live-mean)')]:
                 self.assertEqual(source.count(before),1)

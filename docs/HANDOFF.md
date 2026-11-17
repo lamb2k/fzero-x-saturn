@@ -33,14 +33,14 @@ Limit: 50 lines. History lives in git.
 - C3 camera/pack/gather:1,291,264 vertices within1px, max552 gathered; HOST/SH-2 pass.
   Owner revised texture gate: 1px merge gives p99 413 commands / 0.650px HOST texture error.
   view-merge-1 adopted (pointer9ff1601), pixel/Q8=256; tagged census unchanged.
-  view-guard-src-1 at24e4a2b: integral fixtures/13images pass, p99 413; 223fractional views remain.
+  view-center-1 at8a61816: all9907views, no exclusions, p99 413; fixtures/13images pass.
 - C4 rebake:9.273 ms MODELLED; cost/order/stack fail. shade-1 HOST-qualified; callers unchanged.
 - C5 dual probe open; compact cloud atlas reclaims128 KiB, no speed claim.
 - C8 countdown:24views/276commands and source full race pass; sound/look open.
 
 ## Next and preserved work
 
-- Qualify Q16-centre contract from Opus, then full census/images and native stream.
+- Next owner priority: private guest-racer production art; then native stream integration/timing/look.
 - Records/name entry/retry, source audio/effects and soak remain; qualify the combined scene against60fps.
 - [Records assets](RECORDS.md): HOST-only original fonts/sheets prepared; native integration pending.
 - The selected-tuning replay is distinct from the old9,907-input baseline; do not interchange them.

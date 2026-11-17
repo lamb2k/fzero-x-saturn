@@ -67,7 +67,7 @@ static unsigned fog_lookup(const fzx_road_stream_draw_work_t *w,int32_t z){
     return lo;
 }
 typedef struct {
-    fzx_road_stream_draw_work_t *work;const RefRoadPlan *plan;sh2z_view_t view;
+    fzx_road_stream_draw_work_t *work;const RefRoadPlan *plan;sh2z_view_center_t view;
     fzx_road_stream_command_t *commands;uint32_t capacity;unsigned flags;
     fzx_road_stream_draw_stats_t *stats;
 } draw_t;
@@ -93,7 +93,7 @@ static bool piece(draw_t *d,const sh2z_view_vertex_t v[4],unsigned quad,unsigned
     if(fill(w,v,&safe)){++d->stats->culled;return true;}
     unsigned count=4;sh2z_view_guard_vertex_t *corners=w->clip_in;
     if(!safe){const int16_t guard[4]={-900,-900,900,900};
-        const int n=sh2z_view_clip_guard_src_trunc_divu(w->clip_out,&d->view,guard,w->clip_in,4,0,10);
+        const int n=sh2z_view_clip_guard_src_center_divu(w->clip_out,&d->view,guard,w->clip_in,4,0,10);
         if(n<0)return fail(d,FZX_RS_CLIP);
         if(n<3){++d->stats->culled;return true;}
         count=(unsigned)n;corners=w->clip_out;++d->stats->clipped;
@@ -140,7 +140,7 @@ static bool edge(draw_t *d,unsigned slot,const sh2z_view_vertex_t *from,const sh
     while(first<count&&w->boundary[first]<=low)w->edge[slot][first++]=*from;
     while(end>first&&w->boundary[end-1]>=high)w->edge[slot][--end]=*to;
     if(end==first)return true;
-    return sh2z_view_edge_steps_trunc_divu(w->edge[slot]+first,&d->view,from,to,
+    return sh2z_view_edge_steps_center_divu(w->edge[slot]+first,&d->view,from,to,
         (uint16_t)(w->boundary[first]-low),(uint16_t)step,(uint16_t)(high-low),end-first);
 }
 static bool quad(draw_t *d,unsigned id){
@@ -156,7 +156,7 @@ static bool quad(draw_t *d,unsigned id){
     if(fill(w,vertices,&safe)){++d->stats->culled;return true;}
     unsigned winding_count=4;sh2z_view_guard_vertex_t *winding=w->clip_in;
     if(!safe){
-        const int n=sh2z_view_clip_guard_src_trunc_divu(w->clip_out,&d->view,d->view.clip,w->clip_in,4,0,10);
+        const int n=sh2z_view_clip_guard_src_center_divu(w->clip_out,&d->view,d->view.view.clip,w->clip_in,4,0,10);
         if(n<0)return fail(d,FZX_RS_CLIP);
         if(n<3){++d->stats->culled;return true;}winding_count=(unsigned)n;winding=w->clip_out;
     }
@@ -185,20 +185,40 @@ static bool quad(draw_t *d,unsigned id){
     ++d->stats->tiers[tier];
     if(!factor){const sh2z_view_vertex_t whole[4]={vertices[left],vertices[right],vertices[re],vertices[le]};
         return piece(d,whole,id,0,strip*5+4,0,1,0,false);}
-    const unsigned unit=period*32*factor;unsigned count=1;w->boundary[0]=low;
+    /* Step at original repetition boundaries, then merge complete periods
+     * only when the tagged planner bounds pixel displacement to one pixel.
+     * Partial leading/trailing periods must keep their source phase. */
+    const unsigned unit=period*32;unsigned count=1;w->boundary[0]=low;
     for(int32_t start=low;start<high;){int32_t phase=start%(int32_t)unit;if(phase<0)phase+=(int32_t)unit;
         int32_t end=start+(int32_t)unit-phase;if(end>high)end=high;
         if(count>=65)return fail(d,FZX_RS_STEP);
         w->boundary[count++]=end;start=end;}
     if(!edge(d,0,vertices+left,vertices+le,l0,l1,count,unit)||
        !edge(d,1,vertices+right,vertices+re,r0,r1,count,unit))return fail(d,FZX_RS_STEP);
-    for(unsigned i=0;i+1<count;++i){
-        const sh2z_view_vertex_t part[4]={w->edge[0][i],w->edge[1][i],w->edge[1][i+1],w->edge[0][i+1]};
+    uint32_t merge_rows[65],end_masks[65];uint8_t runs[64];
+    for(unsigned j=0;j<count;++j){
+        merge_rows[j]=(uint32_t)(w->boundary[j]-low);end_masks[j]=0;
+        for(unsigned run=2;run<=4;run*=2)
+            if(run<=factor && j>=run && w->boundary[j-run]%(int32_t)unit==0 &&
+               w->boundary[j]-w->boundary[j-run]==(int32_t)(unit*run))end_masks[j]|=1u<<run;
+        for(unsigned rail=0;rail<2;++rail){sh2z_view_vertex_t *v=&w->edge[rail][j];
+            if(v->sx< -900||v->sx>900||v->sy< -900||v->sy>900)v->outcode|=0x80;}
+    }
+    const uint32_t mask=factor==4?0x16u:factor==2?0x6u:0x2u;
+    const int run_count=sh2z_view_merge_runs(runs,w->edge[0],w->edge[1],merge_rows,end_masks,
+        count,mask,256u,SH2Z_VIEW_MERGE_PIXELS);
+    if(run_count<1)return fail(d,FZX_RS_STEP);
+    unsigned i=0;
+    for(unsigned run_index=0;run_index<(unsigned)run_count;++run_index){
+        const unsigned group=runs[run_index];
         int32_t phase=w->boundary[i]%(int32_t)unit;if(phase<0)phase+=(int32_t)unit;
-        const unsigned scale=32*factor,row=(unsigned)phase/scale;
-        const unsigned height=((unsigned)phase+(unsigned)(w->boundary[i+1]-w->boundary[i])+scale-1)/scale-row;
+        const unsigned selected_tier=group==4?2u:group==2?1u:0u;
+        const sh2z_view_vertex_t part[4]={w->edge[0][i],w->edge[1][i],w->edge[1][i+group],w->edge[0][i+group]};
+        const unsigned scale=32*group,row=(unsigned)phase/scale;
+        const unsigned height=((unsigned)phase+(unsigned)(w->boundary[i+group]-w->boundary[i])+scale-1)/scale-row;
         if(!height||row+height>period)return fail(d,FZX_RS_STEP);
-        if(!piece(d,part,id,i,strip*5+tier,row,height,factor,false))return false;
+        if(!piece(d,part,id,i,strip*5+selected_tier,row,height,group,false))return false;
+        i+=group;
     }
     return true;
 }
@@ -214,10 +234,10 @@ bool fzx_road_stream_draw(fzx_road_stream_draw_work_t *w,const fzx_view_t *view,
        plan->count>REF_ROAD_GROUPS||plan->outer>1||plan->fog_start<0||plan->fog_start>996||pb>0||
        view->clip[0]<-900||view->clip[1]<-900||view->clip[2]>901||view->clip[3]>901)return false;
     draw_t d={.work=w,.plan=plan,.commands=commands,.capacity=capacity,.flags=flags,.stats=stats};
-    if(!fzx_view16_from_source_trunc(&d.view,view,eye))return false;
+    if(!fzx_view16_from_source_center(&d.view,view,eye))return false;
     if(!fzx_road_stream_gather(w->pack,plan,w->remap,w->remap_capacity,w->positions,w->vertex_capacity,&stats->positions))return fail(&d,FZX_RS_GATHER);
-    if(!sh2z_view_batch_trunc_divu(w->projected,&d.view,w->positions,sizeof(*w->positions),stats->positions))return fail(&d,FZX_RS_PROJECT);
-    fog_prepare(w,&d.view,plan,pa,pb,stats);
+    if(!sh2z_view_batch_center_divu(w->projected,&d.view,w->positions,sizeof(*w->positions),stats->positions))return fail(&d,FZX_RS_PROJECT);
+    fog_prepare(w,&d.view.view,plan,pa,pb,stats);
     const unsigned chunks=w->pack->count[FZX_RLD_CHUNKS];
     for(unsigned g=0;g<plan->count;++g){const RefRoadGroup *group=plan->groups+g;
         unsigned index=group->direction==1?(group->end+chunks-1)%chunks:group->start,visited=0;

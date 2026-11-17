@@ -18,6 +18,17 @@ fzx_machine_stats_t fzx_machine_stats;
 fzx_vehicle_stats_t fzx_vehicle_stats;
 static fzx_vehicle_pack_t pack;
 static fzx_vehicle_work_t *work;
+#ifndef FZX_VEHICLE_NATIVE
+#define FZX_VEHICLE_NATIVE 0
+#endif
+#if FZX_VEHICLE_NATIVE
+/* Native arm: the per-draw work (projected vertices, lights, native face tables,
+ * pair scratch) lives in high work RAM; only the pack metadata stays low. */
+static fzx_vehicle_work_t high_work __attribute__((aligned(32)));
+#define WORK_LOW_BYTES 0u
+#else
+#define WORK_LOW_BYTES sizeof(*work)
+#endif
 #if FZX_VEHICLE_PROFILE
 volatile uint32_t fzx_vehicle_phase_ticks[6];
 void fzx_vehicle_profile_mark(unsigned phase){if(phase<6)fzx_vehicle_phase_ticks[phase]=cpu_frt_count_get();}
@@ -39,9 +50,14 @@ uint32_t fzx_vehicle_sub_now(void){return cpu_frt_count_get();}
 bool fzx_machine_load(void *vram){
     uintptr_t scratch=((uintptr_t)sat_stub_data_end+31u)&~(uintptr_t)31u,log=(uintptr_t)fzx_input_log;
     uintptr_t metadata=(fzx_road_tile_low_end+95u)&~(uintptr_t)31u;
-    uintptr_t cache=(metadata+FZX_MACHINE_REBAKE_METADATA_BYTES+31u)&~(uintptr_t)31u,end=cache+sizeof(*work);
+    uintptr_t cache=(metadata+FZX_MACHINE_REBAKE_METADATA_BYTES+31u)&~(uintptr_t)31u,end=cache+WORK_LOW_BYTES;
     if(fzx_road_tile_status!=1||metadata<0x00200000u||end+32>0x00300000u||scratch+fzx_texture_cd_scratch_bytes()>log-32){fzx_machine_status=2;return false;}
-    fzx_machine_low_start=(uint32_t)metadata;fzx_machine_low_end=(uint32_t)end;work=(fzx_vehicle_work_t *)cache;
+    fzx_machine_low_start=(uint32_t)metadata;fzx_machine_low_end=(uint32_t)end;
+#if FZX_VEHICLE_NATIVE
+    work=&high_work;
+#else
+    work=(fzx_vehicle_work_t *)cache;
+#endif
     for(unsigned i=0;i<8;++i){((volatile uint32_t *)metadata)[(int)i-8]=0x5ac71e39u;((volatile uint32_t *)end)[i]=0x5ac71e39u;}
     if(!fzx_texture_cd_load("MACHINE.PAK",FZX_MACHINE_REBAKE_METADATA_BYTES,FZX_MACHINE_REBAKE_METADATA_HASH,(void *)metadata,(void *)scratch,log-32-scratch)||
        !fzx_vehicle_pack_open(&pack,(void *)metadata,FZX_MACHINE_REBAKE_METADATA_BYTES,FZX_MACHINE_REBAKE_TEXTURE_BYTES,FZX_MACHINE_REBAKE_METADATA_HASH,false)||

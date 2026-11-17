@@ -40,7 +40,7 @@ Limit: 50 lines. History lives in git.
 
 ## Next and preserved work
 
-- Next owner priority: private guest-racer production art; then native stream integration/timing/look.
+- Owner extension: [F Zero S cover/title branding](BRANDING.md) and [all-3D coverage](ASSET_COVERAGE.md); guest art then native stream.
 - Records/name entry/retry, source audio/effects and soak remain; qualify the combined scene against60fps.
 - [Records assets](RECORDS.md): HOST-only original fonts/sheets prepared; native integration pending.
 - The selected-tuning replay is distinct from the old9,907-input baseline; do not interchange them.

@@ -73,7 +73,7 @@ Four corrupted packs are rejected before race. Records/name entry/retry/audio re
 
 Older hitch, clip-divider and software-road WIP remain local and unstaged.
 Use fixed-input replay for comparisons; live autopilot depends on render cadence.
-Next: private guest-racer production art (owner priority), then native C3 integration;
+Next: [F Zero S branding](BRANDING.md), [all-3D coverage](ASSET_COVERAGE.md), guest art and native C3;
 records/name entry/retry, audio/effects, ordinary pad completion and soak remain.
 C3/C4/C5 performance blockers and full combined 60 fps qualification remain.
 No release, retail-derived publication, SD write or physical acceptance occurred.

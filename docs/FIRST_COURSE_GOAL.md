@@ -1,5 +1,10 @@
 # First-course persistent goal
 
+Owner extension, 2026-11-17: the game is named **F Zero S**. Maintain complete
+[3D asset coverage](ASSET_COVERAGE.md); update the cover and all title variants
+to include Metal Sonic and Dr. Robotnik per [branding](BRANDING.md). These are
+additional deliverables; the gameplay and performance gates below remain active.
+
 Owner instruction, 2026-11-16: continue until the first level is playable from
 boot through selection and race completion, with Saturn-optimized faithful source
 content and a 60 fps target. Blender may be used when assets need adjustment.

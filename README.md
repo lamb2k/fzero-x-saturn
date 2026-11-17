@@ -1,12 +1,15 @@
-# F-Zero X Saturn
+# F Zero S
 
 [![Build and validation](https://github.com/lamb2k/fzero-x-saturn/actions/workflows/build.yml/badge.svg)](https://github.com/lamb2k/fzero-x-saturn/actions/workflows/build.yml)
 
-An experimental native Sega Saturn port foundation using
+An experimental native Sega Saturn port of F-Zero X, named **F Zero S**, using
 [G-Diffuser](https://github.com/Zorkats/G-Diffuser) as its source reference and
 [SH2ZAM](https://github.com/lamb2k/SH2ZAM) for fixed-point mathematics.
 
 **Target: the real F-Zero X on Saturn, preserving its original art and gameplay.**
+The owner-directed edition adds Metal Sonic and Dr. Robotnik; their native
+integration and new cover/title artwork remain in progress. See
+[asset coverage](docs/ASSET_COVERAGE.md) and [branding](docs/BRANDING.md).
 The local `FZX_SIM=orig` build runs the original one-racer code on Mute City 1,
 including a three-lap diagnostic replay and restart. Local experimental options draw the original
 Blue Falcon, road, backdrop, entry/selection, race HUD and initial finish/results.

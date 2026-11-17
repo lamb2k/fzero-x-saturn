@@ -67,14 +67,14 @@ C8 [initial results](RESULTS.md): 12,288 inputs/post-cap clock, 23 captures, fou
 [Records/name entry](RECORDS.md): 7,924 inputs, 29 source-exact captures, 20 native command/residency checks.
 Three diagnostic resets retain AAA; stack minimum 23,064 B; 19 HOST tests and two bad packs pass.
 OFF equals rebuilt pre-records code with the same library; historical library delta is +832 linked B.
-[Finish menu](FINISH_MENU.md): HOST state/seam/assets and 36,000 draw cases pass; native/reload open.
+Finish menu fails7860: mode0 CRAM rejected by mode1 guard; no fix. C8 OFF identity passes.
 Final appearance, pad retry and audio remain open; diagnostic text/HUD obscure the records view.
 
 ## Preserved work and next
 
 Older hitch, clip-divider and software-road WIP remain local and unstaged.
 Use fixed-input replay for comparisons; live autopilot depends on render cadence.
-Next: [F Zero S branding](BRANDING.md), [all-3D coverage](ASSET_COVERAGE.md), guest art; C3 measured no-go, disabled executable identity passes;
+Handover: work stopped. Opus owns C3/C4 performance; Codex retains C4 ordering and all other work;
 ordinary retry, audio/effects, pad-only race completion and soak remain.
 C3/C4/C5 performance blockers and full combined 60 fps qualification remain.
 No release, retail-derived publication, SD write or physical acceptance occurred.

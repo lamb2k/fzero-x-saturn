@@ -3,7 +3,8 @@ Limit: 50 lines. History lives in git.
 
 ## Goal and direction
 
-- Full [first-course goal](FIRST_COURSE_GOAL.md) and owner render plan C0-C8 remain active.
+- Handover requested 2026-11-17; implementation stopped. Full first-course goal is unfinished.
+- Local continuation: `generated/HANDOVER-NEXT-AGENT-20261117.md`.
 - Preserve original assets through offline Saturn conversion; document adaptations.
 - Source-only origin/gate1 pushes are authorized after gates and hygiene; no retail assets/releases.
 - Ordinary pad completion/retry, audio/effects, soak, 60 fps, look and hardware remain open.
@@ -18,9 +19,8 @@ Limit: 50 lines. History lives in git.
 - [Records/name entry](RECORDS.md): 7,924 inputs, 29 source-exact captures and 20 native command/residency checks.
 - Three diagnostic resets retain AAA; 19 HOST tests and two corrupted packs pass; stack minimum 23,064 B.
 - Records OFF equals rebuilt pre-records code with current library; +832 linked B belongs to the library update.
-- Valid control: host/records-native/control-currentlib-2. Initial relative-target control is invalid.
-- Evidence: host/records-native and emu/records/full1. Diagnostic text/HUD obscure final appearance.
-- [Finish menu](FINISH_MENU.md): HOST state/seam/assets and 36,000 draw cases pass; native/reload open.
+- Finish menu fails input7860: CRAM mode0 rejected by mode1 guard; no fix applied.
+- C8 OFF identity passes; retry schedule is HOST-only. Full menu remains unqualified.
 
 ## Performance programme
 
@@ -37,12 +37,12 @@ Limit: 50 lines. History lives in git.
   road p99 133.143 ms fails 16 ms stop; whole 3.929 fps MODELLED, stack 21,240 B. Ideal-image gate fails.
 - C4 rebake:9.273 ms MODELLED; cost/order/stack fail. Fixed orders fail selected held-out views; see C4_OCCLUSION_FEASIBILITY.md.
 - C5 dual probe open; compact atlas reclaims128 KiB. Fixed grid HOST visual no-go; see CLOUD_GRID.md.
-- C8 countdown:24views/276commands and source full race pass; sound/look open.
 
 ## Next and preserved work
 
 - Owner extension: [F Zero S cover/title branding](BRANDING.md) and [all-3D coverage](ASSET_COVERAGE.md); guest art; native C3 is a measured no-go.
-- Ordinary retry, source audio/effects and soak remain; qualify the combined scene against60fps.
+- Opus owns C3/C4 performance via isolated Claude worktree; Codex retains C4 ordering and other work.
+- Performance handoff: `generated/C3-C4-PERF-HANDOFF.md`; ordinary retry/audio/soak remain.
 - [Records](RECORDS.md) native state/commands qualified; final presentation cleanup remains.
 - The selected-tuning replay is distinct from the old9,907-input baseline; do not interchange them.
 - Older clip/hitch/software-road WIP remains local and unstaged. Stage named paths only.

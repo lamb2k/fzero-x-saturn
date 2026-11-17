@@ -12,7 +12,7 @@ Targets below remain targets until their stated evidence exists.
 | C2 | Source road bake: 151,128 B metadata, 147,328 B textures; receipts and corruption controls pass | Preserve source rows, fog inputs and frozen road reference |
 | C3 | [Native stream](ROAD_STREAM_NATIVE.md): selected 7,059 inputs finish exactly; guards/stack pass; road p99 133.143 ms MODELLED | No-go above 16 ms: stop this implementation. Selected ideal-image gate fails; disabled executable identity passes |
 | C4 | Rebake mean 9.273 ms MODELLED; HOST p99 67 / max 112 commands | The 1 ms / 70-command and overlap gates fail. Reassess measured costs after C3; this is not a qualified final vehicle path |
-| C5 | Compact cloud atlas reclaims 128 KiB; dual rotation layers remain unproven | Complete independent dual-layer evidence or the specified bounded 4x3 source-cloud fallback |
+| C5 | Compact cloud atlas reclaims 128 KiB; dual rotation layers remain unproven | Dual-layer evidence remains open; [fixed grid](CLOUD_GRID.md) fits both routes but loses cloud pattern through clipped UV remapping |
 | C6 | Not qualified; depends on C3 | Split only a qualified compact road job, preserve simulation, qualify chained submission |
 | C7 | Combined 60 fps acceptance is absent | Full route with actual art, CPU budgets, VDP1 end-of-draw, missed fields and stack guards |
 | C8 | Original selection reaches race; diagnostic replay reaches initial finish/results; post-log-cap clock, three state/record resets and four corrupted-pack controls pass | Records/name entry/retry flow, audio/effects, ordinary pad completion, soak and review |

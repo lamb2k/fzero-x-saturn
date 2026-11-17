@@ -53,7 +53,7 @@ road p99 133.143 ms and 3.929 fps MODELLED fail the 16 ms stop gate. Ideal-image
 C4 [vehicle rebake](MACHINE_REBAKE.md): 9.273 ms MODELLED, default-off; [shade pin](SH2ZAM_SHADE_ADOPTION.md) HOST-qualified.
 HOST p99 67 / max 112; cost/command gates fail; [fixed orders](C4_OCCLUSION_FEASIBILITY.md) fail held-out views.
 Its full race matches source at 3.837 fps MODELLED; 2,316 B stack fails C7.
-C5 compact atlas reclaims 128 KiB; 13 views and off identity pass, no speed claim.
+C5 compact atlas reclaims 128 KiB; [fixed grid](CLOUD_GRID.md) fits both routes but fails cloud appearance.
 C8 [countdown](COUNTDOWN.md): 24 views / 276 commands and full source race pass; sound/look open.
 [Core bypass](NATIVE_CORE_MEMORY.md) saves 59,736 linked B with 13 native command/pixel checks.
 

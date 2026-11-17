@@ -36,7 +36,7 @@ Limit: 50 lines. History lives in git.
   view-center-1 HOST passes old9907views. [Native C3](ROAD_STREAM_NATIVE.md) selected 7,059 finishes;
   road p99 133.143 ms fails 16 ms stop; whole 3.929 fps MODELLED, stack 21,240 B. Ideal-image gate fails.
 - C4 rebake:9.273 ms MODELLED; cost/order/stack fail. Fixed orders fail selected held-out views; see C4_OCCLUSION_FEASIBILITY.md.
-- C5 dual probe open; compact cloud atlas reclaims128 KiB, no speed claim.
+- C5 dual probe open; compact atlas reclaims128 KiB. Fixed grid HOST visual no-go; see CLOUD_GRID.md.
 - C8 countdown:24views/276commands and source full race pass; sound/look open.
 
 ## Next and preserved work

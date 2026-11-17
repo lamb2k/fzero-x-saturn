@@ -85,38 +85,51 @@ static uint32_t div65025(uint32_t n){  /* n/65025, n <= 2048287 */
 }
 static bool fail(draw_t *d,unsigned fault){d->stats->fault=fault;return false;}
 /* Inputs to area are clipped to +/-900, bounding the 16-corner sum in int32. */
-static int32_t area(const sh2z_view_guard_vertex_t *v,unsigned count){
+static int32_t area(const sh2z_view_vertex_t *const *v,unsigned count){
     int32_t sum=0;for(unsigned i=0;i<count;++i){unsigned j=i+1<count?i+1:0;
-        sum+=(int32_t)v[i].v.sx*v[j].v.sy-(int32_t)v[i].v.sy*v[j].v.sx;}
+        sum+=(int32_t)v[i]->sx*v[j]->sy-(int32_t)v[i]->sy*v[j]->sx;}
     return sum;
 }
-static unsigned fill(fzx_road_stream_draw_work_t *w,const sh2z_view_vertex_t v[4],bool *safe){
+static unsigned classify(const sh2z_view_vertex_t v[4],bool *safe){
     /* Preserve source order: original quad order for culling, or left-start,
      * right-start, right-end, left-end for textured pieces. Do not rotate the
      * polygon: the first clipped corner anchors the VDP1 texture fan. */
     unsigned all=63;*safe=true;
-    for(unsigned i=0;i<4;++i){w->clip_in[i].v=v[i];all&=v[i].outcode;
+    for(unsigned i=0;i<4;++i){all&=v[i].outcode;
         if((v[i].outcode&SH2Z_OUT_NEAR)||v[i].sx< -900||v[i].sx>900||v[i].sy< -900||v[i].sy>900)*safe=false;}
     return all;
+}
+/* Corners as pointers: the unclipped quad itself, or the guard clip output.
+ * Only a clip needs the low-RAM clip_in copy. */
+static unsigned corners_of(fzx_road_stream_draw_work_t *w,const sh2z_view_vertex_t v[4],bool safe,
+    int n,const sh2z_view_vertex_t **out){
+    if(safe){for(unsigned i=0;i<4;++i)out[i]=v+i;return 4;}
+    for(int i=0;i<n;++i)out[i]=&w->clip_out[i].v;
+    return (unsigned)n;
+}
+static void clip_input(fzx_road_stream_draw_work_t *w,const sh2z_view_vertex_t v[4]){
+    for(unsigned i=0;i<4;++i)w->clip_in[i].v=v[i];
 }
 static bool piece(draw_t *d,const sh2z_view_vertex_t v[4],unsigned quad,unsigned piece_id,
     unsigned base_image,unsigned image,unsigned row,unsigned height,unsigned tier,bool solid){
     fzx_road_stream_draw_work_t *w=d->work;bool safe;
     FZX_RSP(QUAD);FZX_RSP_COUNT(PIECES,1);
-    if(fill(w,v,&safe)){++d->stats->culled;return true;}
-    unsigned count=4;sh2z_view_guard_vertex_t *corners=w->clip_in;
+    if(classify(v,&safe)){++d->stats->culled;return true;}
+    int n=4;
     if(!safe){const int16_t guard[4]={-900,-900,900,900};
-        FZX_RSP(CLIP);FZX_RSP_COUNT(PIECE_CLIPS,1);
-        const int n=sh2z_view_clip_guard_src_center_divu(w->clip_out,&d->view,guard,w->clip_in,4,0,10);
+        FZX_RSP(CLIP);FZX_RSP_COUNT(PIECE_CLIPS,1);clip_input(w,v);
+        n=sh2z_view_clip_guard_src_center_divu(w->clip_out,&d->view,guard,w->clip_in,4,0,10);
         FZX_RSP(QUAD);if(n>0)FZX_RSP_COUNT(CLIP_CORNERS,n);
         if(n<0)return fail(d,FZX_RS_CLIP);
         if(n<3){++d->stats->culled;return true;}
-        count=(unsigned)n;corners=w->clip_out;++d->stats->clipped;
+        ++d->stats->clipped;
     }
+    const sh2z_view_vertex_t *corners[SH2Z_VIEW_GUARD_MAX_OUT];
+    const unsigned count=corners_of(w,v,safe,n,corners);
     if(!area(corners,count)){++d->stats->culled;return true;}
     unsigned fade[16],middle=0;
     FZX_RSP(FOG);
-    for(unsigned i=0;i<count;++i){fade[i]=fog_lookup(w,corners[i].v.z);middle+=fade[i];}
+    for(unsigned i=0;i<count;++i){fade[i]=fog_lookup(w,corners[i]->z);middle+=fade[i];}
     FZX_RSP(BUILD);
     middle/=count;unsigned variant=(middle+64)/128;if(variant>2)variant=2;
     const int selected=variant==2?255:(int)variant*128;
@@ -157,7 +170,7 @@ static bool piece(draw_t *d,const sh2z_view_vertex_t v[4],unsigned quad,unsigned
         fzx_road_stream_command_t *out=d->commands+d->stats->commands;
         out->material=material;out->quad=(uint16_t)quad;out->piece=(uint16_t)piece_id;out->tier=(uint16_t)tier;out->solid=(uint16_t)solid;
         const unsigned order[4]={0,first,first+1,first+2<count?first+2:count-1};
-        for(unsigned i=0;i<4;++i){out->x[i]=corners[order[i]].v.sx;out->y[i]=corners[order[i]].v.sy;out->shade[i]=shades[order[i]];}
+        for(unsigned i=0;i<4;++i){out->x[i]=corners[order[i]]->sx;out->y[i]=corners[order[i]]->sy;out->shade[i]=shades[order[i]];}
         ++d->stats->commands;
     }
     return true;
@@ -178,22 +191,24 @@ static bool quad(draw_t *d,unsigned id){
     const uint8_t *q=fzx_road_stream_record(p,FZX_RLD_QUADS,id);const unsigned flags=U16(q+10);
     if(!d->plan->outer&&(flags&1u))return true;
     ++d->stats->quads;d->stats->error_quad=id;
-    sh2z_view_vertex_t vertices[4];int32_t uv[4][2];bool front=true,safe;
+    sh2z_view_vertex_t vertices[4];unsigned rows[4];int32_t uv[4][2];bool front=true,safe;
     for(unsigned i=0;i<4;++i){const unsigned row=U16(q+i*2),mapped=w->remap[row];
         if(mapped>=d->stats->positions)return fail(d,FZX_RS_GATHER);
-        vertices[i]=w->projected[mapped];if(vertices[i].outcode&SH2Z_OUT_NEAR)front=false;
-        const uint8_t *v=fzx_road_stream_record(p,FZX_RLD_VERTICES,row);uv[i][0]=s16(v+6);uv[i][1]=s16(v+8);}
-    if(fill(w,vertices,&safe)){++d->stats->culled;return true;}
-    unsigned winding_count=4;sh2z_view_guard_vertex_t *winding=w->clip_in;
+        vertices[i]=w->projected[mapped];if(vertices[i].outcode&SH2Z_OUT_NEAR)front=false;rows[i]=row;}
+    if(classify(vertices,&safe)){++d->stats->culled;return true;}
+    int n=4;
     if(!safe){
-        FZX_RSP(CLIP);FZX_RSP_COUNT(QUAD_CLIPS,1);
-        const int n=sh2z_view_clip_guard_src_center_divu(w->clip_out,&d->view,d->view.view.clip,w->clip_in,4,0,10);
+        FZX_RSP(CLIP);FZX_RSP_COUNT(QUAD_CLIPS,1);clip_input(w,vertices);
+        n=sh2z_view_clip_guard_src_center_divu(w->clip_out,&d->view,d->view.view.clip,w->clip_in,4,0,10);
         FZX_RSP(QUAD);if(n>0)FZX_RSP_COUNT(CLIP_CORNERS,n);
         if(n<0)return fail(d,FZX_RS_CLIP);
-        if(n<3){++d->stats->culled;return true;}winding_count=(unsigned)n;winding=w->clip_out;
+        if(n<3){++d->stats->culled;return true;}
     }
-    if(area(winding,winding_count)>=0){++d->stats->culled;return true;}
+    {const sh2z_view_vertex_t *winding[SH2Z_VIEW_GUARD_MAX_OUT];
+     if(area(winding,corners_of(w,vertices,safe,n,winding))>=0){++d->stats->culled;return true;}}
     if(flags&2u){const bool ok=piece(d,vertices,id,0,0,0,0,0,0,true);FZX_RSP(QUAD);return ok;}
+    /* Texture coordinates only for quads that survive culling. */
+    for(unsigned i=0;i<4;++i){const uint8_t *v=fzx_road_stream_record(p,FZX_RLD_VERTICES,rows[i]);uv[i][0]=s16(v+6);uv[i][1]=s16(v+8);}
     unsigned left=uv[0][0]<uv[2][0]?0u:3u,right=left==0?3u:0u;
     unsigned le=left==0?1u:2u,re=right==0?1u:2u;
     if(uv[left][1]>uv[le][1]){unsigned tmp=left;left=le;le=tmp;}

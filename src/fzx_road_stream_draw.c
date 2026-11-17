@@ -71,11 +71,22 @@ typedef struct {
     fzx_road_stream_draw_work_t *work;const RefRoadPlan *plan;sh2z_view_center_t view;
     fzx_road_stream_command_t *commands;uint32_t capacity;unsigned flags;
     fzx_road_stream_draw_stats_t *stats;
+    int32_t live[3],base[3];   /* per-frame fog colours in RGB5 */
 } draw_t;
+/* Exact replacements for divisions on the per-corner path (no SH-2 divide
+ * instruction; libgcc division dominated this stage). Both are checked
+ * exhaustively over their whole reachable domain by the HOST tests. */
+static int32_t div255(int32_t n){      /* trunc(n/255), |n| <= 65534 */
+    const uint32_t a=(uint32_t)(n<0?-n:n),q=(a+(a>>8)+1u)>>8;
+    return n<0?-(int32_t)q:(int32_t)q;
+}
+static uint32_t div65025(uint32_t n){  /* n/65025, n <= 2048287 */
+    return (uint32_t)(((uint64_t)n*UINT32_C(2113633))>>37);
+}
 static bool fail(draw_t *d,unsigned fault){d->stats->fault=fault;return false;}
 /* Inputs to area are clipped to +/-900, bounding the 16-corner sum in int32. */
 static int32_t area(const sh2z_view_guard_vertex_t *v,unsigned count){
-    int32_t sum=0;for(unsigned i=0;i<count;++i){unsigned j=(i+1)%count;
+    int32_t sum=0;for(unsigned i=0;i<count;++i){unsigned j=i+1<count?i+1:0;
         sum+=(int32_t)v[i].v.sx*v[j].v.sy-(int32_t)v[i].v.sy*v[j].v.sx;}
     return sum;
 }
@@ -89,7 +100,7 @@ static unsigned fill(fzx_road_stream_draw_work_t *w,const sh2z_view_vertex_t v[4
     return all;
 }
 static bool piece(draw_t *d,const sh2z_view_vertex_t v[4],unsigned quad,unsigned piece_id,
-    unsigned image,unsigned row,unsigned height,unsigned tier,bool solid){
+    unsigned base_image,unsigned image,unsigned row,unsigned height,unsigned tier,bool solid){
     fzx_road_stream_draw_work_t *w=d->work;bool safe;
     FZX_RSP(QUAD);FZX_RSP_COUNT(PIECES,1);
     if(fill(w,v,&safe)){++d->stats->culled;return true;}
@@ -119,17 +130,26 @@ static bool piece(draw_t *d,const sh2z_view_vertex_t v[4],unsigned quad,unsigned
     }
     uint16_t shades[16];
     FZX_RSP(FOG);
-    for(unsigned i=0;i<count;++i){uint16_t packed=0x8000;
-        for(unsigned c=0;c<3;++c){int color;
-            if(solid)color=((d->plan->primitive[c]*(255-(int)fade[i])+d->plan->fog[c]*(int)fade[i])*31+32512)/65025;
-            else {const int mean=w->images[image-image%5].mean[c];
-                const int live=(d->plan->fog[c]*31+127)/255,base=(w->pack->base_fog[c]*31+127)/255;
-                color=16+((int)fade[i]*(live-mean)-selected*(base-mean))/255;}
-            if(color<0)color=0;
-            if(color>31)color=31;
-            packed|=(uint16_t)((unsigned)color<<(c*5));
+    if(solid){
+        for(unsigned i=0;i<count;++i){uint16_t packed=0x8000;const uint32_t f=fade[i];
+            for(unsigned c=0;c<3;++c){
+                const uint32_t color=div65025((d->plan->primitive[c]*(255u-f)+d->plan->fog[c]*f)*31u+32512u);
+                packed|=(uint16_t)((color>31u?31u:color)<<(c*5));
+            }
+            shades[i]=packed;
         }
-        shades[i]=packed;
+    } else {
+        /* live-mean and selected*(base-mean) are constant over the piece. */
+        const uint8_t *mean=w->images[base_image].mean;int32_t gain[3],offset[3];
+        for(unsigned c=0;c<3;++c){gain[c]=d->live[c]-mean[c];offset[c]=selected*(d->base[c]-mean[c]);}
+        for(unsigned i=0;i<count;++i){uint16_t packed=0x8000;const int32_t f=(int32_t)fade[i];
+            for(unsigned c=0;c<3;++c){int32_t color=16+div255(f*gain[c]-offset[c]);
+                if(color<0)color=0;
+                if(color>31)color=31;
+                packed|=(uint16_t)((unsigned)color<<(c*5));
+            }
+            shades[i]=packed;
+        }
     }
     FZX_RSP(BUILD);
     for(unsigned first=1;first+1<count;first+=2){
@@ -173,7 +193,7 @@ static bool quad(draw_t *d,unsigned id){
         if(n<3){++d->stats->culled;return true;}winding_count=(unsigned)n;winding=w->clip_out;
     }
     if(area(winding,winding_count)>=0){++d->stats->culled;return true;}
-    if(flags&2u){const bool ok=piece(d,vertices,id,0,0,0,0,0,true);FZX_RSP(QUAD);return ok;}
+    if(flags&2u){const bool ok=piece(d,vertices,id,0,0,0,0,0,0,true);FZX_RSP(QUAD);return ok;}
     unsigned left=uv[0][0]<uv[2][0]?0u:3u,right=left==0?3u:0u;
     unsigned le=left==0?1u:2u,re=right==0?1u:2u;
     if(uv[left][1]>uv[le][1]){unsigned tmp=left;left=le;le=tmp;}
@@ -196,12 +216,14 @@ static bool quad(draw_t *d,unsigned id){
     }
     ++d->stats->tiers[tier];
     if(!factor){const sh2z_view_vertex_t whole[4]={vertices[left],vertices[right],vertices[re],vertices[le]};
-        const bool ok=piece(d,whole,id,0,strip*5+4,0,1,0,false);FZX_RSP(QUAD);return ok;}
+        const bool ok=piece(d,whole,id,0,strip*5,strip*5+4,0,1,0,false);FZX_RSP(QUAD);return ok;}
     /* Step at original repetition boundaries, then merge complete periods
      * only when the tagged planner bounds pixel displacement to one pixel.
      * Partial leading/trailing periods must keep their source phase. */
     const unsigned unit=period*32;unsigned count=1;w->boundary[0]=low;
-    for(int32_t start=low;start<high;){int32_t phase=start%(int32_t)unit;if(phase<0)phase+=(int32_t)unit;
+    /* unit is 256, 512 or 1024 (pack admission), so the Euclidean phase is a mask. */
+    const int32_t phase_mask=(int32_t)unit-1;
+    for(int32_t start=low;start<high;){const int32_t phase=start&phase_mask;
         int32_t end=start+(int32_t)unit-phase;if(end>high)end=high;
         if(count>=65)return fail(d,FZX_RS_STEP);
         w->boundary[count++]=end;start=end;}
@@ -213,7 +235,7 @@ static bool quad(draw_t *d,unsigned id){
     for(unsigned j=0;j<count;++j){
         merge_rows[j]=(uint32_t)(w->boundary[j]-low);end_masks[j]=0;
         for(unsigned run=2;run<=4;run*=2)
-            if(run<=factor && j>=run && w->boundary[j-run]%(int32_t)unit==0 &&
+            if(run<=factor && j>=run && !(w->boundary[j-run]&phase_mask) &&
                w->boundary[j]-w->boundary[j-run]==(int32_t)(unit*run))end_masks[j]|=1u<<run;
         for(unsigned rail=0;rail<2;++rail){sh2z_view_vertex_t *v=&w->edge[rail][j];
             if(v->sx< -900||v->sx>900||v->sy< -900||v->sy>900)v->outcode|=0x80;}
@@ -226,13 +248,16 @@ static bool quad(draw_t *d,unsigned id){
     unsigned i=0;
     for(unsigned run_index=0;run_index<(unsigned)run_count;++run_index){
         const unsigned group=runs[run_index];
-        int32_t phase=w->boundary[i]%(int32_t)unit;if(phase<0)phase+=(int32_t)unit;
+        const int32_t phase=w->boundary[i]&phase_mask;
         const unsigned selected_tier=group==4?2u:group==2?1u:0u;
         const sh2z_view_vertex_t part[4]={w->edge[0][i],w->edge[1][i],w->edge[1][i+group],w->edge[0][i+group]};
-        const unsigned scale=32*group,row=(unsigned)phase/scale;
-        const unsigned height=((unsigned)phase+(unsigned)(w->boundary[i+group]-w->boundary[i])+scale-1)/scale-row;
+        /* group is 1, 2 or 4 (mask 0x16 or narrower), so scale=32*group is a shift. */
+        const unsigned scale=32*group,shift=group==4?7u:group==2?6u:5u;
+        if(scale!=1u<<shift)return fail(d,FZX_RS_STEP);
+        const unsigned row=(unsigned)phase>>shift;
+        const unsigned height=(((unsigned)phase+(unsigned)(w->boundary[i+group]-w->boundary[i])+scale-1)>>shift)-row;
         if(!height||row+height>period)return fail(d,FZX_RS_STEP);
-        if(!piece(d,part,id,i,strip*5+selected_tier,row,height,group,false))return false;
+        if(!piece(d,part,id,i,strip*5,strip*5+selected_tier,row,height,group,false))return false;
         FZX_RSP(QUAD);i+=group;
     }
     return true;
@@ -249,6 +274,7 @@ bool fzx_road_stream_draw(fzx_road_stream_draw_work_t *w,const fzx_view_t *view,
        plan->count>REF_ROAD_GROUPS||plan->outer>1||plan->fog_start<0||plan->fog_start>996||pb>0||
        view->clip[0]<-900||view->clip[1]<-900||view->clip[2]>901||view->clip[3]>901)return false;
     draw_t d={.work=w,.plan=plan,.commands=commands,.capacity=capacity,.flags=flags,.stats=stats};
+    for(unsigned c=0;c<3;++c){d.live[c]=(plan->fog[c]*31+127)/255;d.base[c]=(w->pack->base_fog[c]*31+127)/255;}
     FZX_RSP(EYE);
     if(!fzx_view16_from_source_center(&d.view,view,eye))return false;
     FZX_RSP(GATHER);

@@ -48,6 +48,10 @@ CFLAGS="-m2 -mb -O2 -fno-fast-math -fno-unsafe-math-optimizations -ffp-contract=
  -I$W/ref -I$STUB -include $W/ref/overrides.h -include $STUB/asset_syms.h"
 SOURCES="src/game/racer.c src/game/course.c src/game/course_gadgets.c src/sys/math.c src/game/EA90.c src/game/common.c src/sys/controller.c src/overlays/ovl_i2/course_context.c src/overlays/ovl_i3/cpu.c src/game/game_context.c src/game/course_gadget_context.c"
 BRIDGES="bridge hooks"
+if [ "${FZX_SOURCE_FINISH_MENU:-0}" = 1 ]; then
+    [ "${FZX_SOURCE_RECORDS:-0}" = 1 ] || { echo 'finish menu requires records' >&2; exit 1; }
+    BRIDGES="$BRIDGES finish_menu_bridge"
+fi
 if [ "${FZX_SOURCE_RECORDS:-0}" = 1 ]; then
     [ "${FZX_SOURCE_RESULTS:-0}" = 1 ] || { echo 'records requires results' >&2; exit 1; }
     BRIDGES="$BRIDGES records_bridge"
@@ -100,6 +104,13 @@ if [ "${FZX_SOURCE_RECORDS:-0}" = 1 ]; then
     $CC $RESULTS_CFLAGS -I"$W/include" -I"$W/generated/records-source" -c "$W/generated/records-source/records_source.c" -o "$OBJ/records_source.o"
     $CC $RESULTS_CFLAGS -I"$W/include" -I"$W/generated/records-draw-source" -I"$W/generated/records_ui" -c "$W/generated/records-draw-source/records_draw_source.c" -o "$OBJ/records_draw_source.o"
     objs="$objs $OBJ/records_matrix_bridge.o $OBJ/records_source.o $OBJ/records_draw_source.o"
+fi
+if [ "${FZX_SOURCE_FINISH_MENU:-0}" = 1 ]; then
+    bash "$W/tools/check_receipt.sh" "$W/generated/finish-menu-source/finish_menu_source.receipt"
+    bash "$W/tools/check_receipt.sh" "$W/generated/finish-menu-draw-source/finish_menu_draw_source.receipt"
+    $CC $RESULTS_CFLAGS -I"$W/include" -I"$W/generated/finish-menu-source" -c "$W/generated/finish-menu-source/finish_menu_source.c" -o "$OBJ/finish_menu_source.o"
+    $CC $RESULTS_CFLAGS -I"$W/include" -c "$W/generated/finish-menu-draw-source/finish_menu_draw_source.c" -o "$OBJ/finish_menu_draw_source.o"
+    objs="$objs $OBJ/finish_menu_source.o $OBJ/finish_menu_draw_source.o"
 fi
 if [ "$SKY" = 1 ]; then
     $CC $CFLAGS -I"$D/src/overlays/ovl_i3" -c "$W/generated/sky/sky_state.c" -o "$OBJ/sky_state.o"

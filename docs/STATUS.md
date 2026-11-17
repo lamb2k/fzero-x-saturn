@@ -51,8 +51,9 @@ Windows/Linux packs match; corruption controls fail. C3's native road stream
 is next. Source fog changes in 415 inputs must remain in its runtime tables.
 The [SH2ZAM view tag](SH2ZAM_VIEW_ADOPTION.md) is adopted after HOST and 13-view
 EMULATOR comparison; packets/hashes match and costs are effectively unchanged.
-C3 needs the owner's guard-band clip contract; camera/pack work can proceed.
-No runtime road edits yet. See the [road census](ROAD_LOD_CENSUS.md).
+C3's [camera/pack/gather helpers](ROAD_STREAM.md) pass HOST and SH-2 compile:
+1,291,264 visible vertex samples stay within 1 px; max gather is 552 records.
+Native stream/image/timing gates and the owner's clipping contract remain open.
 The owner's local render plan ranks C1-C8; the full first-course goal remains.
 
 The last admitted rendering change remains the RBG0 floor: its 13-view

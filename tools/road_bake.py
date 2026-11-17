@@ -443,7 +443,10 @@ def generate(source, output):
     (output/'road_bake.json').write_bytes((json.dumps(report, indent=2)+'\n').encode())
     identity = ('/* Generated road bake identity; regenerate, never edit. */\n'
                 '#define FZX_ROAD_LOD_BYTES %du\n#define FZX_ROAD_LOD_TEXTURE_BYTES %du\n'
-                '#define FZX_ROAD_LOD_HASH 0x%08Xu\n') % (len(metadata), len(textures), struct.unpack_from('>I', metadata, 20)[0])
+                '#define FZX_ROAD_LOD_HASH 0x%08Xu\n'
+                '#define FZX_ROAD_LOD_FILE_HASH 0x%08Xu\n'
+                '#define FZX_ROAD_LOD_TEXTURE_FILE_HASH 0x%08Xu\n') % (
+                    len(metadata), len(textures), struct.unpack_from('>I', metadata, 20)[0], fnv(metadata), fnv(textures))
     (output/'road_lod_identity.h').write_bytes(identity.encode())
     dependencies = [Path(__file__), ROOT/'tools/road_lod_census.py', ROOT/'tools/road_tiles.py', ROOT/'tools/road_pack.py',
                     ROOT/'tools/import_source_art.py', source/'road.receipt', source/'road.json',

@@ -34,7 +34,8 @@ Limit: 50 lines. History lives in git.
 - C3 must retain 62 source fog colours across 415 non-base inputs; baked fog is base only.
 - SH2ZAM view-contract-1 is adopted: HOST suites and 13-view native A/B pass;
   packets/hashes match, costs unchanged. See SH2ZAM_VIEW_ADOPTION.md.
-- Guard-band clipping contract requested from owner; camera/pack work can proceed.
+- C3 camera/pack/gather HOST gates pass: <=1 px, max552 vertices; ROAD_STREAM.md.
+- Native stream is not integrated. Guard-band clipping contract remains requested.
 - Require image-space controls and p99 road CPU <=8 ms MODELLED; >16 ms is no-go.
 - Keep the old runtime road frozen. Do not edit SH2ZAM or invent general kernels.
 - The latest detailed checkpoint is at the TOP of generated/CONTINUE-CODEX.md.

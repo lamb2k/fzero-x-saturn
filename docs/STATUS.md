@@ -48,7 +48,7 @@ Windows/Linux outputs and corruption controls pass; retain all 415 fog-changing 
 C3 [camera/pack/gather](ROAD_STREAM.md): 1,291,264 samples within 1 px, max gather 552; HOST/SH-2 pass.
 Owner revised texture metric: 1 px merge census p99 413 commands / 0.650 px texture; HOST only.
 [view-merge-1](SH2ZAM_MERGE_ADOPTION.md) adopted after synthetic gates; tagged census unchanged.
-Shifted fixture rounding still open; native stream/timing remain unqualified.
+[view-round-1](SH2ZAM_ROUND_ADOPTION.md) dependency adopted; caller/image/native gates remain.
 
 C4 [vehicle rebake](MACHINE_REBAKE.md) stays default-off: mean 9.273 ms MODELLED vs 52.112 before.
 HOST p99 67 / max 112 commands; 1 ms / 70-command and overlap gates fail.
@@ -72,7 +72,7 @@ Four corrupted packs are rejected before race. Records/name entry/retry/audio re
 
 Older hitch, clip-divider and software-road WIP remain local and unstaged.
 Use fixed-input replay for comparisons; live autopilot depends on render cadence.
-Next: qualify/adopt the supplied projection-rounding tag, then C3 road gates;
+Next: opt-in road truncation adapter, unchanged fixtures, full census and images;
 records/name entry/retry, audio/effects, ordinary pad completion and soak remain.
 C3/C4/C5 performance blockers and full combined 60 fps qualification remain.
 No release, retail-derived publication, SD write or physical acceptance occurred.

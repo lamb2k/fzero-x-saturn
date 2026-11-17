@@ -55,6 +55,11 @@ typedef struct {
     int32_t boundary[65];
     sh2z_view_vertex_t edge[2][65];
     sh2z_view_guard_vertex_t clip_in[4],clip_out[SH2Z_VIEW_GUARD_MAX_OUT];
+    /* Bucket index over fog_depth (shade-1 sh2z_shade_fog_t rule): bucket[b]
+     * is the fade at depth b<<shift, bucket[256]=255; scale=2^(32-shift).
+     * shift 255 marks a non-monotonic table (plain binary search). */
+    uint32_t fog_scale;
+    uint8_t fog_bucket[257],fog_shift;
 } fzx_road_stream_draw_work_t;
 
 /* Boot-only image templates and approximate RGB5 material means, decoded

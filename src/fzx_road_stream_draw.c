@@ -57,12 +57,32 @@ static void fog_prepare(fzx_road_stream_draw_work_t *w,const sh2z_view_t *view,
         }
         w->fog_depth[i]=depth;
     }
+    /* Bucket index, as shade-1's sh2z_shade_fog_from_depth builds it. */
+    unsigned monotonic=1,shift=0;
+    for(unsigned i=1;i<256;++i)if(w->fog_depth[i]<w->fog_depth[i-1])monotonic=0;
+    while((w->fog_depth[255]>>shift)>255u)++shift;
+    {const uint32_t step=(uint32_t)1u<<shift;uint32_t z=0;unsigned i=0;
+     for(unsigned b=0;b<256;++b,z+=step){while(i<255u&&w->fog_depth[i+1u]<=z)++i;w->fog_bucket[b]=(uint8_t)i;}}
+    w->fog_bucket[256]=255;w->fog_shift=(uint8_t)(monotonic?shift:255u);
+    w->fog_scale=shift?(uint32_t)1u<<(32u-shift):0u;
     w->fog_pa=pa;w->fog_pb=pb;w->fog_start=plan->fog_start;
     w->fog_near=view->near_z;w->fog_far=view->far_z;w->fog_valid=true;
     stats->fog_updates=1;
 }
 static unsigned fog_lookup(const fzx_road_stream_draw_work_t *w,int32_t z){
-    unsigned lo=0,hi=256;const uint32_t depth=z>0?(uint32_t)z:0;
+    const uint32_t depth=z>0?(uint32_t)z:0;
+    if(w->fog_shift!=255u){
+        /* Bounded search inside one bucket; identical to the full search for
+         * a non-decreasing table. depth>>shift as a multiply-high (the SH-2
+         * has no variable shift). */
+        const uint32_t b=w->fog_shift?(uint32_t)(((uint64_t)depth*w->fog_scale)>>32):depth;
+        if(b>255u)return 255;
+        unsigned lo=w->fog_bucket[b],hi=w->fog_bucket[b+1u];
+        while(lo<hi){const unsigned middle=(lo+hi+1u)>>1;
+            if(w->fog_depth[middle]<=depth)lo=middle;else hi=middle-1u;}
+        return lo;
+    }
+    unsigned lo=0,hi=256;
     while(lo+1<hi){const unsigned middle=(lo+hi)/2;
         if(depth>=w->fog_depth[middle])lo=middle;else hi=middle;}
     return lo;

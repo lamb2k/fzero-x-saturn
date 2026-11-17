@@ -33,14 +33,15 @@ Limit: 50 lines. History lives in git.
 - C3 camera/pack/gather:1,291,264 vertices within1px, max552 gathered; HOST/SH-2 pass.
   Owner revised texture gate: 1px merge gives p99 413 commands / 0.650px HOST texture error.
   view-merge-1 adopted (pointer9ff1601), pixel/Q8=256; tagged census unchanged.
-  view-center-1 at8a61816: all9907views, no exclusions, p99 413; fixtures/13images pass.
-- C4 rebake:9.273 ms MODELLED; cost/order/stack fail. shade-1 HOST-qualified; callers unchanged.
+  view-center-1 HOST passes old9907views. [Native C3](ROAD_STREAM_NATIVE.md) selected 7,059 finishes;
+  road p99 133.143 ms fails 16 ms stop; whole 3.929 fps MODELLED, stack 21,240 B. Ideal-image gate fails.
+- C4 rebake:9.273 ms MODELLED; cost/order/stack fail. Fixed orders fail selected held-out views; see C4_OCCLUSION_FEASIBILITY.md.
 - C5 dual probe open; compact cloud atlas reclaims128 KiB, no speed claim.
 - C8 countdown:24views/276commands and source full race pass; sound/look open.
 
 ## Next and preserved work
 
-- Owner extension: [F Zero S cover/title branding](BRANDING.md) and [all-3D coverage](ASSET_COVERAGE.md); guest art then native stream.
+- Owner extension: [F Zero S cover/title branding](BRANDING.md) and [all-3D coverage](ASSET_COVERAGE.md); guest art; native C3 is a measured no-go.
 - Ordinary retry, source audio/effects and soak remain; qualify the combined scene against60fps.
 - [Records](RECORDS.md) native state/commands qualified; final presentation cleanup remains.
 - The selected-tuning replay is distinct from the old9,907-input baseline; do not interchange them.

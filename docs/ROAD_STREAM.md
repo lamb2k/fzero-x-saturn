@@ -219,3 +219,11 @@ All 13 held views pass (texture p99 0.650 px; geometry within 1 px), and regular
 and shifted synthetic fixtures plus mutation controls pass unchanged.
 This closes the HOST fractional-centre/anchor/merge image blockers. Native
 integration, memory/stack, timing and VDP1 look qualification remain open.
+
+## Native decisive experiment
+
+[The native report](ROAD_STREAM_NATIVE.md) records the selected 7,059-input
+run: source finish and memory guards pass, but road CPU p99 is 133.143 ms
+MODELLED, above the 16 ms stop threshold. This implementation is a no-go.
+The selected ideal-image gate also fails at input 684; the older HOST image
+qualification above does not transfer across tuning and replay changes.

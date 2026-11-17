@@ -10,7 +10,7 @@ Targets below remain targets until their stated evidence exists.
 | C0 | Frozen legacy-tuning full route: 3.287 fps MODELLED, 34,178 missed fields; frame clock controls pass | Retain this baseline. Measure the actual selected-tuning combined candidate separately; do not interchange replays |
 | C1 | All 9,907 HOST views: p99 335 road commands; forced-first-tier control fails 420 | Census policy is qualified; native cost is not established |
 | C2 | Source road bake: 151,128 B metadata, 147,328 B textures; receipts and corruption controls pass | Preserve source rows, fog inputs and frozen road reference |
-| C3 | Tagged centre/source-order guard/merge caller: all 9,907 HOST views, zero exclusions, p99 413 commands; 13 views pass at texture p99 0.650 px | Native stream integration, memory/stack, timing and VDP1 look gates |
+| C3 | [Native stream](ROAD_STREAM_NATIVE.md): selected 7,059 inputs finish exactly; guards/stack pass; road p99 133.143 ms MODELLED | No-go above 16 ms: stop this implementation. Selected ideal-image gate fails; disabled executable identity passes |
 | C4 | Rebake mean 9.273 ms MODELLED; HOST p99 67 / max 112 commands | The 1 ms / 70-command and overlap gates fail. Reassess measured costs after C3; this is not a qualified final vehicle path |
 | C5 | Compact cloud atlas reclaims 128 KiB; dual rotation layers remain unproven | Complete independent dual-layer evidence or the specified bounded 4x3 source-cloud fallback |
 | C6 | Not qualified; depends on C3 | Split only a qualified compact road job, preserve simulation, qualify chained submission |
@@ -36,11 +36,14 @@ and Q16-centre contracts resolve the anchor and fractional-centre blockers;
 the unchanged fixtures. No native road admission follows.
 A small camera bias remains a diagnostic, not an accepted fix.
 
-The initial 300-cycles-per-piece estimate and 8 ms road target have not been
-demonstrated by the native stream. Keep the decisive experiment bounded:
-qualify its images and memory, measure one CPU, and stop this approach above
-16 ms p99. Do not treat an API adoption or HOST command reduction as that test.
-The selected configuration needs its own full-route measurement.
+The selected full-route native experiment now measures road CPU p99 133.143 ms
+MODELLED, above the explicit 16 ms stop threshold. Independent raw-clock and
+scope audits confirm the failure. This implementation uses low-RAM working
+arrays, unlike the proposed high-RAM projection scratch; stop this measured
+route without generalizing its result to every possible architecture. Its
+3.929 fps whole-scene result includes the original machine path, and establishes
+neither 60 Hz simulation nor the 30 Hz drawing fallback. See the native report
+for exact configuration, image and memory gates, and disabled-control checks.
 
 The owner's [SCU DSP development notes](https://segaxtreme.net/threads/saturn-scu-dsp-notes.25289/)
 are a follow-up reference for a bounded visibility or lighting experiment after

@@ -7,6 +7,7 @@ endif
 # otherwise a fresh original-race build depends on a prior prototype build dir.
 SH_PROGRAM := fzero-x-saturn
 FZX_SIM ?= proto
+FZX_SOURCE_COUNTDOWN ?= 0
 FZX_NATIVE_CORE_EMPTY ?= 0
 ifeq ($(FZX_NATIVE_CORE_EMPTY),1)
 ifneq ($(FZX_SIM):$(FZX_SOURCE_ROAD_TILES):$(FZX_SOURCE_MACHINE),orig:1:1)
@@ -334,7 +335,23 @@ endif
 ifeq ($(FZX_FRAME_PROFILE),1)
 SH_CFLAGS += -DFZX_FRAME_PROFILE=1
 endif
-SH_SRCS := $(FZX_FRAME_PROFILE_SRCS) main.c ../src/fzx.c $(FZX_ORIG_SRCS) $(FZX_HUD_SRCS) $(FZX_CAMERA_SRCS) $(FZX_ROAD_SRCS) $(FZX_SKY_SRCS) $(FZX_MACHINE_SRCS) $(wildcard $(SH2ZAM_ROOT)/saturn/src/*.c)
+ifeq ($(FZX_SOURCE_COUNTDOWN),1)
+ifneq ($(FZX_SIM):$(FZX_SOURCE_MACHINE):$(FZX_SOURCE_CAMERA):$(FZX_ROM_BOOT):$(FZX_PLANE_CLOUD_ONLY):$(FZX_NATIVE_CORE_EMPTY),orig:1:1:1:1:1)
+$(error Original countdown requires original race/camera/machine, compact clouds and native core bypass)
+endif
+FZX_COUNTDOWN_RECEIPT := $(shell sh ../tools/check_receipt.sh ../generated/countdown_pack/countdown_pack.receipt 2>&1; echo "rc=$$?")
+ifeq ($(findstring rc=0,$(FZX_COUNTDOWN_RECEIPT)),)
+$(error Original countdown pack is stale: $(FZX_COUNTDOWN_RECEIPT))
+endif
+SH_CFLAGS += -DFZX_SOURCE_COUNTDOWN=1 -I../generated/countdown_pack
+FZX_COUNTDOWN_SRCS := countdown_scene.c countdown_draw_native.c ../src/fzx_countdown.c ../src/fzx_countdown_pack.c ../src/fzx_countdown_draw.c
+ifneq ($(FZX_MACHINE_REBAKE),1)
+FZX_COUNTDOWN_SRCS += ../src/fzx_view16.c
+endif
+else ifneq ($(FZX_SOURCE_COUNTDOWN),0)
+$(error FZX_SOURCE_COUNTDOWN must be 0 or 1)
+endif
+SH_SRCS := $(FZX_COUNTDOWN_SRCS) $(FZX_FRAME_PROFILE_SRCS) main.c ../src/fzx.c $(FZX_ORIG_SRCS) $(FZX_HUD_SRCS) $(FZX_CAMERA_SRCS) $(FZX_ROAD_SRCS) $(FZX_SKY_SRCS) $(FZX_MACHINE_SRCS) $(wildcard $(SH2ZAM_ROOT)/saturn/src/*.c)
 SH_CFLAGS += -DFZX_SH2_DIVU=1 -O2 -std=c11 -Wall -Wextra -I../include \
              -I$(SH2ZAM_ROOT)/saturn/include -DSH2Z_REQUIRE_SH2=1
 ifeq ($(FZX_NATIVE_CORE_EMPTY),1)
@@ -424,4 +441,13 @@ stage-machine-pack:
 	mkdir -p $(IMAGE_DIRECTORY)
 	cp ../generated/machine/MACHINE.PAK ../generated/machine/MACHTX.PAK $(IMAGE_DIRECTORY)/
 endif
+endif
+
+ifeq ($(FZX_SOURCE_COUNTDOWN),1)
+$(SH_OUTPUT_PATH)/$(SH_PROGRAM).iso: ../generated/countdown_pack/COUNTDN.PAK ../generated/countdown_pack/COUNTDTX.PAK
+pre-build-iso: stage-countdown-pack
+.PHONY: stage-countdown-pack
+stage-countdown-pack:
+	mkdir -p $(IMAGE_DIRECTORY)
+	cp ../generated/countdown_pack/COUNTDN.PAK ../generated/countdown_pack/COUNTDTX.PAK $(IMAGE_DIRECTORY)/
 endif

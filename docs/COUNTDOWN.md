@@ -1,9 +1,10 @@
 # Original race countdown
 
-The original countdown assets, pack reader, snapshot/view adapter and command
-builder pass HOST checks. The native command adapter compiles for SH-2 but is
-not linked into the running game. Native residency, scene comparison and sound
-remain open.
+The original countdown now loads and draws in the native scene behind
+`FZX_SOURCE_COUNTDOWN=1`. Its source timer/matrix, resident assets, submitted
+commands and guarded allocations pass the native checks below. The full
+three-lap replay retains the original final state. Sound, final owner appearance
+acceptance and hardware remain open.
 This is dependency-safe C8 work while the C3 road image gate is blocked.
 
 `tools/countdown_assets.py` reads the stock US rev0 race countdown's three
@@ -32,7 +33,7 @@ python3 tests/test_countdown_assets.py
 
 Outputs stay in ignored `generated/countdown/` or the configured private evidence
 tree. The receipt binds the generator, its dependencies, source metadata and
-output bytes. This is a conversion intermediate; no native build consumes it yet.
+output bytes. This intermediate feeds the receipt-bound native pack below.
 
 `tools/countdown_pack.py` consumes that receipt and bakes `FZXCDN01` metadata
 (2,352 bytes) and 28 RGB1555 quad charts (70,400 bytes). All 92 vertex records
@@ -59,8 +60,7 @@ Windows/Linux packs are identical. Synthetic controls reject changed UV
 orientation, non-planar/non-convex geometry, material changes, missing triangles
 and invalid texture spans. The actual receipt checker rejects changed metadata
 or texture bytes. Private evidence: `host/countdown/pack-qualification.json`,
-`pack-receipt-controls.json` and `native-charts.png`. Native VRAM residency is
-unrun; the pack is not linked into the running game.
+`pack-receipt-controls.json` and `native-charts.png`. Native residency is covered by the integration checks below.
 
 HOST evidence is in `$FZX_EVIDENCE/host/countdown/source-qualification.json`.
 An independent primitive traversal agrees on all 46 triangles, including original
@@ -80,8 +80,8 @@ than reconstructing its animation in the native renderer.
 `ref/countdown_bridge.c` copies the existing packed matrix without advancing or
 mutating source state. `src/fzx_countdown.c` selects the mouth/panel from the
 source timer and composes the model matrix with the current camera once per
-sign. SH2ZAM owns the vertex transform and projection. These helpers are not
-linked into the current native program.
+sign. SH2ZAM owns the vertex transform and projection. The native scene publishes
+this snapshot after the completed source tick.
 
 The full 9,907-input HOST replay preserves the admitted race and camera traces
 byte for byte; repeated snapshot reads leave source pose/state unchanged. The
@@ -114,7 +114,7 @@ pack passes GCC/Clang UBSan with 92 positions and all 230 panel/mouth/quad
 selections. Synthetic valid-checksum corruption, truncation, wrong identity,
 insufficient output capacity and wrong-panel controls fail as intended. The
 SH-2 object is 1,477 text bytes with zero static data/BSS; this is compile
-evidence only. The helper remains absent from the native program source list.
+evidence only at that foundation step; native integration follows below.
 Evidence: `host/countdown/native-pack/qualification.json` and `sh2-compile.txt`.
 Run `python3 tests/test_countdown_native_pack.py` under Linux.
 
@@ -138,8 +138,51 @@ python3 tests/test_countdown_draw.py
 python3 tests/test_countdown_native.py
 ```
 
-Remaining gates: guarded loading/residency, main/build integration with a
-default-off renderer and knob-off identity, native timeline/command checks,
-local still/motion comparison, sound, and combined memory/performance. The
-[compact cloud atlas](PLANE_RESIDENCY.md) provides the required VRAM headroom.
-No countdown EMULATOR, MODELLED or HARDWARE result is claimed by these helpers.
+## Native scene integration
+
+The default-off native path requires the original race/camera/machine, compact
+cloud pack and `FZX_NATIVE_CORE_EMPTY=1`. The [core bypass](NATIVE_CORE_MEMORY.md)
+removes unused placeholder-rendering work and storage; without it, the first
+countdown link exceeded high work RAM by 3,328 bytes. The wrapper loads after
+the machine/HUD, publishes after camera state, and draws after the machine and
+before HUD. Its 30 reserved command slots include the user clip.
+
+The two new disc files match their admitted packs exactly. All 14 existing
+non-program payloads remain unchanged. CD directory capacity rises from 16 to
+32 entries only with countdown enabled; shared CD scratch is 3,008 bytes and
+fits below the input-log guard. The 70,400-byte texture bank follows machine
+shades in VDP1 VRAM. Metadata and native work occupy 6,464 bytes of low RAM,
+with guards on both sides; profiling rows begin after that allocation.
+
+Ymir passes 24 held views through the same 685-input prefix, covering every
+3/2/1/GO and mouth-state boundary, sign entry/exit and maximum command count.
+All source countdown/camera packets, metadata and resident texture bytes match
+HOST. All 276 staged and submitted native commands match independent conversion
+of the qualified HOST command records, including modes, texture addresses,
+coordinates and user clip. The maximum is 17 commands including the clip.
+Local still review shows the original sign, digits and departure; the adaptation
+retains nearest RGB5 texels and binary transparency. This is not an N64 raster
+identity claim or owner appearance approval.
+
+The complete 9,907-input Ymir replay reaches all three laps with the original
+final pose, scene packets and 121,814 ms source finish time. The countdown is
+hidden at the end. Guards pass, including the profiling allocation; minimum
+untouched stack is 49,068 bytes. Road and machine command aggregates match HOST
+at every recorded input. A one-byte mutation in the countdown texture file is
+rejected by the actual native loader before race startup (countdown status 5,
+texture checksum status 8). Synthetic wrapper span/publication/guard controls
+also fail as intended; all 14 countdown tests pass with GCC/Clang UBSan.
+
+The recorded window contains 1,983 pictures: 3.824 fps MODELLED, 261.520 ms mean
+presentation interval, p95 366.667 ms, maximum 416.667 ms and 29,118 missed
+fields. This remains far below 60 fps. These are Ymir results; the prior full
+baseline used Yaba, so they do not establish a matched speedup. The initial
+input-1 hold precedes recording (zero recorded rows at that hold); the final
+hold follows the last presentation. The wrapped-clock negative control fails.
+
+Private evidence under `$FZX_EVIDENCE`: `host/countdown/native-on-fit`,
+`emu/countdown/native-first/command-comparison.json`,
+`emu/countdown/full-race-first/summary.json` and
+`emu/countdown/texture-control-first/negative-control.json`. Runtime evidence
+is EMULATOR; timings are MODELLED; HARDWARE remains UNRUN. Sound and complete
+entry/race/results/retry acceptance remain unfinished.

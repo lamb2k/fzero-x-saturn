@@ -1,11 +1,16 @@
 #include "texture_cd.h"
 #include "road_cd.h"
 #include <string.h>
+#if FZX_SOURCE_COUNTDOWN
+enum { ROOT_ENTRIES=32 };
+#else
+enum { ROOT_ENTRIES=16 };
+#endif
 
 typedef struct {
     uint32_t guard_before[8];
     sector_buffer_t sector;
-    cdfs_filelist_entry_t entries[16];
+    cdfs_filelist_entry_t entries[ROOT_ENTRIES];
     uint32_t guard_after[8];
 } scratch_t;
 static scratch_t *workspace;
@@ -39,10 +44,10 @@ bool fzx_texture_cd_load(const char *name,uint32_t bytes,uint32_t expected,
     const cdfs_config_t config={.sector_read=volume_read,.sectors=&workspace->sector,.sector_count=1};
     cdfs_config_set(&config);
     cdfs_filelist_t list;
-    cdfs_filelist_init(&list,workspace->entries,16);
+    cdfs_filelist_init(&list,workspace->entries,ROOT_ENTRIES);
     cdfs_filelist_root_read(&list);
     if(fzx_texture_cd_status.io_result)return fail(3);
-    if(list.entries_count>16)return fail(5);
+    if(list.entries_count>ROOT_ENTRIES)return fail(5);
     const cdfs_filelist_entry_t *file=NULL;
     for(uint32_t i=0;i<list.entries_count;++i) {
         const cdfs_filelist_entry_t *entry=&workspace->entries[i];

@@ -39,8 +39,8 @@ Limit: 50 lines. History lives in git.
 - Shifted texture fixture also fails; stop this approach (ROAD_STREAM.md).
 - Require image-space controls and p99 road CPU <=8 ms MODELLED; >16 ms is no-go.
 - view-guard-1 adopted after HOST/native gates; old road stays frozen (SH2ZAM_GUARD_ADOPTION.md).
-- C8 countdown pack: 23 original quads, 2,352 B metadata / 70,400 B charts; HOST passes.
-- Countdown HOST commands + native-adapter compile pass; integration/audio open (COUNTDOWN.md).
+- C8 countdown native: 24 views/276 commands match HOST; full race state/guards pass.
+- 3.824 fps MODELLED (Ymir), stack 49,068 B; sound/look open (COUNTDOWN.md).
 
 ## Preserved work and gaps
 - Older clip/hitch/software-road WIP is still local and unstaged.

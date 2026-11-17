@@ -24,7 +24,7 @@ Pad-only end-to-end acceptance, final look approval and HARDWARE remain unrun.
 | --- | --- |
 | Gate 0 | Source-only hygiene, receipt rejection and private evidence boundaries established |
 | Simulation | Full native replay preserves final pose/time and source state |
-| Camera/HUD | 19 held camera packets match; timer/speed/lap/energy integrated; countdown/results open |
+| Camera/HUD | 19 held camera packets match; timer/speed/lap/energy/countdown integrated; results open |
 | Blue Falcon | Original near model retains 132 triangles, resident textures and live pose/body/lighting; full replay/guards pass; performance and final look remain open |
 | Road | All 300 chunks / 4,966 triangles retained; shared cache reduces 13-view mean 125.92 to 112.04 ms MODELLED; budget blocked |
 | Backdrop | C5 [dual layers](DUAL_RBG.md) unresolved; [compact clouds](PLANE_RESIDENCY.md) reclaim 128 KiB in native checks |
@@ -54,10 +54,10 @@ C3's [camera/pack/gather helpers](ROAD_STREAM.md) pass HOST and SH-2 compile:
 Native stream is blocked: two mapping arms fail the 1-texel p99 image gate
 (9.33 texels); the shifted synthetic fixture also fails. See ROAD_STREAM.md.
 The owner's local render plan ranks C1-C8; the full first-course goal remains.
-C8's [countdown pack](COUNTDOWN.md) passes HOST: 23 original quads, 2,352 bytes
-metadata / 70,400 bytes textures; source setup confirms no lighting is required.
-Countdown builder passes all 9,907 HOST states: max 16 commands, visible
-coverage within 1 px; native adapter compiles. Integration/review/sound open.
+C8 [countdown](COUNTDOWN.md) is native: 24 timeline views / 276 submitted commands
+match HOST; three-lap final state/time and all guards pass. Sound remains open.
+Ymir full race: 3.824 fps MODELLED, 29,118 missed fields; stack 49,068 B.
+Source sign/texture residency and corrupt-texture rejection pass; owner look open.
 [Unused core renderer bypass](NATIVE_CORE_MEMORY.md) saves 59,736 linked bytes;
 13 native views retain exact scene commands/pixels; stack minimum 65,680 B.
 

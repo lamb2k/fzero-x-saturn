@@ -9,6 +9,13 @@
 
 #include "fzx.h"
 #include "frame_profile.h"
+#ifndef FZX_SOURCE_COUNTDOWN
+#define FZX_SOURCE_COUNTDOWN 0
+#endif
+#if FZX_SOURCE_COUNTDOWN
+#include "countdown_scene.h"
+#include "countdown_identity.h"
+#endif
 #ifndef FZX_SOURCE_MACHINE
 #define FZX_SOURCE_MACHINE 0
 #endif
@@ -119,6 +126,9 @@ enum {
     COMMAND_LOCAL_COORD = 1,
     COMMAND_FIRST_POLYGON = 2,
     COMMAND_CAPACITY = FZX_SCENE_CAPACITY + 3u
+#if FZX_SOURCE_COUNTDOWN
+        + FZX_COUNTDOWN_NATIVE_COMMANDS
+#endif
 #if FZX_SOURCE_HUD
         + FZX_HUD_MAX_DRAWS
 #endif
@@ -467,6 +477,11 @@ orig_publish(void)
         for(;;) {}
     }
     fzx_set_camera(&fzx_native_view);
+#if FZX_SOURCE_COUNTDOWN
+    if(!fzx_countdown_publish()) {
+        dbgio_printf("SOURCE COUNTDOWN STATE FAILED");dbgio_flush();vdp2_sync();for(;;) {}
+    }
+#endif
 #if FZX_SOURCE_SKYLINE
     if(!fzx_skyline_publish(fzx_input_count)) {
         dbgio_printf("\x1b[H\x1b[2J SOURCE SKYLINE STATE FAILED\n");
@@ -630,6 +645,17 @@ commands_build(const fzx_frame_t *frame)
     }
 
     uint32_t draw_count = first+count;
+#if FZX_SOURCE_COUNTDOWN
+    if(fzx_input_count) {
+        uint32_t countdown_count=0;const uint32_t before=video_fields;
+        if(!fzx_countdown_native(&commands[COMMAND_FIRST_POLYGON+draw_count],
+            FZX_COUNTDOWN_NATIVE_COMMANDS,&fzx_native_view,&countdown_count)) {
+            dbgio_printf("SOURCE COUNTDOWN DRAW FAILED %lu",(unsigned long)fzx_countdown_status);
+            dbgio_flush();vdp2_sync();for(;;) {}
+        }
+        fzx_countdown_fields=video_fields-before;draw_count+=countdown_count;
+    }
+#endif
 #if FZX_SOURCE_HUD
     /* Racer_InitRacer sets energy=maxEnergy, and maxEnergy is immutable
      * in this source race closure. Capture its initial value before any ticks. */
@@ -762,6 +788,15 @@ main(void)
 #endif
     fzx_source_hud_status = 1;
 #endif
+#if FZX_SOURCE_COUNTDOWN
+    void *const countdown_pixels=(void *)((uintptr_t)machine_shades+FZX_MACHINE_SHADE_BYTES);
+    if((uintptr_t)countdown_pixels+FZX_COUNTDOWN_TEXTURE_BYTES>
+       (uintptr_t)sky_partitions.texture_base+sky_partitions.texture_size ||
+       !fzx_countdown_load(fzx_machine_low_end,countdown_pixels,FZX_COUNTDOWN_TEXTURE_BYTES)) {
+        dbgio_printf("SOURCE COUNTDOWN LOAD FAILED %lu",(unsigned long)fzx_countdown_status);
+        dbgio_flush();vdp2_sync();for(;;) {}
+    }
+#endif
 #if FZX_SIM == FZX_SIM_ORIG
     /* The stand-ins start zeroed, as the host's do. */
     memset((void *)0x00200000, 0,
@@ -819,7 +854,11 @@ main(void)
     vblank_frt = cpu_frt_count_get();
     fzx_timing.magic = 0x465A5854u;
 #if FZX_FRAME_PROFILE
+#if FZX_SOURCE_COUNTDOWN
+    if(!fzx_fp_init(fzx_countdown_low_end,fields_per_second)) {
+#else
     if(!fzx_fp_init(fzx_machine_low_end,fields_per_second)) {
+#endif
         dbgio_printf("FRAME PROFILE MEMORY FAILED");dbgio_flush();
         for(;;){}
     }

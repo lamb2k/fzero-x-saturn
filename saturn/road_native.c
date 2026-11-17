@@ -17,7 +17,12 @@ static const unsigned char road_fog[3]=FZX_ROAD_COURSE_FOG;
 static uint32_t planned_frame;
 static bool road_tick_seen,road_plan_seen;
 static sector_buffer_t sector __aligned(32);
-static cdfs_filelist_entry_t entries[16];
+#if FZX_SOURCE_COUNTDOWN
+enum { ROOT_ENTRIES=32 };
+#else
+enum { ROOT_ENTRIES=16 };
+#endif
+static cdfs_filelist_entry_t entries[ROOT_ENTRIES];
 void fzx_road_note_tick(void) {
     fzx_road_frame=fzx_road_next_frame++;
     road_tick_seen=true;
@@ -83,7 +88,7 @@ bool fzx_road_load(const void *course,uint32_t course_bytes) {
     fzx_road_load_status.status=13;
     const cdfs_config_t config={.sector_read=read_volume_sector,.sectors=&sector,.sector_count=1};
     cdfs_config_set(&config);
-    cdfs_filelist_init(&list,entries,16);
+    cdfs_filelist_init(&list,entries,ROOT_ENTRIES);
     cdfs_filelist_root_read(&list);
     if(fzx_road_load_status.io_result) {fzx_road_load_status.status=3;return false;}
     fzx_road_load_status.status=11;

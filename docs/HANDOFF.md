@@ -32,7 +32,8 @@ Limit: 50 lines. History lives in git.
 - SH2ZAM view-edges-1 and view-guard-1 adopted; old road reference stays frozen.
 - C3 camera/pack/gather:1,291,264 vertices within1px, max552 gathered; HOST/SH-2 pass.
   Owner revised texture gate: 1px merge gives p99 413 commands / 0.650px HOST texture error.
-  Choose view-merge-1 pixel mode/Q8=256; shifted fixture rounding and native gates open. ROAD_STREAM.md.
+  view-merge-1 adopted (pointer9ff1601), pixel/Q8=256; tagged census unchanged.
+  Shifted fixture rounding and native gates open. SH2ZAM_MERGE_ADOPTION.md.
 - C4 rebake:9.273 ms mean MODELLED, HOST p99 67/max112 draws; cost/order/stack gates fail.
 - C5 dual probe open; compact cloud atlas reclaims128 KiB, no speed claim.
 - C8 countdown:24views/276commands and source full race pass; sound/look open.

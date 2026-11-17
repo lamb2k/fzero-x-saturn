@@ -168,3 +168,13 @@ shift diagnostics. The experiment and original failed evidence stay private.
 C3 remains unintegrated: tagged planner adoption, shifted fixture resolution,
 native memory/timing and VDP1 look gates are open. C8 finish/results WIP is
 preserved; C6 still depends on a qualified C3 renderer.
+
+## Tagged planner adoption, 2026-11-17
+
+`view-merge-1` is now [independently qualified and pinned](SH2ZAM_MERGE_ADOPTION.md).
+Its private caller produces the same complete census and held command bytes at
+all three tolerances, including the image numbers above. The historical ×4
+phase-start audit identifies partial-row quantization of up to 3.65625 source
+rows in the reported 16/20-phase cases; the new complete-period alignment avoids
+that merged-partial case. The +32 single-repetition fixture still fails at
+32 versus 31 commands. No native stream or camera-bias change is admitted.

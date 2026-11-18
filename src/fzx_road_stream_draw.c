@@ -20,7 +20,7 @@
 
 static int32_t s16(const uint8_t *p){return (int16_t)U16(p);}
 /* Boot-only native layout (see the header). remap is its scratch: old row to
- * newest copy. A chunk may use copies made from the previous chunk's first
+ * newest copy (UINT16_MAX-1 while a copy is pending). A chunk may use copies made from the previous chunk's first
  * referenced index on; anything older (the wrap) is copied again. */
 static FZX_RS_COLD bool native_prepare(fzx_road_stream_draw_work_t *w,const fzx_road_stream_pack_t *p){
     const uint32_t nv=p->count[FZX_RLD_VERTICES],nq=p->count[FZX_RLD_QUADS],nc=p->count[FZX_RLD_CHUNKS],ns=p->count[FZX_RLD_STRIPS];
@@ -32,16 +32,32 @@ static FZX_RS_COLD bool native_prepare(fzx_road_stream_draw_work_t *w,const fzx_
         const uint8_t *cr=fzx_road_stream_record(p,FZX_RLD_CHUNKS,c);
         const uint32_t first=U32(cr),number=U32(cr+4);uint32_t low=UINT32_MAX;
         if(first>nq||number>nq-first)return false;
+        /* New copies in first-use order (the stepping scratch is free at boot),
+         * then numbered with the ones the next chunk also uses last: the next
+         * chunk's range then starts at them, not at this chunk's own vertices. */
+        uint16_t *fresh=(uint16_t *)(void *)(w->hot?w->hot:&w->local)->edge;
+        const uint32_t room=(uint32_t)(sizeof(w->local.edge)/sizeof(*fresh));uint32_t nf=0;
         for(uint32_t i=first;i<first+number;++i){const uint8_t *q=fzx_road_stream_record(p,FZX_RLD_QUADS,i);
             for(unsigned j=0;j<4;++j){const unsigned id=U16(q+j*2);
                 if(w->remap[id]==UINT16_MAX||w->remap[id]<window){
-                    if(used>=w->npos_capacity||used>=65535u)return false;
-                    const uint8_t *v=fzx_road_stream_record(p,FZX_RLD_VERTICES,id);
-                    w->npos[used]=(sh2z_pos16_t){(int16_t)U16(v),(int16_t)U16(v+2),(int16_t)U16(v+4)};
-                    w->remap[id]=(uint16_t)used++;
-                }
-                if(w->remap[id]<low)low=w->remap[id];
-            }}
+                    if(nf>=room)return false;
+                    fresh[nf++]=(uint16_t)id;w->remap[id]=UINT16_MAX-1u;   /* pending */
+                }}}
+        uint32_t nfirst=0,nnumber=0;
+        if(c+1<nc){const uint8_t *nr=fzx_road_stream_record(p,FZX_RLD_CHUNKS,c+1);nfirst=U32(nr);nnumber=U32(nr+4);
+            if(nfirst>nq||nnumber>nq-nfirst)return false;}
+        for(unsigned pass=0;pass<2;++pass)for(uint32_t k=0;k<nf;++k){const unsigned id=fresh[k];
+            unsigned shared=0;
+            for(uint32_t i=nfirst;i<nfirst+nnumber&&!shared;++i){const uint8_t *q=fzx_road_stream_record(p,FZX_RLD_QUADS,i);
+                for(unsigned j=0;j<4;++j)if(U16(q+j*2)==id)shared=1;}
+            if(shared!=pass)continue;
+            if(used>=w->npos_capacity||used>=65535u)return false;
+            const uint8_t *v=fzx_road_stream_record(p,FZX_RLD_VERTICES,id);
+            w->npos[used]=(sh2z_pos16_t){(int16_t)U16(v),(int16_t)U16(v+2),(int16_t)U16(v+4)};
+            w->remap[id]=(uint16_t)used++;
+        }
+        for(uint32_t i=first;i<first+number;++i){const uint8_t *q=fzx_road_stream_record(p,FZX_RLD_QUADS,i);
+            for(unsigned j=0;j<4;++j){const unsigned id=U16(q+j*2);if(w->remap[id]<low)low=w->remap[id];}}
         if(!number)low=used;
         w->nchunks[c]=(fzx_road_stream_nchunk_t){(uint16_t)first,(uint16_t)number,(uint16_t)low,(uint16_t)used};
         for(uint32_t i=first;i<first+number;++i){const uint8_t *q=fzx_road_stream_record(p,FZX_RLD_QUADS,i);

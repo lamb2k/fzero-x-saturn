@@ -15,4 +15,8 @@ bool fzx_road_stream_commands(vdp1_cmdt_t *commands,uint32_t capacity,
     const fzx_road_stream_command_t *packets,uint32_t packet_count,
     const void *pixels,uint32_t texture_bytes,void *shades,uint32_t shade_bytes,
     uint32_t *count);
+/* Direct-emit target over the same spans and templates as the adapter above;
+ * fzx_road_stream_draw_vdp1 then writes the bytes the adapter would write. */
+bool fzx_road_stream_emit_setup(fzx_road_stream_emit_t *,vdp1_cmdt_t *commands,uint32_t capacity,
+    const void *pixels,uint32_t texture_bytes,void *shades,uint32_t shade_bytes);
 #endif

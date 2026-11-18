@@ -15,6 +15,8 @@ import struct
 PHASES = ['other', 'eye_view', 'gather', 'batch_center_divu', 'quad_setup_cull', 'guard_clip',
           'edge_steps', 'merge_plan', 'fog_fade', 'command_build', 'native_convert',
           'clip_setup_report']
+# Version 2 splits quad setup: fetch/trivial reject, whole-quad winding, per-piece.
+PHASES_V2 = PHASES + ['quad_fetch_reject', 'quad_winding_cull', 'piece_setup']
 COUNTS = ['boundaries', 'stepped_points', 'quad_clip_calls', 'piece_clip_calls', 'clip_corners',
           'pieces', 'merge_calls', 'edge_calls', 'switches', 'positions', 'quads', 'culled',
           'clipped', 'commands', 'chunks', 'fog_updates']
@@ -50,12 +52,17 @@ def decode(sym_text, low, high):
                 return data[a - start:a - start + n]
         raise ValueError('uncaptured RAM %x+%d' % (a, n))
 
-    p = len(PHASES)
+    version = struct.unpack('>2I', read(sym['_fzx_road_phase_profile'], 8))[1]
+    names = {1: PHASES, 2: PHASES_V2}.get(version)
+    if names is None:
+        raise ValueError('phase version')
+    p = len(names)
+    stride = 4 * p + 32
     h = struct.unpack('>%dI' % (12 + 2 * p), read(sym['_fzx_road_phase_profile'], 4 * (12 + 2 * p)))
-    if h[0] != 0x43335048 or h[1] != 1 or h[4] != 80 or h[8] != p or h[9] != len(COUNTS):
+    if h[0] != 0x43335048 or h[4] != stride or h[8] != p or h[9] != len(COUNTS):
         raise ValueError('phase header')
     rows_at, capacity, written, seen, end, dropped = h[2], h[3], h[5], h[6], h[7], h[10]
-    if read(rows_at - 32, 32) != GUARD or read(end, 32) != GUARD or end != rows_at + capacity * 80:
+    if read(rows_at - 32, 32) != GUARD or read(end, 32) != GUARD or end != rows_at + capacity * stride:
         raise ValueError('phase guards or extent')
     fh = struct.unpack('>16I', read(sym['_fzx_frame_profile'], 64))
     rh = struct.unpack('>8I', read(sym['_fzx_frame_road_profile'], 32))
@@ -64,21 +71,35 @@ def decode(sym_text, low, high):
         raise ValueError('phase rows disagree with frame rows')
     frame_rows = list(struct.iter_unpack('>16I', read(fh[3], frames * 64)))
     road = list(struct.iter_unpack('>2I', read(rh[2], frames * 8)))
-    rows = [struct.unpack('>%dI16H' % p, read(rows_at + i * 80, 80)) for i in range(written)]
+    rows = [struct.unpack('>%dI16H' % p, read(rows_at + i * stride, stride)) for i in range(written)]
 
     def delta(a, b):
         return (a - b) & 0xffffffff
     fields = delta(frame_rows[-1][12], frame_rows[0][12])
     tick_ms = fields * 1000 / fh[10] / delta(frame_rows[-1][10], frame_rows[0][10])
     diffs = [sum(r[:p]) - road[i][0] for i, r in enumerate(rows)]
-    if max(abs(d) for d in diffs) > RECONCILE_TICKS:
+    # A frame whose sum is off by a whole 16-bit FRT period (within the usual
+    # tolerance) holds one interval that read as negative: an interrupt read the
+    # FRC between this phase stamp's FRCH and FRCL reads (shared latch). Such
+    # frames are counted and left out of the per-phase statistics; any other
+    # disagreement is still rejected.
+    wrapped = [i for i, d in enumerate(diffs) if abs(d) > RECONCILE_TICKS and
+               abs(d - round(d / 65536) * 65536) <= RECONCILE_TICKS and round(d / 65536) != 0]
+    if any(abs(d) > RECONCILE_TICKS for i, d in enumerate(diffs) if i not in wrapped):
         raise ValueError('phase sum does not reconcile with scene 4')
+    if len(wrapped) > max(1, len(rows) // 100):
+        raise ValueError('too many FRT latch-race frames')
+    keep = [i for i in range(len(rows)) if i not in wrapped]
+    rows = [rows[i] for i in keep]
+    road = [road[i] for i in keep]
+    diffs = [diffs[i] for i in keep]
     if any(r[p + 13] + 1 != road[i][1] for i, r in enumerate(rows)):
         raise ValueError('phase command count disagrees with scene 4 (plus user clip)')
     totals = [h[12 + 2 * i] + (h[13 + 2 * i] << 32) for i in range(p)]
     all_ticks = sum(totals)
     return dict(
-        tier='MODELLED', hardware='UNRUN', frames=frames, rows=written, dropped=dropped,
+        tier='MODELLED', hardware='UNRUN', version=version, frames=frames, rows=written, dropped=dropped,
+        frt_race_frames_excluded=len(wrapped),
         tick_ms=tick_ms, scene4_road_ms=stats([t * tick_ms for t, c in road]),
         phase_sum_ms=stats([sum(r[:p]) * tick_ms for r in rows]),
         reconcile=dict(per_frame_phase_minus_scene4_ticks=stats(diffs), min_ticks=min(diffs),
@@ -86,7 +107,7 @@ def decode(sym_text, low, high):
                        total_ratio=all_ticks / sum(t for t, c in road)),
         phases_ms={n: dict(**stats([r[i] * tick_ms for r in rows]),
                            total_mean=totals[i] * tick_ms / frames, share=totals[i] / all_ticks)
-                   for i, n in enumerate(PHASES)},
+                   for i, n in enumerate(names)},
         counts={n: stats([r[p + i] for r in rows]) for i, n in enumerate(COUNTS)},
         scope='Scene 4 partitioned into exclusive phases; includes interrupts taken in a phase '
               'and the profile switch cost. Emulator timing, not hardware.')

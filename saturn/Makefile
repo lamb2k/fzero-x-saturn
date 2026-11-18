@@ -475,6 +475,40 @@ SH_CFLAGS += -DFZX_ROAD_STREAM_PHASES=1
 else ifneq ($(FZX_ROAD_STREAM_PHASES),0)
 $(error FZX_ROAD_STREAM_PHASES must be 0 or 1)
 endif
+# Default-off C3 native road layout (boot-built chunk runs, 8-byte quads).
+FZX_ROAD_STREAM_NATIVE_LAYOUT ?= 0
+ifeq ($(FZX_ROAD_STREAM_NATIVE_LAYOUT),1)
+ifneq ($(FZX_SOURCE_ROAD_STREAM),1)
+$(error FZX_ROAD_STREAM_NATIVE_LAYOUT requires FZX_SOURCE_ROAD_STREAM=1)
+endif
+SH_CFLAGS += -DFZX_ROAD_STREAM_NATIVE_LAYOUT=1
+# The pack path (gather/remap) is not linked under the native layout.
+SH_CFLAGS += -DFZX_RS_PACK_PATH=0
+else ifneq ($(FZX_ROAD_STREAM_NATIVE_LAYOUT),0)
+$(error FZX_ROAD_STREAM_NATIVE_LAYOUT must be 0 or 1)
+endif
+# Default-off C3 direct VDP1 emit (templates patched in place, no packets).
+FZX_ROAD_STREAM_EMIT ?= 0
+ifeq ($(FZX_ROAD_STREAM_EMIT),1)
+ifneq ($(FZX_SOURCE_ROAD_STREAM),1)
+$(error FZX_ROAD_STREAM_EMIT requires FZX_SOURCE_ROAD_STREAM=1)
+endif
+SH_CFLAGS += -DFZX_ROAD_STREAM_EMIT=1
+# The packet path is not linked under direct emit.
+SH_CFLAGS += -DFZX_RS_PACKET_PATH=0
+else ifneq ($(FZX_ROAD_STREAM_EMIT),0)
+$(error FZX_ROAD_STREAM_EMIT must be 0 or 1)
+endif
+# Default-off C3 stepping/clip scratch in high work RAM.
+FZX_ROAD_STREAM_HOT_HIGH ?= 0
+ifeq ($(FZX_ROAD_STREAM_HOT_HIGH),1)
+ifneq ($(FZX_SOURCE_ROAD_STREAM),1)
+$(error FZX_ROAD_STREAM_HOT_HIGH requires FZX_SOURCE_ROAD_STREAM=1)
+endif
+SH_CFLAGS += -DFZX_ROAD_STREAM_HOT_HIGH=1
+else ifneq ($(FZX_ROAD_STREAM_HOT_HIGH),0)
+$(error FZX_ROAD_STREAM_HOT_HIGH must be 0 or 1)
+endif
 ifeq ($(FZX_SOURCE_COUNTDOWN),1)
 ifneq ($(FZX_SIM):$(FZX_SOURCE_MACHINE):$(FZX_SOURCE_CAMERA):$(FZX_ROM_BOOT):$(FZX_PLANE_CLOUD_ONLY):$(FZX_NATIVE_CORE_EMPTY),orig:1:1:1:1:1)
 $(error Original countdown requires original race/camera/machine, compact clouds and native core bypass)

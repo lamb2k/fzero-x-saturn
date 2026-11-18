@@ -546,7 +546,21 @@ else ifneq ($(FZX_SOURCE_FINISH_MENU),0)
 $(error FZX_SOURCE_FINISH_MENU must be 0 or 1)
 endif
 
-SH_SRCS := $(FZX_FINISH_MENU_SRCS) $(FZX_RECORDS_SRCS) $(FZX_RESULTS_SRCS) $(FZX_MACHINE_MENU_SRCS) $(FZX_COURSE_MENU_SRCS) $(FZX_MENU_SRCS) $(FZX_TITLE_SRCS) $(FZX_COUNTDOWN_SRCS) $(FZX_FRAME_PROFILE_SRCS) main.c ../src/fzx.c $(FZX_ORIG_SRCS) $(FZX_HUD_SRCS) $(FZX_CAMERA_SRCS) $(FZX_ROAD_SRCS) $(FZX_SKY_SRCS) $(FZX_MACHINE_SRCS) $(wildcard $(SH2ZAM_ROOT)/saturn/src/*.c)
+# ---- SH2ZAM units (explicit list, not a wildcard) ----
+# Hand-written assembly kernels and their tables are not garbage-collected,
+# so only the units an image calls are compiled: the 7de29ac base set, plus
+# the tagged units each knob needs. One block, to merge with the
+# integration lane's knob-gated list.
+FZX_SH2ZAM_UNITS := sh2zam sh2zam_angles sh2zam_batch_sh2 sh2zam_box2 sh2zam_cell16     sh2zam_divu sh2zam_geometry sh2zam_m68k sh2zam_prepared sh2zam_reuse     sh2zam_rotation_batch sh2zam_shade sh2zam_spatial sh2zam_transform sh2zam_trig     sh2zam_view sh2zam_view_center sh2zam_view_guard_src sh2zam_view_guard_src_center     sh2zam_view_round
+ifeq ($(FZX_SOURCE_ROAD_STREAM),1)
+# C3 stream: view-merge-2 tier planner, shade-2 fused fog/colour (cdiv is header-only).
+FZX_SH2ZAM_UNITS += sh2zam_view_merge_tier sh2zam_shade_fused
+endif
+FZX_SH2ZAM_SRCS := $(addprefix $(SH2ZAM_ROOT)/saturn/src/,$(addsuffix .c,$(FZX_SH2ZAM_UNITS)))
+$(foreach f,$(FZX_SH2ZAM_SRCS),$(if $(wildcard $(f)),,$(error SH2ZAM unit missing: $(f))))
+# ---- end SH2ZAM units ----
+
+SH_SRCS := $(FZX_FINISH_MENU_SRCS) $(FZX_RECORDS_SRCS) $(FZX_RESULTS_SRCS) $(FZX_MACHINE_MENU_SRCS) $(FZX_COURSE_MENU_SRCS) $(FZX_MENU_SRCS) $(FZX_TITLE_SRCS) $(FZX_COUNTDOWN_SRCS) $(FZX_FRAME_PROFILE_SRCS) main.c ../src/fzx.c $(FZX_ORIG_SRCS) $(FZX_HUD_SRCS) $(FZX_CAMERA_SRCS) $(FZX_ROAD_SRCS) $(FZX_SKY_SRCS) $(FZX_MACHINE_SRCS) $(FZX_SH2ZAM_SRCS)
 SH_CFLAGS += -DFZX_SH2_DIVU=1 -O2 -std=c11 -Wall -Wextra -I../include \
              -I$(SH2ZAM_ROOT)/saturn/include -DSH2Z_REQUIRE_SH2=1
 ifeq ($(FZX_SOURCE_ROAD_STREAM),1)

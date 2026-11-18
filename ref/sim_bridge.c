@@ -351,6 +351,10 @@ void ref_sim_set_drop_bits(unsigned int bits) { fzx_cam_drop_bits = bits; }
 void ref_sim_camera_init(void) {
     (Camera_Init)();
     fix_valid = fix_stale = last_fallback = 0; /* the float state is authoritative again */
+    /* The exactness witness covers the race since the last Camera_Init: the
+     * image's menus also initialise and tick the source camera. */
+    fzx_sim_camera_hash = 0x811C9DC5u;
+    fzx_sim_camera_fixed_ticks = fzx_sim_camera_fallbacks = 0;
 }
 
 void ref_sim_camera_update(void) {

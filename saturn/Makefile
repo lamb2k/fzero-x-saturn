@@ -503,6 +503,16 @@ SH_CFLAGS += -DFZX_RS_PACKET_PATH=0
 else ifneq ($(FZX_ROAD_STREAM_EMIT),0)
 $(error FZX_ROAD_STREAM_EMIT must be 0 or 1)
 endif
+# Default-off C3 view from the source camera (SH2ZAM view-camera-1); direct emit only.
+FZX_ROAD_STREAM_CAMERA30 ?= 0
+ifeq ($(FZX_ROAD_STREAM_CAMERA30),1)
+ifneq ($(FZX_ROAD_STREAM_EMIT),1)
+$(error FZX_ROAD_STREAM_CAMERA30 requires FZX_ROAD_STREAM_EMIT=1)
+endif
+SH_CFLAGS += -DFZX_ROAD_STREAM_CAMERA30=1
+else ifneq ($(FZX_ROAD_STREAM_CAMERA30),0)
+$(error FZX_ROAD_STREAM_CAMERA30 must be 0 or 1)
+endif
 # Default-off C3 stepping/clip scratch in high work RAM.
 FZX_ROAD_STREAM_HOT_HIGH ?= 0
 ifeq ($(FZX_ROAD_STREAM_HOT_HIGH),1)
@@ -584,9 +594,12 @@ FZX_SH2ZAM_UNITS := sh2zam.c sh2zam_angles.c sh2zam_batch_sh2.c sh2zam_box2.c \
     sh2zam_view_guard_src.c sh2zam_view_guard_src_center.c sh2zam_view_round.c
 # C3 road stream (view-merge-2 tier planner, called by src/fzx_road_stream_draw.c).
 FZX_SH2ZAM_UNITS += $(if $(filter 1,$(FZX_SOURCE_ROAD_STREAM)),sh2zam_view_merge_tier.c)
-# C3 knobs that adopt shade-2 / view-camera add here, e.g.:
-#   FZX_SH2ZAM_UNITS += $(if $(filter 1,$(FZX_ROAD_STREAM_<KNOB>)),sh2zam_shade_fused.c)
-# C4 native vehicle arm (vehicle-kernels-1; pose-1 adds sh2zam_pose.c once tagged).
+# C3 road stream, shade-2 fused fog/colour (called by src/fzx_road_stream_draw.c;
+# cdiv is header-only) and view-rails-1 strip rails; with FZX_ROAD_STREAM_CAMERA30,
+# view-camera-1.
+FZX_SH2ZAM_UNITS += $(if $(filter 1,$(FZX_SOURCE_ROAD_STREAM)),sh2zam_shade_fused.c sh2zam_view_rails.c)
+FZX_SH2ZAM_UNITS += $(if $(filter 1,$(FZX_ROAD_STREAM_CAMERA30)),sh2zam_view_camera.c)
+# C4 native vehicle arm (vehicle-kernels-1; pose-1 adds sh2zam_pose.c once qualified).
 FZX_SH2ZAM_UNITS += $(if $(filter 1,$(FZX_VEHICLE_NATIVE)),sh2zam_vehicle.c sh2zam_view_indexed.c)
 # Simulation knobs that adopt trig12-1 / fixed-unit-1 add here (sh2zam_trig12.c, sh2zam_unit30.c).
 FZX_SH2ZAM_SRCS := $(addprefix $(SH2ZAM_ROOT)/saturn/src/,$(sort $(FZX_SH2ZAM_UNITS)))

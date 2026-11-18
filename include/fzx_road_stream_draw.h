@@ -2,6 +2,7 @@
 #define FZX_ROAD_STREAM_DRAW_H
 #include "fzx_road_stream.h"
 #include "fzx_view16.h"
+#include "sh2zam/shade_experimental.h"
 
 /* Experimental C3 command preparation, selected by the default-off native stream.
  * Pixel/palette addresses are byte offsets into the admitted texture bank.
@@ -74,15 +75,19 @@ typedef struct {
     const fzx_road_stream_pack_t *pack;
     bool prepared,fog_valid;
     int32_t fog_pa,fog_pb,fog_start,fog_near,fog_far;
-    uint32_t fog_depth[256];
     /* Per-quad stepping/clipping scratch: local, or bound elsewhere (hot,
      * e.g. faster RAM) before the first draw; NULL selects local. */
     fzx_road_stream_hot_t local,*hot;
-    /* Bucket index over fog_depth (shade-1 sh2z_shade_fog_t rule): bucket[b]
-     * is the fade at depth b<<shift, bucket[256]=255; scale=2^(32-shift).
-     * shift 255 marks a non-monotonic table (plain binary search). */
-    uint32_t fog_scale;
-    uint8_t fog_bucket[257],fog_shift;
+    /* Fog (SH2ZAM shade-1 table from sh2z_shade_fog_build, prepared by
+     * shade-2's sh2z_shade_fogp_prepare). fogp_ok false selects the shade-1
+     * fallback (per-corner lookup, then the batch colour forms). The colour
+     * ramps are rebuilt only when their source colours change; the MIX ramp
+     * (solid pieces) only on first use after a change. */
+    sh2z_shade_fog_t fog;
+    sh2z_shade_fogp_t fogp;
+    sh2z_shade_ramp_t ramp_offset,ramp_mix;
+    uint8_t ramp_key[12];
+    bool fogp_ok,ramp_valid,mix_valid;
     /* Optional native layout: bind all four (capacities: npos_capacity
      * positions, pack quads, pack chunks) before prepare to select it. With
      * it, remap/positions are unused and projected holds the visible runs. */
@@ -140,4 +145,20 @@ bool fzx_road_stream_draw_vdp1(fzx_road_stream_draw_work_t *,const fzx_view_t *,
     const int32_t eye[3],const RefRoadPlan *,int32_t pa,int32_t pb,unsigned flags,
     const fzx_road_stream_emit_t *,uint32_t capacity,uint32_t *count,
     fzx_road_stream_draw_stats_t *);
+/* The same draws from a prepared centre view (inclusive clip within
+ * +/-900): the source-view entries above convert theirs first. */
+bool fzx_road_stream_draw_center(fzx_road_stream_draw_work_t *,const sh2z_view_center_t *,
+    const RefRoadPlan *,int32_t pa,int32_t pb,unsigned flags,
+    fzx_road_stream_command_t *,uint32_t capacity,uint32_t *count,
+    fzx_road_stream_draw_stats_t *);
+bool fzx_road_stream_draw_vdp1_center(fzx_road_stream_draw_work_t *,const sh2z_view_center_t *,
+    const RefRoadPlan *,int32_t pa,int32_t pb,unsigned flags,
+    const fzx_road_stream_emit_t *,uint32_t capacity,uint32_t *count,
+    fzx_road_stream_draw_stats_t *);
+#if FZX_SOURCE_CAMERA
+#include "ref.h"
+/* SH2ZAM view-camera-1 centre view of the source camera (basis, Q20.12 eye,
+ * fov), with the centre, depth planes and clip of the source view. */
+bool fzx_road_stream_camera_view(sh2z_view_center_t *,const RefCamera *,const fzx_view_t *);
+#endif
 #endif

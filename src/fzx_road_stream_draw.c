@@ -1,6 +1,8 @@
 #include "fzx_road_stream_draw.h"
 #include "fzx_road_stream_phase.h"
+#include "sh2zam/cdiv_experimental.h"
 #include <limits.h>
+#include <stddef.h>
 #include <string.h>
 /* Saturn native builds compile out the paths they do not select, to keep
  * high work RAM for the stack: the pack path (gather/remap, legacy quads)
@@ -18,7 +20,7 @@
 
 static int32_t s16(const uint8_t *p){return (int16_t)U16(p);}
 /* Boot-only native layout (see the header). remap is its scratch: old row to
- * newest copy. A chunk may use copies made from the previous chunk's first
+ * newest copy (UINT16_MAX-1 while a copy is pending). A chunk may use copies made from the previous chunk's first
  * referenced index on; anything older (the wrap) is copied again. */
 static FZX_RS_COLD bool native_prepare(fzx_road_stream_draw_work_t *w,const fzx_road_stream_pack_t *p){
     const uint32_t nv=p->count[FZX_RLD_VERTICES],nq=p->count[FZX_RLD_QUADS],nc=p->count[FZX_RLD_CHUNKS],ns=p->count[FZX_RLD_STRIPS];
@@ -30,16 +32,32 @@ static FZX_RS_COLD bool native_prepare(fzx_road_stream_draw_work_t *w,const fzx_
         const uint8_t *cr=fzx_road_stream_record(p,FZX_RLD_CHUNKS,c);
         const uint32_t first=U32(cr),number=U32(cr+4);uint32_t low=UINT32_MAX;
         if(first>nq||number>nq-first)return false;
+        /* New copies in first-use order (the stepping scratch is free at boot),
+         * then numbered with the ones the next chunk also uses last: the next
+         * chunk's range then starts at them, not at this chunk's own vertices. */
+        uint16_t *fresh=(uint16_t *)(void *)(w->hot?w->hot:&w->local)->edge;
+        const uint32_t room=(uint32_t)(sizeof(w->local.edge)/sizeof(*fresh));uint32_t nf=0;
         for(uint32_t i=first;i<first+number;++i){const uint8_t *q=fzx_road_stream_record(p,FZX_RLD_QUADS,i);
             for(unsigned j=0;j<4;++j){const unsigned id=U16(q+j*2);
                 if(w->remap[id]==UINT16_MAX||w->remap[id]<window){
-                    if(used>=w->npos_capacity||used>=65535u)return false;
-                    const uint8_t *v=fzx_road_stream_record(p,FZX_RLD_VERTICES,id);
-                    w->npos[used]=(sh2z_pos16_t){(int16_t)U16(v),(int16_t)U16(v+2),(int16_t)U16(v+4)};
-                    w->remap[id]=(uint16_t)used++;
-                }
-                if(w->remap[id]<low)low=w->remap[id];
-            }}
+                    if(nf>=room)return false;
+                    fresh[nf++]=(uint16_t)id;w->remap[id]=UINT16_MAX-1u;   /* pending */
+                }}}
+        uint32_t nfirst=0,nnumber=0;
+        if(c+1<nc){const uint8_t *nr=fzx_road_stream_record(p,FZX_RLD_CHUNKS,c+1);nfirst=U32(nr);nnumber=U32(nr+4);
+            if(nfirst>nq||nnumber>nq-nfirst)return false;}
+        for(unsigned pass=0;pass<2;++pass)for(uint32_t k=0;k<nf;++k){const unsigned id=fresh[k];
+            unsigned shared=0;
+            for(uint32_t i=nfirst;i<nfirst+nnumber&&!shared;++i){const uint8_t *q=fzx_road_stream_record(p,FZX_RLD_QUADS,i);
+                for(unsigned j=0;j<4;++j)if(U16(q+j*2)==id)shared=1;}
+            if(shared!=pass)continue;
+            if(used>=w->npos_capacity||used>=65535u)return false;
+            const uint8_t *v=fzx_road_stream_record(p,FZX_RLD_VERTICES,id);
+            w->npos[used]=(sh2z_pos16_t){(int16_t)U16(v),(int16_t)U16(v+2),(int16_t)U16(v+4)};
+            w->remap[id]=(uint16_t)used++;
+        }
+        for(uint32_t i=first;i<first+number;++i){const uint8_t *q=fzx_road_stream_record(p,FZX_RLD_QUADS,i);
+            for(unsigned j=0;j<4;++j){const unsigned id=U16(q+j*2);if(w->remap[id]<low)low=w->remap[id];}}
         if(!number)low=used;
         w->nchunks[c]=(fzx_road_stream_nchunk_t){(uint16_t)first,(uint16_t)number,(uint16_t)low,(uint16_t)used};
         for(uint32_t i=first;i<first+number;++i){const uint8_t *q=fzx_road_stream_record(p,FZX_RLD_QUADS,i);
@@ -94,79 +112,64 @@ FZX_RS_COLD bool fzx_road_stream_draw_prepare(fzx_road_stream_draw_work_t *w,
     w->pack=p;w->native=native;w->prepared=true;return true;
 }
 
-static FZX_RS_COLD void fog_prepare(fzx_road_stream_draw_work_t *w,const sh2z_view_t *view,
+/* Rebuild only when the fog inputs change (cold, size-optimised); the
+ * per-frame check below stays on the hot path. */
+static FZX_RS_COLD void fog_rebuild(fzx_road_stream_draw_work_t *w,const sh2z_view_t *view,
     const RefRoadPlan *plan,int32_t pa,int32_t pb,fzx_road_stream_draw_stats_t *stats){
-    if(w->fog_valid&&w->fog_pa==pa&&w->fog_pb==pb&&w->fog_start==plan->fog_start&&
-       w->fog_near==view->near_z&&w->fog_far==view->far_z)return;
+    /* Source fog rule clamp(floor(fm*ratio/2^30)+fo,0,255), ratio the
+     * projective depth (pb <= 0): SH2ZAM shade-1 builds its exact depth
+     * thresholds, shade-2 prepares them for the fused per-piece kernel. */
     const int32_t fm=128000/(1000-plan->fog_start),fo=(500-plan->fog_start)*256/(1000-plan->fog_start);
-    const uint64_t numerator=(uint64_t)(-(int64_t)pb)*UINT64_C(1073741824);
-    w->fog_depth[0]=0;
-    for(unsigned i=1;i<256;++i){
-        /* fade >= i iff ratio >= ceil((i-fo)*2^30/fm). For pb<=0,
-         * ratio = pa-floor(-pb*2^30/z_q12), hence z_q12>N/(M+1). */
-        const int64_t n=((int64_t)i-fo)*INT64_C(1073741824);
-        const int64_t required=n/fm+(n%fm>0);
-        uint32_t depth=(uint32_t)view->far_z+1u;
-        if(required<=-INT64_C(1073741824))depth=0;
-        else if(required<=INT64_C(1073741824)){
-            const int64_t m=(int64_t)pa-required;
-            if(m>=0){const uint64_t q12=numerator/((uint64_t)m+1u)+1u;
-                if(q12<=(uint32_t)view->far_z/4u)depth=(uint32_t)q12*4u;}
-        }
-        w->fog_depth[i]=depth;
-    }
-    /* STAND-IN pending an SH2ZAM tag: bucket index, as shade-1's
-     * sh2z_shade_fog_from_depth builds it, kept inside the existing work. */
-    unsigned monotonic=1,shift=0;
-    for(unsigned i=1;i<256;++i)if(w->fog_depth[i]<w->fog_depth[i-1])monotonic=0;
-    while((w->fog_depth[255]>>shift)>255u)++shift;
-    {const uint32_t step=(uint32_t)1u<<shift;uint32_t z=0;unsigned i=0;
-     for(unsigned b=0;b<256;++b,z+=step){while(i<255u&&w->fog_depth[i+1u]<=z)++i;w->fog_bucket[b]=(uint8_t)i;}}
-    w->fog_bucket[256]=255;w->fog_shift=(uint8_t)(monotonic?shift:255u);
-    w->fog_scale=shift?(uint32_t)1u<<(32u-shift):0u;
+    w->fogp_ok=false;
+    if(!sh2z_shade_fog_build(&w->fog,fm,fo,pa,pb,view->far_z)){w->fog_valid=false;stats->fog_error=1;return;}
+    w->fogp_ok=sh2z_shade_fogp_prepare(&w->fogp,&w->fog);
     w->fog_pa=pa;w->fog_pb=pb;w->fog_start=plan->fog_start;
     w->fog_near=view->near_z;w->fog_far=view->far_z;w->fog_valid=true;
     stats->fog_updates=1;
 }
+static void fog_prepare(fzx_road_stream_draw_work_t *w,const sh2z_view_t *view,
+    const RefRoadPlan *plan,int32_t pa,int32_t pb,fzx_road_stream_draw_stats_t *stats){
+    if(w->fog_valid&&w->fog_pa==pa&&w->fog_pb==pb&&w->fog_start==plan->fog_start&&
+       w->fog_near==view->near_z&&w->fog_far==view->far_z)return;
+    fog_rebuild(w,view,plan,pa,pb,stats);
+}
+/* Fallback when the prepared lookup is unavailable: fade(z) by binary search
+ * of the shade-1 thresholds (max { i : depth[i] <= max(z,0) }). */
 static unsigned fog_lookup(const fzx_road_stream_draw_work_t *w,int32_t z){
     const uint32_t depth=z>0?(uint32_t)z:0;
-    if(w->fog_shift!=255u){
-        /* STAND-IN for sh2z_shade_fog_lookup (shade-1), inlined per corner.
-         * Bounded search inside one bucket; identical to the full search for
-         * a non-decreasing table. depth>>shift as a multiply-high (the SH-2
-         * has no variable shift). */
-        const uint32_t b=w->fog_shift?(uint32_t)(((uint64_t)depth*w->fog_scale)>>32):depth;
-        if(b>255u)return 255;
-        unsigned lo=w->fog_bucket[b],hi=w->fog_bucket[b+1u];
-        while(lo<hi){const unsigned middle=(lo+hi+1u)>>1;
-            if(w->fog_depth[middle]<=depth)lo=middle;else hi=middle-1u;}
-        return lo;
-    }
     unsigned lo=0,hi=256;
     while(lo+1<hi){const unsigned middle=(lo+hi)/2;
-        if(depth>=w->fog_depth[middle])lo=middle;else hi=middle;}
+        if(depth>=w->fog.depth[middle])lo=middle;else hi=middle;}
     return lo;
+}
+/* Fade thresholds of the colour variants: v = [mean fade >= 64] + [>= 192]. */
+static const uint16_t ramp_threshold[2]={64,192};
+static void ramp_prepare(fzx_road_stream_draw_work_t *w,const RefRoadPlan *plan){
+    uint8_t key[12];
+    for(unsigned c=0;c<3;++c){
+        key[c]=(uint8_t)sh2z_cdiv255_u32((uint32_t)plan->fog[c]*31u+127u);
+        key[3+c]=(uint8_t)sh2z_cdiv255_u32((uint32_t)w->pack->base_fog[c]*31u+127u);
+        key[6+c]=plan->primitive[c];key[9+c]=plan->fog[c];}
+    /* The MIX ramp (256 words) is built on first use by a solid piece. */
+    if(memcmp(key+6,w->ramp_key+6,6)){memcpy(w->ramp_key+6,key+6,6);w->mix_valid=false;}
+    if(w->ramp_valid&&!memcmp(key,w->ramp_key,6))return;
+    static const uint8_t level[3]={0,128,255};
+    /* Live and base fog colours in RGB5 (<= 31), so the ramp always builds. */
+    w->ramp_valid=sh2z_shade_ramp_offset(&w->ramp_offset,key,key+3,level,ramp_threshold);
+    memcpy(w->ramp_key,key,6);
+}
+static FZX_RS_COLD bool mix_prepare(fzx_road_stream_draw_work_t *w){
+    w->mix_valid=sh2z_shade_ramp_mix(&w->ramp_mix,w->ramp_key+6,w->ramp_key+9,ramp_threshold);
+    return w->mix_valid;
 }
 typedef struct {
     fzx_road_stream_draw_work_t *work;const RefRoadPlan *plan;sh2z_view_center_t view;
+    sh2z_view_rails_t rails;   /* view-rails-1 handle, prepared once per frame */
     fzx_road_stream_command_t *commands;uint32_t capacity;unsigned flags;
     fzx_road_stream_draw_stats_t *stats;
-    int32_t live[3],base[3];   /* per-frame fog colours in RGB5 */
     const fzx_road_stream_emit_t *emit;   /* direct VDP1 target, or NULL for packets */
     fzx_road_stream_hot_t *hot;
 } draw_t;
-/* STAND-IN pending an SH2ZAM tag (owner direction: numeric work goes through
- * SH2ZAM). Exact replacements for divisions on the per-corner path (no SH-2
- * divide instruction; libgcc division dominated this stage). Both are checked
- * exhaustively over their whole reachable domain by the HOST tests. The
- * shade-1 batch forms (sh2z_shade_fade_offset/_mix) compute the same values. */
-static int32_t div255(int32_t n){      /* trunc(n/255), |n| <= 65534 */
-    const uint32_t a=(uint32_t)(n<0?-n:n),q=(a+(a>>8)+1u)>>8;
-    return n<0?-(int32_t)q:(int32_t)q;
-}
-static uint32_t div65025(uint32_t n){  /* n/65025, n <= 2048287 */
-    return (uint32_t)(((uint64_t)n*UINT32_C(2113633))>>37);
-}
 static bool fail(draw_t *d,unsigned fault){d->stats->fault=fault;return false;}
 /* Inputs to area are clipped to +/-900, bounding the 16-corner sum in int32. */
 static int32_t area(const sh2z_view_vertex_t *const *v,unsigned count){
@@ -195,6 +198,21 @@ static unsigned corners_of(fzx_road_stream_hot_t *h,const vref_t v[4],bool safe,
 static void clip_input(fzx_road_stream_hot_t *h,const vref_t v[4]){
     for(unsigned i=0;i<4;++i)h->clip_in[i].v=*v[i];
 }
+/* shade-1 fallback (fog table without a prepared lookup): per-corner fades,
+ * then the exact batch colour forms. The OFFSET form's bias is
+ * level[v]*(base-mean), as in the shade-2 ramp. */
+static FZX_RS_COLD int fallback_shades(draw_t *d,uint16_t *shades,const sh2z_view_vertex_t *const *corners,
+    unsigned count,unsigned base_image,bool solid){
+    const fzx_road_stream_draw_work_t *w=d->work;uint8_t fade[16];unsigned middle=0;
+    for(unsigned i=0;i<count;++i){fade[i]=(uint8_t)fog_lookup(w,corners[i]->z);middle+=fade[i];}
+    const unsigned variant=(unsigned)(middle>=ramp_threshold[0]*count)+(unsigned)(middle>=ramp_threshold[1]*count);
+    const int16_t selected=variant==2?255:(int16_t)(variant*128);
+    if(solid)return sh2z_shade_fade_mix(shades,2,fade,1,count,w->ramp_key+6,w->ramp_key+9)?(int)variant:-1;
+    const uint8_t *means=w->images[base_image].mean;int16_t slope[3],bias[3];
+    for(unsigned c=0;c<3;++c){const int16_t mean=means[c],live=w->ramp_key[c],base=w->ramp_key[3+c];
+        slope[c]=(int16_t)(live-mean);bias[c]=(int16_t)(selected*(base-mean));}
+    return sh2z_shade_fade_offset(shades,2,fade,1,count,slope,bias)?(int)variant:-1;
+}
 static bool piece(draw_t *d,const vref_t v[4],unsigned quad,unsigned piece_id,
     unsigned base_image,unsigned image,unsigned row,unsigned height,unsigned tier,bool solid){
     fzx_road_stream_draw_work_t *w=d->work;bool safe;
@@ -212,14 +230,18 @@ static bool piece(draw_t *d,const vref_t v[4],unsigned quad,unsigned piece_id,
     const sh2z_view_vertex_t *corners[SH2Z_VIEW_GUARD_MAX_OUT];
     const unsigned count=corners_of(d->hot,v,safe,n,corners);
     if(!area(corners,count)){++d->stats->culled;return true;}
-    unsigned fade[16],middle=0;
+    uint16_t shades[16];
     FZX_RSP(FOG);
-    for(unsigned i=0;i<count;++i){fade[i]=fog_lookup(w,corners[i]->z);middle+=fade[i];}
+    /* SH2ZAM shade-2: fade and 5:5:5 colour of every corner in one call; the
+     * return is the colour variant ([mean fade >= 64] + [mean fade >= 192]). */
+    int variant;
+    if(solid&&!w->mix_valid&&!mix_prepare(w))return fail(d,FZX_RS_INVALID);
+    if(w->fogp_ok)variant=sh2z_shade_fog_gouraud_refs(shades,(const void *const *)corners,
+        offsetof(sh2z_view_vertex_t,z),count,&w->fogp,solid?&w->ramp_mix:&w->ramp_offset,
+        w->images[base_image].mean);
+    else variant=fallback_shades(d,shades,corners,count,base_image,solid);
+    if(variant<0)return fail(d,FZX_RS_INVALID);
     FZX_RSP(BUILD);
-    /* variant = min(2,(floor(middle/count)+64)/128), compared instead of divided:
-     * floor(m/c) >= 128v-64 <=> m >= (128v-64)*c. No quotient is formed. */
-    const unsigned variant=middle>=192u*count?2u:middle>=64u*count?1u:0u;
-    const int selected=variant==2?255:(int)variant*128;
     const fzx_road_stream_material_t neutral={0,0,0,0,0,0};
     fzx_road_stream_material_t material=solid?neutral:w->images[image].variant[variant];
     if(!solid){
@@ -228,35 +250,6 @@ static bool piece(draw_t *d,const vref_t v[4],unsigned quad,unsigned piece_id,
         if(material.pixels&7u){++d->stats->unaligned;
             if(!(d->flags&FZX_RS_AUDIT_UNALIGNED))return fail(d,FZX_RS_TEXTURE_ALIGNMENT);}
     }
-    uint16_t shades[16];
-    /* RGB1555 channel places as constants: the SH-2 has no variable shift
-     * (a shift by c*5 is a libgcc call per channel). */
-    static const uint16_t place[3]={1u,1u<<5,1u<<10};
-    FZX_RSP(FOG);
-    /* Channel-outer: per-piece channel terms are formed once, then each
-     * corner costs one multiply and one stand-in division. */
-    for(unsigned i=0;i<count;++i)shades[i]=0x8000;
-    if(solid){
-        for(unsigned c=0;c<3;++c){const uint32_t prim=d->plan->primitive[c],fog=d->plan->fog[c];
-            for(unsigned i=0;i<count;++i){const uint32_t f=fade[i];
-                const uint32_t color=div65025((prim*(255u-f)+fog*f)*31u+32512u);
-                shades[i]|=(uint16_t)((color>31u?31u:color)*place[c]);
-            }
-        }
-    } else {
-        /* Per-frame live/base fog colours; one image mean per piece. */
-        const uint8_t *means=w->images[base_image].mean;
-        for(unsigned c=0;c<3;++c){const int32_t mean=means[c],live=d->live[c],base=d->base[c];
-            const int32_t gain=live-mean,bias=selected*(base-mean);
-            for(unsigned i=0;i<count;++i){int32_t color;
-                color=16+div255((int32_t)fade[i]*gain-bias);
-                if(color<0)color=0;
-                if(color>31)color=31;
-                shades[i]|=(uint16_t)((unsigned)color*place[c]);
-            }
-        }
-    }
-    FZX_RSP(BUILD);
     if(d->emit){
         /* Direct VDP1 emit: one template copy, then patch the texture fields
          * (once per piece), corners and Gouraud address per command. */
@@ -295,17 +288,6 @@ static bool piece(draw_t *d,const vref_t v[4],unsigned quad,unsigned piece_id,
     }
 #endif
     return true;
-}
-static bool edge(draw_t *d,unsigned slot,const sh2z_view_vertex_t *from,const sh2z_view_vertex_t *to,
-    int32_t low,int32_t high,unsigned count,unsigned step){
-    fzx_road_stream_hot_t *h=d->hot;unsigned first=0,end=count;
-    FZX_RSP_COUNT(EDGE_CALLS,1);
-    while(first<count&&h->boundary[first]<=low)h->edge[slot][first++]=*from;
-    while(end>first&&h->boundary[end-1]>=high)h->edge[slot][--end]=*to;
-    if(end==first)return true;
-    FZX_RSP_COUNT(STEPPED,end-first);
-    return sh2z_view_edge_steps_center_divu(h->edge[slot]+first,&d->view,from,to,
-        (uint16_t)(h->boundary[first]-low),(uint16_t)step,(uint16_t)(high-low),end-first);
 }
 /* Texture corner order and longitudinal spans of one quad (view-independent). */
 typedef struct {unsigned left,right,re,le,strip,unit;int32_t l0,l1,r0,r1;} quad_tex_t;
@@ -408,8 +390,12 @@ static bool quad_body(draw_t *d,unsigned id,const vref_t vertices[4],unsigned fl
         if(count>=65)return fail(d,FZX_RS_STEP);
         d->hot->boundary[count++]=end;start=end;}
     FZX_RSP_COUNT(BOUNDARIES,count);FZX_RSP(EDGE);
-    if(!edge(d,0,vertices[left],vertices[le],l0,l1,count,unit)||
-       !edge(d,1,vertices[right],vertices[re],r0,r1,count,unit))return fail(d,FZX_RS_STEP);
+    /* SH2ZAM view-rails-1: both strip rails in one call (boundaries are
+     * equally spaced by unit, as the call requires). */
+    FZX_RSP_COUNT(EDGE_CALLS,1);(void)unit;
+    if(!sh2z_view_edge_rails_center_divu(d->hot->edge[0],d->hot->edge[1],&d->rails,
+        vertices[left],vertices[le],vertices[right],vertices[re],d->hot->boundary,count,l0,l1,r0,r1))
+        return fail(d,FZX_RS_STEP);
     FZX_RSP(MERGE);FZX_RSP_COUNT(MERGES,1);
     /* Merge scratch lives with the stepping scratch, off the stack. */
     uint32_t *const end_masks=d->hot->end_masks;uint8_t *const runs=d->hot->runs;int run_count;
@@ -492,25 +478,28 @@ static bool native_frame(draw_t *d){
     if(visited_total!=plan->visible_chunks)return fail(d,FZX_RS_GATHER);
     return true;
 }
-static bool draw_any(fzx_road_stream_draw_work_t *w,const fzx_view_t *view,
-    const int32_t eye[3],const RefRoadPlan *plan,int32_t pa,int32_t pb,unsigned flags,
+/* view is the centre view (inclusive clip), from the source view and a
+ * Q16.16 eye, or from the camera (fzx_road_stream_camera_view). */
+static bool draw_any(fzx_road_stream_draw_work_t *w,const sh2z_view_center_t *view,
+    const RefRoadPlan *plan,int32_t pa,int32_t pb,unsigned flags,
     fzx_road_stream_command_t *commands,const fzx_road_stream_emit_t *emit,uint32_t capacity,uint32_t *count,
     fzx_road_stream_draw_stats_t *stats){
     if(count)*count=0;
     if(!stats)return false;
     *stats=(fzx_road_stream_draw_stats_t){0};stats->fault=FZX_RS_INVALID;
-    if(!count||!w||!w->prepared||!w->pack||!view||!eye||!plan||(!commands&&!emit)||!capacity||
+    if(!count||!w||!w->prepared||!w->pack||!view||!plan||(!commands&&!emit)||!capacity||
        (flags&~(unsigned)(FZX_RS_FORCE_FIRST|FZX_RS_AUDIT_UNALIGNED))||plan->faults||
        plan->count>REF_ROAD_GROUPS||plan->outer>1||plan->fog_start<0||plan->fog_start>996||pb>0||
-       view->clip[0]<-900||view->clip[1]<-900||view->clip[2]>901||view->clip[3]>901)return false;
-    draw_t d={.work=w,.plan=plan,.commands=commands,.capacity=capacity,.flags=flags,.stats=stats,.emit=emit,
+       view->view.clip[0]<-900||view->view.clip[1]<-900||view->view.clip[2]>900||view->view.clip[3]>900)return false;
+    draw_t d={.work=w,.plan=plan,.view=*view,.commands=commands,.capacity=capacity,.flags=flags,.stats=stats,.emit=emit,
         .hot=w->hot?w->hot:&w->local};
-    for(unsigned c=0;c<3;++c){d.live[c]=(plan->fog[c]*31+127)/255;d.base[c]=(w->pack->base_fog[c]*31+127)/255;}
-    FZX_RSP(EYE);
-    if(!fzx_view16_from_source_center(&d.view,view,eye))return false;
+    ramp_prepare(w,plan);
+    if(!w->ramp_valid)return false;
+    if(!sh2z_view_rails_prepare(&d.rails,&d.view))return false;
     if(w->native){
         FZX_RSP(FOG);
         fog_prepare(w,&d.view.view,plan,pa,pb,stats);
+        if(!w->fog_valid)return fail(&d,FZX_RS_INVALID);
         if(!native_frame(&d))return false;
         FZX_RSP(REPORT);
         stats->fault=0;stats->error_quad=0;*count=stats->commands;return true;
@@ -522,6 +511,7 @@ static bool draw_any(fzx_road_stream_draw_work_t *w,const fzx_view_t *view,
     if(!sh2z_view_batch_center_divu(w->projected,&d.view,w->positions,sizeof(*w->positions),stats->positions))return fail(&d,FZX_RS_PROJECT);
     FZX_RSP(FOG);
     fog_prepare(w,&d.view.view,plan,pa,pb,stats);
+    if(!w->fog_valid)return fail(&d,FZX_RS_INVALID);
     FZX_RSP(QFETCH);
     const unsigned chunks=w->pack->count[FZX_RLD_CHUNKS];
     for(unsigned g=0;g<plan->count;++g){const RefRoadGroup *group=plan->groups+g;
@@ -540,20 +530,70 @@ static bool draw_any(fzx_road_stream_draw_work_t *w,const fzx_view_t *view,
     return fail(&d,FZX_RS_INVALID);
 #endif
 }
+/* Source-view entries: the centre view from the source view and a Q16.16 eye. */
+static bool center_of(sh2z_view_center_t *out,const fzx_view_t *view,const int32_t eye[3],
+    fzx_road_stream_draw_stats_t *stats){
+    if(stats){*stats=(fzx_road_stream_draw_stats_t){0};stats->fault=FZX_RS_INVALID;}
+    FZX_RSP(EYE);
+    return view&&eye&&fzx_view16_from_source_center(out,view,eye);
+}
 bool fzx_road_stream_draw(fzx_road_stream_draw_work_t *w,const fzx_view_t *view,
     const int32_t eye[3],const RefRoadPlan *plan,int32_t pa,int32_t pb,unsigned flags,
     fzx_road_stream_command_t *commands,uint32_t capacity,uint32_t *count,
     fzx_road_stream_draw_stats_t *stats){
-    if(!commands||!FZX_RS_PACKET_PATH){if(count)*count=0;return false;}
-    return draw_any(w,view,eye,plan,pa,pb,flags,commands,NULL,capacity,count,stats);
+    sh2z_view_center_t center;
+    if(count)*count=0;
+    if(!center_of(&center,view,eye,stats))return false;
+    return fzx_road_stream_draw_center(w,&center,plan,pa,pb,flags,commands,capacity,count,stats);
 }
 bool fzx_road_stream_draw_vdp1(fzx_road_stream_draw_work_t *w,const fzx_view_t *view,
     const int32_t eye[3],const RefRoadPlan *plan,int32_t pa,int32_t pb,unsigned flags,
+    const fzx_road_stream_emit_t *emit,uint32_t capacity,uint32_t *count,
+    fzx_road_stream_draw_stats_t *stats){
+    sh2z_view_center_t center;
+    if(count)*count=0;
+    if(!center_of(&center,view,eye,stats))return false;
+    return fzx_road_stream_draw_vdp1_center(w,&center,plan,pa,pb,flags,emit,capacity,count,stats);
+}
+bool fzx_road_stream_draw_center(fzx_road_stream_draw_work_t *w,const sh2z_view_center_t *view,
+    const RefRoadPlan *plan,int32_t pa,int32_t pb,unsigned flags,
+    fzx_road_stream_command_t *commands,uint32_t capacity,uint32_t *count,
+    fzx_road_stream_draw_stats_t *stats){
+    if(!commands||!FZX_RS_PACKET_PATH){if(count)*count=0;return false;}
+    return draw_any(w,view,plan,pa,pb,flags,commands,NULL,capacity,count,stats);
+}
+bool fzx_road_stream_draw_vdp1_center(fzx_road_stream_draw_work_t *w,const sh2z_view_center_t *view,
+    const RefRoadPlan *plan,int32_t pa,int32_t pb,unsigned flags,
     const fzx_road_stream_emit_t *emit,uint32_t capacity,uint32_t *count,
     fzx_road_stream_draw_stats_t *stats){
     if(count)*count=0;
     if(!emit||!emit->commands||!emit->shades||(flags&FZX_RS_AUDIT_UNALIGNED)||
        emit->texture_offset>0x7ffffu||(emit->texture_offset&7u)||(emit->shade_offset&7u)||
        capacity>(0x80000u-emit->shade_offset)/8u)return false;
-    return draw_any(w,view,eye,plan,pa,pb,flags,NULL,emit,capacity,count,stats);
+    return draw_any(w,view,plan,pa,pb,flags,NULL,emit,capacity,count,stats);
 }
+#if FZX_SOURCE_CAMERA
+/* Camera value to fixed point, rounded; rejects NaN and |x| > limit. */
+static bool camera_fixed(float x,float scale,float limit,int32_t *out){
+    if(!(x>=-limit&&x<=limit))return false;
+    const float y=x*scale;*out=(int32_t)(y>=0.0f?y+0.5f:y-0.5f);return true;
+}
+bool fzx_road_stream_camera_view(sh2z_view_center_t *out,const RefCamera *camera,const fzx_view_t *view){
+    /* SH2ZAM view-camera-1: rows {-side, up, forward} of the source basis
+     * {forward, up, side} in Q2.30, the eye in Q20.12 (no Q16.16 overflow)
+     * and the lens: fov, 160 px per unit of tangent on both axes, and the
+     * source view's centre, depth planes and clip (inclusive). */
+    if(!out||!camera||!view)return false;
+    int32_t basis[9],eye[3],fov;
+    for(unsigned j=0;j<3;++j)
+        if(!camera_fixed(-camera->basis[2][j],1073741824.0f,1.5f,basis+j)||
+           !camera_fixed(camera->basis[1][j],1073741824.0f,1.5f,basis+3+j)||
+           !camera_fixed(camera->basis[0][j],1073741824.0f,1.5f,basis+6+j)||
+           !camera_fixed(camera->eye[j],4096.0f,131072.0f,eye+j))return false;
+    if(!camera_fixed(camera->fov,65536.0f,180.0f,&fov))return false;
+    const sh2z_view_lens_t lens={fov,160<<16,160<<16,view->center[0],view->center[1],
+        view->near_plane,view->far_plane,
+        {view->clip[0],view->clip[1],(int16_t)(view->clip[2]-1),(int16_t)(view->clip[3]-1)}};
+    return sh2z_view_from_camera30(out,basis,eye,&lens);
+}
+#endif

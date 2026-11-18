@@ -14,13 +14,6 @@
 #ifndef FZX_RS_PACKET_PATH
 #define FZX_RS_PACKET_PATH 1
 #endif
-/* STAND-IN marker pending the SH2ZAM view-rails-1 tag (merge train 2): with
- * FZX_RS_VIEW_RAILS=1 both strip rails are stepped by one
- * sh2z_view_edge_rails_center_divu call (byte-identical to the two
- * edge_steps_center calls). Off until the pin carries the tag. */
-#ifndef FZX_RS_VIEW_RAILS
-#define FZX_RS_VIEW_RAILS 0
-#endif
 #define FZX_RS_COLD __attribute__((cold))
 #define U16 fzx_road_u16
 #define U32 fzx_road_u32
@@ -155,9 +148,7 @@ static FZX_RS_COLD bool mix_prepare(fzx_road_stream_draw_work_t *w){
 }
 typedef struct {
     fzx_road_stream_draw_work_t *work;const RefRoadPlan *plan;sh2z_view_center_t view;
-#if FZX_RS_VIEW_RAILS
     sh2z_view_rails_t rails;   /* view-rails-1 handle, prepared once per frame */
-#endif
     fzx_road_stream_command_t *commands;uint32_t capacity;unsigned flags;
     fzx_road_stream_draw_stats_t *stats;
     const fzx_road_stream_emit_t *emit;   /* direct VDP1 target, or NULL for packets */
@@ -282,19 +273,6 @@ static bool piece(draw_t *d,const vref_t v[4],unsigned quad,unsigned piece_id,
 #endif
     return true;
 }
-#if !FZX_RS_VIEW_RAILS
-static bool edge(draw_t *d,unsigned slot,const sh2z_view_vertex_t *from,const sh2z_view_vertex_t *to,
-    int32_t low,int32_t high,unsigned count,unsigned step){
-    fzx_road_stream_hot_t *h=d->hot;unsigned first=0,end=count;
-    FZX_RSP_COUNT(EDGE_CALLS,1);
-    while(first<count&&h->boundary[first]<=low)h->edge[slot][first++]=*from;
-    while(end>first&&h->boundary[end-1]>=high)h->edge[slot][--end]=*to;
-    if(end==first)return true;
-    FZX_RSP_COUNT(STEPPED,end-first);
-    return sh2z_view_edge_steps_center_divu(h->edge[slot]+first,&d->view,from,to,
-        (uint16_t)(h->boundary[first]-low),(uint16_t)step,(uint16_t)(high-low),end-first);
-}
-#endif
 /* Texture corner order and longitudinal spans of one quad (view-independent). */
 typedef struct {unsigned left,right,re,le,strip,unit;int32_t l0,l1,r0,r1;} quad_tex_t;
 #if FZX_RS_PACK_PATH
@@ -396,15 +374,12 @@ static bool quad_body(draw_t *d,unsigned id,const vref_t vertices[4],unsigned fl
         if(count>=65)return fail(d,FZX_RS_STEP);
         d->hot->boundary[count++]=end;start=end;}
     FZX_RSP_COUNT(BOUNDARIES,count);FZX_RSP(EDGE);
-#if FZX_RS_VIEW_RAILS
+    /* SH2ZAM view-rails-1: both strip rails in one call (boundaries are
+     * equally spaced by unit, as the call requires). */
     FZX_RSP_COUNT(EDGE_CALLS,1);(void)unit;
     if(!sh2z_view_edge_rails_center_divu(d->hot->edge[0],d->hot->edge[1],&d->rails,
         vertices[left],vertices[le],vertices[right],vertices[re],d->hot->boundary,count,l0,l1,r0,r1))
         return fail(d,FZX_RS_STEP);
-#else
-    if(!edge(d,0,vertices[left],vertices[le],l0,l1,count,unit)||
-       !edge(d,1,vertices[right],vertices[re],r0,r1,count,unit))return fail(d,FZX_RS_STEP);
-#endif
     FZX_RSP(MERGE);FZX_RSP_COUNT(MERGES,1);
     /* Merge scratch lives with the stepping scratch, off the stack. */
     uint32_t *const end_masks=d->hot->end_masks;uint8_t *const runs=d->hot->runs;int run_count;
@@ -504,9 +479,7 @@ static bool draw_any(fzx_road_stream_draw_work_t *w,const sh2z_view_center_t *vi
         .hot=w->hot?w->hot:&w->local};
     ramp_prepare(w,plan);
     if(!w->ramp_valid)return false;
-#if FZX_RS_VIEW_RAILS
     if(!sh2z_view_rails_prepare(&d.rails,&d.view))return false;
-#endif
     if(w->native){
         FZX_RSP(FOG);
         fog_prepare(w,&d.view.view,plan,pa,pb,stats);

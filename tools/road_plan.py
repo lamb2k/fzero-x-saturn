@@ -59,6 +59,14 @@ def native(source):
     if re.search(r'\bg(?:SP|DP)\w+|\bsCourseDisp\b|\bgfx\b',body):
         raise ValueError('Native planner still contains display-list operations')
     body=body.replace('gGameFrameCount','draw_frame').replace('gCurrentCourseInfo->courseFogColors','course_fog')
+    # FZX_ROAD_PLAN_FIXED (default 0): the per-chunk visibility loop in fixed point
+    # (ref/road_plan_fixed.inc). Knob off compiles the source loop unchanged.
+    start=body.index('    chunk = gSegmentChunks;\n    do {\n        chunk->depth =')
+    end=body.index('    } while (chunk != sLastSegmentChunk);\n',start)+len('    } while (chunk != sLastSegmentChunk);\n')
+    if body.count('    chunk = gSegmentChunks;\n    do {\n        chunk->depth =')!=1:
+        raise ValueError('Source chunk visibility loop changed; review planner extraction')
+    body=(body[:start]+'#if FZX_ROAD_PLAN_FIXED\n    ref_road_plan_cull_fixed(&sp60);\n#else\n'
+          +body[start:end]+'#endif\n'+body[end:])
     prefix='''
 #include "road_plan.h"
 _Static_assert(SEGMENT_CHUNK_GROUP_COUNT == REF_ROAD_GROUPS, "source group bound");
@@ -70,6 +78,9 @@ static void ref_road_group(RefRoadPlan *out, const SegmentChunkGroup *group, int
     dest->end=group->endChunk-gSegmentChunks;
     dest->direction=direction; dest->average_depth=group->averageDepth;
 }
+#if FZX_ROAD_PLAN_FIXED
+#include "road_plan_fixed.inc"
+#endif
 void ref_road_plan(RefRoadPlan *out, unsigned int draw_frame, const unsigned char course_fog[3]) {
     const s32 cameraIndex=0;
     if(!out) return;
@@ -105,7 +116,7 @@ static void ref_road_oracle_backward(SegmentChunkGroup*);
     # -ffunction-sections and the normal target linker discard unused graphics.
     output.parent.mkdir(parents=True,exist_ok=True)
     output.write_bytes((source+'\n'+added).encode())
-    files=[Path(__file__),ROOT/'ref/road_plan.h',ROOT/'ref/road_plan_oracle.inc',source_path]
+    files=[Path(__file__),ROOT/'ref/road_plan.h',ROOT/'ref/road_plan_oracle.inc',ROOT/'ref/road_plan_fixed.inc',source_path]
     sha=lambda p:hashlib.sha256(p.read_bytes()).hexdigest()
     lines=['# fzx generation receipt v1; regenerate, never edit']
     lines+=['generator %s %s'%(sha(p),os.path.relpath(p,ROOT/'tools')) for p in files]

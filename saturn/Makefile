@@ -552,6 +552,41 @@ SH_CFLAGS += -DFZX_PUB_PROFILE=1
 else ifneq ($(FZX_PUB_PROFILE),0)
 $(error FZX_PUB_PROFILE must be 0 or 1)
 endif
+# Publication fixes (plan step 3), each default 0. The closure must be built with
+# the same values (ref/sat/closure.sh reads them from the environment).
+# FZX_BACKDROP_CATCHUP=1: catch-up ticks advance only the cloud scroll; the
+# vertices are built once per publication (exact). _VERIFY=1 is a diagnostic
+# that runs both forms every publication and counts mismatches.
+FZX_BACKDROP_CATCHUP ?= 0
+FZX_BACKDROP_CATCHUP_VERIFY ?= 0
+ifeq ($(FZX_BACKDROP_CATCHUP),1)
+ifneq ($(FZX_SOURCE_SKY):$(FZX_SOURCE_PLANES),1:1)
+$(error FZX_BACKDROP_CATCHUP requires the source sky and planes)
+endif
+SH_CFLAGS += -DFZX_BACKDROP_CATCHUP=1
+else ifneq ($(FZX_BACKDROP_CATCHUP),0)
+$(error FZX_BACKDROP_CATCHUP must be 0 or 1)
+endif
+ifeq ($(FZX_BACKDROP_CATCHUP_VERIFY),1)
+ifneq ($(FZX_BACKDROP_CATCHUP),1)
+$(error FZX_BACKDROP_CATCHUP_VERIFY requires FZX_BACKDROP_CATCHUP=1)
+endif
+SH_CFLAGS += -DFZX_BACKDROP_CATCHUP_VERIFY=1
+else ifneq ($(FZX_BACKDROP_CATCHUP_VERIFY),0)
+$(error FZX_BACKDROP_CATCHUP_VERIFY must be 0 or 1)
+endif
+# FZX_ROAD_PLAN_FIXED=1: the road planner's per-chunk visibility test in fixed
+# point (ref/road_plan_fixed.inc; render-only approximation). Closure-side only:
+# the image records the value so the recipe states it.
+FZX_ROAD_PLAN_FIXED ?= 0
+ifeq ($(FZX_ROAD_PLAN_FIXED),1)
+ifneq ($(FZX_SOURCE_ROAD),1)
+$(error FZX_ROAD_PLAN_FIXED requires the source road planner)
+endif
+SH_CFLAGS += -DFZX_ROAD_PLAN_FIXED=1
+else ifneq ($(FZX_ROAD_PLAN_FIXED),0)
+$(error FZX_ROAD_PLAN_FIXED must be 0 or 1)
+endif
 # Default-off C3 native road layout (boot-built chunk runs, 8-byte quads).
 FZX_ROAD_STREAM_NATIVE_LAYOUT ?= 0
 ifeq ($(FZX_ROAD_STREAM_NATIVE_LAYOUT),1)

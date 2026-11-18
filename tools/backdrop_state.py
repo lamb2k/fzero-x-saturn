@@ -111,6 +111,82 @@ void ref_backdrop_tick(RefBackdrop* out,unsigned int pool,int paused) {
     native_Background_Update();
     ref_backdrop_copy(out,native_backgrounds,native_vertices[native_pool]);
 }
+#if FZX_BACKDROP_CATCHUP || FZX_BACKDROP_CATCHUP_VERIFY || defined(REF_BACKDROP_ORACLE)
+/* FZX_BACKDROP_CATCHUP: the state part of one source Background_Update, without
+ * its vertex builds. Background_Update writes only camera-derived fields (pos.x,
+ * pos.z and both ranges, rebuilt by every full update) and the cloud scroll. The
+ * scroll advances once per cloud quad (twice) unless paused, x then z each time,
+ * and not at all when the cloud plane is at eye height. Same operations, same
+ * order, so a catch-up of N ticks (N-1 of these, then one full update with the
+ * same camera) leaves the state and the presented vertices bit-identical. */
+static void native_scroll_step(ScrollingBackground* cloudScroll) {
+    if (!native_paused) {
+        cloudScroll->xScroll += cloudScroll->xScrollSpeed;
+        if (cloudScroll->xScroll >= 1024.0f) {
+            cloudScroll->xScroll -= 1024.0f;
+        } else if (cloudScroll->xScroll < -1024.0f) {
+            cloudScroll->xScroll += 1024.0f;
+        }
+    }
+    if (!native_paused) {
+        cloudScroll->zScroll += cloudScroll->zScrollSpeed;
+        if (cloudScroll->zScroll >= 1024.0f) {
+            cloudScroll->zScroll -= 1024.0f;
+        } else if (cloudScroll->zScroll < -1024.0f) {
+            cloudScroll->zScroll += 1024.0f;
+        }
+    }
+}
+void ref_backdrop_scroll(int paused) {
+    Background* background = native_backgrounds;
+    Camera* camera = gCameras;
+    f32 cloudHeightAboveEye;
+    if(!native_ready || gNumPlayers!=1) return;
+    native_paused=paused!=0;
+    cloudHeightAboveEye = (background->pos.y + background->cloudScroll.relativeBackgroundHeight) - camera->eye.y;
+    if (cloudHeightAboveEye == 0.0f) return;
+    native_scroll_step(&background->cloudScroll);
+    native_scroll_step(&background->cloudScroll);
+}
+#endif
+#if FZX_BACKDROP_CATCHUP_VERIFY || defined(REF_BACKDROP_ORACLE)
+/* Diagnostic: run SPAN full updates and, from the same starting state, SPAN-1
+ * scroll steps plus one full update; compare outputs and the whole native state.
+ * Leaves the catch-up result in place. 0 = identical. */
+typedef struct {
+    Background backgrounds[1];
+    Vtx vertices[2][28];
+    unsigned int pool;
+    int paused;
+} native_snapshot_t;
+static native_snapshot_t native_snapshot_start, native_snapshot_full;
+static RefBackdrop native_snapshot_expected;
+static void native_snapshot_save(native_snapshot_t* s) {
+    memcpy(s->backgrounds,native_backgrounds,sizeof(s->backgrounds));
+    memcpy(s->vertices,native_vertices,sizeof(s->vertices));
+    s->pool=native_pool;s->paused=native_paused;
+}
+static void native_snapshot_load(const native_snapshot_t* s) {
+    memcpy(native_backgrounds,s->backgrounds,sizeof(s->backgrounds));
+    memcpy(native_vertices,s->vertices,sizeof(s->vertices));
+    native_pool=s->pool;native_paused=s->paused;
+}
+int ref_backdrop_catchup_check(RefBackdrop* out,unsigned int span,unsigned int pool,int paused) {
+    unsigned int i;
+    if(!out || !span || !native_ready) return 1;
+    native_snapshot_save(&native_snapshot_start);
+    for(i=0;i<span;++i) ref_backdrop_tick(&native_snapshot_expected,pool,paused);
+    native_snapshot_save(&native_snapshot_full);
+    native_snapshot_load(&native_snapshot_start);
+    for(i=1;i<span;++i) ref_backdrop_scroll(paused);
+    ref_backdrop_tick(out,pool,paused);
+    if(memcmp(out,&native_snapshot_expected,sizeof(*out))) return 2;
+    if(memcmp(native_backgrounds,native_snapshot_full.backgrounds,sizeof(native_backgrounds))) return 3;
+    if(memcmp(native_vertices,native_snapshot_full.vertices,sizeof(native_vertices))) return 4;
+    if(native_pool!=native_snapshot_full.pool || native_paused!=native_snapshot_full.paused) return 5;
+    return 0;
+}
+#endif
 '''
     return prefix + body + suffix
 

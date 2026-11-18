@@ -74,3 +74,40 @@ int ref_backdrop_branch_check(void) {
     gCameras[0]=saved;
     return ref_backdrop_check_init(0.0035f,-0.002f);
 }
+
+/* FZX_BACKDROP_CATCHUP against the original: SPAN source Background_Update calls
+ * (oracle storage) against the native catch-up (SPAN-1 scroll steps plus one full
+ * update, itself checked against SPAN full native updates from the same state). */
+int ref_backdrop_catchup_oracle(RefBackdrop* out,unsigned int span,unsigned int pool,int paused) {
+    GfxPool* saved_pool=gGfxPool;
+    s8 saved_paused=gGamePaused;
+    Camera camera=gCameras[0];
+    RefBackdrop expected;
+    unsigned int i,j;
+    int r;
+    if(!out || !span || !backdrop_oracle_ready || pool>1)return 1;
+    gGfxPool=&backdrop_oracle_pools[pool];gGamePaused=paused!=0;
+    for(i=0;i<span;++i)Background_Update();
+    memset(&expected,0,sizeof(expected));expected.count=20;
+    memcpy(expected.state,sBackgrounds,sizeof(expected.state));
+    for(i=0;i<20;++i) {
+        const Vtx* v=&gGfxPool->unk_29B48[i];
+        for(j=0;j<3;++j)expected.vertices[i].position[j]=v->v.ob[j];
+        expected.vertices[i].flag=v->v.flag;
+        for(j=0;j<2;++j)expected.vertices[i].uv[j]=v->v.tc[j];
+        for(j=0;j<4;++j)expected.vertices[i].color[j]=v->v.cn[j];
+    }
+    gGfxPool=saved_pool;gGamePaused=saved_paused;
+    r=ref_backdrop_catchup_check(out,span,pool,paused);
+    if(r)return 10+r;
+    if(memcmp(&camera,&gCameras[0],sizeof(camera)))return 2;
+    if(out->faults || out->count!=20)return 3;
+    if(memcmp(out->state,expected.state,sizeof(expected.state)))return 4;
+    if(memcmp(out->vertices,expected.vertices,sizeof(expected.vertices)))return 5;
+    return 0;
+}
+/* Both sides' scroll near the wrap points, so catch-up spans cross them. */
+void ref_backdrop_catchup_wrap_preset(void) {
+    sBackgrounds[0].cloudScroll.xScroll=native_backgrounds[0].cloudScroll.xScroll=1023.99f;
+    sBackgrounds[0].cloudScroll.zScroll=native_backgrounds[0].cloudScroll.zScroll=-1023.99f;
+}

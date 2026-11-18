@@ -534,10 +534,14 @@ orig_hud(void)
 #if FZX_PUB_PROFILE
 /* Diagnostic only (FZX_PUB_PROFILE=1): FRT ticks per publication part. Rows:
  * 0 guards, 1 pose, 2 camera flush(0), 3 camera + view, 4 countdown, 5 skyline,
- * 6 sky, 7 road plan, 8 whole publication. Columns: calls, ticks lo, ticks hi, max.
+ * 6 sky, 7 road plan, 8 whole publication, 9 probe: the two Matrix_ToMtx calls the
+ * camera build makes (timed separately, not part of 8). Columns: calls, ticks lo,
+ * ticks hi, max.
  * Histogram bins are 421 ticks (about 0.5 ms at 841 ticks/ms); bin 127 holds the rest. */
-volatile uint32_t fzx_pub_profile[9][4];
-volatile uint16_t fzx_pub_hist[9][128];
+volatile uint32_t fzx_pub_profile[10][4];
+volatile uint16_t fzx_pub_hist[10][128];
+void Matrix_ToMtx(void *src, void *dest);
+static uint32_t pub_probe_mtx[16];
 static uint16_t pub_t0,pub_last;
 static void pub_add(unsigned part,uint16_t ticks) {
     volatile uint32_t *r=fzx_pub_profile[part];
@@ -625,6 +629,16 @@ orig_publish(void)
     }
 #endif
     PUB_MARK(7);
+#if FZX_PUB_PROFILE
+    /* Probe after the whole-phase total: the same two float-to-N64 conversions the
+     * camera build makes into GfxPool, into a scratch matrix nothing reads. */
+    {
+        const uint16_t probe_start=cpu_frt_count_get();
+        Matrix_ToMtx(fzx_source_camera.projection,pub_probe_mtx);
+        Matrix_ToMtx(fzx_source_camera.view,pub_probe_mtx);
+        pub_add(9,(uint16_t)(cpu_frt_count_get()-probe_start));
+    }
+#endif
     if(fzx_camera_status!=3)fzx_camera_status=1;
     PUB_END();
 #endif

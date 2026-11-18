@@ -84,6 +84,15 @@ if [ "$DEFER" = 1 ]; then
     CFLAGS="$CFLAGS -DFZX_DEFER_PROJECTION=1 -include $W/ref/sim_overrides.h"
     BRIDGES="$BRIDGES sim_bridge"
 fi
+# Publication fixes (default 0; the image's make must use the same values).
+CATCHUP=${FZX_BACKDROP_CATCHUP:-0}; CATCHUP_VERIFY=${FZX_BACKDROP_CATCHUP_VERIFY:-0}
+[ "$CATCHUP" = 0 ] || [ "$CATCHUP:$SKY" = 1:1 ] || { echo "backdrop catch-up requires the source sky" >&2; exit 1; }
+[ "$CATCHUP_VERIFY" = 0 ] || [ "$CATCHUP" = 1 ] || { echo "catch-up verify requires catch-up" >&2; exit 1; }
+if [ "$CATCHUP" = 1 ]; then CFLAGS="$CFLAGS -DFZX_BACKDROP_CATCHUP=1"; fi
+if [ "$CATCHUP_VERIFY" = 1 ]; then CFLAGS="$CFLAGS -DFZX_BACKDROP_CATCHUP_VERIFY=1"; fi
+PLAN_FIXED=${FZX_ROAD_PLAN_FIXED:-0}
+[ "$PLAN_FIXED" = 0 ] || [ "$PLAN_FIXED:$PLAN" = 1:1 ] || { echo "fixed road plan requires the source road planner" >&2; exit 1; }
+if [ "$PLAN_FIXED" = 1 ]; then CFLAGS="$CFLAGS -DFZX_ROAD_PLAN_FIXED=1"; fi
 OBJ=$OUT/obj
 mkdir -p "$OBJ"
 objs=""

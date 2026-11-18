@@ -70,6 +70,10 @@ if [ "$CAMERA" = 1 ]; then
     BRIDGES="$BRIDGES camera_bridge"
 fi
 if [ "$MACHINE" = 1 ]; then CFLAGS="$CFLAGS -DFZX_SOURCE_MACHINE=1"; fi
+# FZX_REF_MACHINE_FIXED=1: fixed-point ref_machine presentation tail (default 0 keeps the bridge code).
+REF_MACHINE_FIXED=${FZX_REF_MACHINE_FIXED:-0}
+[ "$REF_MACHINE_FIXED" = 0 ] || [ "$REF_MACHINE_FIXED:$MACHINE" = 1:1 ] || { echo "FZX_REF_MACHINE_FIXED requires source machine" >&2; exit 1; }
+if [ "$REF_MACHINE_FIXED" = 1 ]; then CFLAGS="$CFLAGS -DFZX_REF_MACHINE_FIXED=1"; fi
 OBJ=$OUT/obj
 mkdir -p "$OBJ"
 objs=""

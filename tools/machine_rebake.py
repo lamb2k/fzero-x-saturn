@@ -172,10 +172,11 @@ def face_plane(vertices):
     return normal,dot(normal,a)
 
 
-def build(models,bindings,textures,raw,lut,body,fog,fixture=False):
+def build(models,bindings,textures,raw,lut,body,fog,fixture=False,orders=None):
     if len(models)<5 or len(lut)!=256 or any(not 0<=x<=255 for x in [*lut,*body,*fog]) or len(body)!=3 or len(fog)!=3:
         raise ArtError('Invalid vehicle source setup')
     by_name={t['symbol']:t for t in textures};by_tile={b['tile']:b for b in bindings}
+    orders_supplied=orders;supplied=0
     image_cache={};palette_ids={};palettes=[];bank=bytearray();prepared=[]
     for lod in LODS:
         model=models[lod]
@@ -212,6 +213,14 @@ def build(models,bindings,textures,raw,lut,body,fog,fixture=False):
         for octant in range(8):
             direction=[1 if octant&(1<<i) else -1 for i in range(3)]
             orders.append(sorted(range(len(faces)),key=lambda i:(Fraction(dot(faces[i]['center'],direction),len(faces[i]['vertices'])),i)))
+        if orders_supplied:
+            # Supplied back-to-front orders index the unsplit pairing() faces.
+            index={tuple(f['triangles']):i for i,f in enumerate(faces)};source=[tuple(f['triangles']) for f in pairing(model)]
+            for octant in range(8):
+                order=orders_supplied.get('%d:%d'%(lod+1,octant))
+                if order is None:continue
+                if sorted(order)!=list(range(len(source))) or any(t not in index for t in source):raise ArtError('Supplied vehicle order does not match the faces')
+                orders[octant]=[index[source[i]] for i in order];supplied+=1
         prepared.append(dict(lod=lod+1,model=model,maps=maps,positions=list(unique_positions),normals=list(unique_normals),faces=faces,orders=orders,rejected_pairs=rejected_pairs))
     data=bytearray(HEADER+len(prepared)*DESCRIPTOR);data[:8]=b'FZXMCH02'
     def align():data.extend(bytes((-len(data))%8))
@@ -249,19 +258,28 @@ def build(models,bindings,textures,raw,lut,body,fog,fixture=False):
                 lods=[dict(lod=p['lod'],source_vertices=len(p['model']['vertices']),source_triangles=len(p['model']['triangles']),positions=len(p['positions']),
                            normals=len(p['normals']),faces=len(p['faces']),pairs=sum(len(f['triangles'])==2 for f in p['faces']),palette_rejected_pairs=p['rejected_pairs']) for p in prepared],
                 runtime='UNRUN',adaptations=['original coplanar convex pairs only; UV/normal/material seams retained',
-                'nearest original texels; triangle chart cap16 and quad chart cap32','eight offline centroid orders; appearance qualification pending',
+                'nearest original texels; triangle chart cap16 and quad chart cap32',
+                'eight offline centroid orders; appearance qualification pending' if not supplied else '%d supplied offline topological orders, centroid orders elsewhere; appearance qualification pending'%supplied,
                 'unlit default-body palette prebaked; source colors retained for shared live body changes; lighting is pending'])
     return bytes(data),bytes(bank),report
 
 
-def generate(source,output):
+def supplied_orders(path):
+    """Frozen back-to-front orders: {"groups":[{"key":"LOD:OCTANT","full_order":[face,...]}]}."""
+    if path is None:return None
+    groups=json.loads(path.read_text())['groups']
+    if any(not isinstance(g.get('full_order'),list) for g in groups):raise ArtError('Supplied vehicle order is incomplete')
+    return {g['key']:g['full_order'] for g in groups}
+
+
+def generate(source,output,orders=None):
     output_location(output)
     subprocess.run(['bash',str(ROOT/'tools/check_receipt.sh'),str(source/'source_art.receipt')],check=True,stdout=subprocess.DEVNULL)
     manifest=json.loads((source/'source_art.json').read_text())
     racer=DECOMP/'src/game/racer.c';background=DECOMP/'src/overlays/ovl_i3/background.c'
     lut,body,fog=source_probe_state(racer.read_text(),background.read_text())
     raw={t['symbol']:(source/t['raw_file']).read_bytes() for t in manifest['textures']}
-    data,bank,report=build(manifest['models'],manifest['texture_bindings'],manifest['textures'],raw,lut,body,fog)
+    data,bank,report=build(manifest['models'],manifest['texture_bindings'],manifest['textures'],raw,lut,body,fog,orders=supplied_orders(orders))
     output.mkdir(parents=True,exist_ok=True)
     outputs={'MACHRLD.PAK':data,'MACHRTX.PAK':bank,'machine_rebake.json':(json.dumps(report,indent=2)+'\n').encode()}
     header='/* Generated prepared vehicle identity; regenerate. */\n'
@@ -271,6 +289,7 @@ def generate(source,output):
     inputs=[Path(__file__),ROOT/'tools/import_source_art.py',ROOT/'tools/model_assets.py',ROOT/'tools/countdown_pack.py',ROOT/'tools/road_pack.py',
             source/'source_art.receipt',source/'source_art.json',racer,background]
     inputs+=[source/t['raw_file'] for t in manifest['textures']]
+    if orders is not None:inputs.append(orders)
     digest=lambda p:hashlib.sha256(p.read_bytes()).hexdigest()
     receipt=['# fzx generation receipt v1; regenerate, never edit']
     receipt+=['generator %s %s'%(digest(p),os.path.relpath(p,ROOT/'tools').replace('\\','/')) for p in inputs]
@@ -284,4 +303,5 @@ if __name__=='__main__':
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--source',type=Path,default=ROOT/'generated/source_art')
     parser.add_argument('--output',type=Path,default=ROOT/'generated/machine_rebake')
-    args=parser.parse_args();generate(args.source,args.output)
+    parser.add_argument('--orders',type=Path,help='local frozen back-to-front orders (JSON); keep outside the repository')
+    args=parser.parse_args();generate(args.source,args.output,args.orders)

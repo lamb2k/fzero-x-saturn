@@ -269,11 +269,27 @@ extern Vec3s* sTunnelFogColors;
 extern f32 D_800CE748, D_800CE74C, D_800CE750;
 _Static_assert(sizeof(RefMachine) == 112, "machine snapshot ABI");
 
+#ifndef FZX_REF_MACHINE_FIXED
+#define FZX_REF_MACHINE_FIXED 0
+#endif
+#if FZX_REF_MACHINE_FIXED
+/* The closure is built with -fno-builtin: memcpy is a library call, so the
+ * fixed path reads float bits through a union instead. */
+static unsigned int machine_bits(float value) {
+    union { float f; unsigned int u; } x;
+    x.f = value;
+    return x.u;
+}
+static int machine_finite(float value) {
+    return (machine_bits(value) & 0x7f800000u) != 0x7f800000u;
+}
+#else
 static int machine_finite(float value) {
     unsigned int bits;
     memcpy(&bits, &value, sizeof(bits));
     return (bits & 0x7f800000u) != 0x7f800000u;
 }
+#endif
 static int machine_float_array(const float* values, unsigned int count) {
     unsigned int i;
     for (i = 0; i < count; ++i) if (!machine_finite(values[i])) return 0;
@@ -284,6 +300,96 @@ static int machine_fail(RefMachine* out, unsigned int fault) {
     out->faults = fault;
     return 0;
 }
+#if FZX_REF_MACHINE_FIXED
+/* Fixed-point presentation tail (FZX_REF_MACHINE_FIXED, default 0; owner
+ * decision 2026-11-17: ref_machine counts against the vehicle budget). Floats
+ * are converted once (directions and matrices Q24, world units Q12); the range
+ * checks are exact IEEE bit compares; reflection, the shifted projection, LOD
+ * and visibility are integer. Approximate: reflection may differ by one unit
+ * and LOD/visibility only at exact boundaries; shifted_distance is Q12-rounded.
+ * Out-of-range values fall back to the float path below, which also decides
+ * every fault. machine_q and machine_round are stand-ins pending SH2ZAM pose-1
+ * (float-to-fixed conversion). */
+static int machine_q(float value, int frac, int* out) {
+    const unsigned int bits = machine_bits(value);
+    unsigned int mag;
+    int shift;
+    if (!(bits & 0x7f800000u)) { *out = 0; return 1; }
+    shift = (int)((bits >> 23) & 0xffu) - 150 + frac;
+    if (shift > 7) return 0;
+    mag = (bits & 0x7fffffu) | 0x800000u;
+    if (shift >= 0) mag <<= shift;
+    else if (shift < -25) mag = 0;
+    else mag = (mag + (1u << (-shift - 1))) >> -shift;
+    if (mag >= (1u << 28)) return 0;
+    *out = (bits >> 31) ? -(int)mag : (int)mag;
+    return 1;
+}
+static long long machine_round(long long value, int shift) {
+    const long long half = 1LL << (shift - 1);
+    return value < 0 ? -((-value + half) >> shift) : (value + half) >> shift;
+}
+static int machine_range_bits(const float scale[3], const float* forward) {
+    unsigned int i, s, f;
+    for (i = 0; i < 3; ++i) {
+        s = machine_bits(scale[i]);
+        f = machine_bits(forward[i]);
+        /* 0 < scale <= 1.0f and |forward| <= 1.01f (0x3f8147ae), finite inputs. */
+        if ((s >> 31) || !s || s > 0x3f800000u || (f & 0x7fffffffu) > 0x3f8147aeu) return 0;
+    }
+    return 1;
+}
+static int machine_fixed_tail(RefMachine* result, const float world_light[3], const float* forward,
+                              const float* eye, const float (*v)[4], const float (*p)[4],
+                              const float (*pv)[4], const float* pos, float ambient) {
+    int f[3], w[3], e[3], q[3], vq[3][3], pq[3][4], p00, p11, p20, p21, p22, p32, i, j, lod = 0, visible = 0;
+    long long b[3], t[4], c[4], s0, s1;
+    short reflection[3];
+    unsigned char level;
+    for (i = 0; i < 3; ++i) {
+        if (!machine_q(forward[i], 24, &f[i]) || !machine_q(world_light[i], 24, &w[i]) ||
+            !machine_q(eye[i], 12, &e[i]) || !machine_q(pos[i], 12, &q[i])) return 0;
+        for (j = 0; j < 3; ++j) if (!machine_q(v[i][j], 24, &vq[i][j])) return 0;
+        for (j = 0; j < 4; ++j) if (!machine_q(pv[i][j], 24, &pq[i][j])) return 0;
+    }
+    if (!machine_q(p[0][0], 24, &p00) || !machine_q(p[1][1], 24, &p11) || !machine_q(p[2][0], 24, &p20) ||
+        !machine_q(p[2][1], 24, &p21) || !machine_q(p[2][2], 24, &p22) || !machine_q(p[3][2], 12, &p32)) return 0;
+    for (i = 0; i < 3; ++i) {
+        const long long packed = (long long)(w[i] - f[i]) * 16383;
+        if (packed < -(32767LL << 24) || packed > (32767LL << 24)) return 0;
+        reflection[i] = (short)machine_round(packed, 24);
+        b[i] = machine_round((long long)f[i] * 100, 12) - e[i];
+    }
+    t[3] = -machine_round(b[0] * vq[0][2] + b[1] * vq[1][2] + b[2] * vq[2][2], 24);
+    s0 = machine_round(b[0] * vq[0][0] + b[1] * vq[1][0] + b[2] * vq[2][0], 24);
+    s1 = machine_round(b[0] * vq[0][1] + b[1] * vq[1][1] + b[2] * vq[2][1], 24);
+    if (t[3] < -(1LL << 30) || t[3] > (1LL << 30) || s0 < -(1LL << 30) || s0 > (1LL << 30) ||
+        s1 < -(1LL << 30) || s1 > (1LL << 30)) return 0;
+    t[2] = p32 - machine_round(p22 * t[3], 24);
+    t[0] = machine_round(p00 * s0, 24) - machine_round(p20 * t[3], 24);
+    t[1] = machine_round(p11 * s1, 24) - machine_round(p21 * t[3], 24);
+    for (i = 0; i < 4; ++i) {
+        c[i] = machine_round((long long)pq[0][i] * q[0] + (long long)pq[1][i] * q[1] + (long long)pq[2][i] * q[2], 24) + t[i];
+        if (c[i] < -(1LL << 30) || c[i] > (1LL << 30)) return 0;
+    }
+    if ((result->state_flags & RACER_STATE_ACTIVE) && c[2] >= 0 && c[2] <= 2500LL * 4096) {
+        const long long a3 = c[3] < 0 ? -c[3] : c[3];
+        if (!a3) return 0;
+        /* x = clip0/clip3 and y = clip1/clip3 in [-1, 1], without the division. */
+        if ((c[0] < 0 ? -c[0] : c[0]) <= a3 && (c[1] < 0 ? -c[1] : c[1]) <= a3) {
+            lod = c[2] < 230 * 4096 ? 1 : c[2] < 290 * 4096 ? 2 : c[2] < 380 * 4096 ? 3 :
+                c[2] < 470 * 4096 ? 4 : c[2] < 1500 * 4096 ? 5 : 6;
+            visible = !(result->state_flags & RACER_STATE_CRASHED);
+        }
+    }
+    level = (unsigned char)ambient;
+    for (i = 0; i < 3; ++i) { result->reflection[i] = reflection[i]; result->ambient[i] = level; }
+    result->shifted_distance = (float)(int)c[2] * (1.0f / 4096.0f);
+    result->source_lod = lod;
+    result->normal_body_visible = visible;
+    return 1;
+}
+#endif
 int ref_machine(RefMachine* out, const unsigned char outside_fog[3]) {
     const Racer* r = &gRacers[0];
     const Camera* camera = &gCameras[0];
@@ -317,10 +423,14 @@ int ref_machine(RefMachine* out, const unsigned char outside_fog[3]) {
         !machine_float_array(eye, 3) || !machine_float_array(&v[0][0], 16) ||
         !machine_float_array(&p[0][0], 16) || !machine_float_array(&pv[0][0], 16))
         return machine_fail(out, REF_MACHINE_NONFINITE);
+#if FZX_REF_MACHINE_FIXED
+    if (!machine_range_bits(result.model_scale, forward)) return machine_fail(out, REF_MACHINE_STATE);
+#else
     for (i = 0; i < 3; ++i)
         if (result.model_scale[i] <= 0.0f || result.model_scale[i] > 1.0f ||
             forward[i] < -1.01f || forward[i] > 1.01f)
             return machine_fail(out, REF_MACHINE_STATE);
+#endif
     result.state_flags = (unsigned int)r->stateFlags;
     result.character = r->character;
     result.custom_type = r->customType;
@@ -378,6 +488,9 @@ int ref_machine(RefMachine* out, const unsigned char outside_fog[3]) {
             result.fog[i] = outside_fog[i];
         }
     }
+#if FZX_REF_MACHINE_FIXED
+    if (!machine_fixed_tail(&result, world_light, forward, eye, v, p, pv, pos, ambient)) {
+#endif
     for (i = 0; i < 3; ++i) {
         float packed = (world_light[i] - forward[i]) * 16383.0f;
         if (!machine_finite(packed) || packed < -32767.0f || packed > 32767.0f)
@@ -408,6 +521,9 @@ int ref_machine(RefMachine* out, const unsigned char outside_fog[3]) {
             result.normal_body_visible = !(result.state_flags & RACER_STATE_CRASHED);
         }
     }
+#if FZX_REF_MACHINE_FIXED
+    }
+#endif
     *out = result;
     return 1;
 }

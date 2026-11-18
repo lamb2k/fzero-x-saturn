@@ -20,6 +20,7 @@ fzx_clouds_rbg_t fzx_clouds_rbg;
 volatile uint32_t fzx_clouds_status,fzx_clouds_pending,fzx_clouds_commits;
 volatile uint32_t fzx_clouds_degenerate,fzx_clouds_bands,fzx_clouds_sky_line_count;
 static uint16_t sky_lines[224];
+static uint8_t sky_keys[64];
 static unsigned band_count;
 extern volatile uint32_t fzx_input_count;
 
@@ -82,6 +83,11 @@ static void restore(void) {
 
 bool fzx_clouds_vdp2_load(const void *planes_vram) {
     if(!planes_vram){fzx_clouds_status=2;return false;}
+    for(unsigned i=0;i<64u;++i) {
+        const uint16_t c=fzx_sky_colors[i];
+        sky_keys[i]=(uint8_t)((c&31u)+((c>>5)&31u)+((c>>10)&31u));
+        if(i && sky_keys[i]<sky_keys[i-1]){fzx_clouds_status=5;return false;}
+    }
     /* Cloud-only pack, rebased: variant 0 (unfaded), level 0 = 64x32 RGB1555
      * row-major at offset 0. VDP2 RGB cells are 8x8 row-major, 128 bytes. */
     const volatile uint16_t *src=(const volatile uint16_t *)planes_vram;
@@ -192,13 +198,12 @@ static bool emit(void *context,const fzx_floor_polygon_t *q) {
     vdp1_cmdt_draw_mode_set(c,mode);
     if(q->band==7)c->cmd_colr=(uint16_t)(sky|0x8000u); /* opaque sky: the clouds are invisible here */
     else {
-        /* The nearest of the 64 resident sky samples. */
-        unsigned best=0;int32_t best_d=INT32_MAX;
-        for(unsigned i=0;i<64u;++i) {
-            int32_t d=0;
-            for(unsigned k=0;k<15;k+=5){const int32_t e=(int32_t)((sky>>k)&31u)-(int32_t)((fzx_sky_colors[i]>>k)&31u);d+=e*e;}
-            if(d<best_d){best_d=d;best=i;}
-        }
+        /* The nearest resident sky sample: the source gradient's channel sum
+         * rises monotonically (checked at load), so bisect on it. */
+        const uint32_t key=(sky&31u)+((sky>>5)&31u)+((sky>>10)&31u);
+        unsigned lo=0,hi=63;
+        while(lo<hi){const unsigned mid=(lo+hi)/2;if(sky_keys[mid]<key)lo=mid+1;else hi=mid;}
+        const unsigned best=(lo>0 && key-sky_keys[lo-1]<sky_keys[lo]-key)?lo-1:lo;
         c->cmd_colr=(uint16_t)(0x4000u|(q->band<<11)|(BAND_CRAM_FIRST+best));
         ++band_count;
     }

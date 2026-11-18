@@ -56,6 +56,8 @@ typedef struct {
     int32_t boundary[65];
     sh2z_view_vertex_t edge[2][65];
     sh2z_view_guard_vertex_t clip_in[4],clip_out[SH2Z_VIEW_GUARD_MAX_OUT];
+    uint32_t end_masks[65];
+    uint8_t runs[64];
 } fzx_road_stream_hot_t;
 
 /* Caller owns all storage, disjoint from immutable packs and output commands.

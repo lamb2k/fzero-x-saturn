@@ -122,7 +122,8 @@ class RoadStreamFogBucket(unittest.TestCase):
                      ROOT / 'src/fzx_view.c', ROOT / 'src/fzx_view16.c', ROOT / 'src/fzx_view16_center.c',
                      lib / 'src/sh2zam_view.c', lib / 'src/sh2zam_view_round.c',
                      lib / 'src/sh2zam_view_guard_src.c', lib / 'src/sh2zam_view_center.c',
-                     lib / 'src/sh2zam_view_guard_src_center.c']
+                     lib / 'src/sh2zam_view_guard_src_center.c',
+                     lib / 'src/sh2zam_view_merge_tier.c']
             build = subprocess.run([cc, '-std=c11', '-O2', '-Wall', '-Wextra', '-Werror',
                                     '-Wno-misleading-indentation', '-fsanitize=undefined',
                                     '-fno-sanitize-recover=all', '-DSH2Z_FORCE_PORTABLE=1',

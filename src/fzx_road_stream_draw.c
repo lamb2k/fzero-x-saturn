@@ -217,26 +217,31 @@ static bool piece(draw_t *d,const vref_t v[4],unsigned quad,unsigned piece_id,
             if(!(d->flags&FZX_RS_AUDIT_UNALIGNED))return fail(d,FZX_RS_TEXTURE_ALIGNMENT);}
     }
     uint16_t shades[16];
+    /* RGB1555 channel places as constants: the SH-2 has no variable shift
+     * (a shift by c*5 is a libgcc call per channel). */
+    static const uint16_t place[3]={1u,1u<<5,1u<<10};
     FZX_RSP(FOG);
+    /* Channel-outer: per-piece channel terms are formed once, then each
+     * corner costs one multiply and one stand-in division. */
+    for(unsigned i=0;i<count;++i)shades[i]=0x8000;
     if(solid){
-        for(unsigned i=0;i<count;++i){uint16_t packed=0x8000;const uint32_t f=fade[i];
-            for(unsigned c=0;c<3;++c){
-                const uint32_t color=div65025((d->plan->primitive[c]*(255u-f)+d->plan->fog[c]*f)*31u+32512u);
-                packed|=(uint16_t)((color>31u?31u:color)<<(c*5));
+        for(unsigned c=0;c<3;++c){const uint32_t prim=d->plan->primitive[c],fog=d->plan->fog[c];
+            for(unsigned i=0;i<count;++i){const uint32_t f=fade[i];
+                const uint32_t color=div65025((prim*(255u-f)+fog*f)*31u+32512u);
+                shades[i]|=(uint16_t)((color>31u?31u:color)*place[c]);
             }
-            shades[i]=packed;
         }
     } else {
         /* Per-frame live/base fog colours; one image mean per piece. */
         const uint8_t *means=w->images[base_image].mean;
-        for(unsigned i=0;i<count;++i){uint16_t packed=0x8000;const int32_t f=(int32_t)fade[i];
-            for(unsigned c=0;c<3;++c){const int32_t mean=means[c],live=d->live[c],base=d->base[c];int32_t color;
-                color=16+div255(f*(live-mean)-selected*(base-mean));
+        for(unsigned c=0;c<3;++c){const int32_t mean=means[c],live=d->live[c],base=d->base[c];
+            const int32_t gain=live-mean,bias=selected*(base-mean);
+            for(unsigned i=0;i<count;++i){int32_t color;
+                color=16+div255((int32_t)fade[i]*gain-bias);
                 if(color<0)color=0;
                 if(color>31)color=31;
-                packed|=(uint16_t)((unsigned)color<<(c*5));
+                shades[i]|=(uint16_t)((unsigned)color*place[c]);
             }
-            shades[i]=packed;
         }
     }
     FZX_RSP(BUILD);
@@ -253,8 +258,10 @@ static bool piece(draw_t *d,const vref_t v[4],unsigned quad,unsigned piece_id,
             if(at>=d->capacity)return fail(d,FZX_RS_CAPACITY);
             fzx_road_stream_vdp1_t *c=e->commands+at;uint16_t *g=e->shades+at*4u;
             const unsigned last=first+2<count?first+2:count-1;
-            *c=*tmpl;
-            if(!solid){c->srca=srca;c->size=size;c->colr=colr;}
+            /* Field-wise template copy (a struct copy is a memcpy call). */
+            c->ctrl=tmpl->ctrl;c->link=tmpl->link;c->pmod=tmpl->pmod;c->reserved=tmpl->reserved;
+            if(solid){c->colr=tmpl->colr;c->srca=tmpl->srca;c->size=tmpl->size;}
+            else {c->srca=srca;c->size=size;c->colr=colr;}
             c->xa=corners[0]->sx;c->ya=corners[0]->sy;c->xb=corners[first]->sx;c->yb=corners[first]->sy;
             c->xc=corners[first+1]->sx;c->yc=corners[first+1]->sy;c->xd=corners[last]->sx;c->yd=corners[last]->sy;
             g[0]=shades[0];g[1]=shades[first];g[2]=shades[first+1];g[3]=shades[last];
@@ -380,18 +387,26 @@ static bool quad_body(draw_t *d,unsigned id,const vref_t vertices[4],unsigned fl
     if(!edge(d,0,vertices[left],vertices[le],l0,l1,count,unit)||
        !edge(d,1,vertices[right],vertices[re],r0,r1,count,unit))return fail(d,FZX_RS_STEP);
     FZX_RSP(MERGE);FZX_RSP_COUNT(MERGES,1);
-    uint32_t merge_rows[65],end_masks[65];uint8_t runs[64];
-    for(unsigned j=0;j<count;++j){
-        merge_rows[j]=(uint32_t)(d->hot->boundary[j]-low);end_masks[j]=0;
-        for(unsigned run=2;run<=4;run*=2)
-            if(run<=factor && j>=run && !(d->hot->boundary[j-run]&phase_mask) &&
-               d->hot->boundary[j]-d->hot->boundary[j-run]==(int32_t)(unit*run))end_masks[j]|=1u<<run;
-        for(unsigned rail=0;rail<2;++rail){sh2z_view_vertex_t *v=&d->hot->edge[rail][j];
-            if(v->sx< -900||v->sx>900||v->sy< -900||v->sy>900)v->outcode|=0x80;}
+    /* Merge scratch lives with the stepping scratch, off the stack. */
+    uint32_t *const end_masks=d->hot->end_masks;uint8_t *const runs=d->hot->runs;int run_count;
+    if(factor==1){
+        /* Run mask 0x2 admits only single repetitions: the plan is all ones. */
+        for(unsigned j=0;j+1<count;++j)runs[j]=1;
+        run_count=(int)count-1;
+    } else {
+        for(unsigned j=0;j<count;++j){
+            end_masks[j]=0;
+            for(unsigned run=2;run<=4;run*=2)
+                if(run<=factor && j>=run && !(d->hot->boundary[j-run]&phase_mask) &&
+                   d->hot->boundary[j]-d->hot->boundary[j-run]==(int32_t)(unit*run))end_masks[j]|=run==2?4u:16u;   /* 1<<run, run 2 or 4 */
+            for(unsigned rail=0;rail<2;++rail){sh2z_view_vertex_t *v=&d->hot->edge[rail][j];
+                if(v->sx< -900||v->sx>900||v->sy< -900||v->sy>900)v->outcode|=0x80;}
+        }
+        /* view-merge-2: the tier planner; equal-height whole periods only
+         * (end_masks), so its plan is the pixel-mode plan of merge_runs. */
+        const uint32_t mask=factor==4?0x16u:0x6u;
+        run_count=sh2z_view_merge_tier(runs,d->hot->edge[0],d->hot->edge[1],end_masks,count,mask,256u);
     }
-    const uint32_t mask=factor==4?0x16u:factor==2?0x6u:0x2u;
-    const int run_count=sh2z_view_merge_runs(runs,d->hot->edge[0],d->hot->edge[1],merge_rows,end_masks,
-        count,mask,256u,SH2Z_VIEW_MERGE_PIXELS);
     FZX_RSP(QPIECE);
     if(run_count<1)return fail(d,FZX_RS_STEP);
     unsigned i=0;
@@ -401,10 +416,13 @@ static bool quad_body(draw_t *d,unsigned id,const vref_t vertices[4],unsigned fl
         const unsigned selected_tier=group==4?2u:group==2?1u:0u;
         const vref_t part[4]={&d->hot->edge[0][i],&d->hot->edge[1][i],&d->hot->edge[1][i+group],&d->hot->edge[0][i+group]};
         /* group is 1, 2 or 4 (mask 0x16 or narrower), so scale=32*group is a shift. */
-        const unsigned scale=32*group,shift=group==4?7u:group==2?6u:5u;
-        if(scale!=1u<<shift)return fail(d,FZX_RS_STEP);
-        const unsigned row=(unsigned)phase>>shift;
-        const unsigned height=(((unsigned)phase+(unsigned)(d->hot->boundary[i+group]-d->hot->boundary[i])+scale-1)>>shift)-row;
+        const unsigned scale=32*group;
+        if(group!=1&&group!=2&&group!=4)return fail(d,FZX_RS_STEP);
+        /* Constant shifts per group (the SH-2 has no variable shift). */
+        #define SHR_GROUP(v) (group==4?(v)>>7:group==2?(v)>>6:(v)>>5)
+        const unsigned row=SHR_GROUP((unsigned)phase);
+        const unsigned height=SHR_GROUP((unsigned)phase+(unsigned)(d->hot->boundary[i+group]-d->hot->boundary[i])+scale-1)-row;
+        #undef SHR_GROUP
         if(!height||row+height>period)return fail(d,FZX_RS_STEP);
         if(!piece(d,part,id,i,strip*5,strip*5+selected_tier,row,height,group,false))return false;
         FZX_RSP(QPIECE);i+=group;

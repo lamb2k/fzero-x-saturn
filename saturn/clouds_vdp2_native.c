@@ -17,7 +17,7 @@
 
 fzx_clouds_rbg_t fzx_clouds_rbg;
 volatile uint32_t fzx_clouds_status,fzx_clouds_pending,fzx_clouds_commits;
-volatile uint32_t fzx_clouds_degenerate,fzx_clouds_bands,fzx_clouds_sky_lines;
+volatile uint32_t fzx_clouds_degenerate,fzx_clouds_bands,fzx_clouds_sky_line_count;
 static uint16_t sky_lines[224];
 static uint16_t band_colors[BAND_MAX];
 static unsigned band_count;
@@ -126,7 +126,7 @@ bool fzx_clouds_sky_lines(const fzx_view_t *view,const RefBackdrop *source) {
     }
     if(last<0)for(int y=0;y<224;++y)sky_lines[y]=fzx_sky_colors[63];
     else for(int y=last+1;y<224;++y)sky_lines[y]=sky_lines[last];
-    fzx_clouds_sky_lines=set;
+    fzx_clouds_sky_line_count=set;
     return true;
 }
 

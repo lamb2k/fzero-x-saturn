@@ -8,7 +8,7 @@
  * generated/C5-CLOUDS-VDP2-PLAN.md. */
 extern fzx_clouds_rbg_t fzx_clouds_rbg;
 extern volatile uint32_t fzx_clouds_status,fzx_clouds_pending,fzx_clouds_commits;
-extern volatile uint32_t fzx_clouds_degenerate,fzx_clouds_bands,fzx_clouds_sky_lines;
+extern volatile uint32_t fzx_clouds_degenerate,fzx_clouds_bands,fzx_clouds_sky_line_count;
 /* Once, after fzx_floor_load: level-0 cloud tile and map into VDP2, rotation
  * parameter B, the W1 line window and the back-screen line table. */
 bool fzx_clouds_vdp2_load(const void *planes_vram);

@@ -204,5 +204,13 @@ bool fzx_road_stream_native(vdp1_cmdt_t *commands,unsigned capacity,const fzx_vi
     fzx_road_stream_report[4]=n;fzx_road_stream_report[5]=(uint32_t)(uintptr_t)(commands+1);
     fzx_road_stream_report[6]=emitted;fzx_road_stream_report[9]=(uint32_t)(uintptr_t)shades;
     fzx_road_stream_report[10]=FZX_ROAD_STREAM_SHADE_BYTES;fzx_road_stream_report[14]=fzx_road_stream_sequence;
+#if FZX_SCENE_PHASES && FZX_ROAD_STREAM_PHASES
+    {   /* Diagnostic: close this frame's phases and add them to the race totals. */
+        extern volatile uint32_t fzx_scp_road[FZX_RSP_PHASES],fzx_scp_road_calls;
+        FZX_RSP(OTHER);
+        for(unsigned i=0;i<FZX_RSP_PHASES;++i)fzx_scp_road[i]+=fzx_rsp.ticks[i];
+        ++fzx_scp_road_calls;
+    }
+#endif
     fzx_road_stream_busy=0;return true;
 }

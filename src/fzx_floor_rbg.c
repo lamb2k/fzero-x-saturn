@@ -1,6 +1,7 @@
 #include "fzx_floor_rbg.h"
 #include <limits.h>
 #include <string.h>
+#include "fzx_scene_phase.h"
 
 _Static_assert(sizeof(fzx_floor_rp_t)==96,"rotation parameter ABI");
 static int64_t magnitude(int64_t n){return n<0?-n:n;}
@@ -156,6 +157,7 @@ static bool polygon(const int32_t xy[10][2],unsigned count,unsigned band,
 bool fzx_floor_rbg_prepare(const fzx_view_t *view,const RefBackdrop *source,
                            fzx_floor_rbg_t *out,fzx_floor_emit_fn emit,void *context) {
     if(!out)return false;
+    FZX_SCP_BEGIN(FZX_SCP_FLOOR);
     memset(out,0,sizeof(*out));out->hash=2166136261u;
     if(!view || !source || !emit || source->faults || source->count!=20 ||
        view->near_plane<=0 || view->far_plane<=view->near_plane ||
@@ -165,6 +167,7 @@ bool fzx_floor_rbg_prepare(const fzx_view_t *view,const RefBackdrop *source,
        view->clip[0]<0 || view->clip[1]<0 || view->clip[2]>320 || view->clip[3]>224 ||
        view->clip[0]>=view->clip[2] || view->clip[1]>=view->clip[3])return fail(out,1);
     int32_t positions[8][3],outer[4][3],xy[10][2];unsigned count;
+    FZX_SCP(TRANSFORM);
     for(unsigned i=0;i<8;++i) {
         const RefBackdropVertex *s=&source->vertices[i];int32_t p[3];
         if(s->position[1]!=source->vertices[0].position[1] || s->color[0]!=(i<2 || i>=6?255:0))return fail(out,1);
@@ -173,9 +176,13 @@ bool fzx_floor_rbg_prepare(const fzx_view_t *view,const RefBackdrop *source,
     }
     static const unsigned corners[4]={0,1,7,6};
     for(unsigned i=0;i<4;++i)memcpy(outer[i],positions[corners[i]],12);
+    FZX_SCP(OUTER);
     if(!projected(view,(const int32_t (*)[3])outer,xy,&count))return fail(out,2);
+    FZX_SCP(WINDOW);
     window(view,(const int32_t (*)[2])xy,count,out);
+    FZX_SCP(MAPPING);
     if(!mapping(view,source->vertices,(const int32_t (*)[3])positions,out))return false;
+    FZX_SCP(BANDS);
     if(!polygon((const int32_t (*)[2])xy,count,0,out,emit,context))return false;
     for(unsigned half=0;half<2;++half)for(unsigned band=1;band<8;++band) {
         /* Thresholds are halfway between the same eight source fog levels as
@@ -190,10 +197,12 @@ bool fzx_floor_rbg_prepare(const fzx_view_t *view,const RefBackdrop *source,
         if(!projected(view,(const int32_t (*)[3])outer,xy,&count))return fail(out,2);
         if(!polygon((const int32_t (*)[2])xy,count,band,out,emit,context))return false;
     }
+    FZX_SCP(HASH);
     for(unsigned i=0;i<sizeof(out->rp)/4;++i) {
         uint32_t word;memcpy(&word,(const unsigned char *)&out->rp+i*4,4);
         out->hash=(out->hash^word)*16777619u;
     }
     for(unsigned y=0;y<224;++y)for(unsigned x=0;x<2;++x)out->hash=(out->hash^out->window[y][x])*16777619u;
+    FZX_SCP_END();
     return true;
 }

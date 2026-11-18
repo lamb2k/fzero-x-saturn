@@ -1,6 +1,7 @@
 #include "fzx_clouds_rbg.h"
 #include <limits.h>
 #include <string.h>
+#include "fzx_scene_phase.h"
 
 /* The homography, window and band helpers follow src/fzx_floor_rbg.c. They are
  * repeated here rather than shared so FZX_CLOUDS_VDP2=0 leaves the floor object
@@ -146,6 +147,7 @@ static void clear_window(fzx_clouds_rbg_t *out) {
 bool fzx_clouds_rbg_prepare(const fzx_view_t *view,const RefBackdrop *source,
                             fzx_clouds_rbg_t *out,fzx_floor_emit_fn emit,void *context) {
     if(!out)return false;
+    FZX_SCP_BEGIN(FZX_SCP_CLOUDS);
     memset(out,0,sizeof(*out));out->hash=2166136261u;clear_window(out);
     if(!view || !source || !emit || source->faults || source->count!=20 ||
        view->near_plane<=0 || view->far_plane<=view->near_plane ||
@@ -161,22 +163,27 @@ bool fzx_clouds_rbg_prepare(const fzx_view_t *view,const RefBackdrop *source,
         if(c[i].color[3]!=((i<2 || i>=6)?255:inner))return fail(out,1);
     }
     out->inner_alpha=(uint32_t)inner;
-    if(inner>=255)return true;
+    if(inner>=255){FZX_SCP_END();return true;}
     const int64_t det=(int64_t)(c[1].uv[0]-c[0].uv[0])*(c[2].uv[1]-c[0].uv[1])-
                       (int64_t)(c[2].uv[0]-c[0].uv[0])*(c[1].uv[1]-c[0].uv[1]);
-    if(!det){++out->degenerate;return true;}
+    if(!det){++out->degenerate;FZX_SCP_END();return true;}
     int32_t positions[8][3],outer[4][3],xy[10][2];unsigned count;
+    FZX_SCP(TRANSFORM);
     for(unsigned i=0;i<8;++i) {
         int32_t p[3];for(unsigned j=0;j<3;++j)p[j]=(int32_t)c[i].position[j]*4096;
         if(!fzx_view_transform(view,p,positions[i]))return fail(out,2);
     }
     static const unsigned corners[4]={0,1,7,6};
     for(unsigned i=0;i<4;++i)memcpy(outer[i],positions[corners[i]],12);
+    FZX_SCP(OUTER);
     if(!projected(view,(const int32_t (*)[3])outer,xy,&count))return fail(out,2);
-    if(count<3)return true;
+    if(count<3){FZX_SCP_END();return true;}
+    FZX_SCP(MAPPING);
     if(!mapping(view,c,(const int32_t (*)[3])positions,out))return false;
+    FZX_SCP(WINDOW);
     window(view,(const int32_t (*)[2])xy,count,out);
-    if(!out->visible_lines)return true;
+    if(!out->visible_lines){FZX_SCP_END();return true;}
+    FZX_SCP(BANDS);
     out->active=1;
     /* The whole inner span sits at the inner alpha. */
     const unsigned inner_band=(unsigned)(inner*7+127)/255;
@@ -205,9 +212,11 @@ bool fzx_clouds_rbg_prepare(const fzx_view_t *view,const RefBackdrop *source,
         if(!projected(view,(const int32_t (*)[3])outer,xy,&count))return fail(out,2);
         if(!polygon((const int32_t (*)[2])xy,count,band,out,emit,context))return false;
     }
+    FZX_SCP(HASH);
     for(unsigned i=0;i<sizeof(out->rp)/4;++i) {
         uint32_t word;memcpy(&word,(const unsigned char *)&out->rp+i*4,4);
         out->hash=(out->hash^word)*16777619u;
     }
+    FZX_SCP_END();
     return true;
 }

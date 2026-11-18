@@ -12,6 +12,13 @@ _Static_assert(sizeof(row_t)==64,"debugger row ABI");
 /* 'FZFP', version, status, rows, count, capacity, row bytes, allocation end,
  * clock faults, max gap, video Hz, CCR, presentations, restarts, reserved. */
 volatile uint32_t fzx_frame_profile[16];
+#if FZX_SCENE_PHASES
+#include "fzx_scene_phase.h"
+#include "fzx_road_stream_phase.h"
+/* Diagnostic only: per-section FRT ticks summed over the race. */
+volatile uint32_t fzx_scp_ticks[FZX_SCP_LAYERS][FZX_SCP_PHASES],fzx_scp_calls[FZX_SCP_LAYERS];
+volatile uint32_t fzx_scp_road[FZX_RSP_PHASES],fzx_scp_road_calls;
+#endif
 static fzx_frame_clock_t clock_state;
 static row_t *rows;
 #if FZX_SOURCE_ROAD_STREAM

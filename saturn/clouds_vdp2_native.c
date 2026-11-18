@@ -1,5 +1,6 @@
 #include "clouds_vdp2_native.h"
 #include "sky_native.h"
+#include "planes_native.h"
 #include "sky_colors.h"
 #include <string.h>
 
@@ -156,7 +157,14 @@ bool fzx_clouds_native(vdp1_cmdt_t *commands,unsigned capacity,const fzx_view_t 
     memset(commands,0,sizeof(*commands));vdp1_cmdt_user_clip_coord_set(commands);
     commands->cmd_xa=view->clip[0];commands->cmd_ya=view->clip[1];commands->cmd_xc=view->clip[2]-1;commands->cmd_yc=view->clip[3]-1;
     submit_t submit={commands+1,capacity-1,0};band_count=0;
-    if(!fzx_clouds_rbg_prepare(view,source,&fzx_clouds_rbg,emit,&submit)){fzx_clouds_status=3;return false;}
+    /* The plane status words stay live for the capture harness: busy, and the
+     * cloud stats in the plane stats block (draws = fade bands). */
+    fzx_plane_busy=1;
+    if(!fzx_clouds_rbg_prepare(view,source,&fzx_clouds_rbg,emit,&submit)) {
+        fzx_plane_stats.fault=fzx_clouds_rbg.fault;fzx_clouds_status=3;return false;
+    }
+    memset(&fzx_plane_stats,0,sizeof(fzx_plane_stats));
+    fzx_plane_stats.draws=submit.count;fzx_plane_stats.hash=fzx_clouds_rbg.hash;fzx_plane_busy=0;
     fzx_clouds_degenerate+=fzx_clouds_rbg.degenerate;fzx_clouds_bands=submit.count;
     *count=submit.count+1;fzx_clouds_pending=fzx_input_count?fzx_input_count:1;return true;
 }

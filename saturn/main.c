@@ -59,6 +59,7 @@ static void *machine_pixels,*machine_shades;
 #if FZX_SOURCE_ROAD_TILES
 #if FZX_SOURCE_ROAD_STREAM
 #include "road_stream_native.h"
+#include "fzx_road_stream_phase.h"
 #include "road_lod_identity.h"
 #define FZX_ROAD_RENDER_TEXTURE_BYTES FZX_ROAD_LOD_TEXTURE_BYTES
 #define FZX_ROAD_RENDER_SHADE_BYTES FZX_ROAD_STREAM_SHADE_BYTES
@@ -675,6 +676,9 @@ commands_build(const fzx_frame_t *frame)
         const int32_t pb=(int32_t)(fzx_source_camera.projection[3][2]*4096.0f);
 #if FZX_FRAME_PROFILE
         fzx_fp_scene_begin();
+#endif
+#if FZX_ROAD_STREAM_PHASES
+        fzx_rsp_begin();
 #endif
 #if FZX_SOURCE_ROAD_STREAM
         const int32_t eye[3]={(int32_t)(fzx_source_camera.eye[0]*65536.0f),

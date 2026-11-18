@@ -27,6 +27,42 @@ static bool ready,armed,start_next;
  * and maximum ticks. Capture only whole subsystem boundaries, never primitives. */
 volatile uint32_t fzx_frame_subsystems[7][8];
 static uint32_t scene_start;
+#if FZX_ROAD_STREAM_PHASES
+#include "road_stream_native.h"
+#include "fzx_road_stream_phase.h"
+/* Default-off C3 phase rows, parallel to frame rows after the road rows and
+ * their guard. 'C3PH', version, rows, capacity, stride, rows written, frames
+ * seen, allocation end, phases, counters, frames beyond capacity, reserved,
+ * then per-phase 64-bit tick totals (lo, hi) over every frame seen. */
+#define PHASE_CAPACITY 1536u
+typedef struct {
+    uint32_t ticks[FZX_RSP_PHASES];
+    uint16_t counts[16];
+} phase_row_t;
+_Static_assert(sizeof(phase_row_t)==4*FZX_RSP_PHASES+32,"phase row ABI");
+volatile uint32_t fzx_road_phase_profile[12+2*FZX_RSP_PHASES];
+fzx_rsp_state_t fzx_rsp;
+static phase_row_t *phase_rows;
+static uint32_t phase_capacity;
+static void phase_store(void){
+    fzx_rsp_set(FZX_RSP_OTHER);
+    volatile uint32_t *h=fzx_road_phase_profile;
+    for(unsigned i=0;i<FZX_RSP_PHASES;++i){
+        const uint32_t previous=h[12+2*i];h[12+2*i]+=fzx_rsp.ticks[i];
+        if(h[12+2*i]<previous)++h[13+2*i];
+    }
+    ++h[6];
+    const uint32_t n=(uint32_t)(current-rows);
+    if(n>=phase_capacity){++h[10];return;}
+    phase_row_t *r=phase_rows+n;
+    for(unsigned i=0;i<FZX_RSP_PHASES;++i)r->ticks[i]=fzx_rsp.ticks[i];
+    for(unsigned i=0;i<FZX_RSPC_COUNTERS;++i)r->counts[i]=fzx_rsp.counts[i];
+    const fzx_road_stream_draw_stats_t *s=&fzx_road_stream_stats;
+    const uint32_t extra[16-FZX_RSPC_COUNTERS]={s->positions,s->quads,s->culled,s->clipped,s->commands,s->chunks,s->fog_updates};
+    for(unsigned i=FZX_RSPC_COUNTERS;i<16;++i)r->counts[i]=(uint16_t)extra[i-FZX_RSPC_COUNTERS];
+    if(n+1>h[5])h[5]=n+1;
+}
+#endif
 static uint32_t stamp(uint32_t *field) {
     uint32_t a,b,base,anchor,f;uint16_t raw;
     do {
@@ -53,6 +89,22 @@ bool fzx_fp_init(uint32_t low_end,uint32_t hz) {
     for(unsigned i=0;i<8;++i)fzx_frame_road_profile[i]=report[i];
 #endif
     for(unsigned i=0;i<8;++i){((uint32_t *)start)[(int)i-8]=GUARD;((uint32_t *)end)[i]=GUARD;}
+#if FZX_ROAD_STREAM_PHASES
+    {
+        const uintptr_t phase_start=end+32u;
+        if(phase_start+32u>0x00300000u)return false;
+        const uintptr_t room=0x00300000u-32u-phase_start;
+        phase_capacity=room/sizeof(phase_row_t);
+        if(phase_capacity>PHASE_CAPACITY)phase_capacity=PHASE_CAPACITY;
+        phase_rows=(phase_row_t *)phase_start;
+        const uintptr_t phase_end=phase_start+phase_capacity*sizeof(phase_row_t);
+        memset((void *)fzx_road_phase_profile,0,sizeof(fzx_road_phase_profile));
+        const uint32_t report[12]={0x43335048u,2,(uint32_t)phase_start,phase_capacity,
+            sizeof(phase_row_t),0,0,(uint32_t)phase_end,FZX_RSP_PHASES,16,0,0};
+        for(unsigned i=0;i<12;++i)fzx_road_phase_profile[i]=report[i];
+        for(unsigned i=0;i<8;++i)((uint32_t *)phase_end)[i]=GUARD;
+    }
+#endif
     memset((void *)fzx_frame_profile,0,sizeof(fzx_frame_profile));
     fzx_frame_profile[0]=0x465a4650u;fzx_frame_profile[1]=2;fzx_frame_profile[2]=1;
     fzx_frame_profile[3]=start;fzx_frame_profile[5]=CAPACITY;
@@ -77,6 +129,10 @@ void fzx_fp_restart(void) {
 void fzx_fp_begin(uint32_t input) {
     current=NULL;
     if(start_next){start_next=false;armed=true;fzx_frame_profile[4]=0;fzx_frame_profile[12]=0;memset((void *)fzx_frame_subsystems,0,sizeof(fzx_frame_subsystems));}
+#if FZX_ROAD_STREAM_PHASES
+    if(armed&&!fzx_frame_profile[4]){fzx_road_phase_profile[5]=0;fzx_road_phase_profile[6]=0;fzx_road_phase_profile[10]=0;
+        for(unsigned i=12;i<12+2*FZX_RSP_PHASES;++i)fzx_road_phase_profile[i]=0;}
+#endif
     if(!armed)return;
     uint32_t n=fzx_frame_profile[4];
     if(n>=CAPACITY){fzx_frame_profile[2]=2;armed=false;return;}
@@ -116,6 +172,9 @@ void fzx_fp_scene_end(unsigned subsystem,uint32_t commands) {
     uint32_t elapsed=stamp(NULL)-scene_start;
 #if FZX_SOURCE_ROAD_STREAM
     if(subsystem==4){
+#if FZX_ROAD_STREAM_PHASES
+        phase_store();
+#endif
         road_row_t *r=road_rows+(current-rows);
         r->ticks+=elapsed;r->commands+=commands;
     }

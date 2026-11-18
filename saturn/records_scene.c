@@ -248,13 +248,15 @@ bool fzx_records_scene_draw(vdp1_cmdt_t *commands,unsigned capacity,unsigned *co
 #if FZX_SOURCE_FINISH_MENU
 void fzx_records_finish_menu_present(void) {
     if(!fzx_finish_menu_pending)return;
+    /* The admitted floor scene uses mirrored 1024-color RGB555 CRAM.
+     * Label windows end at799; fog1 and debug-font1008..1023 remain untouched. */
     const volatile uint16_t *r=(const volatile uint16_t *)0x25f80000u;
     const uint32_t blank=vdp2_tvmd_vblank_in()?1u:0u;
     if(!scene||!scene->menu_active||!blank||!fzx_records_guards()||
        scene->menu_palette.tick!=fzx_finish_menu_pending||
-       (r[0x0e/2]&0x3000u)!=0x1000u||r[0xe0/2]!=0x1520u||
+       (r[0x0e/2]&0x3000u)!=0||r[0xe0/2]!=0x1520u||
        (r[0xf0/2]&0x0707u)!=0x0506u||(r[0xe6/2]&0x0070u)||
-       !fzx_finish_menu_palette_upload(&scene->menu_palette,(volatile uint16_t *)0x25f00000u,2048u)) {
+       !fzx_finish_menu_palette_upload(&scene->menu_palette,(volatile uint16_t *)0x25f00000u,1024u)) {
         fail(FZX_RECORDS_DRAW);fzx_finish_menu_pending=0;return;
     }
     fzx_finish_menu_blanking=blank|(vdp2_tvmd_vblank_in()?2u:0u);

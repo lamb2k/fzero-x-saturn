@@ -40,7 +40,7 @@ metadata reproduce byte-for-byte on Windows and Linux. Seven HOST tests on each
 platform pass; an independent 46,272-pixel audit preserves RGB5, transparency
 and crops. The receipt accepts the real pack and rejects byte-flipped, truncated
 and altered-header controls. The selected label retains the original animated
-32-color palette. Native residency and palette presentation remain unqualified.
+32-color palette. Native residency and palette presentation are checked separately below.
 
 The read-only draw closure captures the original menu rectangles, six labels,
 Font5 cursor, animated colors and reveal scissor into bounded packets. HOST
@@ -51,8 +51,55 @@ glyph scale, glyph ID, label ID and frame identity. Invalid reveal states and
 null inputs fail without publishing output. Windows and Linux generated C is
 byte-identical. Private qualification is in `host/finish-menu-draw/receipt.json`.
 The generated-file receipt accepts the output and rejects an edited copy.
-Native texture sampling, palette presentation and current-frame backdrop
-composition remain unqualified.
+These HOST checks do not establish native texture sampling, palette presentation
+or backdrop composition; the native checks below cover those boundaries.
+
+## Native palette qualification
+
+The default-off native implementation uses the original label and Font5 pack,
+three 32-word label palettes and a current-frame records backdrop. The action
+request remains frozen; this implementation does not perform ordinary retry.
+
+The first native menu capture stopped at input 7860 before its palette upload.
+The guard expected CRAM mode 1, but SDK VRAM initialization had selected mode 0.
+The preceding 26 held states passed source and guard comparisons; their minimum
+sampled stack was 21,232 bytes. This partial capture does not qualify the menu.
+
+The correction admits the observed RGB555 mode 0 with 1,024 independent words.
+It writes only indices 256..287, 512..543 and 768..799. Mode 0 mirrors these into
+the upper CRAM window; the comparator checks both copies and preserves every
+other word, including fog index 1 and debug-font indices 1008..1023. It retains
+the VBlank, sprite format, priority and palette-offset checks. GCC/Clang HOST
+checks pass, including eleven rejected scene mutations. The updated disabled arm
+matches the original 1,002,276-byte executable exactly; a changed-byte control
+is rejected.
+
+The corrected image completed 8,062 inputs, 73 held captures and three diagnostic
+resets. Source state, draw packets, pose, camera, both random streams and guards
+pass; minimum sampled stack is 21,232 bytes. All 47 menu boundaries pass exact
+command, resident texture, displayed label index/RGB5 and protected-CRAM checks;
+eight corruption controls fail as intended. The helper observes the current draw
+before the callback, including frozen actions, and verifies the exact source tuple,
+one palette commit and no pending upload. This fixes stale callback capture in
+the earlier helper without changing the game image or source oracle.
+
+The current-frame records backdrop passes 64 held views against independent
+GCC/Clang command reconstruction, including resident textures/palettes and the
+actual VDP1 partition bounds. Separate HOST span controls reject bad extents and
+reproduce the earlier records capture exactly. The historical records metadata
+seal discrepancy remains recorded; this does not claim a historical binary seal.
+
+This EMULATOR qualification uses the isolated C3 stream renderer, whose measured
+performance remains a no-go; see [native stream](ROAD_STREAM_NATIVE.md). Both
+features default off. Native image BIN SHA256:
+`6979bcd0701c2671ebe07154b33ddb4811fcb8aa6fbc18b2ade4c4094908040e`.
+Two malformed-pack controls pass: a one-byte payload change fails the hash check,
+and a changed directory size fails the size check. Both stop before source/menu
+state or commands are published, with low-RAM and cartridge guards intact.
+Local inspection finds readable labels, but diagnostic HUD text overlaps the
+records view. Final appearance,
+ordinary retry, performance and HARDWARE acceptance remain open. Diagnostic
+resets do not establish ordinary retry.
 
 ## Ordinary retry still to integrate
 
@@ -69,6 +116,6 @@ initialization boundary and requalify the affected run; do not add those calls
 at finish. Current results/records evidence covers the bounded bridge, not the
 entire cartridge's original initialization sequence.
 
-Remaining: native labels/font/palette residency, current-frame records backdrop,
-original dispatch/fades/reload, a second ordinary race, other menu destinations,
+Remaining: final presentation cleanup, original dispatch/fades/reload,
+a second ordinary race, other menu destinations,
 source audio/effects, pad-only completion, soak and owner/hardware review.

@@ -39,7 +39,7 @@ typedef struct {
     uint32_t ticks[FZX_RSP_PHASES];
     uint16_t counts[16];
 } phase_row_t;
-_Static_assert(sizeof(phase_row_t)==80,"phase row ABI");
+_Static_assert(sizeof(phase_row_t)==4*FZX_RSP_PHASES+32,"phase row ABI");
 volatile uint32_t fzx_road_phase_profile[12+2*FZX_RSP_PHASES];
 fzx_rsp_state_t fzx_rsp;
 static phase_row_t *phase_rows;
@@ -99,7 +99,7 @@ bool fzx_fp_init(uint32_t low_end,uint32_t hz) {
         phase_rows=(phase_row_t *)phase_start;
         const uintptr_t phase_end=phase_start+phase_capacity*sizeof(phase_row_t);
         memset((void *)fzx_road_phase_profile,0,sizeof(fzx_road_phase_profile));
-        const uint32_t report[12]={0x43335048u,1,(uint32_t)phase_start,phase_capacity,
+        const uint32_t report[12]={0x43335048u,2,(uint32_t)phase_start,phase_capacity,
             sizeof(phase_row_t),0,0,(uint32_t)phase_end,FZX_RSP_PHASES,16,0,0};
         for(unsigned i=0;i<12;++i)fzx_road_phase_profile[i]=report[i];
         for(unsigned i=0;i<8;++i)((uint32_t *)phase_end)[i]=GUARD;

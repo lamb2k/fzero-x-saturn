@@ -13,7 +13,11 @@
 enum {
     FZX_RSP_OTHER,FZX_RSP_EYE,FZX_RSP_GATHER,FZX_RSP_BATCH,FZX_RSP_QUAD,
     FZX_RSP_CLIP,FZX_RSP_EDGE,FZX_RSP_MERGE,FZX_RSP_FOG,FZX_RSP_BUILD,
-    FZX_RSP_CONVERT,FZX_RSP_REPORT,FZX_RSP_PHASES
+    FZX_RSP_CONVERT,FZX_RSP_REPORT,
+    /* Version 2: quad setup split. QFETCH is record/vertex fetch and the
+     * trivial reject, QCULL the whole-quad winding test, QPIECE the per-piece
+     * reject and corner selection; QUAD keeps texture setup and tiering. */
+    FZX_RSP_QFETCH,FZX_RSP_QCULL,FZX_RSP_QPIECE,FZX_RSP_PHASES
 };
 enum {
     FZX_RSPC_BOUNDARIES,FZX_RSPC_STEPPED,FZX_RSPC_QUAD_CLIPS,FZX_RSPC_PIECE_CLIPS,

@@ -305,7 +305,7 @@ static inline __attribute__((always_inline)) bool face_loop(const fzx_vehicle_pa
 #define FZX_VK1_VIEW_INDEXED 1
 #endif
 #ifndef FZX_VK1_FACING
-#define FZX_VK1_FACING 0
+#define FZX_VK1_FACING 1
 #endif
 #ifndef FZX_VK1_LIGHT_INDEXED
 #define FZX_VK1_LIGHT_INDEXED 0

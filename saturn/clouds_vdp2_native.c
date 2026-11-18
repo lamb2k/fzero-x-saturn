@@ -75,35 +75,38 @@ static uint16_t blend(uint16_t a,uint16_t b,int32_t t) {
     return out;
 }
 static bool line_emit(void *context,const fzx_sky_polygon_t *p) {
+    /* The polygon's span on the centre column: intersect its edges with
+     * x = centre once, then step the colour down the lines (no divide per line). */
     lines_t *l=context;
-    int ymin=224,ymax=-1;
-    for(unsigned i=0;i<4;++i){if(p->y[i]<ymin)ymin=p->y[i];if(p->y[i]>ymax)ymax=p->y[i];}
-    if(ymin<0)ymin=0;
-    if(ymax>223)ymax=223;
-    for(int y=ymin;y<=ymax;++y) {
-        int32_t xl=INT32_MAX,xr=INT32_MIN;uint16_t cl=0,cr=0;
-        for(unsigned i=0;i<4;++i) {
-            const unsigned j=(i+1)&3;
-            const int32_t y0=p->y[i],y1=p->y[j];
-            if(y0==y1){
-                if(y0!=y)continue;
-                const int32_t xs[2]={p->x[i],p->x[j]};const uint16_t cs[2]={p->color[i],p->color[j]};
-                for(unsigned k=0;k<2;++k){if(xs[k]*65536<xl){xl=xs[k]*65536;cl=cs[k];}if(xs[k]*65536>xr){xr=xs[k]*65536;cr=cs[k];}}
-                continue;
-            }
-            const int32_t lo=y0<y1?y0:y1,hi=y0<y1?y1:y0;
-            if(y<lo || y>hi)continue;
-            const int32_t t=(int32_t)(((int64_t)(y-y0)*65536)/(y1-y0));
-            const int32_t x=p->x[i]*65536+(int32_t)(((int64_t)(p->x[j]-p->x[i])*t));
-            const uint16_t c=blend(p->color[i],p->color[j],t);
-            if(x<xl){xl=x;cl=c;}
-            if(x>xr){xr=x;cr=c;}
+    const int32_t cx=l->center;
+    int32_t ya=INT32_MAX,yb=INT32_MIN;uint16_t ca=0,cb=0;
+    for(unsigned i=0;i<4;++i) {
+        const unsigned j=(i+1)&3;
+        const int32_t x0=p->x[i],x1=p->x[j];
+        if((cx<x0 && cx<x1) || (cx>x0 && cx>x1))continue;
+        int32_t y;uint16_t c;
+        if(x0==x1) {
+            for(unsigned k=0;k<2;++k){const unsigned v=k?j:i;
+                if(p->y[v]<ya){ya=p->y[v];ca=p->color[v];}
+                if(p->y[v]>yb){yb=p->y[v];cb=p->color[v];}}
+            continue;
         }
-        if(xl>xr)continue;
-        const int32_t cx=l->center*65536;
-        if(cx<xl-65536 || cx>xr+65536)continue;
-        const int32_t t=xr>xl?(int32_t)(((int64_t)(cx-xl)*65536)/(xr-xl)):0;
-        sky_lines[y]=blend(cl,cr,t<0?0:t>65536?65536:t);l->set[y]=1;
+        const int32_t t=(int32_t)(((cx-x0)*65536)/(x1-x0));
+        y=p->y[i]+(int32_t)(((int64_t)(p->y[j]-p->y[i])*t+32768)>>16);c=blend(p->color[i],p->color[j],t);
+        if(y<ya){ya=y;ca=c;}
+        if(y>yb){yb=y;cb=c;}
+    }
+    if(ya>yb)return true;
+    int32_t rgb[3],step[3];
+    const int32_t span=yb>ya?yb-ya:1;
+    for(unsigned k=0;k<3;++k){rgb[k]=((ca>>(k*5))&31)<<16;step[k]=((((cb>>(k*5))&31)<<16)-rgb[k])/span;}
+    for(int32_t y=ya;y<=yb;++y) {
+        if(y>=0 && y<224) {
+            uint16_t c=0x8000;
+            for(unsigned k=0;k<3;++k){int32_t v=(rgb[k]+32768)>>16;if(v<0)v=0;if(v>31)v=31;c|=(uint16_t)(v<<(k*5));}
+            sky_lines[y]=c;l->set[y]=1;
+        }
+        for(unsigned k=0;k<3;++k)rgb[k]+=step[k];
     }
     return true;
 }

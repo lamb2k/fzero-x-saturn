@@ -33,7 +33,14 @@ static uint32_t vram_offset(uintptr_t address){return (uint32_t)(address-VDP2_VR
 static struct {
     uint16_t rpmd,rprctl,ktctl,ktaof,wpsy1,wpey1,wctlc,wctld,bgon,bktau,bktal;
     uint32_t lwta1;uint16_t cram[BAND_MAX];
+    uint16_t mpofr_rb,pb_map[8];
 } saved;
+/* Rotation parameter B's map: MPOFR's RBMP field (bits 6..4) and the eight
+ * MPABRB..MPOPRB words (0x60..0x6e), as the cloud cell format sets them. */
+#define MPOFR_WORD (0x3eu/2u)
+#define MPOFR_RBMP 0x0070u
+#define PB_MAP_WORD (0x60u/2u)
+static uint16_t cloud_mpofr_rb,cloud_pb_map[8];
 static bool applied;
 static unsigned idle_presents;
 volatile uint32_t fzx_clouds_restores,fzx_clouds_applies;
@@ -42,11 +49,17 @@ static void saved_capture(void) {
     saved.rpmd=r->rpmd;saved.rprctl=r->rprctl;saved.ktctl=r->ktctl;saved.ktaof=r->ktaof;
     saved.wpsy1=r->wpsy1;saved.wpey1=r->wpey1;saved.lwta1=r->lwta1;saved.wctlc=r->wctlc;saved.wctld=r->wctld;
     saved.bgon=r->bgon;saved.bktau=r->bktau;saved.bktal=r->bktal;
+    const uint16_t *w=(const uint16_t *)r;
+    saved.mpofr_rb=(uint16_t)(w[MPOFR_WORD]&MPOFR_RBMP);
+    for(unsigned i=0;i<8u;++i)saved.pb_map[i]=w[PB_MAP_WORD+i];
     const volatile uint16_t *cram=(const volatile uint16_t *)VDP2_CRAM_MODE_1_OFFSET(0,0,BAND_CRAM_FIRST);
     for(unsigned i=0;i<BAND_MAX;++i)saved.cram[i]=cram[i];
 }
 static void apply(void) {
     vdp2_ioregs_t *r=vdp2_regs_get();
+    uint16_t *w=(uint16_t *)r;
+    w[MPOFR_WORD]=(uint16_t)((w[MPOFR_WORD]&~MPOFR_RBMP)|cloud_mpofr_rb);
+    for(unsigned i=0;i<8u;++i)w[PB_MAP_WORD+i]=cloud_pb_map[i];
     /* Mode 3: the rotation-parameter window (W0, the floor span) selects A. */
     r->rpmd=3;
     r->rprctl=(uint16_t)((saved.rprctl&0x00ffu)|((saved.rprctl&0x0007u)<<8));
@@ -70,6 +83,9 @@ static void apply(void) {
 }
 static void restore(void) {
     vdp2_ioregs_t *r=vdp2_regs_get();
+    uint16_t *w=(uint16_t *)r;
+    w[MPOFR_WORD]=(uint16_t)((w[MPOFR_WORD]&~MPOFR_RBMP)|saved.mpofr_rb);
+    for(unsigned i=0;i<8u;++i)w[PB_MAP_WORD+i]=saved.pb_map[i];
     r->rpmd=saved.rpmd;r->rprctl=saved.rprctl;r->ktctl=saved.ktctl;r->ktaof=saved.ktaof;
     r->wpsy1=saved.wpsy1;r->wpey1=saved.wpey1;r->lwta1=saved.lwta1;
     r->wctlc=(uint16_t)((r->wctlc&0xff00u)|(saved.wctlc&0x00ffu));
@@ -107,6 +123,13 @@ bool fzx_clouds_vdp2_load(const void *planes_vram) {
         .aux_mode=VDP2_SCRN_AUX_MODE_0,.plane_size=VDP2_SCRN_PLANE_SIZE_1X1,.cpd_base=CLOUD_CHARS};
     const vdp2_scrn_rotation_map_t map_b={.single=true,.plane=CLOUD_MAP};
     vdp2_scrn_rotation_cell_format_set(&format,&map_b);
+    /* Keep the cloud mapping the helper produced; apply/restore own these
+     * words from here on (the helper is not called again). */
+    {
+        const uint16_t *w=(const uint16_t *)vdp2_regs_get();
+        cloud_mpofr_rb=(uint16_t)(w[MPOFR_WORD]&MPOFR_RBMP);
+        for(unsigned i=0;i<8u;++i)cloud_pb_map[i]=w[PB_MAP_WORD+i];
+    }
     apply();
     fzx_clouds_status=1;return true;
 }

@@ -74,7 +74,8 @@ Final appearance, pad retry and audio remain open; diagnostic text/HUD obscure t
 
 Older hitch, clip-divider and software-road WIP remain local and unstaged.
 Use fixed-input replay for comparisons; live autopilot depends on render cadence.
-Finish-menu gates pass. Opus: claude/c3-c4-perf and claude/c4-perf; Codex: visual C4 draw order/other work;
+Finish-menu gates pass. Opus: C3, C4 including visual draw order, simulation, C5 and SH2ZAM
+(claude/c3-c4-perf, claude/c4-perf); Codex: C8 and gate1 merges;
 ordinary retry, audio/effects, pad-only race completion and soak remain.
 C3/C4/C5 performance blockers and full combined 60 fps qualification remain.
 No release, retail-derived publication, SD write or physical acceptance occurred.

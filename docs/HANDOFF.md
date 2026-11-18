@@ -41,7 +41,9 @@ Limit: 50 lines. History lives in git.
 ## Next and preserved work
 
 - Owner extension: [F Zero S cover/title branding](BRANDING.md) and [all-3D coverage](ASSET_COVERAGE.md); guest art; native C3 is a measured no-go.
-- Opus performance: `claude/c3-c4-perf`, `claude/c4-perf`; Codex owns visually judged C4 draw order.
+- Opus owns C3, C4 (including visually judged draw order), simulation, C5 and SH2ZAM
+  (`claude/c3-c4-perf`, `claude/c4-perf`, integration on `claude/native-integration`).
+  Codex owns C8 and gate1 merges.
 - Performance handoff: `generated/C3-C4-PERF-HANDOFF.md`; ordinary retry/audio/soak remain.
 - [Records](RECORDS.md) native state/commands qualified; final presentation cleanup remains.
 - The selected-tuning replay is distinct from the old9,907-input baseline; do not interchange them.

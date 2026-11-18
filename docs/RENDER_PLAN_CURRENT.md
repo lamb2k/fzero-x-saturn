@@ -38,7 +38,8 @@ Historical results below and in [road stream](ROAD_STREAM.md) remain evidence,
 not current identity or numeric visual gates.
 
 Opus runs C3 performance on `claude/c3-c4-perf` and C4 performance on
-`claude/c4-perf` in parallel. Codex owns C4 draw order, judged visually.
+`claude/c4-perf` in parallel. Opus also owns C4 draw order, judged visually.
+Codex owns C8 and gate1 merges.
 
 SH2ZAM requests go directly to the existing Opus integration session. The port
 does not edit the library or duplicate general kernels. Tagged contracts are

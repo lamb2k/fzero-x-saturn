@@ -2,7 +2,8 @@
 
 ## Current acceptance and ownership, 2026-11-17
 
-Codex owns C4 draw order; Opus owns performance on `claude/c4-perf`.
+Opus owns C4, including draw order and performance (`claude/c4-perf`).
+Codex owns C8 and gate1 merges.
 C4 packet/stat identity and source renderer arithmetic identity are lifted.
 Judge ordering visually against the original game's image: screen-pixel
 displacement, colour, occlusion defects and popping. No numeric visual threshold

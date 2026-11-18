@@ -96,10 +96,10 @@ FZX_RS_COLD bool fzx_road_stream_draw_prepare(fzx_road_stream_draw_work_t *w,
     w->pack=p;w->native=native;w->prepared=true;return true;
 }
 
-static FZX_RS_COLD void fog_prepare(fzx_road_stream_draw_work_t *w,const sh2z_view_t *view,
+/* Rebuild only when the fog inputs change (cold, size-optimised); the
+ * per-frame check below stays on the hot path. */
+static FZX_RS_COLD void fog_rebuild(fzx_road_stream_draw_work_t *w,const sh2z_view_t *view,
     const RefRoadPlan *plan,int32_t pa,int32_t pb,fzx_road_stream_draw_stats_t *stats){
-    if(w->fog_valid&&w->fog_pa==pa&&w->fog_pb==pb&&w->fog_start==plan->fog_start&&
-       w->fog_near==view->near_z&&w->fog_far==view->far_z)return;
     /* Source fog rule clamp(floor(fm*ratio/2^30)+fo,0,255), ratio the
      * projective depth (pb <= 0): SH2ZAM shade-1 builds its exact depth
      * thresholds, shade-2 prepares them for the fused per-piece kernel. */
@@ -110,6 +110,12 @@ static FZX_RS_COLD void fog_prepare(fzx_road_stream_draw_work_t *w,const sh2z_vi
     w->fog_pa=pa;w->fog_pb=pb;w->fog_start=plan->fog_start;
     w->fog_near=view->near_z;w->fog_far=view->far_z;w->fog_valid=true;
     stats->fog_updates=1;
+}
+static void fog_prepare(fzx_road_stream_draw_work_t *w,const sh2z_view_t *view,
+    const RefRoadPlan *plan,int32_t pa,int32_t pb,fzx_road_stream_draw_stats_t *stats){
+    if(w->fog_valid&&w->fog_pa==pa&&w->fog_pb==pb&&w->fog_start==plan->fog_start&&
+       w->fog_near==view->near_z&&w->fog_far==view->far_z)return;
+    fog_rebuild(w,view,plan,pa,pb,stats);
 }
 /* Fallback when the prepared lookup is unavailable: fade(z) by binary search
  * of the shade-1 thresholds (max { i : depth[i] <= max(z,0) }). */

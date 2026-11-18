@@ -92,7 +92,7 @@ bool fzx_finish_menu_native(vdp1_cmdt_t *commands,unsigned capacity,
 }
 bool fzx_finish_menu_palette_upload(const fzx_finish_menu_palette_t *p,
     volatile uint16_t *cram,unsigned words) {
-    if(!p||!cram||((uintptr_t)cram&1u)||words<2048u||!p->tick||(p->used&~7u))return false;
+    if(!p||!cram||((uintptr_t)cram&1u)||words<1024u||!p->tick||(p->used&~7u))return false;
     for(unsigned bank=0;bank<3;++bank)if(p->used&(1u<<bank))
         for(unsigned j=0;j<32;++j)cram[(bank+1u)*256u+j]=p->words[bank][j];
     return true;

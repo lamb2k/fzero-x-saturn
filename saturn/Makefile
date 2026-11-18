@@ -29,6 +29,18 @@ FZX_SOURCE_CAMERA ?= 0
 FZX_SOURCE_MACHINE ?= 0
 FZX_MACHINE_REBAKE ?= 0
 FZX_VEHICLE_PROFILE ?= 0
+FZX_VEHICLE_SUBPROFILE ?= 0
+FZX_VEHICLE_FAST ?= 0
+FZX_VEHICLE_NATIVE ?= 0
+ifneq ($(filter $(FZX_VEHICLE_NATIVE),0 1),$(FZX_VEHICLE_NATIVE))
+$(error FZX_VEHICLE_NATIVE must be 0 or 1)
+endif
+ifneq ($(filter $(FZX_VEHICLE_FAST),0 1),$(FZX_VEHICLE_FAST))
+$(error FZX_VEHICLE_FAST must be 0 or 1)
+endif
+ifneq ($(filter $(FZX_VEHICLE_SUBPROFILE),0 1),$(FZX_VEHICLE_SUBPROFILE))
+$(error FZX_VEHICLE_SUBPROFILE must be 0 or 1)
+endif
 ifneq ($(filter $(FZX_MACHINE_REBAKE),0 1),$(FZX_MACHINE_REBAKE))
 $(error FZX_MACHINE_REBAKE must be 0 or 1)
 endif
@@ -436,6 +448,15 @@ ifeq ($(findstring rc=0,$(FZX_VEHICLE_RECEIPT)),)
 $(error Prepared vehicle assets are stale: $(FZX_VEHICLE_RECEIPT))
 endif
 SH_CFLAGS += -DFZX_MACHINE_REBAKE=1 -DFZX_VEHICLE_PROFILE=$(FZX_VEHICLE_PROFILE) -I../generated/machine_rebake
+ifeq ($(FZX_VEHICLE_SUBPROFILE),1)
+SH_CFLAGS += -DFZX_VEHICLE_SUBPROFILE=1
+endif
+ifeq ($(FZX_VEHICLE_FAST),1)
+SH_CFLAGS += -DFZX_VEHICLE_FAST=1
+endif
+ifeq ($(FZX_VEHICLE_NATIVE),1)
+SH_CFLAGS += -DFZX_VEHICLE_NATIVE=1 -DFZX_VEHICLE_FAST=1
+endif
 FZX_MACHINE_SRCS := vehicle_native.c ../src/fzx_vehicle.c ../src/fzx_vehicle_draw.c ../src/fzx_view16.c
 endif
 else ifneq ($(FZX_SOURCE_MACHINE),0)
@@ -556,33 +577,38 @@ else ifneq ($(FZX_SOURCE_FINISH_MENU),0)
 $(error FZX_SOURCE_FINISH_MENU must be 0 or 1)
 endif
 
-# ---- SH2ZAM units (explicit list, not a wildcard) ----
-# Hand-written assembly kernels and their tables are not garbage-collected,
-# so only the units an image calls are compiled: the 7de29ac base set, plus
-# the tagged units each knob needs. One block, to merge with the
-# integration lane's knob-gated list.
-FZX_SH2ZAM_UNITS := sh2zam sh2zam_angles sh2zam_batch_sh2 sh2zam_box2 sh2zam_cell16     sh2zam_divu sh2zam_geometry sh2zam_m68k sh2zam_prepared sh2zam_reuse     sh2zam_rotation_batch sh2zam_shade sh2zam_spatial sh2zam_transform sh2zam_trig     sh2zam_view sh2zam_view_center sh2zam_view_guard_src sh2zam_view_guard_src_center     sh2zam_view_round
-ifeq ($(FZX_SOURCE_ROAD_STREAM),1)
-# C3 stream: view-merge-2 tier planner, shade-2 fused fog/colour (cdiv is header-only).
-FZX_SH2ZAM_UNITS += sh2zam_view_merge_tier sh2zam_shade_fused
+# SH2ZAM units linked into the image. The library's hand-assembled kernels and
+# tables cannot be garbage-collected, so every compiled unit costs high work RAM
+# whether or not it is called. Compile only the units this build calls: the base
+# set is the 7de29ac (view-center-1) set; each lane adds its units on one line,
+# gated by the knob whose code calls them. Sorted, so link order matches the
+# former wildcard for the base set.
+FZX_SH2ZAM_UNITS := sh2zam.c sh2zam_angles.c sh2zam_batch_sh2.c sh2zam_box2.c \
+    sh2zam_cell16.c sh2zam_divu.c sh2zam_geometry.c sh2zam_m68k.c sh2zam_prepared.c \
+    sh2zam_reuse.c sh2zam_rotation_batch.c sh2zam_shade.c sh2zam_spatial.c \
+    sh2zam_transform.c sh2zam_trig.c sh2zam_view.c sh2zam_view_center.c \
+    sh2zam_view_guard_src.c sh2zam_view_guard_src_center.c sh2zam_view_round.c
+# C3 road stream (view-merge-2 tier planner, called by src/fzx_road_stream_draw.c).
+FZX_SH2ZAM_UNITS += $(if $(filter 1,$(FZX_SOURCE_ROAD_STREAM)),sh2zam_view_merge_tier.c)
+# C3 road stream, shade-2 fused fog/colour (called by src/fzx_road_stream_draw.c;
+# cdiv is header-only) and, with FZX_ROAD_STREAM_CAMERA30, view-camera-1.
+FZX_SH2ZAM_UNITS += $(if $(filter 1,$(FZX_SOURCE_ROAD_STREAM)),sh2zam_shade_fused.c)
+FZX_SH2ZAM_UNITS += $(if $(filter 1,$(FZX_ROAD_STREAM_CAMERA30)),sh2zam_view_camera.c)
+# C4 knobs that adopt vehicle-kernels-1 / pose add here (sh2zam_vehicle.c).
+# Simulation knobs that adopt trig12-1 / fixed-unit-1 add here (sh2zam_trig12.c, sh2zam_unit30.c).
+FZX_SH2ZAM_SRCS := $(addprefix $(SH2ZAM_ROOT)/saturn/src/,$(sort $(FZX_SH2ZAM_UNITS)))
+FZX_SH2ZAM_MISSING := $(filter-out $(wildcard $(FZX_SH2ZAM_SRCS)),$(FZX_SH2ZAM_SRCS))
+ifneq ($(FZX_SH2ZAM_MISSING),)
+$(error SH2ZAM units missing at this pin: $(FZX_SH2ZAM_MISSING))
 endif
-ifeq ($(FZX_ROAD_STREAM_CAMERA30),1)
-# C3 view from the source camera: view-camera-1.
-FZX_SH2ZAM_UNITS += sh2zam_view_camera
-endif
-FZX_SH2ZAM_SRCS := $(addprefix $(SH2ZAM_ROOT)/saturn/src/,$(addsuffix .c,$(FZX_SH2ZAM_UNITS)))
-$(foreach f,$(FZX_SH2ZAM_SRCS),$(if $(wildcard $(f)),,$(error SH2ZAM unit missing: $(f))))
-# ---- end SH2ZAM units ----
 
 SH_SRCS := $(FZX_FINISH_MENU_SRCS) $(FZX_RECORDS_SRCS) $(FZX_RESULTS_SRCS) $(FZX_MACHINE_MENU_SRCS) $(FZX_COURSE_MENU_SRCS) $(FZX_MENU_SRCS) $(FZX_TITLE_SRCS) $(FZX_COUNTDOWN_SRCS) $(FZX_FRAME_PROFILE_SRCS) main.c ../src/fzx.c $(FZX_ORIG_SRCS) $(FZX_HUD_SRCS) $(FZX_CAMERA_SRCS) $(FZX_ROAD_SRCS) $(FZX_SKY_SRCS) $(FZX_MACHINE_SRCS) $(FZX_SH2ZAM_SRCS)
 SH_CFLAGS += -DFZX_SH2_DIVU=1 -O2 -std=c11 -Wall -Wextra -I../include \
              -I$(SH2ZAM_ROOT)/saturn/include -DSH2Z_REQUIRE_SH2=1
-ifeq ($(FZX_SOURCE_ROAD_STREAM),1)
 # These tagged view units contain same-named local assembler macros. Keep their
-# assembly in separate objects; LTO may otherwise combine it into one unit.
+# assembly in separate objects in both stream and reference builds.
 # Yaul expands SH_CFLAGS inside eval, hence defer the source-name test once.
 SH_CFLAGS += $$(if $$(filter %/sh2zam_view.c %/sh2zam_view_center.c,$$<),-fno-lto,)
-endif
 
 ifeq ($(FZX_NATIVE_CORE_EMPTY),1)
 SH_CFLAGS += -DFZX_NATIVE_CORE_EMPTY=1

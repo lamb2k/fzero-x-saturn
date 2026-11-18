@@ -16,7 +16,7 @@ bool fzx_finish_menu_native(vdp1_cmdt_t *,unsigned,
     const fzx_finish_menu_draw_snapshot_t *,const void *pixels,void *cluts,
     fzx_finish_menu_palette_t *,unsigned *count);
 /* Caller owns VBlank/presentation sequencing and verifies the integrated
- * CRAM-mode1/type0/zero-offset register profile before calling. */
+ * CRAM-mode0/type0/zero-offset register profile before calling. */
 bool fzx_finish_menu_palette_upload(const fzx_finish_menu_palette_t *,
     volatile uint16_t *cram,unsigned words);
 #endif

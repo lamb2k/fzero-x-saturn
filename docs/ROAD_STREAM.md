@@ -1,5 +1,28 @@
 # Road stream: C3 in progress
 
+## Current acceptance: owner decision, 2026-11-17
+
+C3 moves to a Saturn-native renderer. Packet, command and per-view hash identity
+with the frozen renderer across the census, route and regular/+32 fixtures is
+lifted. Source projection rounding, guard-clip order/snap, fog thresholds and
+the merge per-repetition bound are no longer gates. SH2ZAM tags remain usable
+but their source-matching contracts are optional.
+
+Compare with the original game's image: report geometry/texture displacement
+in screen pixels, colour, cracks, holes, popping, wrong order and wrong fog.
+No numeric visual threshold is set. The current first-corner fan mapping has a
+visible corner-order defect; fix or replace the mapping without imposing source
+arithmetic identity. Keep 16 KiB unused stack, allocation guards, no crashes or
+hangs, road420/vehicle70 command budgets, legacy default, hygiene/ROM rules and
+honest evidence tiers. Opus owns C3 performance on `claude/c3-c4-perf`.
+
+## Historical experiments and superseded gates
+
+The sections below preserve the earlier sequence of experiments. Their identity,
+fixture, source-arithmetic and numeric visual requirements describe historical
+gates, not current acceptance. Lifting them does not establish visual or speed
+acceptance. Current policy is in [the render programme](RENDER_PLAN_CURRENT.md).
+
 The compact pack reader, visible-vertex gather and camera adapter are implemented
 and HOST-qualified. They compile for SH-2, but are not yet linked into the Saturn
 race. Command generation, clipping, texture mapping, image-space qualification,

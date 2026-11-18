@@ -29,6 +29,13 @@ static fzx_road_stream_command_t *packets;
  * the work in the guarded low-RAM range. */
 static fzx_road_stream_hot_t hot_high;
 #endif
+#ifndef FZX_ROAD_STREAM_CAMERA30
+#define FZX_ROAD_STREAM_CAMERA30 0
+#endif
+#if FZX_ROAD_STREAM_CAMERA30
+/* view-camera-1: the C3 view from the source camera (main.c). */
+extern RefCamera fzx_source_camera;
+#endif
 #ifndef FZX_ROAD_STREAM_NATIVE_LAYOUT
 #define FZX_ROAD_STREAM_NATIVE_LAYOUT 0
 #endif
@@ -135,9 +142,18 @@ bool fzx_road_stream_native(vdp1_cmdt_t *commands,unsigned capacity,const fzx_vi
 #if FZX_ROAD_STREAM_EMIT
     /* Direct emit: final VDP1 commands and Gouraud words, no packets. */
     fzx_road_stream_emit_t emit;
+#if FZX_ROAD_STREAM_CAMERA30
+    sh2z_view_center_t center;
+    FZX_RSP(EYE);
+#endif
     if(!fzx_road_stream_emit_setup(&emit,commands+1,capacity-1,pixels,FZX_ROAD_LOD_TEXTURE_BYTES,
           shades,FZX_ROAD_STREAM_SHADE_BYTES)||
+#if FZX_ROAD_STREAM_CAMERA30
+       !fzx_road_stream_camera_view(&center,&fzx_source_camera,view)||
+       !fzx_road_stream_draw_vdp1_center(work,&center,plan,pa,pb,0,&emit,capacity-1,&n,&fzx_road_stream_stats)){
+#else
        !fzx_road_stream_draw_vdp1(work,view,eye,plan,pa,pb,0,&emit,capacity-1,&n,&fzx_road_stream_stats)){
+#endif
         fzx_road_stream_status=4;fzx_road_stream_busy=0;return false;
     }
     emitted=n;

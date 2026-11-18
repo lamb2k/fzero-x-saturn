@@ -456,23 +456,23 @@ static bool native_frame(draw_t *d){
     if(visited_total!=plan->visible_chunks)return fail(d,FZX_RS_GATHER);
     return true;
 }
-static bool draw_any(fzx_road_stream_draw_work_t *w,const fzx_view_t *view,
-    const int32_t eye[3],const RefRoadPlan *plan,int32_t pa,int32_t pb,unsigned flags,
+/* view is the centre view (inclusive clip), from the source view and a
+ * Q16.16 eye, or from the camera (fzx_road_stream_camera_view). */
+static bool draw_any(fzx_road_stream_draw_work_t *w,const sh2z_view_center_t *view,
+    const RefRoadPlan *plan,int32_t pa,int32_t pb,unsigned flags,
     fzx_road_stream_command_t *commands,const fzx_road_stream_emit_t *emit,uint32_t capacity,uint32_t *count,
     fzx_road_stream_draw_stats_t *stats){
     if(count)*count=0;
     if(!stats)return false;
     *stats=(fzx_road_stream_draw_stats_t){0};stats->fault=FZX_RS_INVALID;
-    if(!count||!w||!w->prepared||!w->pack||!view||!eye||!plan||(!commands&&!emit)||!capacity||
+    if(!count||!w||!w->prepared||!w->pack||!view||!plan||(!commands&&!emit)||!capacity||
        (flags&~(unsigned)(FZX_RS_FORCE_FIRST|FZX_RS_AUDIT_UNALIGNED))||plan->faults||
        plan->count>REF_ROAD_GROUPS||plan->outer>1||plan->fog_start<0||plan->fog_start>996||pb>0||
-       view->clip[0]<-900||view->clip[1]<-900||view->clip[2]>901||view->clip[3]>901)return false;
-    draw_t d={.work=w,.plan=plan,.commands=commands,.capacity=capacity,.flags=flags,.stats=stats,.emit=emit,
+       view->view.clip[0]<-900||view->view.clip[1]<-900||view->view.clip[2]>900||view->view.clip[3]>900)return false;
+    draw_t d={.work=w,.plan=plan,.view=*view,.commands=commands,.capacity=capacity,.flags=flags,.stats=stats,.emit=emit,
         .hot=w->hot?w->hot:&w->local};
     ramp_prepare(w,plan);
     if(!w->ramp_valid)return false;
-    FZX_RSP(EYE);
-    if(!fzx_view16_from_source_center(&d.view,view,eye))return false;
     if(w->native){
         FZX_RSP(FOG);
         fog_prepare(w,&d.view.view,plan,pa,pb,stats);
@@ -507,20 +507,70 @@ static bool draw_any(fzx_road_stream_draw_work_t *w,const fzx_view_t *view,
     return fail(&d,FZX_RS_INVALID);
 #endif
 }
+/* Source-view entries: the centre view from the source view and a Q16.16 eye. */
+static bool center_of(sh2z_view_center_t *out,const fzx_view_t *view,const int32_t eye[3],
+    fzx_road_stream_draw_stats_t *stats){
+    if(stats){*stats=(fzx_road_stream_draw_stats_t){0};stats->fault=FZX_RS_INVALID;}
+    FZX_RSP(EYE);
+    return view&&eye&&fzx_view16_from_source_center(out,view,eye);
+}
 bool fzx_road_stream_draw(fzx_road_stream_draw_work_t *w,const fzx_view_t *view,
     const int32_t eye[3],const RefRoadPlan *plan,int32_t pa,int32_t pb,unsigned flags,
     fzx_road_stream_command_t *commands,uint32_t capacity,uint32_t *count,
     fzx_road_stream_draw_stats_t *stats){
-    if(!commands||!FZX_RS_PACKET_PATH){if(count)*count=0;return false;}
-    return draw_any(w,view,eye,plan,pa,pb,flags,commands,NULL,capacity,count,stats);
+    sh2z_view_center_t center;
+    if(count)*count=0;
+    if(!center_of(&center,view,eye,stats))return false;
+    return fzx_road_stream_draw_center(w,&center,plan,pa,pb,flags,commands,capacity,count,stats);
 }
 bool fzx_road_stream_draw_vdp1(fzx_road_stream_draw_work_t *w,const fzx_view_t *view,
     const int32_t eye[3],const RefRoadPlan *plan,int32_t pa,int32_t pb,unsigned flags,
+    const fzx_road_stream_emit_t *emit,uint32_t capacity,uint32_t *count,
+    fzx_road_stream_draw_stats_t *stats){
+    sh2z_view_center_t center;
+    if(count)*count=0;
+    if(!center_of(&center,view,eye,stats))return false;
+    return fzx_road_stream_draw_vdp1_center(w,&center,plan,pa,pb,flags,emit,capacity,count,stats);
+}
+bool fzx_road_stream_draw_center(fzx_road_stream_draw_work_t *w,const sh2z_view_center_t *view,
+    const RefRoadPlan *plan,int32_t pa,int32_t pb,unsigned flags,
+    fzx_road_stream_command_t *commands,uint32_t capacity,uint32_t *count,
+    fzx_road_stream_draw_stats_t *stats){
+    if(!commands||!FZX_RS_PACKET_PATH){if(count)*count=0;return false;}
+    return draw_any(w,view,plan,pa,pb,flags,commands,NULL,capacity,count,stats);
+}
+bool fzx_road_stream_draw_vdp1_center(fzx_road_stream_draw_work_t *w,const sh2z_view_center_t *view,
+    const RefRoadPlan *plan,int32_t pa,int32_t pb,unsigned flags,
     const fzx_road_stream_emit_t *emit,uint32_t capacity,uint32_t *count,
     fzx_road_stream_draw_stats_t *stats){
     if(count)*count=0;
     if(!emit||!emit->commands||!emit->shades||(flags&FZX_RS_AUDIT_UNALIGNED)||
        emit->texture_offset>0x7ffffu||(emit->texture_offset&7u)||(emit->shade_offset&7u)||
        capacity>(0x80000u-emit->shade_offset)/8u)return false;
-    return draw_any(w,view,eye,plan,pa,pb,flags,NULL,emit,capacity,count,stats);
+    return draw_any(w,view,plan,pa,pb,flags,NULL,emit,capacity,count,stats);
 }
+#if FZX_SOURCE_CAMERA
+/* Camera value to fixed point, rounded; rejects NaN and |x| > limit. */
+static bool camera_fixed(float x,float scale,float limit,int32_t *out){
+    if(!(x>=-limit&&x<=limit))return false;
+    const float y=x*scale;*out=(int32_t)(y>=0.0f?y+0.5f:y-0.5f);return true;
+}
+bool fzx_road_stream_camera_view(sh2z_view_center_t *out,const RefCamera *camera,const fzx_view_t *view){
+    /* SH2ZAM view-camera-1: rows {-side, up, forward} of the source basis
+     * {forward, up, side} in Q2.30, the eye in Q20.12 (no Q16.16 overflow)
+     * and the lens: fov, 160 px per unit of tangent on both axes, and the
+     * source view's centre, depth planes and clip (inclusive). */
+    if(!out||!camera||!view)return false;
+    int32_t basis[9],eye[3],fov;
+    for(unsigned j=0;j<3;++j)
+        if(!camera_fixed(-camera->basis[2][j],1073741824.0f,1.5f,basis+j)||
+           !camera_fixed(camera->basis[1][j],1073741824.0f,1.5f,basis+3+j)||
+           !camera_fixed(camera->basis[0][j],1073741824.0f,1.5f,basis+6+j)||
+           !camera_fixed(camera->eye[j],4096.0f,131072.0f,eye+j))return false;
+    if(!camera_fixed(camera->fov,65536.0f,180.0f,&fov))return false;
+    const sh2z_view_lens_t lens={fov,160<<16,160<<16,view->center[0],view->center[1],
+        view->near_plane,view->far_plane,
+        {view->clip[0],view->clip[1],(int16_t)(view->clip[2]-1),(int16_t)(view->clip[3]-1)}};
+    return sh2z_view_from_camera30(out,basis,eye,&lens);
+}
+#endif

@@ -478,6 +478,16 @@ SH_CFLAGS += -DFZX_RS_PACKET_PATH=0
 else ifneq ($(FZX_ROAD_STREAM_EMIT),0)
 $(error FZX_ROAD_STREAM_EMIT must be 0 or 1)
 endif
+# Default-off C3 view from the source camera (SH2ZAM view-camera-1); direct emit only.
+FZX_ROAD_STREAM_CAMERA30 ?= 0
+ifeq ($(FZX_ROAD_STREAM_CAMERA30),1)
+ifneq ($(FZX_ROAD_STREAM_EMIT),1)
+$(error FZX_ROAD_STREAM_CAMERA30 requires FZX_ROAD_STREAM_EMIT=1)
+endif
+SH_CFLAGS += -DFZX_ROAD_STREAM_CAMERA30=1
+else ifneq ($(FZX_ROAD_STREAM_CAMERA30),0)
+$(error FZX_ROAD_STREAM_CAMERA30 must be 0 or 1)
+endif
 # Default-off C3 stepping/clip scratch in high work RAM.
 FZX_ROAD_STREAM_HOT_HIGH ?= 0
 ifeq ($(FZX_ROAD_STREAM_HOT_HIGH),1)
@@ -555,6 +565,10 @@ FZX_SH2ZAM_UNITS := sh2zam sh2zam_angles sh2zam_batch_sh2 sh2zam_box2 sh2zam_cel
 ifeq ($(FZX_SOURCE_ROAD_STREAM),1)
 # C3 stream: view-merge-2 tier planner, shade-2 fused fog/colour (cdiv is header-only).
 FZX_SH2ZAM_UNITS += sh2zam_view_merge_tier sh2zam_shade_fused
+endif
+ifeq ($(FZX_ROAD_STREAM_CAMERA30),1)
+# C3 view from the source camera: view-camera-1.
+FZX_SH2ZAM_UNITS += sh2zam_view_camera
 endif
 FZX_SH2ZAM_SRCS := $(addprefix $(SH2ZAM_ROOT)/saturn/src/,$(addsuffix .c,$(FZX_SH2ZAM_UNITS)))
 $(foreach f,$(FZX_SH2ZAM_SRCS),$(if $(wildcard $(f)),,$(error SH2ZAM unit missing: $(f))))

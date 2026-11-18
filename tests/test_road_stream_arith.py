@@ -110,7 +110,7 @@ class RoadStreamFogShade(unittest.TestCase):
                      lib / 'src/sh2zam_view_guard_src.c', lib / 'src/sh2zam_view_center.c',
                      lib / 'src/sh2zam_view_guard_src_center.c',
                      lib / 'src/sh2zam_view_merge_tier.c', lib / 'src/sh2zam_shade.c', lib / 'src/sh2zam.c',
-                     lib / 'src/sh2zam_shade_fused.c']
+                     lib / 'src/sh2zam_shade_fused.c', lib / 'src/sh2zam_view_camera.c']
             build = subprocess.run([cc, '-std=c11', '-O2', '-Wall', '-Wextra', '-Werror',
                                     '-Wno-misleading-indentation', '-fsanitize=undefined',
                                     '-fno-sanitize-recover=all', '-DSH2Z_FORCE_PORTABLE=1',

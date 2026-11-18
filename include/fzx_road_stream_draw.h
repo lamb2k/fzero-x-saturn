@@ -144,4 +144,20 @@ bool fzx_road_stream_draw_vdp1(fzx_road_stream_draw_work_t *,const fzx_view_t *,
     const int32_t eye[3],const RefRoadPlan *,int32_t pa,int32_t pb,unsigned flags,
     const fzx_road_stream_emit_t *,uint32_t capacity,uint32_t *count,
     fzx_road_stream_draw_stats_t *);
+/* The same draws from a prepared centre view (inclusive clip within
+ * +/-900): the source-view entries above convert theirs first. */
+bool fzx_road_stream_draw_center(fzx_road_stream_draw_work_t *,const sh2z_view_center_t *,
+    const RefRoadPlan *,int32_t pa,int32_t pb,unsigned flags,
+    fzx_road_stream_command_t *,uint32_t capacity,uint32_t *count,
+    fzx_road_stream_draw_stats_t *);
+bool fzx_road_stream_draw_vdp1_center(fzx_road_stream_draw_work_t *,const sh2z_view_center_t *,
+    const RefRoadPlan *,int32_t pa,int32_t pb,unsigned flags,
+    const fzx_road_stream_emit_t *,uint32_t capacity,uint32_t *count,
+    fzx_road_stream_draw_stats_t *);
+#if FZX_SOURCE_CAMERA
+#include "ref.h"
+/* SH2ZAM view-camera-1 centre view of the source camera (basis, Q20.12 eye,
+ * fov), with the centre, depth planes and clip of the source view. */
+bool fzx_road_stream_camera_view(sh2z_view_center_t *,const RefCamera *,const fzx_view_t *);
+#endif
 #endif

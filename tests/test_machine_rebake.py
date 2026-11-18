@@ -87,6 +87,20 @@ class MachineRebakeTests(unittest.TestCase):
         badbank=bytearray(bank);badbank[0]^=1
         with self.assertRaises(ValueError):verify(meta,badbank,args[0])
 
+    def test_supplied_orders(self):
+        """Supplied back-to-front orders replace only their octants; bad orders are refused."""
+        args=fixture_data();base,_,_=build(*args,fixture=True)
+        n=len(pairing(args[0][0]));order=list(reversed(range(n)))
+        meta,bank,report=build(*args,fixture=True,orders={'1:5':order})
+        verify(meta,bank,args[0])
+        oa=struct.unpack_from('>I',meta,96+36)[0]
+        for octant in range(8):
+            got=list(struct.unpack_from('>%dH'%n,meta,oa+octant*n*2));was=list(struct.unpack_from('>%dH'%n,base,oa+octant*n*2))
+            self.assertEqual(got,order if octant==5 else was)
+        self.assertIn('1 supplied offline topological orders',' '.join(report['adaptations']))
+        for bad in (order[:-1],order[:-1]+[order[0]],[n]+order[1:]):
+            with self.assertRaises(ArtError):build(*args,fixture=True,orders={'1:0':bad})
+
     def test_pairing_preserves_seams_and_rejects_nonplanar(self):
         model=copy.deepcopy(fixture_data()[0][0])
         self.assertEqual(len(pairing(model)),8)

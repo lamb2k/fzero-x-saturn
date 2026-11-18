@@ -31,7 +31,7 @@ static int fog_exact(int32_t z,int32_t pa,int32_t pb,int start){
     return value<=0?0:value>=255*INT64_C(1073741824)?255:(int)(value/INT64_C(1073741824));
 }
 static unsigned table_value(const fzx_road_stream_draw_work_t *w,uint32_t z){
-    unsigned result=0;for(unsigned i=1;i<256;++i)if(z>=w->fog_depth[i])result=i;return result;
+    unsigned result=0;for(unsigned i=1;i<256;++i)if(z>=w->fog.depth[i])result=i;return result;
 }
 int main(int argc,char **argv){
     CHECK(argc==7);
@@ -94,7 +94,7 @@ int main(int argc,char **argv){
         for(unsigned s=0;s<4;++s){plan.fog_start=starts[s];
             CHECK(fzx_road_stream_draw(&work,&view,eye,&plan,1073741824,-81920,0,output.rows,512,&count,&stats));
             for(unsigned a=0;a<256;++a)for(int delta=-1;delta<=1;++delta){
-                const int64_t z=(int64_t)work.fog_depth[a]+delta;
+                const int64_t z=(int64_t)work.fog.depth[a]+delta;
                 if(z<view.near_plane*4||z>view.far_plane*4)continue;
                 CHECK(table_value(&work,(uint32_t)z)==(unsigned)fog_exact((int32_t)z,1073741824,-81920,plan.fog_start));}
         }

@@ -52,7 +52,8 @@ class RoadStreamDrawTests(unittest.TestCase):
                     str(LIB/'saturn/src/sh2zam_view_guard_src.c'),
                     str(LIB/'saturn/src/sh2zam_view_center.c'),
                     str(LIB/'saturn/src/sh2zam_view_guard_src_center.c'),
-                    str(LIB/'saturn/src/sh2zam_view_merge_tier.c'),'-lm','-o',str(exe)]
+                    str(LIB/'saturn/src/sh2zam_view_merge_tier.c'),
+                    str(LIB/'saturn/src/sh2zam_shade.c'),str(LIB/'saturn/src/sh2zam.c'),str(LIB/'saturn/src/sh2zam_shade_fused.c'),'-lm','-o',str(exe)]
                 result=subprocess.run(args,capture_output=True,text=True)
                 self.assertEqual(result.returncode,0,result.stdout+result.stderr)
                 return exe
@@ -70,10 +71,9 @@ class RoadStreamDrawTests(unittest.TestCase):
             for before,after in [
                 ('unit=period*32','unit=period*16'),
                 ('d->stats->commands>=d->capacity','d->stats->commands>d->capacity'),
-                ('selected*(base-mean)','selected*(live-mean)')]:
+                ('sh2z_shade_ramp_offset(&w->ramp_offset,key,key+3,','sh2z_shade_ramp_offset(&w->ramp_offset,key,key,')]:
                 self.assertEqual(source.count(before),1)
                 altered=source.replace(before,after)
-                if 'base-mean' in before:altered=altered.replace('color=16+','(void)base;color=16+')
                 exe=compile('gcc',altered)
                 result=subprocess.run([str(exe),*paths,'regular',str(directory/'control')],capture_output=True,text=True)
                 self.assertNotEqual(result.returncode,0,'control must fail: '+before)

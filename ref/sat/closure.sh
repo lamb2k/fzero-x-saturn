@@ -74,6 +74,16 @@ if [ "$MACHINE" = 1 ]; then CFLAGS="$CFLAGS -DFZX_SOURCE_MACHINE=1"; fi
 REF_MACHINE_FIXED=${FZX_REF_MACHINE_FIXED:-0}
 [ "$REF_MACHINE_FIXED" = 0 ] || [ "$REF_MACHINE_FIXED:$MACHINE" = 1:1 ] || { echo "FZX_REF_MACHINE_FIXED requires source machine" >&2; exit 1; }
 if [ "$REF_MACHINE_FIXED" = 1 ]; then CFLAGS="$CFLAGS -DFZX_REF_MACHINE_FIXED=1"; fi
+# FZX_DEFER_PROJECTION=1 (quick win 1, default 0): ref/sim_overrides.h defers the
+# per-tick camera matrix build to its first read (ref/sim_bridge.c). The image must
+# pass the same value to make (saturn/Makefile checks the closure's symbols).
+DEFER=${FZX_DEFER_PROJECTION:-0}
+[ "$DEFER" = 0 ] || [ "$DEFER:$CAMERA" = 1:1 ] || { echo "deferred projection requires source camera" >&2; exit 1; }
+[ "${FZX_SIM_CAMERA:-0}" = 0 ] || { echo "the fixed-point camera is not integrated (claude/sim-native)" >&2; exit 1; }
+if [ "$DEFER" = 1 ]; then
+    CFLAGS="$CFLAGS -DFZX_DEFER_PROJECTION=1 -include $W/ref/sim_overrides.h"
+    BRIDGES="$BRIDGES sim_bridge"
+fi
 OBJ=$OUT/obj
 mkdir -p "$OBJ"
 objs=""

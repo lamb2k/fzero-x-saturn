@@ -230,6 +230,29 @@ else ifneq ($(FZX_SOURCE_CAMERA),0)
 $(error FZX_SOURCE_CAMERA must be 0 or 1)
 endif
 
+# FZX_DEFER_PROJECTION=1 (quick win 1, default 0): the closure defers the
+# per-tick camera matrix build to its first read (ref/sim_overrides.h,
+# ref/sim_bridge.c). Image and closure must agree; nm checks the closure.
+FZX_DEFER_PROJECTION ?= 0
+ifneq ($(filter-out 0 1,$(FZX_DEFER_PROJECTION)),)
+$(error FZX_DEFER_PROJECTION must be 0 or 1)
+endif
+ifneq ($(FZX_SIM_CAMERA),)
+ifneq ($(FZX_SIM_CAMERA),0)
+$(error the fixed-point camera (FZX_SIM_CAMERA) is not integrated; it stays on claude/sim-native)
+endif
+endif
+FZX_CLOSURE_DEFERS := $(if $(FZX_CLOSURE),$(shell $(YAUL_ARCH_SH_PREFIX)-nm $(FZX_CLOSURE) 2>/dev/null | grep -c ' T _ref_camera_flush$$'),0)
+ifneq ($(FZX_DEFER_PROJECTION),$(FZX_CLOSURE_DEFERS))
+$(error the closure's FZX_DEFER_PROJECTION ($(FZX_CLOSURE_DEFERS)) differs from the image's ($(FZX_DEFER_PROJECTION)))
+endif
+ifeq ($(FZX_DEFER_PROJECTION),1)
+ifneq ($(FZX_SOURCE_CAMERA),1)
+$(error FZX_DEFER_PROJECTION=1 requires the source camera)
+endif
+SH_CFLAGS += -DFZX_DEFER_PROJECTION=1
+endif
+
 ifeq ($(FZX_SOURCE_MACHINE_MENU),1)
 ifneq ($(FZX_SOURCE_COURSE_MENU):$(FZX_SOURCE_CAMERA):$(FZX_SOURCE_MACHINE),1:1:1)
 $(error FZX_SOURCE_MACHINE_MENU requires original course menu, camera and machine)

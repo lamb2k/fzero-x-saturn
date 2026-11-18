@@ -567,7 +567,30 @@ else ifneq ($(FZX_SOURCE_FINISH_MENU),0)
 $(error FZX_SOURCE_FINISH_MENU must be 0 or 1)
 endif
 
-SH_SRCS := $(FZX_FINISH_MENU_SRCS) $(FZX_RECORDS_SRCS) $(FZX_RESULTS_SRCS) $(FZX_MACHINE_MENU_SRCS) $(FZX_COURSE_MENU_SRCS) $(FZX_MENU_SRCS) $(FZX_TITLE_SRCS) $(FZX_COUNTDOWN_SRCS) $(FZX_FRAME_PROFILE_SRCS) main.c ../src/fzx.c $(FZX_ORIG_SRCS) $(FZX_HUD_SRCS) $(FZX_CAMERA_SRCS) $(FZX_ROAD_SRCS) $(FZX_SKY_SRCS) $(FZX_MACHINE_SRCS) $(wildcard $(SH2ZAM_ROOT)/saturn/src/*.c)
+# SH2ZAM units linked into the image. The library's hand-assembled kernels and
+# tables cannot be garbage-collected, so every compiled unit costs high work RAM
+# whether or not it is called. Compile only the units this build calls: the base
+# set is the 7de29ac (view-center-1) set; each lane adds its units on one line,
+# gated by the knob whose code calls them. Sorted, so link order matches the
+# former wildcard for the base set.
+FZX_SH2ZAM_UNITS := sh2zam.c sh2zam_angles.c sh2zam_batch_sh2.c sh2zam_box2.c \
+    sh2zam_cell16.c sh2zam_divu.c sh2zam_geometry.c sh2zam_m68k.c sh2zam_prepared.c \
+    sh2zam_reuse.c sh2zam_rotation_batch.c sh2zam_shade.c sh2zam_spatial.c \
+    sh2zam_transform.c sh2zam_trig.c sh2zam_view.c sh2zam_view_center.c \
+    sh2zam_view_guard_src.c sh2zam_view_guard_src_center.c sh2zam_view_round.c
+# C3 road stream (view-merge-2 tier planner, called by src/fzx_road_stream_draw.c).
+FZX_SH2ZAM_UNITS += $(if $(filter 1,$(FZX_SOURCE_ROAD_STREAM)),sh2zam_view_merge_tier.c)
+# C3 knobs that adopt shade-2 / view-camera add here, e.g.:
+#   FZX_SH2ZAM_UNITS += $(if $(filter 1,$(FZX_ROAD_STREAM_<KNOB>)),sh2zam_shade_fused.c)
+# C4 knobs that adopt vehicle-kernels-1 / pose add here (sh2zam_vehicle.c).
+# Simulation knobs that adopt trig12-1 / fixed-unit-1 add here (sh2zam_trig12.c, sh2zam_unit30.c).
+FZX_SH2ZAM_SRCS := $(addprefix $(SH2ZAM_ROOT)/saturn/src/,$(sort $(FZX_SH2ZAM_UNITS)))
+FZX_SH2ZAM_MISSING := $(filter-out $(wildcard $(FZX_SH2ZAM_SRCS)),$(FZX_SH2ZAM_SRCS))
+ifneq ($(FZX_SH2ZAM_MISSING),)
+$(error SH2ZAM units missing at this pin: $(FZX_SH2ZAM_MISSING))
+endif
+
+SH_SRCS := $(FZX_FINISH_MENU_SRCS) $(FZX_RECORDS_SRCS) $(FZX_RESULTS_SRCS) $(FZX_MACHINE_MENU_SRCS) $(FZX_COURSE_MENU_SRCS) $(FZX_MENU_SRCS) $(FZX_TITLE_SRCS) $(FZX_COUNTDOWN_SRCS) $(FZX_FRAME_PROFILE_SRCS) main.c ../src/fzx.c $(FZX_ORIG_SRCS) $(FZX_HUD_SRCS) $(FZX_CAMERA_SRCS) $(FZX_ROAD_SRCS) $(FZX_SKY_SRCS) $(FZX_MACHINE_SRCS) $(FZX_SH2ZAM_SRCS)
 SH_CFLAGS += -DFZX_SH2_DIVU=1 -O2 -std=c11 -Wall -Wextra -I../include \
              -I$(SH2ZAM_ROOT)/saturn/include -DSH2Z_REQUIRE_SH2=1
 # These tagged view units contain same-named local assembler macros. Keep their

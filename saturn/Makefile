@@ -611,9 +611,10 @@ SH_SRCS := $(FZX_FINISH_MENU_SRCS) $(FZX_RECORDS_SRCS) $(FZX_RESULTS_SRCS) $(FZX
 SH_CFLAGS += -DFZX_SH2_DIVU=1 -O2 -std=c11 -Wall -Wextra -I../include \
              -I$(SH2ZAM_ROOT)/saturn/include -DSH2Z_REQUIRE_SH2=1
 # These tagged view units contain same-named local assembler macros. Keep their
-# assembly in separate objects in both stream and reference builds.
+# assembly in separate objects in both stream and reference builds. pose-1's
+# top-level assembly reads a file-static table (pose_g), which LTO renames.
 # Yaul expands SH_CFLAGS inside eval, hence defer the source-name test once.
-SH_CFLAGS += $$(if $$(filter %/sh2zam_view.c %/sh2zam_view_center.c,$$<),-fno-lto,)
+SH_CFLAGS += $$(if $$(filter %/sh2zam_view.c %/sh2zam_view_center.c %/sh2zam_pose.c,$$<),-fno-lto,)
 
 ifeq ($(FZX_NATIVE_CORE_EMPTY),1)
 SH_CFLAGS += -DFZX_NATIVE_CORE_EMPTY=1

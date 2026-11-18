@@ -1,6 +1,9 @@
 #include "fzx_planes.h"
 #include <limits.h>
 #include <string.h>
+#if FZX_PLANES_DEGENERATE_UV
+uint32_t fzx_plane_degenerate_layers; /* layers skipped for a degenerate UV basis */
+#endif
 
 typedef struct {
     const fzx_view_t *view;const uint16_t *fog,*mean;
@@ -153,6 +156,14 @@ static bool layer(plane_t *p,const RefBackdropVertex vertices[8]) {
     const int32_t ds1=vertices[1].uv[0]-p->s0,dt1=vertices[1].uv[1]-p->t0;
     const int32_t ds2=vertices[2].uv[0]-p->s0,dt2=vertices[2].uv[1]-p->t0;
     const int64_t det=(int64_t)ds1*dt2-(int64_t)ds2*dt1;
+#if FZX_PLANES_DEGENERATE_UV
+    /* The source scales cloud UVs by (cloud plane - eye.y) / (y - eye.y)
+     * (Background_UpdateCloudVtx): as the eye crosses the cloud plane every UV
+     * collapses to one point, so the layer spans under one texel and there is
+     * no texture to map. Draw nothing for it rather than fault (approximation:
+     * the original shows that single texel across the layer). */
+    if(!det){++fzx_plane_degenerate_layers;return true;}
+#endif
     if(!det)return fault(p,1);
     for(unsigned j=0;j<3;++j) {
         p->base[j]=positions[0][j];

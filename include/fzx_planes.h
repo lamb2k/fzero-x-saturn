@@ -18,4 +18,13 @@ typedef bool (*fzx_plane_emit_fn)(void *,const fzx_plane_quad_t *);
 bool fzx_planes_draw(const fzx_view_t *view,const RefBackdrop *source,
                      const uint16_t fog[3],const uint16_t mean[3],uint32_t capacity,
                      fzx_plane_emit_fn emit,void *context,fzx_plane_stats_t *stats);
+#ifndef FZX_PLANES_DEGENERATE_UV
+#define FZX_PLANES_DEGENERATE_UV 0
+#endif
+#if FZX_PLANES_DEGENERATE_UV
+/* FZX_PLANES_DEGENERATE_UV=1: a layer whose source UVs collapse to one point
+ * (det 0, the eye at cloud-plane height) is skipped and counted here instead
+ * of faulting. Default 0 keeps fault 1. */
+extern uint32_t fzx_plane_degenerate_layers;
+#endif
 #endif

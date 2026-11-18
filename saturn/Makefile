@@ -67,6 +67,17 @@ FZX_PLANES_DIR := ../generated/planes_cloud
 else ifneq ($(FZX_PLANE_CLOUD_ONLY),0)
 $(error FZX_PLANE_CLOUD_ONLY must be 0 or 1)
 endif
+# FZX_PLANES_DEGENERATE_UV=1 (default 0): a plane layer whose source UVs collapse
+# to one point (the eye at cloud-plane height) is skipped instead of faulting.
+FZX_PLANES_DEGENERATE_UV ?= 0
+ifeq ($(FZX_PLANES_DEGENERATE_UV),1)
+ifneq ($(FZX_SOURCE_PLANES),1)
+$(error FZX_PLANES_DEGENERATE_UV requires original planes)
+endif
+SH_CFLAGS += -DFZX_PLANES_DEGENERATE_UV=1
+else ifneq ($(FZX_PLANES_DEGENERATE_UV),0)
+$(error FZX_PLANES_DEGENERATE_UV must be 0 or 1)
+endif
 FZX_FRAME_PROFILE ?= 0
 ifeq ($(FZX_FRAME_PROFILE),1)
 ifneq ($(FZX_SIM):$(FZX_SOURCE_FLOOR_RBG):$(FZX_SOURCE_MACHINE),orig:1:1)

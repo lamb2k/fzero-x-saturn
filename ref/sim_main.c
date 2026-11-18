@@ -21,7 +21,7 @@
  * ref_camera_flush_all runs first, as in the image. --read-after-restart 1
  * then reads both cameras before the first post-restart tick.
  *
- * --records-probe T moves camera 1 (eye and target, +64 units; camera 1 is
+ * --records-probe T moves camera 1 (far plane +64 units; camera 1 is
  * otherwise constant on every captured route) before tick T, and after that tick
  * reads camera 1 the way the records scene does (flush, then read). Knob on and
  * off must log the same matrices; a build without that flush must not.

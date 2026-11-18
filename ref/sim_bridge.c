@@ -46,3 +46,17 @@ void ref_camera_flush_all(void) {
     for (i = 0; i < 4; ++i) ref_camera_flush(i);
 }
 #endif
+
+#ifndef __sh__
+/* HOST harness only (never in an image): move camera INDEX's eye and target by
+ * DX world units, so a control can give a camera a state its last matrix build
+ * did not see. Camera 1 is constant on every captured route. */
+void ref_sim_test_move_camera(unsigned int index, float dx) {
+    if (index >= 4) return;
+    gCameras[index].eye.x += dx;
+    gCameras[index].at.x += dx;
+}
+#if FZX_DEFER_PROJECTION
+unsigned int ref_sim_test_pending(void) { return deferred_mask; }
+#endif
+#endif

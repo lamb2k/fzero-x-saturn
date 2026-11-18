@@ -4,6 +4,7 @@
  *   fzx-sim --course RECORD --byte-order big|little (--inputs SCRIPT | --inputs-hex HEX)
  *           [--rom ROM] [--select SKIN,ENGINE_BITS] [--ticks N] [--trace OUT]
  *           [--camera-trace OUT] [--read-every K] [--restart-at T]
+ *           [--read-after-restart 0|1] [--records-probe T]
  *
  * The STRICT trace hash is ref/main.c's (FNV-1a 64 over tick, inputs and
  * RefState), so it compares directly with ref/main.c and the fixture hashes.
@@ -17,7 +18,14 @@
  * --restart-at T restarts the race (ref_race_restart, as the image's
  * orig_restart does) before tick T and keeps ticking. With the knob on the
  * matrices of the ticks since the last read are still pending at that point;
- * ref_camera_flush_all runs first, as in the image. */
+ * ref_camera_flush_all runs first, as in the image. --read-after-restart 1
+ * then reads both cameras before the first post-restart tick.
+ *
+ * --records-probe T moves camera 1 (eye and target, +64 units; camera 1 is
+ * otherwise constant on every captured route) before tick T, and after that tick
+ * reads camera 1 the way the records scene does (flush, then read). Knob on and
+ * off must log the same matrices; a build without that flush must not.
+ * Both probes are HOST controls (ref_sim_test_move_camera is never in an image). */
 #include <stdint.h>
 #include <math.h>
 #include <stdio.h>
@@ -140,6 +148,26 @@ static void camera_read(Driver* d, int tick) {
     }
 }
 
+/* --records-probe T: the records scene's camera-1 read (fzx_records_model_camera:
+ * flush camera 1, then read its matrices), logged as "records T 1 ...". */
+static void records_read(Driver* d, int tick) {
+    RefCamera camera;
+    unsigned j;
+#if FZX_DEFER_PROJECTION
+    ref_camera_flush(1); /* as saturn/records_native.c does before the matrix bridge */
+#endif
+    if (!ref_camera_read(1, &camera) || camera.faults) die("unmapped camera 1 viewport");
+    if (d->camera) {
+        fprintf(d->camera, "records %d 1", tick);
+        for (j = 0; j < sizeof(camera) / 4; ++j) {
+            uint32_t word;
+            memcpy(&word, (const unsigned char*)&camera + 4 * j, 4);
+            fprintf(d->camera, " %08x", word);
+        }
+        fputc('\n', d->camera);
+    }
+}
+
 static void after_tick(Driver* d, int tick, const Step* in) {
     RefState s;
     ref_state(&s);
@@ -176,7 +204,7 @@ int main(int argc, char** argv) {
     const char *camera_path = NULL, *select = NULL;
     static Step steps[16384];
     static unsigned char record[REF_COURSE_RECORD_SIZE];
-    int nsteps, i, tick = 0, limit = -1, restart_at = -1;
+    int nsteps, i, tick = 0, limit = -1, restart_at = -1, records_probe = -1, read_after_restart = 0;
     FILE* f;
     Driver* d = calloc(1, sizeof(Driver));
     if (!d) die("out of memory");
@@ -196,6 +224,8 @@ int main(int argc, char** argv) {
         else if (strcmp(argv[i], "--read-every") == 0) d->read_every = atoi(argv[i + 1]);
         else if (strcmp(argv[i], "--select") == 0) select = argv[i + 1];
         else if (strcmp(argv[i], "--restart-at") == 0) restart_at = atoi(argv[i + 1]);
+        else if (strcmp(argv[i], "--read-after-restart") == 0) read_after_restart = atoi(argv[i + 1]);
+        else if (strcmp(argv[i], "--records-probe") == 0) records_probe = atoi(argv[i + 1]);
         else die("unknown option");
     }
     if (i != argc) die("options take one value each");
@@ -255,8 +285,14 @@ int main(int argc, char** argv) {
 #endif
                 ref_race_restart();
                 mix(d, "restart", 7);
+                /* Read before the first post-restart tick: the matrices must be the ones
+                 * the cameras had at the restart, as without the knob. */
+                if (read_after_restart) camera_read(d, -1 - tick);
             }
+            /* Give camera 1 a state its last matrix build has not seen (HOST control). */
+            if (tick == records_probe) ref_sim_test_move_camera(1, 64.0f);
             ref_tick(steps[i].button, steps[i].sx, steps[i].sy);
+            if (tick == records_probe) records_read(d, tick);
             after_tick(d, tick, &steps[i]);
             tick++;
         }

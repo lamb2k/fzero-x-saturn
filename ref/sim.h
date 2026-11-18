@@ -22,5 +22,12 @@ void ref_camera_flush_all(void);
 /* Calls of the deferred function, and matrix builds actually performed. */
 extern unsigned int ref_camera_deferrals, ref_camera_deferred_builds;
 #endif
+#ifndef __sh__
+/* HOST harness controls only (ref/sim_bridge.c). */
+void ref_sim_test_move_camera(unsigned int index, float dx);
+#if FZX_DEFER_PROJECTION
+unsigned int ref_sim_test_pending(void); /* bit i: camera i has a deferred matrix build */
+#endif
+#endif
 
 #endif

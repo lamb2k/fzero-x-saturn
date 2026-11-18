@@ -503,6 +503,18 @@ SH_CFLAGS += -DFZX_RS_PACKET_PATH=0
 else ifneq ($(FZX_ROAD_STREAM_EMIT),0)
 $(error FZX_ROAD_STREAM_EMIT must be 0 or 1)
 endif
+# Default-off C3 road command budget guard (owner budget: 420 road commands per
+# frame, user clip included). Frames within it are unchanged; a frame over it is
+# drawn again with coarse tiering, and only then are its farthest commands dropped.
+FZX_ROAD_STREAM_BUDGET ?= 0
+ifeq ($(FZX_ROAD_STREAM_BUDGET),1)
+ifneq ($(FZX_ROAD_STREAM_EMIT),1)
+$(error FZX_ROAD_STREAM_BUDGET requires FZX_ROAD_STREAM_EMIT=1)
+endif
+SH_CFLAGS += -DFZX_ROAD_STREAM_BUDGET=1
+else ifneq ($(FZX_ROAD_STREAM_BUDGET),0)
+$(error FZX_ROAD_STREAM_BUDGET must be 0 or 1)
+endif
 # Default-off C3 view from the source camera (SH2ZAM view-camera-1); direct emit only.
 FZX_ROAD_STREAM_CAMERA30 ?= 0
 ifeq ($(FZX_ROAD_STREAM_CAMERA30),1)

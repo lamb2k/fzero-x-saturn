@@ -169,7 +169,31 @@ typedef struct {
     fzx_road_stream_draw_stats_t *stats;
     const fzx_road_stream_emit_t *emit;   /* direct VDP1 target, or NULL for packets */
     fzx_road_stream_hot_t *hot;
+#if FZX_ROAD_STREAM_BUDGET
+    /* Budget guard (draw_*_budget only): drop the first skip commands, in
+     * emission order (far first), and with over non-NULL count commands past
+     * capacity instead of failing. */
+    uint32_t skip,dropped,*over;
+#endif
 } draw_t;
+/* One more command from the current piece: false to drop it, or a capacity
+ * fault. Default draws have skip 0 and no over counter. */
+#if FZX_ROAD_STREAM_BUDGET
+#define FZX_RS_NO_BUDGET ,0,NULL,NULL
+#define FZX_RS_BUDGET_FLAGS FZX_RS_COARSE
+static inline bool keep_command(draw_t *d,bool *fault){
+    *fault=false;
+    if(d->skip){--d->skip;++d->dropped;return false;}
+    if(d->capacity<=d->stats->commands){
+        if(!d->over){*fault=true;return false;}
+        ++*d->over;return false;}
+    return true;
+}
+#define FZX_RS_KEEP() {bool full;if(!keep_command(d,&full)){if(full)return fail(d,FZX_RS_CAPACITY);continue;}}
+#else
+#define FZX_RS_NO_BUDGET
+#define FZX_RS_BUDGET_FLAGS 0
+#endif
 static bool fail(draw_t *d,unsigned fault){d->stats->fault=fault;return false;}
 /* Inputs to area are clipped to +/-900, bounding the 16-corner sum in int32. */
 static int32_t area(const sh2z_view_vertex_t *const *v,unsigned count){
@@ -260,7 +284,11 @@ static bool piece(draw_t *d,const vref_t v[4],unsigned quad,unsigned piece_id,
         const uint16_t colr=material.mode&&!solid?(uint16_t)(((e->texture_offset+material.palette)&0x7ffffu)>>3):tmpl->colr;
         for(unsigned first=1;first+1<count;first+=2){
             const uint32_t at=d->stats->commands;
+#if FZX_ROAD_STREAM_BUDGET
+            FZX_RS_KEEP()
+#else
             if(at>=d->capacity)return fail(d,FZX_RS_CAPACITY);
+#endif
             fzx_road_stream_vdp1_t *c=e->commands+at;uint16_t *g=e->shades+at*4u;
             const unsigned last=first+2<count?first+2:count-1;
             /* Field-wise template copy (a struct copy is a memcpy call). */
@@ -279,7 +307,11 @@ static bool piece(draw_t *d,const vref_t v[4],unsigned quad,unsigned piece_id,
     (void)quad;(void)piece_id;(void)tier;
 #else
     for(unsigned first=1;first+1<count;first+=2){
+#if FZX_ROAD_STREAM_BUDGET
+        FZX_RS_KEEP()
+#else
         if(d->stats->commands>=d->capacity)return fail(d,FZX_RS_CAPACITY);
+#endif
         fzx_road_stream_command_t *out=d->commands+d->stats->commands;
         out->material=material;out->quad=(uint16_t)quad;out->piece=(uint16_t)piece_id;out->tier=(uint16_t)tier;out->solid=(uint16_t)solid;
         const unsigned order[4]={0,first,first+1,first+2<count?first+2:count-1};
@@ -364,6 +396,17 @@ static bool quad_body(draw_t *d,unsigned id,const vref_t vertices[4],unsigned fl
     const int32_t l0=x.l0,l1=x.l1,r0=x.r0,r1=x.r1;
     const int32_t low=l0<r0?l0:r0,high=l1>r1?l1:r1,span=high-low;
     int32_t screen=0;
+#if FZX_ROAD_STREAM_BUDGET
+    if(front&&(d->flags&FZX_RS_COARSE)){
+        /* Longitudinal extent: each rail, start to end. */
+        const unsigned a[2]={left,right},b[2]={le,re};
+        for(unsigned k=0;k<2;++k){
+            int dx=vertices[a[k]]->sx-vertices[b[k]]->sx,dy=vertices[a[k]]->sy-vertices[b[k]]->sy;
+            if(dx<0)dx=-dx;
+            if(dy<0)dy=-dy;
+            if(dx+dy>screen)screen=dx+dy;}
+    } else
+#endif
     if(front)for(unsigned i=0;i<4;++i)for(unsigned j=i+1;j<4;++j){
         int dx=vertices[i]->sx-vertices[j]->sx,dy=vertices[i]->sy-vertices[j]->sy;
         if(dx<0)dx=-dx;
@@ -483,16 +526,28 @@ static bool native_frame(draw_t *d){
 static bool draw_any(fzx_road_stream_draw_work_t *w,const sh2z_view_center_t *view,
     const RefRoadPlan *plan,int32_t pa,int32_t pb,unsigned flags,
     fzx_road_stream_command_t *commands,const fzx_road_stream_emit_t *emit,uint32_t capacity,uint32_t *count,
-    fzx_road_stream_draw_stats_t *stats){
+    fzx_road_stream_draw_stats_t *stats
+#if FZX_ROAD_STREAM_BUDGET
+    ,uint32_t skip,uint32_t *over,uint32_t *dropped
+#endif
+    ){
     if(count)*count=0;
     if(!stats)return false;
     *stats=(fzx_road_stream_draw_stats_t){0};stats->fault=FZX_RS_INVALID;
     if(!count||!w||!w->prepared||!w->pack||!view||!plan||(!commands&&!emit)||!capacity||
-       (flags&~(unsigned)(FZX_RS_FORCE_FIRST|FZX_RS_AUDIT_UNALIGNED))||plan->faults||
+       (flags&~(unsigned)(FZX_RS_FORCE_FIRST|FZX_RS_AUDIT_UNALIGNED|FZX_RS_BUDGET_FLAGS))||plan->faults||
        plan->count>REF_ROAD_GROUPS||plan->outer>1||plan->fog_start<0||plan->fog_start>996||pb>0||
        view->view.clip[0]<-900||view->view.clip[1]<-900||view->view.clip[2]>900||view->view.clip[3]>900)return false;
     draw_t d={.work=w,.plan=plan,.view=*view,.commands=commands,.capacity=capacity,.flags=flags,.stats=stats,.emit=emit,
-        .hot=w->hot?w->hot:&w->local};
+        .hot=w->hot?w->hot:&w->local
+#if FZX_ROAD_STREAM_BUDGET
+        ,.skip=skip,.dropped=0,.over=over
+#endif
+        };
+#if FZX_ROAD_STREAM_BUDGET
+    if(over)*over=0;
+    if(dropped)*dropped=0;
+#endif
     ramp_prepare(w,plan);
     if(!w->ramp_valid)return false;
     if(!sh2z_view_rails_prepare(&d.rails,&d.view))return false;
@@ -502,6 +557,9 @@ static bool draw_any(fzx_road_stream_draw_work_t *w,const sh2z_view_center_t *vi
         if(!w->fog_valid)return fail(&d,FZX_RS_INVALID);
         if(!native_frame(&d))return false;
         FZX_RSP(REPORT);
+#if FZX_ROAD_STREAM_BUDGET
+        if(dropped)*dropped=d.dropped;
+#endif
         stats->fault=0;stats->error_quad=0;*count=stats->commands;return true;
     }
 #if FZX_RS_PACK_PATH
@@ -525,6 +583,9 @@ static bool draw_any(fzx_road_stream_draw_work_t *w,const sh2z_view_center_t *vi
         }while(true);
     }
     FZX_RSP(REPORT);
+#if FZX_ROAD_STREAM_BUDGET
+    if(dropped)*dropped=d.dropped;
+#endif
     stats->fault=0;stats->error_quad=0;*count=stats->commands;return true;
 #else
     return fail(&d,FZX_RS_INVALID);
@@ -560,7 +621,7 @@ bool fzx_road_stream_draw_center(fzx_road_stream_draw_work_t *w,const sh2z_view_
     fzx_road_stream_command_t *commands,uint32_t capacity,uint32_t *count,
     fzx_road_stream_draw_stats_t *stats){
     if(!commands||!FZX_RS_PACKET_PATH){if(count)*count=0;return false;}
-    return draw_any(w,view,plan,pa,pb,flags,commands,NULL,capacity,count,stats);
+    return draw_any(w,view,plan,pa,pb,flags,commands,NULL,capacity,count,stats FZX_RS_NO_BUDGET);
 }
 bool fzx_road_stream_draw_vdp1_center(fzx_road_stream_draw_work_t *w,const sh2z_view_center_t *view,
     const RefRoadPlan *plan,int32_t pa,int32_t pb,unsigned flags,
@@ -570,7 +631,7 @@ bool fzx_road_stream_draw_vdp1_center(fzx_road_stream_draw_work_t *w,const sh2z_
     if(!emit||!emit->commands||!emit->shades||(flags&FZX_RS_AUDIT_UNALIGNED)||
        emit->texture_offset>0x7ffffu||(emit->texture_offset&7u)||(emit->shade_offset&7u)||
        capacity>(0x80000u-emit->shade_offset)/8u)return false;
-    return draw_any(w,view,plan,pa,pb,flags,NULL,emit,capacity,count,stats);
+    return draw_any(w,view,plan,pa,pb,flags,NULL,emit,capacity,count,stats FZX_RS_NO_BUDGET);
 }
 #if FZX_SOURCE_CAMERA
 /* Camera value to fixed point, rounded; rejects NaN and |x| > limit. */
@@ -596,4 +657,50 @@ bool fzx_road_stream_camera_view(sh2z_view_center_t *out,const RefCamera *camera
         {view->clip[0],view->clip[1],(int16_t)(view->clip[2]-1),(int16_t)(view->clip[3]-1)}};
     return sh2z_view_from_camera30(out,basis,eye,&lens);
 }
+#endif
+#if FZX_ROAD_STREAM_BUDGET
+/* Budget guard: the default draw, unchanged, whenever it fits. Only a frame
+ * that would exceed the budget is drawn again with coarse tiering, and only
+ * if that still exceeds it are its first (farthest) commands dropped. */
+static bool guarded(fzx_road_stream_draw_work_t *w,const sh2z_view_center_t *view,
+    const RefRoadPlan *plan,int32_t pa,int32_t pb,unsigned flags,
+    fzx_road_stream_command_t *commands,const fzx_road_stream_emit_t *emit,uint32_t budget,uint32_t *count,
+    fzx_road_stream_budget_t *info,fzx_road_stream_draw_stats_t *stats){
+    if(count)*count=0;
+    if(!info||(flags&FZX_RS_COARSE))return false;
+    *info=(fzx_road_stream_budget_t){0};
+    info->passes=1;
+    if(draw_any(w,view,plan,pa,pb,flags,commands,emit,budget,count,stats,0,NULL,NULL)){
+        info->full=*count;return true;}
+    if(!stats||stats->fault!=FZX_RS_CAPACITY)return false;
+    uint32_t over=0,dropped=0;
+    info->passes=2;info->coarse=1;
+    if(!draw_any(w,view,plan,pa,pb,flags|FZX_RS_COARSE,commands,emit,budget,count,stats,0,&over,NULL))return false;
+    info->full=*count+over;
+    if(!over)return true;
+    info->passes=3;
+    if(!draw_any(w,view,plan,pa,pb,flags|FZX_RS_COARSE,commands,emit,budget,count,stats,over,NULL,&dropped))return false;
+    info->dropped=dropped;
+    return dropped==over&&*count==budget;
+}
+bool fzx_road_stream_draw_vdp1_guarded(fzx_road_stream_draw_work_t *w,const sh2z_view_center_t *view,
+    const RefRoadPlan *plan,int32_t pa,int32_t pb,unsigned flags,
+    const fzx_road_stream_emit_t *emit,uint32_t budget,uint32_t *count,
+    fzx_road_stream_budget_t *info,fzx_road_stream_draw_stats_t *stats){
+    if(count)*count=0;
+    if(!emit||!emit->commands||!emit->shades||(flags&FZX_RS_AUDIT_UNALIGNED)||
+       emit->texture_offset>0x7ffffu||(emit->texture_offset&7u)||(emit->shade_offset&7u)||
+       budget>(0x80000u-emit->shade_offset)/8u)return false;
+    return guarded(w,view,plan,pa,pb,flags,NULL,emit,budget,count,info,stats);
+}
+#if FZX_RS_PACKET_PATH
+bool fzx_road_stream_draw_guarded(fzx_road_stream_draw_work_t *w,const sh2z_view_center_t *view,
+    const RefRoadPlan *plan,int32_t pa,int32_t pb,unsigned flags,
+    fzx_road_stream_command_t *commands,uint32_t budget,uint32_t *count,
+    fzx_road_stream_budget_t *info,fzx_road_stream_draw_stats_t *stats){
+    if(count)*count=0;
+    if(!commands)return false;
+    return guarded(w,view,plan,pa,pb,flags,commands,NULL,budget,count,info,stats);
+}
+#endif
 #endif

@@ -2,6 +2,9 @@
 #include <limits.h>
 #include <string.h>
 #include "fzx_scene_phase.h"
+#if FZX_RBG_FAST
+#include "fzx_rbg_fast.h"
+#endif
 
 _Static_assert(sizeof(fzx_floor_rp_t)==96,"rotation parameter ABI");
 static int64_t magnitude(int64_t n){return n<0?-n:n;}
@@ -115,7 +118,11 @@ static bool projected(const fzx_view_t *v,const int32_t in[4][3],int32_t xy[10][
     int32_t clipped[10][3];const int n=fzx_view_clip(v,in,4,clipped);
     if(n<0)return false;
     *count=(unsigned)n;
+#if FZX_RBG_FAST
+    for(int i=0;i<n;++i)if(!fzx_rbg_project(v,clipped[i],xy[i]))return false;
+#else
     for(int i=0;i<n;++i)if(!fzx_view_project(v,clipped[i],xy[i]))return false;
+#endif
     return true;
 }
 static void window(const fzx_view_t *v,const int32_t xy[10][2],unsigned count,fzx_floor_rbg_t *out) {
@@ -179,7 +186,11 @@ bool fzx_floor_rbg_prepare(const fzx_view_t *view,const RefBackdrop *source,
     FZX_SCP(OUTER);
     if(!projected(view,(const int32_t (*)[3])outer,xy,&count))return fail(out,2);
     FZX_SCP(WINDOW);
+#if FZX_RBG_FAST
+    fzx_rbg_window(view,(const int32_t (*)[2])xy,count,out->window,&out->visible_lines);
+#else
     window(view,(const int32_t (*)[2])xy,count,out);
+#endif
     FZX_SCP(MAPPING);
     if(!mapping(view,source->vertices,(const int32_t (*)[3])positions,out))return false;
     FZX_SCP(BANDS);

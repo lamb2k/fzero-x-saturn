@@ -2,6 +2,9 @@
 #include <limits.h>
 #include <string.h>
 #include "fzx_scene_phase.h"
+#if FZX_RBG_FAST
+#include "fzx_rbg_fast.h"
+#endif
 
 /* The homography, window and band helpers follow src/fzx_floor_rbg.c. They are
  * repeated here rather than shared so FZX_CLOUDS_VDP2=0 leaves the floor object
@@ -102,7 +105,11 @@ static bool projected(const fzx_view_t *v,const int32_t in[4][3],int32_t xy[10][
     int32_t clipped[10][3];const int n=fzx_view_clip(v,in,4,clipped);
     if(n<0)return false;
     *count=(unsigned)n;
+#if FZX_RBG_FAST
+    for(int i=0;i<n;++i)if(!fzx_rbg_project(v,clipped[i],xy[i]))return false;
+#else
     for(int i=0;i<n;++i)if(!fzx_view_project(v,clipped[i],xy[i]))return false;
+#endif
     return true;
 }
 static void window(const fzx_view_t *v,const int32_t xy[10][2],unsigned count,fzx_clouds_rbg_t *out) {
@@ -181,7 +188,11 @@ bool fzx_clouds_rbg_prepare(const fzx_view_t *view,const RefBackdrop *source,
     FZX_SCP(MAPPING);
     if(!mapping(view,c,(const int32_t (*)[3])positions,out))return false;
     FZX_SCP(WINDOW);
+#if FZX_RBG_FAST
+    fzx_rbg_window(view,(const int32_t (*)[2])xy,count,out->window,&out->visible_lines);
+#else
     window(view,(const int32_t (*)[2])xy,count,out);
+#endif
     if(!out->visible_lines){FZX_SCP_END();return true;}
     FZX_SCP(BANDS);
     out->active=1;

@@ -26,6 +26,57 @@ extern volatile uint32_t fzx_input_count;
 
 static uint32_t vram_offset(uintptr_t address){return (uint32_t)(address-VDP2_VRAM_ADDR(0,0));}
 
+/* Every VDP2 register and CRAM entry the cloud path changes is saved at load
+ * and restored when the race scene stops (no cloud frame for two presented
+ * frames), then re-applied by the next race frame. The other scenes then see
+ * the VDP2 state the knob-off image has. */
+static struct {
+    uint16_t rpmd,rprctl,ktctl,ktaof,wpsy1,wpey1,wctlc,wctld,bgon,bktau,bktal;
+    uint32_t lwta1;uint16_t cram[BAND_MAX];
+} saved;
+static bool applied;
+static unsigned idle_presents;
+volatile uint32_t fzx_clouds_restores,fzx_clouds_applies;
+static void saved_capture(void) {
+    const vdp2_ioregs_t *r=vdp2_regs_get();
+    saved.rpmd=r->rpmd;saved.rprctl=r->rprctl;saved.ktctl=r->ktctl;saved.ktaof=r->ktaof;
+    saved.wpsy1=r->wpsy1;saved.wpey1=r->wpey1;saved.lwta1=r->lwta1;saved.wctlc=r->wctlc;saved.wctld=r->wctld;
+    saved.bgon=r->bgon;saved.bktau=r->bktau;saved.bktal=r->bktal;
+    const volatile uint16_t *cram=(const volatile uint16_t *)VDP2_CRAM_MODE_1_OFFSET(0,0,BAND_CRAM_FIRST);
+    for(unsigned i=0;i<BAND_MAX;++i)saved.cram[i]=cram[i];
+}
+static void apply(void) {
+    vdp2_ioregs_t *r=vdp2_regs_get();
+    /* Mode 3: the rotation-parameter window (W0, the floor span) selects A. */
+    r->rpmd=3;
+    r->rprctl=(uint16_t)((saved.rprctl&0x00ffu)|((saved.rprctl&0x0007u)<<8));
+    r->ktctl=(uint16_t)((saved.ktctl&0x00ffu)|((saved.ktctl&0x001fu)<<8));
+    r->ktaof=(uint16_t)((saved.ktaof&0x00ffu)|((saved.ktaof&0x0007u)<<8));
+    r->wpsy1=0;r->wpey1=223;r->lwta1=0x80000000u|(vram_offset(CLOUD_WINDOW)>>1);
+    /* RBG0 shows inside W0 or W1 (AND of the two outside areas). */
+    r->wctlc=(uint16_t)((saved.wctlc&0xff00u)|0x8fu);
+    r->wctld=(uint16_t)((saved.wctld&0xff00u)|0x03u);
+    /* RBG0 transparency on (it was off): the floor tile is fully opaque, the
+     * cloud tile's 0x0000 texels must show the back-screen sky. */
+    r->bgon=(uint16_t)(r->bgon&~0x1000u);
+    /* Back screen, one colour per line. */
+    r->bktau=(uint16_t)(0x8000u|((vram_offset(SKY_BACK)>>17)&7u));
+    r->bktal=(uint16_t)((vram_offset(SKY_BACK)>>1)&0xffffu);
+    applied=true;++fzx_clouds_applies;
+}
+static void restore(void) {
+    vdp2_ioregs_t *r=vdp2_regs_get();
+    r->rpmd=saved.rpmd;r->rprctl=saved.rprctl;r->ktctl=saved.ktctl;r->ktaof=saved.ktaof;
+    r->wpsy1=saved.wpsy1;r->wpey1=saved.wpey1;r->lwta1=saved.lwta1;
+    r->wctlc=(uint16_t)((r->wctlc&0xff00u)|(saved.wctlc&0x00ffu));
+    r->wctld=(uint16_t)((r->wctld&0xff00u)|(saved.wctld&0x00ffu));
+    r->bgon=(uint16_t)((r->bgon&~0x1000u)|(saved.bgon&0x1000u));
+    r->bktau=saved.bktau;r->bktal=saved.bktal;
+    volatile uint16_t *cram=(volatile uint16_t *)VDP2_CRAM_MODE_1_OFFSET(0,0,BAND_CRAM_FIRST);
+    for(unsigned i=0;i<BAND_MAX;++i)cram[i]=saved.cram[i];
+    applied=false;++fzx_clouds_restores;
+}
+
 bool fzx_clouds_vdp2_load(const void *planes_vram) {
     if(!planes_vram){fzx_clouds_status=2;return false;}
     /* Cloud-only pack, rebased: variant 0 (unfaded), level 0 = 64x32 RGB1555
@@ -41,27 +92,13 @@ bool fzx_clouds_vdp2_load(const void *planes_vram) {
     memset((void *)CLOUD_RP,0,96);
     for(unsigned y=0;y<224;++y){((volatile uint16_t *)CLOUD_WINDOW)[y*2]=640;((volatile uint16_t *)CLOUD_WINDOW)[y*2+1]=0;}
     for(unsigned y=0;y<224;++y)((volatile uint16_t *)SKY_BACK)[y]=fzx_sky_colors[63];
+    saved_capture();
     const vdp2_scrn_cell_format_t format={.scroll_screen=VDP2_SCRN_RBG0_PB,
         .ccc=VDP2_SCRN_CCC_RGB_32768,.char_size=VDP2_SCRN_CHAR_SIZE_1X1,.pnd_size=2,
         .aux_mode=VDP2_SCRN_AUX_MODE_0,.plane_size=VDP2_SCRN_PLANE_SIZE_1X1,.cpd_base=CLOUD_CHARS};
     const vdp2_scrn_rotation_map_t map_b={.single=true,.plane=CLOUD_MAP};
     vdp2_scrn_rotation_cell_format_set(&format,&map_b);
-    vdp2_ioregs_t *r=vdp2_regs_get();
-    /* Mode 3: the rotation-parameter window (W0, the floor span) selects A. */
-    r->rpmd=3;
-    r->rprctl=(uint16_t)((r->rprctl&0x00ffu)|((r->rprctl&0x0007u)<<8));
-    r->ktctl=(uint16_t)((r->ktctl&0x00ffu)|((r->ktctl&0x001fu)<<8));
-    r->ktaof=(uint16_t)((r->ktaof&0x00ffu)|((r->ktaof&0x0007u)<<8));
-    r->wpsy1=0;r->wpey1=223;r->lwta1=0x80000000u|(vram_offset(CLOUD_WINDOW)>>1);
-    /* RBG0 shows inside W0 or W1 (AND of the two outside areas). */
-    r->wctlc=(uint16_t)((r->wctlc&0xff00u)|0x8fu);
-    r->wctld=(uint16_t)((r->wctld&0xff00u)|0x03u);
-    /* RBG0 transparency on (it was off): the floor tile is fully opaque, the
-     * cloud tile's 0x0000 texels must show the back-screen sky. */
-    r->bgon=(uint16_t)(r->bgon&~0x1000u);
-    /* Back screen, one colour per line. */
-    r->bktau=(uint16_t)(0x8000u|((vram_offset(SKY_BACK)>>17)&7u));
-    r->bktal=(uint16_t)((vram_offset(SKY_BACK)>>1)&0xffffu);
+    apply();
     fzx_clouds_status=1;return true;
 }
 
@@ -212,7 +249,13 @@ void fzx_clouds_upload_record(uint16_t start,uint32_t began_in_blank) {
     ++fzx_clouds_upload_count;
 }
 bool fzx_clouds_present(void) {
-    if(!fzx_clouds_pending)return false;
+    if(!fzx_clouds_pending) {
+        /* Not a race frame: after two in a row, hand VDP2 back unchanged. */
+        if(applied && fzx_clouds_status==1 && ++idle_presents>=2)restore();
+        return false;
+    }
+    idle_presents=0;
+    if(!applied)apply();
     memcpy((void *)CLOUD_RP,&fzx_clouds_rbg.rp,sizeof(fzx_clouds_rbg.rp));
     memcpy((void *)CLOUD_WINDOW,fzx_clouds_rbg.window,sizeof(fzx_clouds_rbg.window));
     memcpy((void *)SKY_BACK,sky_lines,sizeof(sky_lines));

@@ -29,20 +29,30 @@ static fzx_vehicle_work_t *work;
 #define FZX_VEHICLE_NATIVE 0
 #endif
 #if FZX_VEHICLE_NATIVE
-/* Native arm: the per-draw work (projected vertices, lights, pair scratch)
- * lives in high work RAM. FZX_VEHICLE_NATIVE_LOW_TABLES (default 1) keeps the
- * per-LOD tables (planes, face records, corner ids, pair table, templates) in
- * low work RAM after the pack metadata, to keep high work RAM for the stack. */
+/* Native arm placement, to keep high work RAM for the stack. After the pack
+ * metadata in low work RAM: FZX_VEHICLE_NATIVE_LOW_TABLES (default 1) puts the
+ * per-LOD tables (positions, planes, face records, corner ids, pair table,
+ * templates) there, then FZX_VEHICLE_NATIVE_LOW_WORK (default 1) the per-draw
+ * work (projected vertices, lights, palettes, pair scratch). Either at 0 keeps
+ * that part in high work RAM. */
 #ifndef FZX_VEHICLE_NATIVE_LOW_TABLES
 #define FZX_VEHICLE_NATIVE_LOW_TABLES 1
 #endif
-static fzx_vehicle_work_t high_work __attribute__((aligned(32)));
+#ifndef FZX_VEHICLE_NATIVE_LOW_WORK
+#define FZX_VEHICLE_NATIVE_LOW_WORK 1
+#endif
 static fzx_vehicle_native_tables_t *tables;
 #if FZX_VEHICLE_NATIVE_LOW_TABLES
-#define WORK_LOW_BYTES sizeof(*tables)
+#define TABLES_LOW_BYTES ((sizeof(*tables)+31u)&~31u)
 #else
 static fzx_vehicle_native_tables_t high_tables __attribute__((aligned(32)));
-#define WORK_LOW_BYTES 0u
+#define TABLES_LOW_BYTES 0u
+#endif
+#if FZX_VEHICLE_NATIVE_LOW_WORK
+#define WORK_LOW_BYTES (TABLES_LOW_BYTES+sizeof(*work))
+#else
+static fzx_vehicle_work_t high_work __attribute__((aligned(32)));
+#define WORK_LOW_BYTES TABLES_LOW_BYTES
 #endif
 #else
 #define WORK_LOW_BYTES sizeof(*work)
@@ -72,7 +82,11 @@ bool fzx_machine_load(void *vram){
     if(fzx_road_tile_status!=1||metadata<0x00200000u||end+32>0x00300000u||scratch+fzx_texture_cd_scratch_bytes()>log-32){fzx_machine_status=2;return false;}
     fzx_machine_low_start=(uint32_t)metadata;fzx_machine_low_end=(uint32_t)end;
 #if FZX_VEHICLE_NATIVE
+#if FZX_VEHICLE_NATIVE_LOW_WORK
+    work=(fzx_vehicle_work_t *)(cache+TABLES_LOW_BYTES);
+#else
     work=&high_work;
+#endif
 #if FZX_VEHICLE_NATIVE_LOW_TABLES
     tables=(fzx_vehicle_native_tables_t *)cache;
 #else

@@ -3,6 +3,7 @@
 #include "vehicle_identity.h"
 #include "road_tiles_native.h"
 #include "texture_cd.h"
+#include <stddef.h>
 #include <string.h>
 #ifndef FZX_VEHICLE_FAST
 #define FZX_VEHICLE_FAST 0
@@ -66,6 +67,7 @@ bool fzx_machine_load(void *vram){
 }
 
 typedef struct {vdp1_cmdt_t *commands;uintptr_t pixels,shades;unsigned count;vdp1_cmdt_t texture,solid;} submit_t;
+#if !FZX_VEHICLE_NATIVE
 static bool emit(void *context,const fzx_vehicle_quad_t *q){
     submit_t *s=context;vdp1_cmdt_t *cmd=s->commands+s->count;
     if(q->solid){*cmd=s->solid;const rgb1555_t color={.raw=q->color};vdp1_cmdt_color_set(cmd,color);}
@@ -85,6 +87,7 @@ static bool emit(void *context,const fzx_vehicle_quad_t *q){
     cmd->cmd_xa=q->x[0];cmd->cmd_ya=q->y[0];cmd->cmd_xb=q->x[1];cmd->cmd_yb=q->y[1];
     cmd->cmd_xc=q->x[2];cmd->cmd_yc=q->y[2];cmd->cmd_xd=q->x[3];cmd->cmd_yd=q->y[3];++s->count;return true;
 }
+#endif
 bool fzx_machine_native(vdp1_cmdt_t *commands,unsigned capacity,const fzx_view_t *view,void *pixels,void *shades,uint32_t *count){
     if(!commands||capacity<2||!view||!pixels||!shades||!count||fzx_machine_status!=1)return false;
     const uint16_t start=cpu_frt_count_get();fzx_machine_busy=1;NATIVE_MARK(0,start);
@@ -98,7 +101,18 @@ bool fzx_machine_native(vdp1_cmdt_t *commands,unsigned capacity,const fzx_view_t
     vdp1_cmdt_distorted_sprite_set(&s.texture);vdp1_cmdt_draw_mode_set(&s.texture,texture);
     vdp1_cmdt_polygon_set(&s.solid);vdp1_cmdt_draw_mode_set(&s.solid,solid);
     NATIVE_MARK(2,cpu_frt_count_get());
+#if FZX_VEHICLE_NATIVE
+    /* Template emit: the core writes the commands and Gouraud words itself. */
+    _Static_assert(sizeof(vdp1_cmdt_t)==32&&offsetof(vdp1_cmdt_t,cmd_colr)==6&&offsetof(vdp1_cmdt_t,cmd_xa)==12&&offsetof(vdp1_cmdt_t,cmd_grda)==28,"VDP1 command layout");
+    const fzx_vehicle_target_t target={.commands=(uint32_t (*)[8])(void *)s.commands,.capacity=capacity-1,.pixels=pixels,.shades=shades,
+        .palette_bytes=FZX_MACHINE_REBAKE_PALETTE_BYTES,.gouraud_bytes=FZX_MACHINE_REBAKE_GOURAUD_BYTES,
+        .texture_ctrl=s.texture.cmd_ctrl,.texture_pmod=s.texture.cmd_pmod,.solid_ctrl=s.solid.cmd_ctrl,.solid_pmod=s.solid.cmd_pmod};
+    uint32_t drawn=0;
+    bool ok=fzx_vehicle_draw_native(&pack,view,&fzx_source_camera,&fzx_source_machine,work,&target,&drawn,&fzx_vehicle_stats);
+    s.count=drawn;
+#else
     bool ok=fzx_vehicle_draw(&pack,view,&fzx_source_camera,&fzx_source_machine,work,capacity-1,emit,&s,&fzx_vehicle_stats);
+#endif
     fzx_machine_stats=(fzx_machine_stats_t){.lod=fzx_vehicle_stats.lod,.draws=fzx_vehicle_stats.draws,.culled=fzx_vehicle_stats.culled,
         .clipped=fzx_vehicle_stats.clipped,.saturated=fzx_vehicle_stats.saturated,.fault=fzx_vehicle_stats.fault,
         .positions=fzx_vehicle_stats.positions,.normals=fzx_vehicle_stats.normals};

@@ -525,14 +525,39 @@ orig_hud(void)
 #endif
 }
 
+#if FZX_PUB_PROFILE
+/* Diagnostic only (FZX_PUB_PROFILE=1): FRT ticks per publication part. Rows:
+ * 0 guards, 1 pose, 2 camera flush(0), 3 camera + view, 4 countdown, 5 skyline,
+ * 6 sky, 7 road plan, 8 whole publication. Columns: calls, ticks lo, ticks hi, max.
+ * Histogram bins are 421 ticks (about 0.5 ms at 841 ticks/ms); bin 127 holds the rest. */
+volatile uint32_t fzx_pub_profile[9][4];
+volatile uint16_t fzx_pub_hist[9][128];
+static uint16_t pub_t0,pub_last;
+static void pub_add(unsigned part,uint16_t ticks) {
+    volatile uint32_t *r=fzx_pub_profile[part];
+    ++r[0];const uint32_t prev=r[1];r[1]+=ticks;if(r[1]<prev)++r[2];
+    if(ticks>r[3])r[3]=ticks;
+    const unsigned bin=ticks/421u;++fzx_pub_hist[part][bin<127u?bin:127u];
+}
+#define PUB_BEGIN() do{pub_t0=pub_last=cpu_frt_count_get();}while(0)
+#define PUB_MARK(part) do{const uint16_t now_=cpu_frt_count_get();pub_add((part),(uint16_t)(now_-pub_last));pub_last=now_;}while(0)
+#define PUB_END() do{pub_add(8,(uint16_t)(pub_last-pub_t0));}while(0)
+#else
+#define PUB_BEGIN() do{}while(0)
+#define PUB_MARK(part) do{}while(0)
+#define PUB_END() do{}while(0)
+#endif
+
 static void
 orig_publish(void)
 {
+    PUB_BEGIN();
 #if FZX_SOURCE_MACHINE_MENU
     if(!fzx_race_workspace_guards()) {
         dbgio_printf("SOURCE GRAPHICS WORKSPACE GUARD FAILED");dbgio_flush();for(;;){}
     }
 #endif
+    PUB_MARK(0);
     fzx_pose_t p;
     ref_pose(&orig_pose);
     p.position = pose_vec(orig_pose.pos, 65536.0f / 16.0f);
@@ -541,11 +566,12 @@ orig_publish(void)
     p.speed = (uint32_t)(orig_pose.speed > 0.0f ? orig_pose.speed * 21.6f + 0.5f : 0.0f);
     p.lap = (uint32_t)(orig_pose.lap > 0 ? orig_pose.lap : 0);
     fzx_set_pose(&p);
+    PUB_MARK(1);
 #if FZX_SOURCE_CAMERA
     /* Camera matrices are produced by the first ordinary source tick, not init.
      * Publishing the initial racer/energy must not advance the simulation. */
     if(!fzx_input_count) {
-        fzx_set_camera(NULL);fzx_camera_status=0;return;
+        fzx_set_camera(NULL);fzx_camera_status=0;PUB_END();return;
     }
     float scissor[4];
 #if FZX_DEFER_PROJECTION
@@ -553,6 +579,7 @@ orig_publish(void)
      * reader (RefCamera, skyline, sky, road plan, machine). */
     ref_camera_flush(0);
 #endif
+    PUB_MARK(2);
     ref_camera(&fzx_source_camera);
     if(fzx_source_camera.faults || !ref_camera_draw_scissor(scissor) ||
        !fzx_view_from_source(&fzx_native_view,
@@ -564,30 +591,36 @@ orig_publish(void)
         for(;;) {}
     }
     fzx_set_camera(&fzx_native_view);
+    PUB_MARK(3);
 #if FZX_SOURCE_COUNTDOWN
     if(!fzx_countdown_publish()) {
         dbgio_printf("SOURCE COUNTDOWN STATE FAILED");dbgio_flush();vdp2_sync();for(;;) {}
     }
 #endif
+    PUB_MARK(4);
 #if FZX_SOURCE_SKYLINE
     if(!fzx_skyline_publish(fzx_input_count)) {
         dbgio_printf("\x1b[H\x1b[2J SOURCE SKYLINE STATE FAILED\n");
         dbgio_flush();vdp2_sync();for(;;) {}
     }
 #endif
+    PUB_MARK(5);
 #if FZX_SOURCE_SKY
     if(!fzx_sky_publish()) {
         dbgio_printf("\x1b[H\x1b[2J SOURCE SKY STATE FAILED\n");
         dbgio_flush();vdp2_sync();for(;;) {}
     }
 #endif
+    PUB_MARK(6);
 #if FZX_SOURCE_ROAD
     if(!fzx_road_publish()) {
         dbgio_printf("\x1b[H\x1b[2J SOURCE ROAD PLAN FAILED\n");
         dbgio_flush();vdp2_sync();for(;;) {}
     }
 #endif
+    PUB_MARK(7);
     if(fzx_camera_status!=3)fzx_camera_status=1;
+    PUB_END();
 #endif
 }
 #endif

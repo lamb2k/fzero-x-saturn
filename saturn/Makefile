@@ -74,7 +74,6 @@ ifeq ($(FZX_PLANES_DEGENERATE_UV),1)
 ifneq ($(FZX_SOURCE_PLANES),1)
 $(error FZX_PLANES_DEGENERATE_UV requires original planes)
 endif
-SH_CFLAGS += -DFZX_PLANES_DEGENERATE_UV=1
 else ifneq ($(FZX_PLANES_DEGENERATE_UV),0)
 $(error FZX_PLANES_DEGENERATE_UV must be 0 or 1)
 endif
@@ -381,6 +380,9 @@ endif
 SH_CFLAGS += -DFZX_SOURCE_PLANES=1 -I$(FZX_PLANES_DIR)
 ifeq ($(FZX_PLANE_CLOUD_ONLY),1)
 SH_CFLAGS += -DFZX_PLANE_CLOUD_ONLY=1
+endif
+ifeq ($(FZX_PLANES_DEGENERATE_UV),1)
+SH_CFLAGS += -DFZX_PLANES_DEGENERATE_UV=1
 endif
 FZX_SKY_SRCS += ../src/fzx_planes.c planes_native.c
 else ifneq ($(FZX_SOURCE_PLANES),0)

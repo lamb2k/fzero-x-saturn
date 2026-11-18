@@ -269,11 +269,27 @@ extern Vec3s* sTunnelFogColors;
 extern f32 D_800CE748, D_800CE74C, D_800CE750;
 _Static_assert(sizeof(RefMachine) == 112, "machine snapshot ABI");
 
+#ifndef FZX_REF_MACHINE_FIXED
+#define FZX_REF_MACHINE_FIXED 0
+#endif
+#if FZX_REF_MACHINE_FIXED
+/* The closure is built with -fno-builtin: memcpy is a library call, so the
+ * fixed path reads float bits through a union instead. */
+static unsigned int machine_bits(float value) {
+    union { float f; unsigned int u; } x;
+    x.f = value;
+    return x.u;
+}
+static int machine_finite(float value) {
+    return (machine_bits(value) & 0x7f800000u) != 0x7f800000u;
+}
+#else
 static int machine_finite(float value) {
     unsigned int bits;
     memcpy(&bits, &value, sizeof(bits));
     return (bits & 0x7f800000u) != 0x7f800000u;
 }
+#endif
 static int machine_float_array(const float* values, unsigned int count) {
     unsigned int i;
     for (i = 0; i < count; ++i) if (!machine_finite(values[i])) return 0;
@@ -284,9 +300,6 @@ static int machine_fail(RefMachine* out, unsigned int fault) {
     out->faults = fault;
     return 0;
 }
-#ifndef FZX_REF_MACHINE_FIXED
-#define FZX_REF_MACHINE_FIXED 0
-#endif
 #if FZX_REF_MACHINE_FIXED
 /* Fixed-point presentation tail (FZX_REF_MACHINE_FIXED, default 0; owner
  * decision 2026-11-17: ref_machine counts against the vehicle budget). Floats
@@ -298,9 +311,9 @@ static int machine_fail(RefMachine* out, unsigned int fault) {
  * every fault. machine_q and machine_round are stand-ins pending SH2ZAM pose-1
  * (float-to-fixed conversion). */
 static int machine_q(float value, int frac, int* out) {
-    unsigned int bits, mag;
+    const unsigned int bits = machine_bits(value);
+    unsigned int mag;
     int shift;
-    memcpy(&bits, &value, sizeof(bits));
     if (!(bits & 0x7f800000u)) { *out = 0; return 1; }
     shift = (int)((bits >> 23) & 0xffu) - 150 + frac;
     if (shift > 7) return 0;
@@ -319,8 +332,8 @@ static long long machine_round(long long value, int shift) {
 static int machine_range_bits(const float scale[3], const float* forward) {
     unsigned int i, s, f;
     for (i = 0; i < 3; ++i) {
-        memcpy(&s, &scale[i], sizeof(s));
-        memcpy(&f, &forward[i], sizeof(f));
+        s = machine_bits(scale[i]);
+        f = machine_bits(forward[i]);
         /* 0 < scale <= 1.0f and |forward| <= 1.01f (0x3f8147ae), finite inputs. */
         if ((s >> 31) || !s || s > 0x3f800000u || (f & 0x7fffffffu) > 0x3f8147aeu) return 0;
     }

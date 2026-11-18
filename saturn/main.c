@@ -89,6 +89,12 @@ volatile uint32_t fzx_debug_frame_hold,fzx_debug_frame_ready;
 #if FZX_SOURCE_FLOOR_RBG
 #include "floor_rbg_native.h"
 #endif
+#ifndef FZX_CLOUDS_VDP2
+#define FZX_CLOUDS_VDP2 0
+#endif
+#if FZX_CLOUDS_VDP2
+#include "clouds_vdp2_native.h"
+#endif
 #ifndef FZX_SOURCE_PLANES
 #define FZX_SOURCE_PLANES 0
 #endif
@@ -608,6 +614,27 @@ commands_build(const fzx_frame_t *frame)
 #if FZX_FRAME_PROFILE
         fzx_fp_scene_begin();
 #endif
+#if FZX_CLOUDS_VDP2
+        /* Sky on the back screen, clouds on RBG0 parameter B; only the cloud
+         * fade bands reach VDP1, ahead of the skyline. */
+        (void)shades;
+        if(!fzx_clouds_sky_lines(&fzx_native_view,&fzx_source_backdrop)) {
+            dbgio_printf("\x1b[H\x1b[2J SOURCE SKY LINES FAILED %lu\n",(unsigned long)fzx_sky_stats.fault);
+            dbgio_flush();vdp2_sync();for(;;) {}
+        }
+#if FZX_FRAME_PROFILE
+        fzx_fp_scene_end(0,0);
+        fzx_fp_scene_begin();
+#endif
+        if(!fzx_clouds_native(&commands[COMMAND_FIRST_POLYGON],FZX_SCENE_CAPACITY-count,
+                              &fzx_native_view,&fzx_source_backdrop,&first)) {
+            dbgio_printf("\x1b[H\x1b[2J SOURCE CLOUDS VDP2 FAILED %lu\n",(unsigned long)fzx_clouds_rbg.fault);
+            dbgio_flush();vdp2_sync();for(;;) {}
+        }
+#if FZX_FRAME_PROFILE
+        fzx_fp_scene_end(3,first);
+#endif
+#else
         if(!fzx_sky_native(&commands[COMMAND_FIRST_POLYGON],FZX_SCENE_CAPACITY-count,
                            &fzx_native_view,shades,&first)) {
             dbgio_printf("\x1b[H\x1b[2J SOURCE SKY DRAW FAILED %lu\n",(unsigned long)fzx_sky_stats.fault);
@@ -615,6 +642,7 @@ commands_build(const fzx_frame_t *frame)
         }
 #if FZX_FRAME_PROFILE
         fzx_fp_scene_end(0,first);
+#endif
 #endif
     }
 #endif
@@ -654,7 +682,7 @@ commands_build(const fzx_frame_t *frame)
         first+=floor_count;
     }
 #endif
-#if FZX_SOURCE_PLANES
+#if FZX_SOURCE_PLANES && !FZX_CLOUDS_VDP2
     if(fzx_input_count) {
         uint32_t plane_count=0;const uint32_t before=video_fields;
 #if FZX_FRAME_PROFILE
@@ -875,6 +903,12 @@ main(void)
 #if FZX_SOURCE_FLOOR_RBG
     if(!fzx_floor_load()) {
         dbgio_printf("\x1b[H\x1b[2J SOURCE FLOOR LOAD FAILED\n");
+        dbgio_flush();vdp2_sync();for(;;) {}
+    }
+#endif
+#if FZX_CLOUDS_VDP2
+    if(!fzx_clouds_vdp2_load(planes_vram)) {
+        dbgio_printf("\x1b[H\x1b[2J SOURCE CLOUDS VDP2 LOAD FAILED\n");
         dbgio_flush();vdp2_sync();for(;;) {}
     }
 #endif

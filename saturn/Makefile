@@ -87,6 +87,16 @@ endif
 else ifneq ($(FZX_PLANES_DEGENERATE_UV),0)
 $(error FZX_PLANES_DEGENERATE_UV must be 0 or 1)
 endif
+# FZX_CLOUDS_VDP2=1 (default 0): clouds on RBG0 rotation parameter B, the sky
+# on the VDP2 back screen, cloud fade as VDP1 colour-calculation bands.
+FZX_CLOUDS_VDP2 ?= 0
+ifeq ($(FZX_CLOUDS_VDP2),1)
+ifneq ($(FZX_SOURCE_FLOOR_RBG):$(FZX_SOURCE_PLANES):$(FZX_PLANE_CLOUD_ONLY):$(FZX_SOURCE_SKY),1:1:1:1)
+$(error FZX_CLOUDS_VDP2 requires the RBG0 floor, cloud-only planes and the source sky)
+endif
+else ifneq ($(FZX_CLOUDS_VDP2),0)
+$(error FZX_CLOUDS_VDP2 must be 0 or 1)
+endif
 FZX_FRAME_PROFILE ?= 0
 ifeq ($(FZX_FRAME_PROFILE),1)
 ifneq ($(FZX_SIM):$(FZX_SOURCE_FLOOR_RBG):$(FZX_SOURCE_MACHINE),orig:1:1)
@@ -431,6 +441,10 @@ $(error Source floor rotation bank is not current: $(FZX_FLOOR_RECEIPT))
 endif
 SH_CFLAGS += -DFZX_SOURCE_FLOOR_RBG=1 -I../generated/floor_rbg
 FZX_SKY_SRCS += ../src/fzx_floor_rbg.c floor_rbg_native.c
+ifeq ($(FZX_CLOUDS_VDP2),1)
+SH_CFLAGS += -DFZX_CLOUDS_VDP2=1
+FZX_SKY_SRCS += ../src/fzx_clouds_rbg.c clouds_vdp2_native.c
+endif
 else ifneq ($(FZX_SOURCE_FLOOR_RBG),0)
 $(error FZX_SOURCE_FLOOR_RBG must be 0 or 1)
 endif

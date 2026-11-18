@@ -31,7 +31,7 @@ static int cmp_angle(const void *a,const void *b,void *c);
 int main(void){
     fzx_view_t v;memset(&v,0,sizeof v);
     v.clip[0]=0;v.clip[1]=8;v.clip[2]=320;v.clip[3]=216;v.focal[0]=v.focal[1]=200<<16;
-    v.center[0]=160<<16;v.center[1]=112<<16;
+    v.center[0]=160<<16;v.center[1]=112<<16;v.near_plane=16<<16;v.far_plane=30000*65536;
     long lines=0,diff_lines=0,bad=0,polys=0;
     for(int t=0;t<20000;++t){
         /* Convex polygon: points on an ellipse, ascending angle. */
@@ -66,6 +66,18 @@ int main(void){
         const bool r1=fzx_view_project(&v,p,o1),r2=fzx_rbg_project(&v,p,o2);
         ++proj;if(r1!=r2||o1[0]!=o2[0]||o1[1]!=o2[1])++proj_diff;
     }
+    /* Clip: identical vertex counts and coordinates. */
+    long clips=0,clip_diff=0,clip_nonempty=0;
+    for(int t=0;t<200000;++t){
+        int32_t q[4][3];const int32_t span=rnd(1,4)==1?2000000:200000;
+        for(int i=0;i<4;++i){q[i][0]=rnd(-span,span)*64;q[i][1]=rnd(-span,span)*64;q[i][2]=rnd(-span/4,span)*64;}
+        int32_t o1[10][3],o2[10][3];memset(o1,0,sizeof o1);memset(o2,0,sizeof o2);
+        const int n1=fzx_view_clip(&v,(const int32_t (*)[3])q,4,o1),n2=fzx_rbg_clip(&v,(const int32_t (*)[3])q,4,o2);
+        ++clips;if(n1>0)++clip_nonempty;
+        if(n1!=n2||(n1>0&&memcmp(o1,o2,sizeof(o1[0])*(size_t)n1)))++clip_diff;
+    }
+    printf("clips %ld nonempty %ld clip_differences %ld\n",clips,clip_nonempty,clip_diff);
+    if(clip_diff)return 1;
     printf("polygons %ld visible_lines %ld differing_lines %ld over_one_pixel %ld projections %ld projection_differences %ld\n",
         polys,lines,diff_lines,bad,proj,proj_diff);
     return (bad||proj_diff||diff_lines*1000>lines)?1:0;

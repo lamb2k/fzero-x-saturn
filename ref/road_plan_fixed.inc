@@ -13,19 +13,19 @@
  * a frustum edge or the depth bounds can flip; depth is kept at 1/16 unit and
  * stored back as binary32 for the source grouping that follows. Nothing here feeds
  * simulation, physics or gameplay state. */
-#include <stdint.h>
 
-static int16_t ref_road_fixed_pos[1024][3];
+
+static s16 ref_road_fixed_pos[1024][3];
 static const SegmentChunk *ref_road_fixed_base;
 static s32 ref_road_fixed_count, ref_road_fixed_shift;
-static uint32_t ref_road_fixed_key;
-uint32_t ref_road_plan_fixed_builds;
+static u32 ref_road_fixed_key;
+u32 ref_road_plan_fixed_builds;
 
-static uint32_t ref_road_fixed_bits(f32 v) { uint32_t b; memcpy(&b, &v, 4); return b; }
+static u32 ref_road_fixed_bits(f32 v) { u32 b; memcpy(&b, &v, 4); return b; }
 
 /* Power-of-two float for exponents in the normal range (|e| <= 126). */
 static f32 ref_road_fixed_pow2(s32 e) {
-    uint32_t b = (uint32_t)(e + 127) << 23; f32 v; memcpy(&v, &b, 4); return v;
+    u32 b = (u32)(e + 127) << 23; f32 v; memcpy(&v, &b, 4); return v;
 }
 
 /* Exponent of the largest magnitude among N values (binary32 exponent field). */
@@ -58,16 +58,16 @@ static void ref_road_fixed_build(void) {
                 s32 n = (s32)(v < 0.0f ? v - 0.5f : v + 0.5f);
                 if (n > 32767) n = 32767;
                 if (n < -32768) n = -32768;
-                ref_road_fixed_pos[i][j] = (int16_t)n;
+                ref_road_fixed_pos[i][j] = (s16)n;
             }
         }
     }
     ++ref_road_plan_fixed_builds;
 }
 
-static uint32_t ref_road_fixed_checksum(void) {
+static u32 ref_road_fixed_checksum(void) {
     const SegmentChunk *c;
-    uint32_t h = 2166136261u;
+    u32 h = 2166136261u;
     for (c = gSegmentChunks; c != sLastSegmentChunk; c++) {
         h = (h ^ ref_road_fixed_bits(c->pos.x)) * 16777619u;
         h = (h ^ ref_road_fixed_bits(c->pos.y)) * 16777619u;
@@ -86,7 +86,7 @@ static void ref_road_fixed_column(const MtxF *m, s32 col, s32 e, s32 a[3], s64 *
     *t = (s64)(m->m[3][col] * tscale);
 }
 
-static inline s64 ref_road_fixed_dot(const s32 a[3], const int16_t p[3], s64 t) {
+static inline s64 ref_road_fixed_dot(const s32 a[3], const s16 p[3], s64 t) {
     return (s64)a[0] * p[0] + (s64)a[1] * p[1] + (s64)a[2] * p[2] + t;
 }
 
@@ -94,7 +94,7 @@ static void ref_road_plan_cull_fixed(const MtxF *sp60) {
     SegmentChunk *chunk;
     s32 i, exy, ed, ax[3], ay[3], aw[3], ad[3], dshift;
     s64 tx, ty, tw, td, far16;
-    const uint32_t key = ref_road_fixed_checksum();
+    const u32 key = ref_road_fixed_checksum();
     if (ref_road_fixed_base != gSegmentChunks || ref_road_fixed_count != gSegmentChunkCount ||
         ref_road_fixed_key != key) {
         ref_road_fixed_build();
@@ -119,7 +119,7 @@ static void ref_road_plan_cull_fixed(const MtxF *sp60) {
     dshift = ed - ref_road_fixed_shift - 4;
     far16 = (s64)(sCourseFarRenderDistance * 16.0f);
     for (chunk = gSegmentChunks, i = 0; chunk != sLastSegmentChunk; chunk++, i++) {
-        const int16_t *p = ref_road_fixed_pos[i];
+        const s16 *p = ref_road_fixed_pos[i];
         const s64 dd = ref_road_fixed_dot(ad, p, td);
         const s64 d16 = dshift >= 0 ? dd >> dshift : dd << -dshift;
         chunk->depth = (f32)(s32)(d16 > 0x7fffffff ? 0x7fffffff : d16 < -0x7fffffff ? -0x7fffffff : d16) * 0.0625f;

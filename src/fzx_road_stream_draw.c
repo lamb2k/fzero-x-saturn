@@ -134,12 +134,17 @@ static void ramp_prepare(fzx_road_stream_draw_work_t *w,const RefRoadPlan *plan)
         key[c]=(uint8_t)sh2z_cdiv255_u32((uint32_t)plan->fog[c]*31u+127u);
         key[3+c]=(uint8_t)sh2z_cdiv255_u32((uint32_t)w->pack->base_fog[c]*31u+127u);
         key[6+c]=plan->primitive[c];key[9+c]=plan->fog[c];}
-    if(w->ramp_valid&&!memcmp(key,w->ramp_key,sizeof(key)))return;
+    /* The MIX ramp (256 words) is built on first use by a solid piece. */
+    if(memcmp(key+6,w->ramp_key+6,6)){memcpy(w->ramp_key+6,key+6,6);w->mix_valid=false;}
+    if(w->ramp_valid&&!memcmp(key,w->ramp_key,6))return;
     static const uint8_t level[3]={0,128,255};
-    /* Live and base fog colours in RGB5 (<= 31), so both always build. */
-    w->ramp_valid=sh2z_shade_ramp_offset(&w->ramp_offset,key,key+3,level,ramp_threshold)&&
-        sh2z_shade_ramp_mix(&w->ramp_mix,key+6,key+9,ramp_threshold);
-    memcpy(w->ramp_key,key,sizeof(key));
+    /* Live and base fog colours in RGB5 (<= 31), so the ramp always builds. */
+    w->ramp_valid=sh2z_shade_ramp_offset(&w->ramp_offset,key,key+3,level,ramp_threshold);
+    memcpy(w->ramp_key,key,6);
+}
+static FZX_RS_COLD bool mix_prepare(fzx_road_stream_draw_work_t *w){
+    w->mix_valid=sh2z_shade_ramp_mix(&w->ramp_mix,w->ramp_key+6,w->ramp_key+9,ramp_threshold);
+    return w->mix_valid;
 }
 typedef struct {
     fzx_road_stream_draw_work_t *work;const RefRoadPlan *plan;sh2z_view_center_t view;
@@ -213,6 +218,7 @@ static bool piece(draw_t *d,const vref_t v[4],unsigned quad,unsigned piece_id,
     /* SH2ZAM shade-2: fade and 5:5:5 colour of every corner in one call; the
      * return is the colour variant ([mean fade >= 64] + [mean fade >= 192]). */
     int variant;
+    if(solid&&!w->mix_valid&&!mix_prepare(w))return fail(d,FZX_RS_INVALID);
     if(w->fogp_ok)variant=sh2z_shade_fog_gouraud_refs(shades,(const void *const *)corners,
         offsetof(sh2z_view_vertex_t,z),count,&w->fogp,solid?&w->ramp_mix:&w->ramp_offset,
         w->images[base_image].mean);

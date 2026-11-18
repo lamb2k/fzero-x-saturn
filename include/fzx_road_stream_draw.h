@@ -81,12 +81,13 @@ typedef struct {
     /* Fog (SH2ZAM shade-1 table from sh2z_shade_fog_build, prepared by
      * shade-2's sh2z_shade_fogp_prepare). fogp_ok false selects the shade-1
      * fallback (per-corner lookup, then the batch colour forms). The colour
-     * ramps are rebuilt only when their source colours change. */
+     * ramps are rebuilt only when their source colours change; the MIX ramp
+     * (solid pieces) only on first use after a change. */
     sh2z_shade_fog_t fog;
     sh2z_shade_fogp_t fogp;
     sh2z_shade_ramp_t ramp_offset,ramp_mix;
     uint8_t ramp_key[12];
-    bool fogp_ok,ramp_valid;
+    bool fogp_ok,ramp_valid,mix_valid;
     /* Optional native layout: bind all four (capacities: npos_capacity
      * positions, pack quads, pack chunks) before prepare to select it. With
      * it, remap/positions are unused and projected holds the visible runs. */

@@ -53,7 +53,7 @@ int main(void){
     pack.base_fog[0]=40;pack.base_fog[1]=120;pack.base_fog[2]=230;w.pack=&pack;
     RefRoadPlan plan;memset(&plan,0,sizeof(plan));
     plan.fog[0]=252;plan.fog[1]=192;plan.fog[2]=253;plan.primitive[0]=255;plan.primitive[1]=17;plan.primitive[2]=90;
-    ramp_prepare(&w,&plan);if(!w.ramp_valid){puts("ramp");return 1;}
+    ramp_prepare(&w,&plan);if(!w.ramp_valid||w.mix_valid||!mix_prepare(&w)){puts("ramp");return 1;}
     const uint8_t means[3][3]={{0,0,0},{16,9,30},{31,31,31}};
     const int32_t pas[]={1073741824,1100000000,1200000000,1500000000};
     const int32_t pbs[]={-1,-8192,-40000,-81920,-500000};

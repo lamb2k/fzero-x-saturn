@@ -46,6 +46,11 @@ FZX_VEHICLE_NATIVE_LOW_WORK ?= 1
 ifneq ($(filter $(FZX_VEHICLE_NATIVE_LOW_WORK),0 1),$(FZX_VEHICLE_NATIVE_LOW_WORK))
 $(error FZX_VEHICLE_NATIVE_LOW_WORK must be 0 or 1)
 endif
+# Vehicle pose through SH2ZAM pose-1 (sh2z_pose_from_f32) instead of the binary32 procedure.
+FZX_VEHICLE_POSE1 ?= 0
+ifneq ($(filter $(FZX_VEHICLE_POSE1),0 1),$(FZX_VEHICLE_POSE1))
+$(error FZX_VEHICLE_POSE1 must be 0 or 1)
+endif
 ifneq ($(filter $(FZX_VEHICLE_SUBPROFILE),0 1),$(FZX_VEHICLE_SUBPROFILE))
 $(error FZX_VEHICLE_SUBPROFILE must be 0 or 1)
 endif
@@ -462,6 +467,9 @@ endif
 ifeq ($(FZX_VEHICLE_FAST),1)
 SH_CFLAGS += -DFZX_VEHICLE_FAST=1
 endif
+ifeq ($(FZX_VEHICLE_POSE1),1)
+SH_CFLAGS += -DFZX_VEHICLE_POSE1=1
+endif
 ifeq ($(FZX_VEHICLE_NATIVE),1)
 SH_CFLAGS += -DFZX_VEHICLE_NATIVE=1 -DFZX_VEHICLE_FAST=1 -DFZX_VEHICLE_NATIVE_LOW_TABLES=$(FZX_VEHICLE_NATIVE_LOW_TABLES) -DFZX_VEHICLE_NATIVE_LOW_WORK=$(FZX_VEHICLE_NATIVE_LOW_WORK)
 endif
@@ -590,8 +598,8 @@ FZX_SH2ZAM_UNITS := sh2zam.c sh2zam_angles.c sh2zam_batch_sh2.c sh2zam_box2.c \
 FZX_SH2ZAM_UNITS += $(if $(filter 1,$(FZX_SOURCE_ROAD_STREAM)),sh2zam_view_merge_tier.c)
 # C3 knobs that adopt shade-2 / view-camera add here, e.g.:
 #   FZX_SH2ZAM_UNITS += $(if $(filter 1,$(FZX_ROAD_STREAM_<KNOB>)),sh2zam_shade_fused.c)
-# C4 native vehicle arm (vehicle-kernels-1; pose-1 adds sh2zam_pose.c once tagged).
-FZX_SH2ZAM_UNITS += $(if $(filter 1,$(FZX_VEHICLE_NATIVE)),sh2zam_vehicle.c sh2zam_view_indexed.c)
+# C4 native vehicle arm (vehicle-kernels-1) and vehicle pose (pose-1).
+FZX_SH2ZAM_UNITS += $(if $(filter 1,$(FZX_VEHICLE_NATIVE)),sh2zam_vehicle.c sh2zam_view_indexed.c) $(if $(filter 1,$(FZX_VEHICLE_POSE1)),sh2zam_pose.c)
 # Simulation knobs that adopt trig12-1 / fixed-unit-1 add here (sh2zam_trig12.c, sh2zam_unit30.c).
 FZX_SH2ZAM_SRCS := $(addprefix $(SH2ZAM_ROOT)/saturn/src/,$(sort $(FZX_SH2ZAM_UNITS)))
 FZX_SH2ZAM_MISSING := $(filter-out $(wildcard $(FZX_SH2ZAM_SRCS)),$(FZX_SH2ZAM_SRCS))

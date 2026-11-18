@@ -1,6 +1,15 @@
 #include "machine_menu_native.h"
 #include "texture_cd.h"
+#if FZX_MENU_TABLES_LOW /* the table lives in reserved low work RAM (menu_tables_low.h) */
+#define fzx_machine_menu_images fzx_machine_menu_images_rom_layout
+#endif
 #include "machine_menu_identity.h"
+#if FZX_MENU_TABLES_LOW
+#undef fzx_machine_menu_images
+#include "menu_tables_low.h"
+_Static_assert(sizeof(fzx_machine_menu_images_rom_layout)==FZX_MENU_TABLES_MACHINE_BYTES,"fzx_machine_menu_images matches MENUTAB.PAK");
+#define fzx_machine_menu_images FZX_MENU_TABLE(fzx_machine_menu_images_rom_layout,FZX_MENU_TABLES_MACHINE_ADDR)
+#endif
 #include <string.h>
 
 volatile uint32_t fzx_machine_menu_status,fzx_machine_menu_report[24];

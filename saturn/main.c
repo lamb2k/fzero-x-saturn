@@ -33,6 +33,10 @@
 #if FZX_SOURCE_COUNTDOWN
 #include "countdown_scene.h"
 #include "countdown_identity.h"
+#if FZX_MENU_TABLES_LOW
+#include "menu_tables_low.h"
+extern unsigned char sat_stub_data_start[];
+#endif
 #endif
 #ifndef FZX_SOURCE_MACHINE
 #define FZX_SOURCE_MACHINE 0
@@ -798,6 +802,15 @@ main(void)
     dbgio_dev_font_load();
 #if FZX_SOURCE_TITLE
     const uintptr_t title_scratch=((uintptr_t)sat_stub_data_end+31u)&~(uintptr_t)31u;
+#if FZX_MENU_TABLES_LOW
+    /* Once, before the title: the menu tables into reserved low work RAM. */
+    if(title_scratch<0x00200000u || title_scratch>=0x00300000u ||
+       !fzx_menu_tables_low_load((void *)title_scratch,0x00300000u-title_scratch)) {
+        dbgio_printf("MENU TABLES LOAD FAILED %lu",(unsigned long)fzx_menu_tables_low_status);
+        dbgio_flush();vdp2_sync();for(;;) {}
+    }
+    fzx_menu_tables_low_report=fzx_menu_tables_low_check(true);
+#endif
 #if FZX_SOURCE_MENU
     for(;;) {
 #endif
@@ -919,8 +932,14 @@ main(void)
 #endif
 #if FZX_SIM == FZX_SIM_ORIG
     /* The stand-ins start zeroed, as the host's do. */
+#if FZX_MENU_TABLES_LOW
+    /* Starts at the stand-ins, above the menu-table reservation (checked at load). */
+    memset((void *)sat_stub_data_start, 0,
+           (size_t)((uintptr_t)sat_stub_data_end - (uintptr_t)sat_stub_data_start));
+#else
     memset((void *)0x00200000, 0,
            (size_t)((uintptr_t)sat_stub_data_end - 0x00200000u));
+#endif
 #if FZX_SOURCE_MACHINE_MENU
     if(!fzx_race_workspace_load()) {
         dbgio_printf("SOURCE GRAPHICS WORKSPACE LOAD FAILED");dbgio_flush();vdp2_sync();for(;;){}

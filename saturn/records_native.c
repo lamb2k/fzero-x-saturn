@@ -1,5 +1,14 @@
 #include "records_native.h"
+#if FZX_MENU_TABLES_LOW /* the table lives in reserved low work RAM (menu_tables_low.h) */
+#define fzx_records_images fzx_records_images_rom_layout
+#endif
 #include "records_identity.h"
+#if FZX_MENU_TABLES_LOW
+#undef fzx_records_images
+#include "menu_tables_low.h"
+_Static_assert(sizeof(fzx_records_images_rom_layout)==FZX_MENU_TABLES_RECORDS_BYTES,"fzx_records_images matches MENUTAB.PAK");
+#define fzx_records_images FZX_MENU_TABLE(fzx_records_images_rom_layout,FZX_MENU_TABLES_RECORDS_ADDR)
+#endif
 #include "records_models_identity.h"
 #include "results_identity.h"
 #include <string.h>

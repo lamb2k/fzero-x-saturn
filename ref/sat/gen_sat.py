@@ -70,7 +70,17 @@ def write_stubs(out, host_stubs):
             datas.append((m.group(1), int(m.group(2), 16)))
         elif re.match(r"(int|float) \w+\(void\)", line):
             funcs.append(line)
-    addr, layout = 0x00200000, []
+    # FZX_MENU_TABLES_LOW=1: the menu tables own the bottom of low work RAM
+    # (tools/menu_tables_layout.py); the stand-ins start after the reservation.
+    tables_low = os.environ.get("FZX_MENU_TABLES_LOW", "0")
+    if tables_low not in ("0", "1"):
+        raise ValueError("Invalid menu-table flag")
+    base = 0x00200000
+    if tables_low == "1":
+        sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "tools"))
+        import menu_tables_layout
+        base = menu_tables_layout.STAND_IN_BASE
+    addr, layout = base, []
     for name, size in datas:
         layout.append((name, addr))
         addr += (size + 63) & ~63
@@ -84,6 +94,8 @@ def write_stubs(out, host_stubs):
         for name, a in layout:
             fh.write("\t.global _%s\n\t.set _%s, 0x%08X\n" % (name, name, a))
         fh.write("\t.global _sat_stub_data_end\n\t.set _sat_stub_data_end, 0x%08X\n" % addr)
+        if tables_low == "1":
+            fh.write("\t.global _sat_stub_data_start\n\t.set _sat_stub_data_start, 0x%08X\n" % base)
         low_log=os.environ.get("FZX_INPUT_LOG_LOW_RAM","0")
         if low_log not in ("0","1"):raise ValueError("Invalid low-RAM input log flag")
         if low_log=="1":

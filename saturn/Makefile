@@ -595,7 +595,29 @@ ifneq ($(FZX_SH2ZAM_MISSING),)
 $(error SH2ZAM units missing at this pin: $(FZX_SH2ZAM_MISSING))
 endif
 
-SH_SRCS := $(FZX_FINISH_MENU_SRCS) $(FZX_RECORDS_SRCS) $(FZX_RESULTS_SRCS) $(FZX_MACHINE_MENU_SRCS) $(FZX_COURSE_MENU_SRCS) $(FZX_MENU_SRCS) $(FZX_TITLE_SRCS) $(FZX_COUNTDOWN_SRCS) $(FZX_FRAME_PROFILE_SRCS) main.c ../src/fzx.c $(FZX_ORIG_SRCS) $(FZX_HUD_SRCS) $(FZX_CAMERA_SRCS) $(FZX_ROAD_SRCS) $(FZX_SKY_SRCS) $(FZX_MACHINE_SRCS) $(FZX_SH2ZAM_SRCS)
+# FZX_MENU_TABLES_LOW=1 (default 0): the four menu image tables move from high
+# work RAM to reserved low work RAM, loaded once at boot from MENUTAB.PAK.
+# tools/menu_tables_assets.py generates the pack and identity header before
+# make (no host tools run here); make refuses a missing or stale receipt
+# before compiling or staging anything. The stand-ins move above the
+# reservation: regenerate sat_stubs_data.s with FZX_MENU_TABLES_LOW=1.
+FZX_MENU_TABLES_LOW ?= 0
+FZX_MENU_TABLES_SRCS :=
+ifeq ($(FZX_MENU_TABLES_LOW),1)
+ifneq ($(FZX_SOURCE_MACHINE_MENU)$(FZX_SOURCE_COURSE_MENU)$(FZX_SOURCE_RECORDS)$(FZX_SOURCE_FINISH_MENU),1111)
+$(error FZX_MENU_TABLES_LOW requires the machine-menu, course-menu, records and finish-menu sources)
+endif
+FZX_MENU_TABLES_RECEIPT := $(shell sh ../tools/check_receipt.sh ../generated/menu_tables/menu_tables.receipt 2>&1; echo "rc=$$?")
+ifeq ($(findstring rc=0,$(FZX_MENU_TABLES_RECEIPT)),)
+$(error Menu tables are missing or stale; run tools/menu_tables_assets.py: $(FZX_MENU_TABLES_RECEIPT))
+endif
+SH_CFLAGS += -DFZX_MENU_TABLES_LOW=1 -I../generated/menu_tables
+FZX_MENU_TABLES_SRCS := menu_tables_low.c
+else ifneq ($(FZX_MENU_TABLES_LOW),0)
+$(error FZX_MENU_TABLES_LOW must be 0 or 1)
+endif
+
+SH_SRCS := $(FZX_FINISH_MENU_SRCS) $(FZX_RECORDS_SRCS) $(FZX_RESULTS_SRCS) $(FZX_MACHINE_MENU_SRCS) $(FZX_COURSE_MENU_SRCS) $(FZX_MENU_SRCS) $(FZX_TITLE_SRCS) $(FZX_COUNTDOWN_SRCS) $(FZX_FRAME_PROFILE_SRCS) main.c ../src/fzx.c $(FZX_ORIG_SRCS) $(FZX_HUD_SRCS) $(FZX_CAMERA_SRCS) $(FZX_ROAD_SRCS) $(FZX_SKY_SRCS) $(FZX_MACHINE_SRCS) $(FZX_SH2ZAM_SRCS) $(FZX_MENU_TABLES_SRCS)
 SH_CFLAGS += -DFZX_SH2_DIVU=1 -O2 -std=c11 -Wall -Wextra -I../include \
              -I$(SH2ZAM_ROOT)/saturn/include -DSH2Z_REQUIRE_SH2=1
 # These tagged view units contain same-named local assembler macros. Keep their
@@ -774,4 +796,16 @@ pre-build-iso: stage-finish-menu-pack
 stage-finish-menu-pack:
 	mkdir -p $(IMAGE_DIRECTORY)
 	cp ../generated/finish_menu_ui/FINMENU.PAK $(IMAGE_DIRECTORY)/
+endif
+
+ifeq ($(FZX_MENU_TABLES_LOW),1)
+# The identity header is a normal prerequisite of everything that reads it.
+FZX_MENU_TABLES_USERS := main.c menu_tables_low.c machine_menu_native.c course_menu_native.c finish_menu_native.c records_native.c
+$(foreach SRC,$(FZX_MENU_TABLES_USERS),$(eval $(call macro-convert-build-path,$(addsuffix .o,$(basename $(SRC)))): ../generated/menu_tables/menu_tables_identity.h))
+$(SH_OUTPUT_PATH)/$(SH_PROGRAM).iso: ../generated/menu_tables/MENUTAB.PAK
+pre-build-iso: stage-menu-tables-pack
+.PHONY: stage-menu-tables-pack
+stage-menu-tables-pack:
+	mkdir -p $(IMAGE_DIRECTORY)
+	cp ../generated/menu_tables/MENUTAB.PAK $(IMAGE_DIRECTORY)/MENUTAB.PAK
 endif

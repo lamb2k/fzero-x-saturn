@@ -635,8 +635,10 @@ SH_CFLAGS += -DFZX_SH2_DIVU=1 -O2 -std=c11 -Wall -Wextra -I../include \
              -I$(SH2ZAM_ROOT)/saturn/include -DSH2Z_REQUIRE_SH2=1
 # These tagged view units contain same-named local assembler macros. Keep their
 # assembly in separate objects in both stream and reference builds.
+# sh2zam_view_indexed.c (C4 native vehicle) shares sh2zi_vd_* with the C3 road's
+# sh2zam_view_rails.c; one LTO partition holding both fails to assemble.
 # Yaul expands SH_CFLAGS inside eval, hence defer the source-name test once.
-SH_CFLAGS += $$(if $$(filter %/sh2zam_view.c %/sh2zam_view_center.c,$$<),-fno-lto,)
+SH_CFLAGS += $$(if $$(filter %/sh2zam_view.c %/sh2zam_view_center.c %/sh2zam_view_indexed.c,$$<),-fno-lto,)
 
 ifeq ($(FZX_NATIVE_CORE_EMPTY),1)
 SH_CFLAGS += -DFZX_NATIVE_CORE_EMPTY=1

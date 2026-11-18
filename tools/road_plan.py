@@ -65,8 +65,9 @@ def native(source):
     end=body.index('    } while (chunk != sLastSegmentChunk);\n',start)+len('    } while (chunk != sLastSegmentChunk);\n')
     if body.count('    chunk = gSegmentChunks;\n\n    do {\n        chunk->depth =')!=1:
         raise ValueError('Source chunk visibility loop changed; review planner extraction')
-    body=(body[:start]+'#if FZX_ROAD_PLAN_FIXED\n    ref_road_plan_cull_fixed(&sp60);\n#else\n'
-          +body[start:end]+'#endif\n'+body[end:])
+    # Outside its supported range the fixed cull writes nothing and returns 0; the source loop runs.
+    body=(body[:start]+'#if FZX_ROAD_PLAN_FIXED\n    if (!ref_road_plan_cull_fixed(&sp60))\n#endif\n    {\n'
+          +body[start:end]+'    }\n'+body[end:])
     prefix='''
 #include "road_plan.h"
 _Static_assert(SEGMENT_CHUNK_GROUP_COUNT == REF_ROAD_GROUPS, "source group bound");

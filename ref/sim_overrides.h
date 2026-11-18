@@ -42,6 +42,12 @@ void ref_sim_camera_update(void);
 #define Camera_Update(x) FZX_CU_##x
 #define FZX_CU_void Camera_Update(void)
 #define FZX_CU_ ref_sim_camera_update()
+/* Camera_Init() (race init and menus) re-initialises the float cameras: the
+ * fixed state must be re-imported, so the call is redirected the same way. */
+void ref_sim_camera_init(void);
+#define Camera_Init(x) FZX_CINIT_##x
+#define FZX_CINIT_void Camera_Init(void)
+#define FZX_CINIT_ ref_sim_camera_init()
 #endif
 
 #endif

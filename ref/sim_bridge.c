@@ -72,6 +72,7 @@ _Static_assert(CAMERA_MODE_RACE_INTRO == FZX_CAM_MODE_RACE_INTRO && CAMERA_MODE_
                BTN_CRIGHT == 0x0001 && BTN_CUP == 0x0008 && CAMERA_FOV_FLAG_1 == FZX_CAM_FOV_FLAG_1 &&
                CAMERA_FOV_FLAG_2 == FZX_CAM_FOV_FLAG_2, "fixed camera mirrors the source enums");
 void (Camera_Update)(void);
+void (Camera_Init)(void);
 extern s32 sNumCameras, gGameMode, gNumPlayers, gNearestRacer;
 extern s8 gGamePaused;
 extern bool sAllowCameraLookBack;
@@ -347,9 +348,18 @@ void ref_sim_set_arm(int arm, unsigned int seed) {
 
 void ref_sim_set_drop_bits(unsigned int bits) { fzx_cam_drop_bits = bits; }
 
+void ref_sim_camera_init(void) {
+    (Camera_Init)();
+    fix_valid = fix_stale = last_fallback = 0; /* the float state is authoritative again */
+}
+
 void ref_sim_camera_update(void) {
     unsigned int i;
-    if (sim_arm == 1 && gGameMode == GAMEMODE_TIME_ATTACK && gNumPlayers == 1 && sNumCameras <= 2) {
+    /* Race ticks only: menu cameras (machine select, course preview) can tick
+     * while gGameMode already reads Time Attack. */
+    const s32 mode = gCameras[0].mode;
+    if (sim_arm == 1 && gGameMode == GAMEMODE_TIME_ATTACK && gNumPlayers == 1 && sNumCameras <= 2 &&
+        mode >= CAMERA_MODE_RACE_INTRO && mode <= CAMERA_MODE_FINISHED_LOSER) {
         if (!k_ready) fix_constants();
         for (i = 0; i < (unsigned int)sNumCameras; ++i) fix_tick(i);
         return;

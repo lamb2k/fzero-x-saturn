@@ -164,9 +164,20 @@ bool fzx_clouds_native(vdp1_cmdt_t *commands,unsigned capacity,const fzx_view_t 
     if(!commands || capacity<2 || !view || !source || !count || fzx_clouds_status!=1 || fzx_clouds_pending)return false;
     memset(commands,0,sizeof(*commands));vdp1_cmdt_user_clip_coord_set(commands);
     commands->cmd_xa=view->clip[0];commands->cmd_ya=view->clip[1];commands->cmd_xc=view->clip[2]-1;commands->cmd_yc=view->clip[3]-1;
-    /* Black side borders (outside the user clip): the back screen spans the
-     * full line. */
+    /* The VDP1 sky used to cover the whole view each frame. Clear the view to
+     * transparent instead (the floor's band-0 write), so no earlier frame or
+     * screen shows through, then black side borders outside the user clip:
+     * the back screen spans the full line. */
     unsigned borders=0;
+    {
+        vdp1_cmdt_t *c=&commands[1+borders++];memset(c,0,sizeof(*c));vdp1_cmdt_polygon_set(c);
+        const vdp1_cmdt_draw_mode_t mode={.end_code_disable=1,.trans_pixel_disable=1};
+        vdp1_cmdt_draw_mode_set(c,mode);c->cmd_colr=0;
+        c->cmd_xa=(int16_t)view->clip[0];c->cmd_ya=(int16_t)view->clip[1];
+        c->cmd_xb=(int16_t)(view->clip[2]-1);c->cmd_yb=(int16_t)view->clip[1];
+        c->cmd_xc=(int16_t)(view->clip[2]-1);c->cmd_yc=(int16_t)(view->clip[3]-1);
+        c->cmd_xd=(int16_t)view->clip[0];c->cmd_yd=(int16_t)(view->clip[3]-1);
+    }
     const int16_t sides[2][2]={{0,(int16_t)(view->clip[0]-1)},{(int16_t)view->clip[2],319}};
     for(unsigned i=0;i<2;++i) {
         if(sides[i][1]<sides[i][0] || borders+2>=capacity)continue;

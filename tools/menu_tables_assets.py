@@ -85,7 +85,7 @@ def generate(output, chroot):
         includes = []
         for d in sorted({str((ROOT / h).parent) for h in HEADERS} | {str(ROOT / 'include')}):
             includes += ['-I', tc.path(d)]
-        tc.run('gcc', '-O2', '-std=c11', '-fno-lto', '-fdata-sections', '-fno-common', *includes,
+        tc.run('gcc', '-specs=yaul.specs', '-O2', '-std=c11', '-fno-lto', '-fdata-sections', '-fno-common', *includes,
                '-c', tc.path(ROOT / 'saturn/menu_tables.c'), '-o', tc.path(obj))
         have = sections(tc, obj)
         relocs = tc.run('readelf', '-r', tc.path(obj))
@@ -139,7 +139,7 @@ def generate(output, chroot):
         hp.write_bytes(header)
     (output / 'MENUTAB.PAK').write_bytes(pack)
     report = dict(layout=lay, checks=checks, pack_bytes=len(pack), fnv1a=digest, sectors=(len(pack) + 2047) // 2048,
-                  compiler=compiler, flags='-O2 -std=c11 -fno-lto -fdata-sections -fno-common')
+                  compiler=compiler, flags='-specs=yaul.specs -O2 -std=c11 -fno-lto -fdata-sections -fno-common')
     (output / 'menu_tables.json').write_text(json.dumps(report, indent=1, sort_keys=True) + '\n')
     lines = ['# fzx generation receipt v1; regenerate, never edit']
     tools_dir = ROOT / 'tools'

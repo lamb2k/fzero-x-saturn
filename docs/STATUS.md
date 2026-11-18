@@ -2,6 +2,7 @@
 Limit: 80 lines. History lives in git. Plan: [POC_PLAN.md](POC_PLAN.md).
 Active goal: [first-course boot, selection and race completion](FIRST_COURSE_GOAL.md).
 Current C0-C8 decisions and dependencies: [render programme](RENDER_PLAN_CURRENT.md).
+Current local functional build: [NATIVE + pose-1 release recipe](FUNCTIONAL_RECIPE.md).
 ## Owner direction
 Preserve F-Zero X with original assets prebaked for Saturn; placeholders/missing features are not completion.
 Saturn-native rendering: source packet/hash/arithmetic and C4 stat identity gates lifted; tags optional.

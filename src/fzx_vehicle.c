@@ -2,6 +2,37 @@
 #include <limits.h>
 #include <string.h>
 
+/* FZX_VEHICLE_POSE1 (default 0): build the pose with SH2ZAM pose-1
+ * sh2z_pose_from_f32, field for field equal to the binary32 procedure below,
+ * from a base view built once per camera. Stand-in marker: pending the pose-1
+ * tag; until then the procedure below is the stand-in. */
+#ifndef FZX_VEHICLE_POSE1
+#define FZX_VEHICLE_POSE1 0
+#endif
+#if FZX_VEHICLE_POSE1
+#include <stddef.h>
+_Static_assert(sizeof(fzx_vehicle_pose_t)==sizeof(sh2z_pose_t)&&
+               offsetof(fzx_vehicle_pose_t,eye)==offsetof(sh2z_pose_t,eye)&&
+               offsetof(fzx_vehicle_pose_t,basis)==offsetof(sh2z_pose_t,basis)&&
+               offsetof(fzx_vehicle_pose_t,eye_error)==offsetof(sh2z_pose_t,eye_error)&&
+               offsetof(fzx_vehicle_pose_t,octant)==offsetof(sh2z_pose_t,octant)&&
+               offsetof(fzx_vehicle_pose_t,cull_valid)==offsetof(sh2z_pose_t,cull_valid),
+               "fzx_vehicle_pose_t must match sh2z_pose_t");
+bool fzx_vehicle_pose(fzx_vehicle_pose_t *out,const fzx_view_t *view,
+                     const RefCamera *camera,const RefMachine *state) {
+    /* One base per camera: rebuilt only when the fzx view changes. */
+    static fzx_view_t cached_view;static sh2z_view_t base;static bool base_valid;
+    if(!out||!view||!camera||!state||camera->faults||state->faults||
+       state->character||state->custom_type)return false;
+    if(!base_valid||memcmp(&cached_view,view,sizeof(*view))) {
+        const int32_t origin[3]={0,0,0};base_valid=false;
+        if(!fzx_view16_from_source(&base,view,origin))return false;
+        cached_view=*view;base_valid=true;
+    }
+    return sh2z_pose_from_f32((sh2z_pose_t *)(void *)out,&base,(const int32_t (*)[3])view->rotation,
+        (const float (*)[3])state->model_basis,state->model_scale,state->model_pos,camera->eye,SH2Z_POSE_REVERSE_AXES);
+}
+#else
 static bool finite_float(float x) {
     uint32_t bits;memcpy(&bits,&x,sizeof(bits));
     return (bits&0x7f800000u)!=0x7f800000u;
@@ -76,3 +107,4 @@ bool fzx_vehicle_pose(fzx_vehicle_pose_t *out,const fzx_view_t *view,
     if(!sh2z_view_init(&next.view,&next.view))return false;
     *out=next;return true;
 }
+#endif

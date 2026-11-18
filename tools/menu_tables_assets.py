@@ -37,6 +37,7 @@ ENV_FAILED = 97
 # The one shell program run inside the chroot. The tool name and every argument
 # arrive as separate argv ($1, $2...), never as shell text.
 CHROOT_PROGRAM_TEMPLATE = r'''
+unset YAUL_INSTALL_ROOT  # only the configured environment script may set it
 . "%(env)s" >/dev/null 2>&1 || { echo "menu tables: Yaul environment setup failed (%(env)s)" >&2; exit %(rc)d; }
 [ -n "${YAUL_INSTALL_ROOT:-}" ] || { echo "menu tables: %(env)s did not set YAUL_INSTALL_ROOT" >&2; exit %(rc)d; }
 tool=$1; shift

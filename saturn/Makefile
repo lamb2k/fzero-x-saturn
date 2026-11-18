@@ -805,13 +805,19 @@ $(foreach SRC,$(FZX_MENU_TABLES_USERS),$(eval $(call macro-convert-build-path,$(
 $(SH_OUTPUT_PATH)/$(SH_PROGRAM).iso: ../generated/menu_tables/MENUTAB.PAK
 pre-build-iso: stage-menu-tables-pack
 .PHONY: stage-menu-tables-pack
+# The staging directory reaches the shell through the environment, never as
+# shell text, so any character in it stays one operand; empty is refused.
+stage-menu-tables-pack: export FZX_MENU_TABLES_STAGE := $(IMAGE_DIRECTORY)
 stage-menu-tables-pack:
-	mkdir -p $(IMAGE_DIRECTORY)
-	cp ../generated/menu_tables/MENUTAB.PAK $(IMAGE_DIRECTORY)/MENUTAB.PAK
+	@[ -n "$$FZX_MENU_TABLES_STAGE" ] || { echo "stage-menu-tables-pack: IMAGE_DIRECTORY is empty" >&2; exit 1; }
+	mkdir -p -- "$$FZX_MENU_TABLES_STAGE"
+	cp -- ../generated/menu_tables/MENUTAB.PAK "$$FZX_MENU_TABLES_STAGE/MENUTAB.PAK"
 else
 # OFF: a staging directory reused from an ON build must not ship its pack.
 pre-build-iso: unstage-menu-tables-pack
 .PHONY: unstage-menu-tables-pack
+unstage-menu-tables-pack: export FZX_MENU_TABLES_STAGE := $(IMAGE_DIRECTORY)
 unstage-menu-tables-pack:
-	rm -f $(IMAGE_DIRECTORY)/MENUTAB.PAK
+	@[ -n "$$FZX_MENU_TABLES_STAGE" ] || { echo "unstage-menu-tables-pack: IMAGE_DIRECTORY is empty; nothing removed" >&2; exit 1; }
+	rm -f -- "$$FZX_MENU_TABLES_STAGE/MENUTAB.PAK"
 endif

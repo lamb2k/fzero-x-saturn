@@ -542,6 +542,16 @@ SH_CFLAGS += -DFZX_ROAD_STREAM_PHASES=1
 else ifneq ($(FZX_ROAD_STREAM_PHASES),0)
 $(error FZX_ROAD_STREAM_PHASES must be 0 or 1)
 endif
+# Default-off diagnostic: per-part FRT timing inside orig_publish (fzx_pub_profile).
+FZX_PUB_PROFILE ?= 0
+ifeq ($(FZX_PUB_PROFILE),1)
+ifneq ($(FZX_FRAME_PROFILE):$(FZX_SIM),1:orig)
+$(error FZX_PUB_PROFILE requires FZX_FRAME_PROFILE=1 and the original race)
+endif
+SH_CFLAGS += -DFZX_PUB_PROFILE=1
+else ifneq ($(FZX_PUB_PROFILE),0)
+$(error FZX_PUB_PROFILE must be 0 or 1)
+endif
 # Default-off C3 native road layout (boot-built chunk runs, 8-byte quads).
 FZX_ROAD_STREAM_NATIVE_LAYOUT ?= 0
 ifeq ($(FZX_ROAD_STREAM_NATIVE_LAYOUT),1)

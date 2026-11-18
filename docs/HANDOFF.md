@@ -3,8 +3,8 @@ Limit: 50 lines. History lives in git.
 
 ## Goal and direction
 
-- Handover requested 2026-11-17; implementation stopped. Full first-course goal is unfinished.
-- Local continuation: `generated/HANDOVER-NEXT-AGENT-20261117.md`.
+- Resumed by owner 2026-11-17: finish-menu palette fix first; full first-course goal is unfinished.
+- Local continuation: `generated/C3-NATIVE-ACTIVE.md`; retry prep: `generated/C8-RETRY-INTEGRATION-PREP.md`.
 - Preserve original assets through offline Saturn conversion; document adaptations.
 - Source-only origin/gate1 pushes are authorized after gates and hygiene; no retail assets/releases.
 - Ordinary pad completion/retry, audio/effects, soak, 60 fps, look and hardware remain open.
@@ -19,8 +19,8 @@ Limit: 50 lines. History lives in git.
 - [Records/name entry](RECORDS.md): 7,924 inputs, 29 source-exact captures and 20 native command/residency checks.
 - Three diagnostic resets retain AAA; 19 HOST tests and two corrupted packs pass; stack minimum 23,064 B.
 - Records OFF equals rebuilt pre-records code with current library; +832 linked B belongs to the library update.
-- Finish menu fails input7860: CRAM mode0 rejected by mode1 guard; no fix applied.
-- C8 OFF identity passes; retry schedule is HOST-only. Full menu remains unqualified.
+- Finish menu: 73 source holds, 47 mode0 palette boundaries, 64 backdrops and guards pass; stack21,232 B.
+- Updated C8 OFF binary identity and two malformed-pack native controls pass. Ordinary retry unimplemented.
 
 ## Performance programme
 

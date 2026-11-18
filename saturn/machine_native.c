@@ -1,5 +1,11 @@
 #include "machine_native.h"
+#if FZX_SOURCE_ROAD_STREAM
+#include "road_stream_native.h"
+#define fzx_road_tile_low_end fzx_road_stream_low_end
+#define fzx_road_tile_status fzx_road_stream_status
+#else
 #include "road_tiles_native.h"
+#endif
 #include "texture_cd.h"
 #include "machine_identity.h"
 #include <string.h>

@@ -3,7 +3,7 @@
 #include "fzx_road_stream.h"
 #include "fzx_view16.h"
 
-/* Experimental C3 command preparation. No native path selects this API.
+/* Experimental C3 command preparation, selected by the default-off native stream.
  * Pixel/palette addresses are byte offsets into the admitted texture bank.
  * A native adapter must preserve opaque CLUT indices 0/15 and use Gouraud
  * mode; solid commands use neutral RGB1555 0xc210 as their polygon colour. */
@@ -40,7 +40,7 @@ typedef struct {
 /* Caller owns all storage, disjoint from immutable packs and output commands.
  * Zero work initially, then bind the pointers/capacities before prepare().
  * Images need pack.count[IMAGES] entries; remap needs pack.count[VERTICES].
- * Native source replay requires 576 position/projected slots (observed max552).
+ * Selected native replay requires 600 position/projected slots (observed max600).
  * The small stepping/clipping scratch is part of work, not the C stack. */
 typedef struct {
     uint16_t *remap;

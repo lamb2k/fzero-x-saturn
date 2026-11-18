@@ -14,6 +14,12 @@ _Static_assert(sizeof(row_t)==64,"debugger row ABI");
 volatile uint32_t fzx_frame_profile[16];
 static fzx_frame_clock_t clock_state;
 static row_t *rows;
+#if FZX_SOURCE_ROAD_STREAM
+/* Parallel rows preserve the established 64-byte frame ABI. */
+typedef struct { uint32_t ticks,commands; } road_row_t;
+volatile uint32_t fzx_frame_road_profile[8];
+static road_row_t *road_rows;
+#endif
 static row_t *current;
 static row_t *volatile pending;
 static bool ready,armed,start_next;
@@ -33,8 +39,19 @@ static uint32_t stamp(uint32_t *field) {
 bool fzx_fp_init(uint32_t low_end,uint32_t hz) {
     uintptr_t start=(low_end+95u)&~(uintptr_t)31u;
     uintptr_t end=start+CAPACITY*sizeof(row_t);
+#if FZX_SOURCE_ROAD_STREAM
+    const uintptr_t road_start=end;
+    end+=CAPACITY*sizeof(road_row_t);
+#endif
     if(start<0x00200040u || end+32u>0x00300000u)return false;
     rows=(row_t *)start;
+#if FZX_SOURCE_ROAD_STREAM
+    road_rows=(road_row_t *)road_start;
+    /* C3PF, version, rows, capacity, stride, count, allocation end, reserved. */
+    const uint32_t report[8]={0x43335046u,1,(uint32_t)road_start,CAPACITY,
+        sizeof(road_row_t),0,(uint32_t)end,0};
+    for(unsigned i=0;i<8;++i)fzx_frame_road_profile[i]=report[i];
+#endif
     for(unsigned i=0;i<8;++i){((uint32_t *)start)[(int)i-8]=GUARD;((uint32_t *)end)[i]=GUARD;}
     memset((void *)fzx_frame_profile,0,sizeof(fzx_frame_profile));
     fzx_frame_profile[0]=0x465a4650u;fzx_frame_profile[1]=2;fzx_frame_profile[2]=1;
@@ -64,6 +81,9 @@ void fzx_fp_begin(uint32_t input) {
     uint32_t n=fzx_frame_profile[4];
     if(n>=CAPACITY){fzx_frame_profile[2]=2;armed=false;return;}
     current=rows+n;memset(current,0,sizeof(*current));current->input_begin=input;
+#if FZX_SOURCE_ROAD_STREAM
+    road_rows[n].ticks=0;road_rows[n].commands=0;fzx_frame_road_profile[5]=n+1;
+#endif
     current->time[0]=stamp(&current->field_begin);fzx_frame_profile[4]=n+1;
 }
 void fzx_fp_mark(unsigned phase) {
@@ -94,6 +114,12 @@ void fzx_fp_scene_begin(void) {
 void fzx_fp_scene_end(unsigned subsystem,uint32_t commands) {
     if(!current || subsystem>=7)return;
     uint32_t elapsed=stamp(NULL)-scene_start;
+#if FZX_SOURCE_ROAD_STREAM
+    if(subsystem==4){
+        road_row_t *r=road_rows+(current-rows);
+        r->ticks+=elapsed;r->commands+=commands;
+    }
+#endif
     volatile uint32_t *s=fzx_frame_subsystems[subsystem];
     if(!s[0] || commands<s[5])s[5]=commands;
     ++s[0];

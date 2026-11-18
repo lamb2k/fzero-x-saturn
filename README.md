@@ -12,8 +12,8 @@ integration and new cover/title artwork remain in progress. See
 [asset coverage](docs/ASSET_COVERAGE.md) and [branding](docs/BRANDING.md).
 The local `FZX_SIM=orig` build runs the original one-racer code on Mute City 1,
 including a three-lap diagnostic replay and restart. Local experimental options draw the original
-Blue Falcon, road, backdrop, entry/selection, race HUD and initial finish/results.
-Rendering is far over budget; records/retry flow, audio and effects remain incomplete,
+Blue Falcon, road, backdrop, entry/selection, race HUD, results, records and finish menu.
+Rendering is far over budget; ordinary retry, audio and effects remain incomplete,
 so this is not the finished game. Original models, textures,
 scenery, effects, HUD/fonts, menus and audio are required port content.
 The public default circuit and craft remain synthetic test fixtures.
@@ -34,7 +34,7 @@ The public default circuit and craft remain synthetic test fixtures.
 | Original race route | `FZX_SIM=orig` links the original racer code with binary32 software float; local owner-ROM builds supply Mute City 1 and machine constants. Emulator whole-race finish times have matched host replays. Source-art integration remains open. |
 | Source-art pipeline | Local verified export of five Blue Falcon LODs and 22 textures; native machine, road, backdrop and partial HUD behind explicit flags. [Coverage and build details](docs/SOURCE_ART.md). |
 | Original selection | Original title, main menu, course selection and [machine/settings screens](docs/MACHINE_MENU.md) behind explicit flags. Source models, portraits, colors and engine settings are converted locally. |
-| Finish/results | Original FINISH animation and initial lap/time/max-speed panel behind `FZX_SOURCE_RESULTS=1`; [source and native checks](docs/RESULTS.md). Records, name entry, ordinary retry and audio remain open. |
+| Finish/results | Original [finish/results](docs/RESULTS.md), [records/name entry](docs/RECORDS.md) and [finish menu](docs/FINISH_MENU.md) have source/native checks behind default-off flags. Menu requests freeze; ordinary retry, final appearance and audio remain open. |
 | Saturn platform | Yaul build, VDP1 drawing, VDP2 backgrounds, digital pad input and PAL/NTSC tick scheduling. |
 | Web preview | The same C core compiled to WebAssembly, with keyboard/touch controls and local imported-course loading. |
 | Validation | Independent spline oracle, driving/reset/ordering checks, exact prepared/general transform comparisons, importer checks, sanitizers and browser interaction tests. |

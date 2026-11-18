@@ -1,6 +1,18 @@
 #ifndef FZX_RECORDS_SCENE_H
 #define FZX_RECORDS_SCENE_H
 #include "records_native.h"
+#ifndef FZX_SOURCE_FINISH_MENU
+#define FZX_SOURCE_FINISH_MENU 0
+#endif
+#if FZX_SOURCE_FINISH_MENU
+#include "finish_menu_native.h"
+extern fzx_finish_menu_snapshot_t *fzx_source_finish_menu;
+extern fzx_finish_menu_draw_snapshot_t *fzx_source_finish_menu_draw;
+extern volatile uint32_t fzx_finish_menu_pending,fzx_finish_menu_presented;
+extern volatile uint32_t fzx_finish_menu_palette_commits,fzx_finish_menu_blanking;
+extern volatile uint32_t fzx_finish_menu_command_start,fzx_finish_menu_command_count;
+void fzx_records_finish_menu_present(void);
+#endif
 enum {FZX_RECORDS_UNLOADED,FZX_RECORDS_READY,FZX_RECORDS_RANGE,FZX_RECORDS_GUARD,
       FZX_RECORDS_ASSET,FZX_RECORDS_STATE,FZX_RECORDS_DRAW};
 extern volatile uint32_t fzx_records_status,fzx_records_busy,fzx_records_active;

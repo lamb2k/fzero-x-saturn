@@ -4,6 +4,9 @@
 #include "texture_cd.h"
 #include <stddef.h>
 #include <string.h>
+#if FZX_SOURCE_FINISH_MENU
+#include "records_scene.h"
+#endif
 _Static_assert(!FZX_FLOOR_FIXTURE,"original floor required");
 _Static_assert(sizeof(fzx_floor_rp_t)==sizeof(vdp2_scrn_rp_table_t),"rotation ABI size");
 _Static_assert(offsetof(fzx_floor_rp_t,coefficient_start)==offsetof(vdp2_scrn_rp_table_t,kast),"rotation ABI coefficient");
@@ -90,6 +93,9 @@ bool fzx_floor_native(vdp1_cmdt_t *commands,unsigned capacity,const fzx_view_t *
 }
 void fzx_floor_present(void *unused) {
     (void)unused;
+#if FZX_SOURCE_FINISH_MENU
+    fzx_records_finish_menu_present();
+#endif
     if(!fzx_floor_pending)return;
     const uint16_t start=cpu_frt_count_get();
     const uint32_t blank_start=vdp2_tvmd_vblank_in()?1u:0u;

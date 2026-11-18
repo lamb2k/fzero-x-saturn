@@ -311,7 +311,7 @@ static inline __attribute__((always_inline)) bool face_loop(const fzx_vehicle_pa
 #define FZX_VK1_LIGHT_INDEXED 1
 #endif
 #ifndef FZX_VK1_GOURAUD_APPROX
-#define FZX_VK1_GOURAUD_APPROX 0
+#define FZX_VK1_GOURAUD_APPROX 1
 #endif
 /* Stand-ins pending SH2ZAM tag vehicle-kernels-1 (PR #23): same signatures and
  * contracts, except that the indexed stand-ins need ascending index lists (the

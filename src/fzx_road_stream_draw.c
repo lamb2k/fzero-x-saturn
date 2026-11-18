@@ -670,6 +670,23 @@ static bool guarded(fzx_road_stream_draw_work_t *w,const sh2z_view_center_t *vie
     if(!info||(flags&FZX_RS_COARSE))return false;
     *info=(fzx_road_stream_budget_t){0};
     info->passes=1;
+#if FZX_ROAD_LOD
+    /* Simplified far road (FZX_ROAD_LOD=1): every frame uses the coarse
+     * tiering, so thin far strips are not cut into sub-pixel texture-period
+     * pieces. One pass; the farthest commands are dropped only if even that
+     * exceeds the budget. */
+    {
+        uint32_t over=0,dropped=0;
+        info->coarse=1;
+        if(!draw_any(w,view,plan,pa,pb,flags|FZX_RS_COARSE,commands,emit,budget,count,stats,0,&over,NULL))return false;
+        info->full=*count+over;
+        if(!over)return true;
+        info->passes=2;
+        if(!draw_any(w,view,plan,pa,pb,flags|FZX_RS_COARSE,commands,emit,budget,count,stats,over,NULL,&dropped))return false;
+        info->dropped=dropped;
+        return dropped==over&&*count==budget;
+    }
+#endif
     if(draw_any(w,view,plan,pa,pb,flags,commands,emit,budget,count,stats,0,NULL,NULL)){
         info->full=*count;return true;}
     if(!stats||stats->fault!=FZX_RS_CAPACITY)return false;

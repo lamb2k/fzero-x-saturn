@@ -542,6 +542,17 @@ SH_CFLAGS += -DFZX_ROAD_STREAM_PHASES=1
 else ifneq ($(FZX_ROAD_STREAM_PHASES),0)
 $(error FZX_ROAD_STREAM_PHASES must be 0 or 1)
 endif
+# Default-off scene diagnostic: floor/cloud RBG preparation sections and the
+# C3 road phases, summed over the race (read from a hold snapshot).
+FZX_SCENE_PHASES ?= 0
+ifeq ($(FZX_SCENE_PHASES),1)
+ifneq ($(FZX_FRAME_PROFILE):$(FZX_ROAD_STREAM_PHASES),1:1)
+$(error FZX_SCENE_PHASES requires FZX_FRAME_PROFILE=1 and FZX_ROAD_STREAM_PHASES=1)
+endif
+SH_CFLAGS += -DFZX_SCENE_PHASES=1
+else ifneq ($(FZX_SCENE_PHASES),0)
+$(error FZX_SCENE_PHASES must be 0 or 1)
+endif
 # Default-off C3 native road layout (boot-built chunk runs, 8-byte quads).
 FZX_ROAD_STREAM_NATIVE_LAYOUT ?= 0
 ifeq ($(FZX_ROAD_STREAM_NATIVE_LAYOUT),1)
@@ -577,6 +588,18 @@ endif
 SH_CFLAGS += -DFZX_ROAD_STREAM_BUDGET=1
 else ifneq ($(FZX_ROAD_STREAM_BUDGET),0)
 $(error FZX_ROAD_STREAM_BUDGET must be 0 or 1)
+endif
+# FZX_ROAD_LOD=1 (default 0): simplified far road. Every frame uses the
+# budget guard's coarse tiering (strip-length tiers), not only frames over
+# the budget. Approximation: far road texture periods merge sooner.
+FZX_ROAD_LOD ?= 0
+ifeq ($(FZX_ROAD_LOD),1)
+ifneq ($(FZX_ROAD_STREAM_BUDGET),1)
+$(error FZX_ROAD_LOD requires FZX_ROAD_STREAM_BUDGET=1)
+endif
+SH_CFLAGS += -DFZX_ROAD_LOD=1
+else ifneq ($(FZX_ROAD_LOD),0)
+$(error FZX_ROAD_LOD must be 0 or 1)
 endif
 # Default-off C3 view from the source camera (SH2ZAM view-camera-1); direct emit only.
 FZX_ROAD_STREAM_CAMERA30 ?= 0

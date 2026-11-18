@@ -61,9 +61,9 @@ def native(source):
     body=body.replace('gGameFrameCount','draw_frame').replace('gCurrentCourseInfo->courseFogColors','course_fog')
     # FZX_ROAD_PLAN_FIXED (default 0): the per-chunk visibility loop in fixed point
     # (ref/road_plan_fixed.inc). Knob off compiles the source loop unchanged.
-    start=body.index('    chunk = gSegmentChunks;\n    do {\n        chunk->depth =')
+    start=body.index('    chunk = gSegmentChunks;\n\n    do {\n        chunk->depth =')
     end=body.index('    } while (chunk != sLastSegmentChunk);\n',start)+len('    } while (chunk != sLastSegmentChunk);\n')
-    if body.count('    chunk = gSegmentChunks;\n    do {\n        chunk->depth =')!=1:
+    if body.count('    chunk = gSegmentChunks;\n\n    do {\n        chunk->depth =')!=1:
         raise ValueError('Source chunk visibility loop changed; review planner extraction')
     body=(body[:start]+'#if FZX_ROAD_PLAN_FIXED\n    ref_road_plan_cull_fixed(&sp60);\n#else\n'
           +body[start:end]+'#endif\n'+body[end:])

@@ -11,7 +11,8 @@ const uint8_t *fzx_road_stream_record(const fzx_road_stream_pack_t *p,unsigned s
 static bool texture_range(uint32_t at,uint32_t length,uint32_t bytes) {
     return at>=64 && !(at&7u) && at<=bytes && length<=bytes-at;
 }
-bool fzx_road_stream_open(fzx_road_stream_pack_t *out,const void *data,uint32_t bytes,
+/* Boot-only: cold (optimized for size, kept out of the hot text). */
+__attribute__((cold)) bool fzx_road_stream_open(fzx_road_stream_pack_t *out,const void *data,uint32_t bytes,
                           uint32_t hash,uint32_t texture_bytes) {
     const uint8_t *p=data;
     if(!out || !p || bytes<160 || bytes>160000 || texture_bytes<64 || texture_bytes>150000 ||

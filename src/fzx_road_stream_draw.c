@@ -2,6 +2,17 @@
 #include "fzx_road_stream_phase.h"
 #include <limits.h>
 #include <string.h>
+/* Saturn native builds compile out the paths they do not select, to keep
+ * high work RAM for the stack: the pack path (gather/remap, legacy quads)
+ * under the native layout, and the packet path under direct emit. HOST
+ * builds keep both (defaults 1). Boot-only code is marked cold (size). */
+#ifndef FZX_RS_PACK_PATH
+#define FZX_RS_PACK_PATH 1
+#endif
+#ifndef FZX_RS_PACKET_PATH
+#define FZX_RS_PACKET_PATH 1
+#endif
+#define FZX_RS_COLD __attribute__((cold))
 #define U16 fzx_road_u16
 #define U32 fzx_road_u32
 
@@ -9,7 +20,7 @@ static int32_t s16(const uint8_t *p){return (int16_t)U16(p);}
 /* Boot-only native layout (see the header). remap is its scratch: old row to
  * newest copy. A chunk may use copies made from the previous chunk's first
  * referenced index on; anything older (the wrap) is copied again. */
-static bool native_prepare(fzx_road_stream_draw_work_t *w,const fzx_road_stream_pack_t *p){
+static FZX_RS_COLD bool native_prepare(fzx_road_stream_draw_work_t *w,const fzx_road_stream_pack_t *p){
     const uint32_t nv=p->count[FZX_RLD_VERTICES],nq=p->count[FZX_RLD_QUADS],nc=p->count[FZX_RLD_CHUNKS],ns=p->count[FZX_RLD_STRIPS];
     if(ns>256||nq>65535||nc>65535)return false;
     for(uint32_t s=0;s<ns;++s)w->nunit[s]=(uint16_t)(U16(fzx_road_stream_record(p,FZX_RLD_STRIPS,s)+4)*32u);
@@ -50,7 +61,7 @@ static bool native_prepare(fzx_road_stream_draw_work_t *w,const fzx_road_stream_
     }
     w->npos_count=used;return true;
 }
-bool fzx_road_stream_draw_prepare(fzx_road_stream_draw_work_t *w,
+FZX_RS_COLD bool fzx_road_stream_draw_prepare(fzx_road_stream_draw_work_t *w,
     const fzx_road_stream_pack_t *p,const void *textures,uint32_t bytes,uint32_t expected){
     if(!w)return false;
     w->prepared=false;w->fog_valid=false;w->native=false;w->npos_count=0;
@@ -61,6 +72,7 @@ bool fzx_road_stream_draw_prepare(fzx_road_stream_draw_work_t *w,
        U32(t+12)!=bytes||!w->images||w->image_capacity<p->count[FZX_RLD_IMAGES]||
        !w->remap||w->remap_capacity<p->count[FZX_RLD_VERTICES]||
        (!native&&!w->positions)||!w->projected||!w->vertex_capacity||w->vertex_capacity>65535)return false;
+    if(!FZX_RS_PACK_PATH&&!native)return false;
     if(native&&(!w->npos||!w->nquads||!w->nspans||!w->nchunks||!native_prepare(w,p)))return false;
     for(uint32_t i=0;i<p->count[FZX_RLD_IMAGES];++i){
         const uint8_t *im=fzx_road_stream_record(p,FZX_RLD_IMAGES,i);
@@ -82,7 +94,7 @@ bool fzx_road_stream_draw_prepare(fzx_road_stream_draw_work_t *w,
     w->pack=p;w->native=native;w->prepared=true;return true;
 }
 
-static void fog_prepare(fzx_road_stream_draw_work_t *w,const sh2z_view_t *view,
+static FZX_RS_COLD void fog_prepare(fzx_road_stream_draw_work_t *w,const sh2z_view_t *view,
     const RefRoadPlan *plan,int32_t pa,int32_t pb,fzx_road_stream_draw_stats_t *stats){
     if(w->fog_valid&&w->fog_pa==pa&&w->fog_pb==pb&&w->fog_start==plan->fog_start&&
        w->fog_near==view->near_z&&w->fog_far==view->far_z)return;
@@ -270,6 +282,9 @@ static bool piece(draw_t *d,const vref_t v[4],unsigned quad,unsigned piece_id,
         }
         return true;
     }
+#if !FZX_RS_PACKET_PATH
+    (void)quad;(void)piece_id;(void)tier;
+#else
     for(unsigned first=1;first+1<count;first+=2){
         if(d->stats->commands>=d->capacity)return fail(d,FZX_RS_CAPACITY);
         fzx_road_stream_command_t *out=d->commands+d->stats->commands;
@@ -278,6 +293,7 @@ static bool piece(draw_t *d,const vref_t v[4],unsigned quad,unsigned piece_id,
         for(unsigned i=0;i<4;++i){out->x[i]=corners[order[i]]->sx;out->y[i]=corners[order[i]]->sy;out->shade[i]=shades[order[i]];}
         ++d->stats->commands;
     }
+#endif
     return true;
 }
 static bool edge(draw_t *d,unsigned slot,const sh2z_view_vertex_t *from,const sh2z_view_vertex_t *to,
@@ -293,6 +309,7 @@ static bool edge(draw_t *d,unsigned slot,const sh2z_view_vertex_t *from,const sh
 }
 /* Texture corner order and longitudinal spans of one quad (view-independent). */
 typedef struct {unsigned left,right,re,le,strip,unit;int32_t l0,l1,r0,r1;} quad_tex_t;
+#if FZX_RS_PACK_PATH
 static void legacy_tex(const fzx_road_stream_pack_t *p,const uint8_t *q,const unsigned rows[4],quad_tex_t *x){
     int32_t uv[4][2];
     for(unsigned i=0;i<4;++i){const uint8_t *v=fzx_road_stream_record(p,FZX_RLD_VERTICES,rows[i]);uv[i][0]=s16(v+6);uv[i][1]=s16(v+8);}
@@ -305,10 +322,12 @@ static void legacy_tex(const fzx_road_stream_pack_t *p,const uint8_t *q,const un
     x->strip=U16(q+8);
     const unsigned period=U16(fzx_road_stream_record(p,FZX_RLD_STRIPS,x->strip)+4),unit=period*32;x->unit=unit;
 }
+#endif
 /* One out-of-line body for both front ends: inlined into each, its large
  * stepping/merge scratch would be duplicated in the caller's stack frame. */
 static bool quad_body(draw_t *d,unsigned id,const vref_t vertices[4],unsigned flags,
     const fzx_road_stream_nquad_t *nq,const uint8_t *q,const unsigned rows[4]) __attribute__((noinline));
+#if FZX_RS_PACK_PATH
 static bool quad(draw_t *d,unsigned id){
     fzx_road_stream_draw_work_t *w=d->work;const fzx_road_stream_pack_t *p=w->pack;
     FZX_RSP(QFETCH);
@@ -321,6 +340,7 @@ static bool quad(draw_t *d,unsigned id){
         vertices[i]=w->projected+mapped;rows[i]=row;}
     return quad_body(d,id,vertices,flags,NULL,q,rows);
 }
+#endif
 /* Native front end: 8-byte record, chunk-local corners into the projected run. */
 static bool native_quad(draw_t *d,unsigned id,const sh2z_view_vertex_t *base){
     const fzx_road_stream_nquad_t *nq=d->work->nquads+id;const unsigned flags=nq->flags;
@@ -353,7 +373,11 @@ static bool quad_body(draw_t *d,unsigned id,const vref_t vertices[4],unsigned fl
     if(nq){const unsigned o=nq->order;const fzx_road_stream_nspan_t *s=w->nspans+id;
         x.left=o&3u;x.right=(o>>2)&3u;x.re=(o>>4)&3u;x.le=o>>6;
         x.l0=s->l0;x.l1=s->l1;x.r0=s->r0;x.r1=s->r1;x.strip=nq->strip;x.unit=w->nunit[nq->strip];}
+#if FZX_RS_PACK_PATH
     else legacy_tex(w->pack,q,rows,&x);
+#else
+    else {(void)q;(void)rows;return fail(d,FZX_RS_INVALID);}
+#endif
     const unsigned left=x.left,right=x.right,re=x.re,le=x.le,strip=x.strip,unit=x.unit,period=unit>>5;
     const int32_t l0=x.l0,l1=x.l1,r0=x.r0,r1=x.r1;
     const int32_t low=l0<r0?l0:r0,high=l1>r1?l1:r1,span=high-low;
@@ -491,6 +515,7 @@ static bool draw_any(fzx_road_stream_draw_work_t *w,const fzx_view_t *view,
         FZX_RSP(REPORT);
         stats->fault=0;stats->error_quad=0;*count=stats->commands;return true;
     }
+#if FZX_RS_PACK_PATH
     FZX_RSP(GATHER);
     if(!fzx_road_stream_gather(w->pack,plan,w->remap,w->remap_capacity,w->positions,w->vertex_capacity,&stats->positions))return fail(&d,FZX_RS_GATHER);
     FZX_RSP(BATCH);
@@ -511,12 +536,15 @@ static bool draw_any(fzx_road_stream_draw_work_t *w,const fzx_view_t *view,
     }
     FZX_RSP(REPORT);
     stats->fault=0;stats->error_quad=0;*count=stats->commands;return true;
+#else
+    return fail(&d,FZX_RS_INVALID);
+#endif
 }
 bool fzx_road_stream_draw(fzx_road_stream_draw_work_t *w,const fzx_view_t *view,
     const int32_t eye[3],const RefRoadPlan *plan,int32_t pa,int32_t pb,unsigned flags,
     fzx_road_stream_command_t *commands,uint32_t capacity,uint32_t *count,
     fzx_road_stream_draw_stats_t *stats){
-    if(!commands){if(count)*count=0;return false;}
+    if(!commands||!FZX_RS_PACKET_PATH){if(count)*count=0;return false;}
     return draw_any(w,view,eye,plan,pa,pb,flags,commands,NULL,capacity,count,stats);
 }
 bool fzx_road_stream_draw_vdp1(fzx_road_stream_draw_work_t *w,const fzx_view_t *view,

@@ -461,6 +461,8 @@ ifneq ($(FZX_SOURCE_ROAD_STREAM),1)
 $(error FZX_ROAD_STREAM_NATIVE_LAYOUT requires FZX_SOURCE_ROAD_STREAM=1)
 endif
 SH_CFLAGS += -DFZX_ROAD_STREAM_NATIVE_LAYOUT=1
+# The pack path (gather/remap) is not linked under the native layout.
+SH_CFLAGS += -DFZX_RS_PACK_PATH=0
 else ifneq ($(FZX_ROAD_STREAM_NATIVE_LAYOUT),0)
 $(error FZX_ROAD_STREAM_NATIVE_LAYOUT must be 0 or 1)
 endif
@@ -471,6 +473,8 @@ ifneq ($(FZX_SOURCE_ROAD_STREAM),1)
 $(error FZX_ROAD_STREAM_EMIT requires FZX_SOURCE_ROAD_STREAM=1)
 endif
 SH_CFLAGS += -DFZX_ROAD_STREAM_EMIT=1
+# The packet path is not linked under direct emit.
+SH_CFLAGS += -DFZX_RS_PACKET_PATH=0
 else ifneq ($(FZX_ROAD_STREAM_EMIT),0)
 $(error FZX_ROAD_STREAM_EMIT must be 0 or 1)
 endif

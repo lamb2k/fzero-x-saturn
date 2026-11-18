@@ -530,7 +530,14 @@ else ifneq ($(FZX_SOURCE_FINISH_MENU),0)
 $(error FZX_SOURCE_FINISH_MENU must be 0 or 1)
 endif
 
-SH_SRCS := $(FZX_SIM_SRCS) $(FZX_FINISH_MENU_SRCS) $(FZX_RECORDS_SRCS) $(FZX_RESULTS_SRCS) $(FZX_MACHINE_MENU_SRCS) $(FZX_COURSE_MENU_SRCS) $(FZX_MENU_SRCS) $(FZX_TITLE_SRCS) $(FZX_COUNTDOWN_SRCS) $(FZX_FRAME_PROFILE_SRCS) main.c ../src/fzx.c $(FZX_ORIG_SRCS) $(FZX_HUD_SRCS) $(FZX_CAMERA_SRCS) $(FZX_ROAD_SRCS) $(FZX_SKY_SRCS) $(FZX_MACHINE_SRCS) $(wildcard $(SH2ZAM_ROOT)/saturn/src/*.c)
+# SH2ZAM sources added after the 7de29ac pin (198848f: shade-2, trig12-1,
+# fixed-unit-1, vehicle-kernels-1, view-camera-1, ...) are linked only when a
+# knob uses them: under LTO even unused translation units renumber private
+# symbols, so linking them all would change the knob-off image.
+FZX_SH2ZAM_LATE := sh2zam_shade_fused.c sh2zam_trig12.c sh2zam_unit30.c sh2zam_vehicle.c     sh2zam_view_camera.c sh2zam_view_indexed.c sh2zam_view_merge_tier.c sh2zam_vlc.c
+FZX_SH2ZAM_USED := $(if $(filter 1,$(FZX_SIM_CAMERA)),sh2zam_trig12.c sh2zam_unit30.c)
+FZX_SH2ZAM_SRCS := $(filter-out $(addprefix $(SH2ZAM_ROOT)/saturn/src/,$(filter-out $(FZX_SH2ZAM_USED),$(FZX_SH2ZAM_LATE))),$(wildcard $(SH2ZAM_ROOT)/saturn/src/*.c))
+SH_SRCS := $(FZX_SIM_SRCS) $(FZX_FINISH_MENU_SRCS) $(FZX_RECORDS_SRCS) $(FZX_RESULTS_SRCS) $(FZX_MACHINE_MENU_SRCS) $(FZX_COURSE_MENU_SRCS) $(FZX_MENU_SRCS) $(FZX_TITLE_SRCS) $(FZX_COUNTDOWN_SRCS) $(FZX_FRAME_PROFILE_SRCS) main.c ../src/fzx.c $(FZX_ORIG_SRCS) $(FZX_HUD_SRCS) $(FZX_CAMERA_SRCS) $(FZX_ROAD_SRCS) $(FZX_SKY_SRCS) $(FZX_MACHINE_SRCS) $(FZX_SH2ZAM_SRCS)
 SH_CFLAGS += -DFZX_SH2_DIVU=1 -O2 -std=c11 -Wall -Wextra -I../include \
              -I$(SH2ZAM_ROOT)/saturn/include -DSH2Z_REQUIRE_SH2=1
 ifeq ($(FZX_SOURCE_ROAD_STREAM),1)

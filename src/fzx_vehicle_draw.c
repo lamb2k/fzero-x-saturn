@@ -288,90 +288,14 @@ static inline __attribute__((always_inline)) bool face_loop(const fzx_vehicle_pa
  *     light only those normals (indexed); one Gouraud batch over the pairs;
  *  6. emission in the frozen order: template commands with the coordinates
  *     patched in (no callback), or the emit callback for host drivers.
- * Id lists are built by branch-free ascending scans that also clear the marks. */
+ * The four per-draw kernels are SH2ZAM vehicle-kernels-1 (198848f). Id lists
+ * are built by branch-free ascending scans that also clear the marks. */
 #ifndef FZX_VEHICLE_NATIVE_FACING
 /* Front faces of this pack project with negative signed area (y down); 0 disables. */
 #define FZX_VEHICLE_NATIVE_FACING (-1)
 #endif
 #if FZX_VEHICLE_NATIVE_FACING!=0&&FZX_VEHICLE_NATIVE_FACING!=1&&FZX_VEHICLE_NATIVE_FACING!=-1
 #error FZX_VEHICLE_NATIVE_FACING must be -1, 0 or 1
-#endif
-#ifndef SH2Z_SHADE_FACING_LIMIT
-#define SH2Z_SHADE_FACING_LIMIT 1023
-#endif
-/* SH2ZAM vehicle-kernels-1 adoption, one kernel at a time: 1 calls the SH2ZAM
- * kernel, 0 the inline stand-in with the same signature and contract. */
-#ifndef FZX_VK1_VIEW_INDEXED
-#define FZX_VK1_VIEW_INDEXED 1
-#endif
-#ifndef FZX_VK1_FACING
-#define FZX_VK1_FACING 1
-#endif
-#ifndef FZX_VK1_LIGHT_INDEXED
-#define FZX_VK1_LIGHT_INDEXED 1
-#endif
-#ifndef FZX_VK1_GOURAUD_APPROX
-#define FZX_VK1_GOURAUD_APPROX 1
-#endif
-/* Stand-ins pending SH2ZAM tag vehicle-kernels-1 (PR #23): same signatures and
- * contracts, except that the indexed stand-ins need ascending index lists (the
- * scans give that), and use out records 0..n-1 as scratch. The Gouraud
- * stand-in is the exact kernel, within the approximate kernel's bound. */
-#if FZX_VK1_VIEW_INDEXED
-#define native_view_indexed sh2z_view_batch_divu_indexed
-#else
-static sh2z_pos16_t standin_input[FZX_VEHICLE_POSITIONS];
-static bool native_view_indexed(sh2z_view_vertex_t *out,const sh2z_view_t *v,const void *positions,size_t in_stride,
-        size_t count,const uint8_t *index,size_t index_count){
-    if(!index_count)return true;
-    if(!index||index_count>FZX_VEHICLE_POSITIONS||in_stride<sizeof(sh2z_pos16_t))return false;
-    for(size_t k=0;k<index_count;++k){if(index[k]>=count||(k&&index[k]<=index[k-1]))return false;
-        standin_input[k]=*(const sh2z_pos16_t *)(const void *)((const uint8_t *)positions+index[k]*in_stride);}
-    if(!sh2z_view_batch_divu(out,v,standin_input,sizeof(standin_input[0]),index_count))return false;
-    for(size_t k=index_count;k-->0;)out[index[k]]=out[k];
-    return true;
-}
-#endif
-#if FZX_VK1_FACING
-#define native_facing sh2z_shade_screen_facing
-#else
-static bool native_facing(uint16_t *kept,size_t *kept_count,const uint16_t *faces,size_t count,const uint8_t (*corners)[4],
-        const sh2z_view_vertex_t *vertices,const sh2z_view_t *view,int32_t sign){
-    (void)view;
-    if(!kept_count)return false;
-    size_t n=0;
-    for(size_t i=0;i<count;++i){const unsigned id=faces[i];const sh2z_view_vertex_t *a[4];unsigned all=63,any=0;bool simple=true;
-        for(unsigned j=0;j<4;++j){a[j]=vertices+corners[id][j];all&=a[j]->outcode;any|=a[j]->outcode;
-            if(a[j]->sx< -SH2Z_SHADE_FACING_LIMIT||a[j]->sx>SH2Z_SHADE_FACING_LIMIT||a[j]->sy< -SH2Z_SHADE_FACING_LIMIT||a[j]->sy>SH2Z_SHADE_FACING_LIMIT)simple=false;}
-        if(any&(SH2Z_OUT_NEAR|SH2Z_OUT_FAR))simple=false;
-        if(all)continue;
-        if(simple){const int32_t x0=a[0]->sx,y0=a[0]->sy;
-            const int32_t area=(a[1]->sx-x0)*(a[2]->sy-y0)-(a[1]->sy-y0)*(a[2]->sx-x0)+(a[2]->sx-x0)*(a[3]->sy-y0)-(a[2]->sy-y0)*(a[3]->sx-x0);
-            if(sign*area<=0)continue;}
-        kept[n++]=(uint16_t)id;
-    }
-    *kept_count=n;return true;
-}
-#endif
-#if FZX_VK1_LIGHT_INDEXED
-#define native_light_indexed sh2z_shade_light_normals_indexed
-#else
-static uint32_t standin_normal[FZX_VEHICLE_NORMALS];
-static bool native_light_indexed(uint8_t *out,size_t out_stride,const int8_t *normals,size_t normal_stride,size_t count,
-        const uint8_t *index,size_t index_count,const sh2z_shade_light_t *light,const uint8_t reflection_lut[256]){
-    if(!index_count)return true;
-    if(!index||index_count>FZX_VEHICLE_NORMALS||normal_stride<3||out_stride<4)return false;
-    for(size_t k=0;k<index_count;++k){if(index[k]>=count||(k&&index[k]<=index[k-1]))return false;
-        uint8_t *row=(uint8_t *)&standin_normal[k];const int8_t *from=normals+index[k]*normal_stride;row[0]=(uint8_t)from[0];row[1]=(uint8_t)from[1];row[2]=(uint8_t)from[2];}
-    if(!sh2z_shade_light_normals(out,out_stride,(const int8_t *)standin_normal,4,index_count,light,reflection_lut))return false;
-    for(size_t k=index_count;k-->0;){uint8_t *to=out+index[k]*out_stride;const uint8_t *from=out+k*out_stride;to[0]=from[0];to[1]=from[1];to[2]=from[2];to[3]=from[3];}
-    return true;
-}
-#endif
-#if FZX_VK1_GOURAUD_APPROX
-#define native_gouraud sh2z_shade_gouraud_approx
-#else
-#define native_gouraud sh2z_shade_gouraud
 #endif
 static bool native_tables(const fzx_vehicle_pack_t *pack,const fzx_vehicle_lod_t *model,unsigned lod,fzx_vehicle_work_t *work){
     if(work->native_lod==lod+1)return true;
@@ -454,10 +378,10 @@ static inline __attribute__((always_inline)) bool native_draw(const fzx_vehicle_
     unsigned positions=0;
     for(unsigned i=0;i<model->positions;++i){work->position_index[positions]=(uint8_t)i;positions+=work->position_seen[i];work->position_seen[i]=0;}
     SUB_NOW(t_fetch);SUB_ADD(SUB_FETCH,t_cull,t_fetch);
-    if(!native_view_indexed(work->projected,&pose.view,work->input,sizeof(work->input[0]),model->positions,work->position_index,positions)){stats->fault=3;return false;}
+    if(!sh2z_view_batch_divu_indexed(work->projected,&pose.view,work->input,sizeof(work->input[0]),model->positions,work->position_index,positions)){stats->fault=3;return false;}
 #if FZX_VEHICLE_NATIVE_FACING
     {const size_t before=kept;
-     if(!native_facing(work->kept,&kept,work->kept,kept,(const uint8_t (*)[4])work->corner_position,work->projected,&pose.view,FZX_VEHICLE_NATIVE_FACING)){stats->fault=7;return false;}
+     if(!sh2z_shade_screen_facing(work->kept,&kept,work->kept,kept,(const uint8_t (*)[4])work->corner_position,work->projected,&pose.view,FZX_VEHICLE_NATIVE_FACING)){stats->fault=7;return false;}
      stats->culled+=(uint32_t)(before-kept);}
 #endif
     stats->positions=positions;
@@ -475,11 +399,11 @@ static inline __attribute__((always_inline)) bool native_draw(const fzx_vehicle_
     stats->normals=normals;
     sh2z_shade_light_t prepared;
     if(!light_prepare(&prepared,state,&pose)||
-       !native_light_indexed(&work->light[0][0],4,(const int8_t *)(pack->data+model->normal_at),4,model->normals,work->normal_index,normals,&prepared,pack->data+pack->lut_at)){stats->fault=4;return false;}
+       !sh2z_shade_light_normals_indexed(&work->light[0][0],4,(const int8_t *)(pack->data+model->normal_at),4,model->normals,work->normal_index,normals,&prepared,pack->data+pack->lut_at)){stats->fault=4;return false;}
     MARK(4);
     SUB_NOW(t_setup);SUB_ADD(SUB_SETUP,t_palettes,t_setup);
     uint32_t saturated=0;
-    if(!native_gouraud(work->pair_value,&saturated,work->pairs,pairs,&work->representative[0][0],3,&work->light[0][0],4,state->fog)){stats->fault=7;return false;}
+    if(!sh2z_shade_gouraud_approx(work->pair_value,&saturated,work->pairs,pairs,&work->representative[0][0],3,&work->light[0][0],4,state->fog)){stats->fault=7;return false;}
     for(size_t k=pairs;k-->0;)work->pair_value[work->pair_index[k]]=work->pair_value[k];
     stats->saturated+=saturated;
     SUB_NOW(t_shade);SUB_ADD(SUB_SHADE,t_setup,t_shade);

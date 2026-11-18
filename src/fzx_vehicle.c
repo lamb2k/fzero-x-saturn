@@ -2,10 +2,9 @@
 #include <limits.h>
 #include <string.h>
 
-/* FZX_VEHICLE_POSE1 (default 0): build the pose with SH2ZAM pose-1
- * sh2z_pose_from_f32, field for field equal to the binary32 procedure below,
- * from a base view built once per camera. Stand-in marker: pending the pose-1
- * tag; until then the procedure below is the stand-in. */
+/* FZX_VEHICLE_POSE1 (default 0): build the pose with SH2ZAM pose-1 (tagged,
+ * 65b81d5) sh2z_pose_from_f32, field for field equal to the binary32
+ * procedure below, from a base view built once per camera. */
 #ifndef FZX_VEHICLE_POSE1
 #define FZX_VEHICLE_POSE1 0
 #endif
@@ -20,14 +19,21 @@ _Static_assert(sizeof(fzx_vehicle_pose_t)==sizeof(sh2z_pose_t)&&
                "fzx_vehicle_pose_t must match sh2z_pose_t");
 bool fzx_vehicle_pose(fzx_vehicle_pose_t *out,const fzx_view_t *view,
                      const RefCamera *camera,const RefMachine *state) {
-    /* One base per camera: rebuilt only when the fzx view changes. */
-    static fzx_view_t cached_view;static sh2z_view_t base;static bool base_valid;
+    /* One base per camera: pose-1 reads only the base's focal, centre,
+     * near/far and clip, so it is rebuilt only when those projection fields
+     * of the fzx view change (inline compare: no library call per draw). */
+    static int32_t key[10];static sh2z_view_t base;static bool base_valid;
     if(!out||!view||!camera||!state||camera->faults||state->faults||
        state->character||state->custom_type)return false;
-    if(!base_valid||memcmp(&cached_view,view,sizeof(*view))) {
+    const int32_t now[10]={view->focal[0],view->focal[1],view->center[0],view->center[1],view->near_plane,
+        view->far_plane,view->clip[0],view->clip[1],view->clip[2],view->clip[3]};
+    bool same=base_valid;
+    for(unsigned i=0;i<10;++i)same=same&&key[i]==now[i];
+    if(!same) {
         const int32_t origin[3]={0,0,0};base_valid=false;
         if(!fzx_view16_from_source(&base,view,origin))return false;
-        cached_view=*view;base_valid=true;
+        for(unsigned i=0;i<10;++i)key[i]=now[i];
+        base_valid=true;
     }
     return sh2z_pose_from_f32((sh2z_pose_t *)(void *)out,&base,(const int32_t (*)[3])view->rotation,
         (const float (*)[3])state->model_basis,state->model_scale,state->model_pos,camera->eye,SH2Z_POSE_REVERSE_AXES);

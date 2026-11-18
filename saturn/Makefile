@@ -42,6 +42,16 @@ FZX_VEHICLE_NATIVE_LOW_TABLES ?= 1
 ifneq ($(filter $(FZX_VEHICLE_NATIVE_LOW_TABLES),0 1),$(FZX_VEHICLE_NATIVE_LOW_TABLES))
 $(error FZX_VEHICLE_NATIVE_LOW_TABLES must be 0 or 1)
 endif
+# Default 0 keeps the gate1 placement (per-draw work in high WRAM); 1 moves it after the tables.
+FZX_VEHICLE_NATIVE_LOW_WORK ?= 0
+ifneq ($(filter $(FZX_VEHICLE_NATIVE_LOW_WORK),0 1),$(FZX_VEHICLE_NATIVE_LOW_WORK))
+$(error FZX_VEHICLE_NATIVE_LOW_WORK must be 0 or 1)
+endif
+# Vehicle pose through SH2ZAM pose-1 (sh2z_pose_from_f32) instead of the binary32 procedure.
+FZX_VEHICLE_POSE1 ?= 0
+ifneq ($(filter $(FZX_VEHICLE_POSE1),0 1),$(FZX_VEHICLE_POSE1))
+$(error FZX_VEHICLE_POSE1 must be 0 or 1)
+endif
 ifneq ($(filter $(FZX_VEHICLE_SUBPROFILE),0 1),$(FZX_VEHICLE_SUBPROFILE))
 $(error FZX_VEHICLE_SUBPROFILE must be 0 or 1)
 endif
@@ -494,8 +504,11 @@ endif
 ifeq ($(FZX_VEHICLE_FAST),1)
 SH_CFLAGS += -DFZX_VEHICLE_FAST=1
 endif
+ifeq ($(FZX_VEHICLE_POSE1),1)
+SH_CFLAGS += -DFZX_VEHICLE_POSE1=1
+endif
 ifeq ($(FZX_VEHICLE_NATIVE),1)
-SH_CFLAGS += -DFZX_VEHICLE_NATIVE=1 -DFZX_VEHICLE_FAST=1 -DFZX_VEHICLE_NATIVE_LOW_TABLES=$(FZX_VEHICLE_NATIVE_LOW_TABLES)
+SH_CFLAGS += -DFZX_VEHICLE_NATIVE=1 -DFZX_VEHICLE_FAST=1 -DFZX_VEHICLE_NATIVE_LOW_TABLES=$(FZX_VEHICLE_NATIVE_LOW_TABLES) -DFZX_VEHICLE_NATIVE_LOW_WORK=$(FZX_VEHICLE_NATIVE_LOW_WORK)
 endif
 FZX_MACHINE_SRCS := vehicle_native.c ../src/fzx_vehicle.c ../src/fzx_vehicle_draw.c ../src/fzx_view16.c
 endif
@@ -647,8 +660,8 @@ FZX_SH2ZAM_UNITS += $(if $(filter 1,$(FZX_SOURCE_ROAD_STREAM)),sh2zam_view_merge
 # view-camera-1.
 FZX_SH2ZAM_UNITS += $(if $(filter 1,$(FZX_SOURCE_ROAD_STREAM)),sh2zam_shade_fused.c sh2zam_view_rails.c)
 FZX_SH2ZAM_UNITS += $(if $(filter 1,$(FZX_ROAD_STREAM_CAMERA30)),sh2zam_view_camera.c)
-# C4 native vehicle arm (vehicle-kernels-1; pose-1 adds sh2zam_pose.c once qualified).
-FZX_SH2ZAM_UNITS += $(if $(filter 1,$(FZX_VEHICLE_NATIVE)),sh2zam_vehicle.c sh2zam_view_indexed.c)
+# C4 native vehicle arm (vehicle-kernels-1) and vehicle pose (pose-1).
+FZX_SH2ZAM_UNITS += $(if $(filter 1,$(FZX_VEHICLE_NATIVE)),sh2zam_vehicle.c sh2zam_view_indexed.c) $(if $(filter 1,$(FZX_VEHICLE_POSE1)),sh2zam_pose.c)
 # Simulation knobs that adopt trig12-1 / fixed-unit-1 add here (sh2zam_trig12.c, sh2zam_unit30.c).
 FZX_SH2ZAM_SRCS := $(addprefix $(SH2ZAM_ROOT)/saturn/src/,$(sort $(FZX_SH2ZAM_UNITS)))
 FZX_SH2ZAM_MISSING := $(filter-out $(wildcard $(FZX_SH2ZAM_SRCS)),$(FZX_SH2ZAM_SRCS))
@@ -685,8 +698,9 @@ SH_CFLAGS += -DFZX_SH2_DIVU=1 -O2 -std=c11 -Wall -Wextra -I../include \
 # assembly in separate objects in both stream and reference builds.
 # sh2zam_view_indexed.c (C4 native vehicle) shares sh2zi_vd_* with the C3 road's
 # sh2zam_view_rails.c; one LTO partition holding both fails to assemble.
+# pose-1's top-level assembly reads a file-static table (pose_g), which LTO renames.
 # Yaul expands SH_CFLAGS inside eval, hence defer the source-name test once.
-SH_CFLAGS += $$(if $$(filter %/sh2zam_view.c %/sh2zam_view_center.c %/sh2zam_view_indexed.c,$$<),-fno-lto,)
+SH_CFLAGS += $$(if $$(filter %/sh2zam_view.c %/sh2zam_view_center.c %/sh2zam_view_indexed.c %/sh2zam_pose.c,$$<),-fno-lto,)
 
 ifeq ($(FZX_NATIVE_CORE_EMPTY),1)
 SH_CFLAGS += -DFZX_NATIVE_CORE_EMPTY=1

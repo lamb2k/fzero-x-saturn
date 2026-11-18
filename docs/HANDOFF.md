@@ -5,8 +5,8 @@ Limit: 50 lines. History lives in git.
 
 - Resumed by owner 2026-11-17: finish-menu palette fix first; full first-course goal is unfinished.
 - Local continuation: `generated/C3-NATIVE-ACTIVE.md`; retry prep: `generated/C8-RETRY-INTEGRATION-PREP.md`.
-- Preserve original assets through offline Saturn conversion; document adaptations.
-- Source-only origin/gate1 pushes are authorized after gates and hygiene; no retail assets/releases.
+- Saturn-native renderer; source packet/hash/arithmetic and C4 stat identity gates lifted; tags optional.
+- Preserve original assets; source-only origin/gate1 pushes after gates/hygiene authorized; no retail assets/releases.
 - Ordinary pad completion/retry, audio/effects, soak, 60 fps, look and hardware remain open.
 
 ## Current C8 selection, results and records
@@ -31,20 +31,20 @@ Limit: 50 lines. History lives in git.
   HOST corruption/identity gates pass; preserve62 fog colors and415 changing inputs.
 - SH2ZAM view-edges-1 and view-guard-1 adopted; old road reference stays frozen.
 - C3 camera/pack/gather:1,291,264 vertices within1px, max552 gathered; HOST/SH-2 pass.
-  Owner revised texture gate: 1px merge gives p99 413 commands / 0.650px HOST texture error.
+  Visuals: original-game pixels/colour/defects; no numeric threshold. Old 1px metric is historical.
   view-merge-1 adopted (pointer9ff1601), pixel/Q8=256; tagged census unchanged.
   view-center-1 HOST passes old9907views. [Native C3](ROAD_STREAM_NATIVE.md) selected 7,059 finishes;
-  road p99 133.143 ms fails 16 ms stop; whole 3.929 fps MODELLED, stack 21,240 B. Ideal-image gate fails.
+  road p99 133.143 ms fails 16 ms stop; whole 3.929 fps MODELLED, stack 21,240 B. Historical image check failed.
 - C4 rebake:9.273 ms MODELLED; cost/order/stack fail. Fixed orders fail selected held-out views; see C4_OCCLUSION_FEASIBILITY.md.
 - C5 dual probe open; compact atlas reclaims128 KiB. Fixed grid HOST visual no-go; see CLOUD_GRID.md.
 
 ## Next and preserved work
 
 - Owner extension: [F Zero S cover/title branding](BRANDING.md) and [all-3D coverage](ASSET_COVERAGE.md); guest art; native C3 is a measured no-go.
-- Opus owns C3/C4 performance via isolated Claude worktree; Codex retains C4 ordering and other work.
+- Opus performance: `claude/c3-c4-perf`, `claude/c4-perf`; Codex owns visually judged C4 draw order.
 - Performance handoff: `generated/C3-C4-PERF-HANDOFF.md`; ordinary retry/audio/soak remain.
 - [Records](RECORDS.md) native state/commands qualified; final presentation cleanup remains.
 - The selected-tuning replay is distinct from the old9,907-input baseline; do not interchange them.
 - Older clip/hitch/software-road WIP remains local and unstaged. Stage named paths only.
 - Shared saturn/Makefile, saturn/main.c and tools/saturn_orig.sh retain mixed WIP; qualified cards use isolated overlays.
-- No release, SD changes or retail-derived publication. Hardware/look acceptance stays open.
+- Keep 16KiB stack, guards, no crashes, road420/vehicle70, legacy default, hygiene/ROM rules and evidence tiers.

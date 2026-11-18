@@ -1,5 +1,25 @@
 # C4 offline occlusion feasibility
 
+## Current acceptance and ownership, 2026-11-17
+
+Codex owns C4 draw order; Opus owns performance on `claude/c4-perf`.
+C4 packet/stat identity and source renderer arithmetic identity are lifted.
+Judge ordering visually against the original game's image: screen-pixel
+displacement, colour, occlusion defects and popping. No numeric visual threshold
+is set. A source-geometric proof or zero-error match to the old oracle is not a
+prerequisite; review held-out native images and motion, including transparency
+and equal-depth materials. SH2ZAM source-matching tags remain optional.
+
+Keep the vehicle70 command budget, 16 KiB unused stack, allocation guards,
+no crashes/hangs, legacy default, hygiene/ROM rules and honest evidence tiers.
+
+## Historical feasibility evidence
+
+The following results preserve earlier oracle measurements and failures. Their
+exact tolerances and proposed proof requirements are superseded by the visual
+rules above. The observed ordering defects still need native visual review;
+lifting identity gates does not turn these results into appearance acceptance.
+
 HOST sampling supports a new mechanism: derive fixed orders from actual overlap
 constraints instead of centroid keys. It does not reopen C4's native look or speed
 gates. No pack, runtime, library, native build or emulator run changed.

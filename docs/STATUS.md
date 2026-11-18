@@ -3,10 +3,10 @@ Limit: 80 lines. History lives in git. Plan: [POC_PLAN.md](POC_PLAN.md).
 Active goal: [first-course boot, selection and race completion](FIRST_COURSE_GOAL.md).
 Current C0-C8 decisions and dependencies: [render programme](RENDER_PLAN_CURRENT.md).
 ## Owner direction
-Preserve F-Zero X on Saturn using original assets, prebaked into compatible formats.
-Similar-quality rendering and behavior adaptations are authorized where exactness
-is impractical. Preserve identity and playability; document meaningful differences.
-Source assets stay private. Placeholders and missing content do not satisfy completion.
+Preserve F-Zero X with original assets prebaked for Saturn; placeholders/missing features are not completion.
+Saturn-native rendering: source packet/hash/arithmetic and C4 stat identity gates lifted; tags optional.
+Judge pixels, colour and visible defects against the original image; no numeric visual threshold.
+Keep 16 KiB stack, guards, no crashes, road420/vehicle70, legacy default, hygiene/ROM rules and evidence tiers.
 
 ## Playable extent
 
@@ -43,12 +43,12 @@ C2's [road bake](ROAD_BAKE.md) retains original rows/quads: 151,128 B metadata /
 Windows/Linux outputs and corruption controls pass; retain all 415 fog-changing inputs.
 [SH2ZAM view-edges-1](SH2ZAM_EDGES_ADOPTION.md) and [view-guard-1](SH2ZAM_GUARD_ADOPTION.md) are adopted.
 C3 [camera/pack/gather](ROAD_STREAM.md): 1,291,264 samples within 1 px, max gather 552; HOST/SH-2 pass.
-Owner revised texture metric: 1 px merge census p99 413 commands / 0.650 px texture; HOST only.
+Historical texture metric: 1 px merge census p99 413 commands / 0.650 px texture; HOST only.
 [view-merge-1](SH2ZAM_MERGE_ADOPTION.md) adopted after synthetic gates; tagged census unchanged.
 [view-round-1](SH2ZAM_ROUND_ADOPTION.md): integral adapter and unchanged fixtures pass HOST.
 [view-center-1](SH2ZAM_CENTER_ADOPTION.md): all9,907 views, zero exclusions, p99 413; 13 images pass.
 C3 [native stream](ROAD_STREAM_NATIVE.md) completes selected 7,059 inputs with exact finish/guards;
-road p99 133.143 ms and 3.929 fps MODELLED fail the 16 ms stop gate. Ideal-image gate also fails.
+road p99 133.143 ms and 3.929 fps MODELLED fail the 16 ms stop gate. Historical ideal-image check failed.
 
 C4 [vehicle rebake](MACHINE_REBAKE.md): 9.273 ms MODELLED, default-off; [shade pin](SH2ZAM_SHADE_ADOPTION.md) HOST-qualified.
 HOST p99 67 / max 112; cost/command gates fail; [fixed orders](C4_OCCLUSION_FEASIBILITY.md) fail held-out views.
@@ -74,7 +74,7 @@ Final appearance, pad retry and audio remain open; diagnostic text/HUD obscure t
 
 Older hitch, clip-divider and software-road WIP remain local and unstaged.
 Use fixed-input replay for comparisons; live autopilot depends on render cadence.
-Finish-menu functional/asset gates pass. Opus owns C3/C4 performance; Codex retains ordering/other work;
+Finish-menu gates pass. Opus: claude/c3-c4-perf and claude/c4-perf; Codex: visual C4 draw order/other work;
 ordinary retry, audio/effects, pad-only race completion and soak remain.
 C3/C4/C5 performance blockers and full combined 60 fps qualification remain.
 No release, retail-derived publication, SD write or physical acceptance occurred.

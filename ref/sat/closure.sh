@@ -70,6 +70,18 @@ if [ "$CAMERA" = 1 ]; then
     BRIDGES="$BRIDGES camera_bridge"
 fi
 if [ "$MACHINE" = 1 ]; then CFLAGS="$CFLAGS -DFZX_SOURCE_MACHINE=1"; fi
+# Simulation lane (default off): ref/sim_overrides.h, ref/sim_bridge.c, src/sim.
+# FZX_DEFER_PROJECTION (quick win 1) and FZX_SIM_CAMERA (fixed-point camera,
+# needs the deferral). The image must pass the same values to make
+# (saturn/Makefile checks the closure's symbols); the image compiles src/sim.
+DEFER=${FZX_DEFER_PROJECTION:-0}
+SIMCAM=${FZX_SIM_CAMERA:-0}
+[ "$DEFER" = 0 ] || [ "$DEFER:$CAMERA" = 1:1 ] || { echo "deferred projection requires source camera" >&2; exit 1; }
+[ "$SIMCAM" = 0 ] || [ "$SIMCAM:$DEFER" = 1:1 ] || { echo "fixed camera requires deferred projection" >&2; exit 1; }
+if [ "$DEFER" = 1 ]; then
+    CFLAGS="$CFLAGS -DFZX_DEFER_PROJECTION=1 -DFZX_SIM_CAMERA=$SIMCAM -I$W/src/sim -include $W/ref/sim_overrides.h"
+    BRIDGES="$BRIDGES sim_bridge"
+fi
 OBJ=$OUT/obj
 mkdir -p "$OBJ"
 objs=""

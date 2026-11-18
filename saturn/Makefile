@@ -214,6 +214,34 @@ else ifneq ($(FZX_SOURCE_CAMERA),0)
 $(error FZX_SOURCE_CAMERA must be 0 or 1)
 endif
 
+# Simulation lane (default off; ref/sim_overrides.h, ref/sim_bridge.c, src/sim).
+# FZX_DEFER_PROJECTION: quick win 1, the closure defers the per-tick camera
+# matrix build to its first read. FZX_SIM_CAMERA: the fixed-point camera tick
+# (needs the deferral). Image and closure must agree; nm checks the closure.
+FZX_DEFER_PROJECTION ?= 0
+FZX_SIM_CAMERA ?= 0
+FZX_CLOSURE_DEFERS := $(if $(FZX_CLOSURE),$(shell $(YAUL_ARCH_SH_PREFIX)-nm $(FZX_CLOSURE) 2>/dev/null | grep -c ' T _ref_camera_flush$$'),0)
+FZX_CLOSURE_SIM_CAMERA := $(if $(FZX_CLOSURE),$(shell $(YAUL_ARCH_SH_PREFIX)-nm $(FZX_CLOSURE) 2>/dev/null | grep -c ' T _ref_sim_camera_update$$'),0)
+ifneq ($(filter-out 0 1,$(FZX_DEFER_PROJECTION) $(FZX_SIM_CAMERA)),)
+$(error FZX_DEFER_PROJECTION and FZX_SIM_CAMERA must be 0 or 1)
+endif
+ifneq ($(FZX_DEFER_PROJECTION):$(FZX_SIM_CAMERA),$(FZX_CLOSURE_DEFERS):$(FZX_CLOSURE_SIM_CAMERA))
+$(error the closure's FZX_DEFER_PROJECTION/FZX_SIM_CAMERA ($(FZX_CLOSURE_DEFERS)/$(FZX_CLOSURE_SIM_CAMERA)) differ from the image's)
+endif
+ifeq ($(FZX_DEFER_PROJECTION),1)
+ifneq ($(FZX_SOURCE_CAMERA),1)
+$(error FZX_DEFER_PROJECTION=1 requires the source camera)
+endif
+SH_CFLAGS += -DFZX_DEFER_PROJECTION=1 -I../src/sim
+endif
+ifeq ($(FZX_SIM_CAMERA),1)
+ifneq ($(FZX_DEFER_PROJECTION),1)
+$(error FZX_SIM_CAMERA=1 requires FZX_DEFER_PROJECTION=1)
+endif
+SH_CFLAGS += -DFZX_SIM_CAMERA=1
+FZX_SIM_SRCS := ../src/sim/fzx_sim_camera.c ../src/sim/fzx_sim_standin.c
+endif
+
 ifeq ($(FZX_SOURCE_MACHINE_MENU),1)
 ifneq ($(FZX_SOURCE_COURSE_MENU):$(FZX_SOURCE_CAMERA):$(FZX_SOURCE_MACHINE),1:1:1)
 $(error FZX_SOURCE_MACHINE_MENU requires original course menu, camera and machine)
@@ -502,7 +530,7 @@ else ifneq ($(FZX_SOURCE_FINISH_MENU),0)
 $(error FZX_SOURCE_FINISH_MENU must be 0 or 1)
 endif
 
-SH_SRCS := $(FZX_FINISH_MENU_SRCS) $(FZX_RECORDS_SRCS) $(FZX_RESULTS_SRCS) $(FZX_MACHINE_MENU_SRCS) $(FZX_COURSE_MENU_SRCS) $(FZX_MENU_SRCS) $(FZX_TITLE_SRCS) $(FZX_COUNTDOWN_SRCS) $(FZX_FRAME_PROFILE_SRCS) main.c ../src/fzx.c $(FZX_ORIG_SRCS) $(FZX_HUD_SRCS) $(FZX_CAMERA_SRCS) $(FZX_ROAD_SRCS) $(FZX_SKY_SRCS) $(FZX_MACHINE_SRCS) $(wildcard $(SH2ZAM_ROOT)/saturn/src/*.c)
+SH_SRCS := $(FZX_SIM_SRCS) $(FZX_FINISH_MENU_SRCS) $(FZX_RECORDS_SRCS) $(FZX_RESULTS_SRCS) $(FZX_MACHINE_MENU_SRCS) $(FZX_COURSE_MENU_SRCS) $(FZX_MENU_SRCS) $(FZX_TITLE_SRCS) $(FZX_COUNTDOWN_SRCS) $(FZX_FRAME_PROFILE_SRCS) main.c ../src/fzx.c $(FZX_ORIG_SRCS) $(FZX_HUD_SRCS) $(FZX_CAMERA_SRCS) $(FZX_ROAD_SRCS) $(FZX_SKY_SRCS) $(FZX_MACHINE_SRCS) $(wildcard $(SH2ZAM_ROOT)/saturn/src/*.c)
 SH_CFLAGS += -DFZX_SH2_DIVU=1 -O2 -std=c11 -Wall -Wextra -I../include \
              -I$(SH2ZAM_ROOT)/saturn/include -DSH2Z_REQUIRE_SH2=1
 ifeq ($(FZX_SOURCE_ROAD_STREAM),1)

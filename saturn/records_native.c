@@ -1,4 +1,7 @@
 #include "records_native.h"
+#if FZX_DEFER_PROJECTION
+#include "sim.h"
+#endif
 #include "records_identity.h"
 #include "records_models_identity.h"
 #include "results_identity.h"
@@ -81,6 +84,9 @@ bool fzx_records_model(unsigned character,uint32_t rgb,unsigned *index,unsigned 
 }
 bool fzx_records_model_camera(void) {
     int32_t m[18];
+#if FZX_DEFER_PROJECTION
+    ref_camera_flush(1); /* the generated matrix bridge reads gCameras[1] directly */
+#endif
     if(!fzx_records_machine_matrix(m))return false;
     for(unsigned i=0;i<18;++i)if(m[i]!=fzx_records_models_matrix_q16[i])return false;
     return true;

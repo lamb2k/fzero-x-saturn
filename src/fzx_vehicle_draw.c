@@ -299,18 +299,28 @@ static inline __attribute__((always_inline)) bool face_loop(const fzx_vehicle_pa
 #ifndef SH2Z_SHADE_FACING_LIMIT
 #define SH2Z_SHADE_FACING_LIMIT 1023
 #endif
-#if defined(SH2ZAM_SHADE_VEHICLE_KERNELS_1)&&defined(SH2ZAM_VIEW_VEHICLE_KERNELS_1)
-#define native_view_indexed sh2z_view_batch_divu_indexed
-#define native_facing sh2z_shade_screen_facing
-#define native_light_indexed sh2z_shade_light_normals_indexed
-#define native_gouraud sh2z_shade_gouraud_approx
-#else
+/* SH2ZAM vehicle-kernels-1 adoption, one kernel at a time: 1 calls the SH2ZAM
+ * kernel, 0 the inline stand-in with the same signature and contract. */
+#ifndef FZX_VK1_VIEW_INDEXED
+#define FZX_VK1_VIEW_INDEXED 0
+#endif
+#ifndef FZX_VK1_FACING
+#define FZX_VK1_FACING 0
+#endif
+#ifndef FZX_VK1_LIGHT_INDEXED
+#define FZX_VK1_LIGHT_INDEXED 0
+#endif
+#ifndef FZX_VK1_GOURAUD_APPROX
+#define FZX_VK1_GOURAUD_APPROX 0
+#endif
 /* Stand-ins pending SH2ZAM tag vehicle-kernels-1 (PR #23): same signatures and
  * contracts, except that the indexed stand-ins need ascending index lists (the
  * scans give that), and use out records 0..n-1 as scratch. The Gouraud
  * stand-in is the exact kernel, within the approximate kernel's bound. */
+#if FZX_VK1_VIEW_INDEXED
+#define native_view_indexed sh2z_view_batch_divu_indexed
+#else
 static sh2z_pos16_t standin_input[FZX_VEHICLE_POSITIONS];
-static uint32_t standin_normal[FZX_VEHICLE_NORMALS];
 static bool native_view_indexed(sh2z_view_vertex_t *out,const sh2z_view_t *v,const void *positions,size_t in_stride,
         size_t count,const uint8_t *index,size_t index_count){
     if(!index_count)return true;
@@ -321,6 +331,10 @@ static bool native_view_indexed(sh2z_view_vertex_t *out,const sh2z_view_t *v,con
     for(size_t k=index_count;k-->0;)out[index[k]]=out[k];
     return true;
 }
+#endif
+#if FZX_VK1_FACING
+#define native_facing sh2z_shade_screen_facing
+#else
 static bool native_facing(uint16_t *kept,size_t *kept_count,const uint16_t *faces,size_t count,const uint8_t (*corners)[4],
         const sh2z_view_vertex_t *vertices,const sh2z_view_t *view,int32_t sign){
     (void)view;
@@ -338,6 +352,11 @@ static bool native_facing(uint16_t *kept,size_t *kept_count,const uint16_t *face
     }
     *kept_count=n;return true;
 }
+#endif
+#if FZX_VK1_LIGHT_INDEXED
+#define native_light_indexed sh2z_shade_light_normals_indexed
+#else
+static uint32_t standin_normal[FZX_VEHICLE_NORMALS];
 static bool native_light_indexed(uint8_t *out,size_t out_stride,const int8_t *normals,size_t normal_stride,size_t count,
         const uint8_t *index,size_t index_count,const sh2z_shade_light_t *light,const uint8_t reflection_lut[256]){
     if(!index_count)return true;
@@ -348,6 +367,10 @@ static bool native_light_indexed(uint8_t *out,size_t out_stride,const int8_t *no
     for(size_t k=index_count;k-->0;){uint8_t *to=out+index[k]*out_stride;const uint8_t *from=out+k*out_stride;to[0]=from[0];to[1]=from[1];to[2]=from[2];to[3]=from[3];}
     return true;
 }
+#endif
+#if FZX_VK1_GOURAUD_APPROX
+#define native_gouraud sh2z_shade_gouraud_approx
+#else
 #define native_gouraud sh2z_shade_gouraud
 #endif
 static bool native_tables(const fzx_vehicle_pack_t *pack,const fzx_vehicle_lod_t *model,unsigned lod,fzx_vehicle_work_t *work){

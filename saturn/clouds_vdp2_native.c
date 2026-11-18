@@ -199,12 +199,25 @@ bool fzx_clouds_native(vdp1_cmdt_t *commands,unsigned capacity,const fzx_view_t 
     fzx_clouds_degenerate+=fzx_clouds_rbg.degenerate;fzx_clouds_bands=submit.count;
     *count=submit.count+1+borders;fzx_clouds_pending=fzx_input_count?fzx_input_count:1;return true;
 }
-void fzx_clouds_present(void) {
-    if(!fzx_clouds_pending)return;
+uint16_t fzx_clouds_upload_log[FZX_CLOUDS_UPLOAD_LOG];
+volatile uint32_t fzx_clouds_upload_count,fzx_clouds_upload_max,fzx_clouds_upload_overruns;
+void fzx_clouds_upload_record(uint16_t start,uint32_t began_in_blank) {
+    const uint16_t ticks=(uint16_t)(cpu_frt_count_get()-start);
+    const uint32_t ended_in_blank=vdp2_tvmd_vblank_in()?1u:0u;
+    if(!began_in_blank || !ended_in_blank)++fzx_clouds_upload_overruns;
+    if(ticks>fzx_clouds_upload_max)fzx_clouds_upload_max=ticks;
+    if(fzx_clouds_upload_count<FZX_CLOUDS_UPLOAD_LOG)
+        fzx_clouds_upload_log[fzx_clouds_upload_count]=(uint16_t)((ticks>0x3fffu?0x3fffu:ticks)|
+            (began_in_blank?0x4000u:0u)|(ended_in_blank?0x8000u:0u));
+    ++fzx_clouds_upload_count;
+}
+bool fzx_clouds_present(void) {
+    if(!fzx_clouds_pending)return false;
     memcpy((void *)CLOUD_RP,&fzx_clouds_rbg.rp,sizeof(fzx_clouds_rbg.rp));
     memcpy((void *)CLOUD_WINDOW,fzx_clouds_rbg.window,sizeof(fzx_clouds_rbg.window));
     memcpy((void *)SKY_BACK,sky_lines,sizeof(sky_lines));
     volatile uint16_t *cram=(volatile uint16_t *)VDP2_CRAM_MODE_1_OFFSET(0,0,BAND_CRAM_FIRST);
     for(unsigned i=0;i<band_count;++i)cram[i]=band_colors[i];
     fzx_clouds_pending=0;++fzx_clouds_commits;
+    return true;
 }

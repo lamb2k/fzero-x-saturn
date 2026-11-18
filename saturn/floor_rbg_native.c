@@ -100,9 +100,14 @@ void fzx_floor_present(void *unused) {
     fzx_records_finish_menu_present();
 #endif
 #if FZX_CLOUDS_VDP2
-    fzx_clouds_present();
-#endif
+    /* Upload timing covers the cloud writes and the floor upload together. */
+    const uint16_t upload_start=cpu_frt_count_get();
+    const uint32_t upload_blank=vdp2_tvmd_vblank_in()?1u:0u;
+    const bool clouds=fzx_clouds_present();
+    if(!fzx_floor_pending){if(clouds)fzx_clouds_upload_record(upload_start,upload_blank);return;}
+#else
     if(!fzx_floor_pending)return;
+#endif
     const uint16_t start=cpu_frt_count_get();
     const uint32_t blank_start=vdp2_tvmd_vblank_in()?1u:0u;
     /* Variable interval -1 invokes this at VBlank when drawing has completed,
@@ -113,6 +118,9 @@ void fzx_floor_present(void *unused) {
     fzx_floor_upload_blanking=blank_start|(vdp2_tvmd_vblank_in()?2u:0u);
     fzx_floor_upload_ticks=(uint16_t)(cpu_frt_count_get()-start);
     fzx_floor_presented=fzx_floor_pending;fzx_floor_pending=0;++fzx_floor_commits;
+#if FZX_CLOUDS_VDP2
+    fzx_clouds_upload_record(upload_start,upload_blank);
+#endif
 #if FZX_FRAME_PROFILE
     fzx_fp_present();
 #endif

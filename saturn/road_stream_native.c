@@ -15,6 +15,15 @@ volatile uint32_t fzx_road_stream_cart_start,fzx_road_stream_cart_end;
 volatile uint32_t fzx_road_stream_fields,fzx_road_stream_sequence;
 fzx_road_stream_draw_stats_t fzx_road_stream_stats;
 volatile uint32_t fzx_road_stream_report[24];
+#if FZX_ROAD_STREAM_BUDGET
+#if !FZX_ROAD_STREAM_EMIT
+#error FZX_ROAD_STREAM_BUDGET requires FZX_ROAD_STREAM_EMIT
+#endif
+/* Guard counters, read by captures: frames drawn coarse, frames that dropped
+ * commands, commands dropped, the last frame's and the peak full draw size. */
+volatile uint32_t fzx_road_stream_budget_coarse_frames,fzx_road_stream_budget_drop_frames;
+volatile uint32_t fzx_road_stream_budget_dropped,fzx_road_stream_budget_last,fzx_road_stream_budget_peak;
+#endif
 static fzx_road_stream_pack_t pack;
 static fzx_road_stream_draw_work_t *work;
 static fzx_road_stream_command_t *packets;
@@ -139,7 +148,29 @@ bool fzx_road_stream_native(vdp1_cmdt_t *commands,unsigned capacity,const fzx_vi
     fzx_road_stream_busy=1;
     uint32_t n=0,emitted=0;
     if(capacity-1>FZX_ROAD_STREAM_MAX_DRAWS)capacity=FZX_ROAD_STREAM_MAX_DRAWS+1;
-#if FZX_ROAD_STREAM_EMIT
+#if FZX_ROAD_STREAM_EMIT && FZX_ROAD_STREAM_BUDGET
+    /* Road command budget guard: never more than FZX_ROAD_STREAM_BUDGET_COMMANDS
+     * road commands, the user clip included. Frames within it are the
+     * default draw, unchanged; see fzx_road_stream_draw_vdp1_guarded. */
+    fzx_road_stream_emit_t emit;sh2z_view_center_t center;fzx_road_stream_budget_t info;
+    const uint32_t budget=capacity-1<FZX_ROAD_STREAM_BUDGET_COMMANDS-1u?capacity-1:FZX_ROAD_STREAM_BUDGET_COMMANDS-1u;
+    FZX_RSP(EYE);
+    if(!fzx_road_stream_emit_setup(&emit,commands+1,capacity-1,pixels,FZX_ROAD_LOD_TEXTURE_BYTES,
+          shades,FZX_ROAD_STREAM_SHADE_BYTES)||
+#if FZX_ROAD_STREAM_CAMERA30
+       !fzx_road_stream_camera_view(&center,&fzx_source_camera,view)||
+#else
+       !fzx_view16_from_source_center(&center,view,eye)||
+#endif
+       !fzx_road_stream_draw_vdp1_guarded(work,&center,plan,pa,pb,0,&emit,budget,&n,&info,&fzx_road_stream_stats)){
+        fzx_road_stream_status=4;fzx_road_stream_busy=0;return false;
+    }
+    emitted=n;
+    fzx_road_stream_budget_last=info.full;
+    if(info.coarse)++fzx_road_stream_budget_coarse_frames;
+    if(info.dropped){++fzx_road_stream_budget_drop_frames;fzx_road_stream_budget_dropped+=info.dropped;}
+    if(info.full>fzx_road_stream_budget_peak)fzx_road_stream_budget_peak=info.full;
+#elif FZX_ROAD_STREAM_EMIT
     /* Direct emit: final VDP1 commands and Gouraud words, no packets. */
     fzx_road_stream_emit_t emit;
 #if FZX_ROAD_STREAM_CAMERA30

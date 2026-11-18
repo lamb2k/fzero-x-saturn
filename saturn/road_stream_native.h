@@ -3,6 +3,8 @@
 #include <yaul.h>
 #include "fzx_road_stream_draw.h"
 enum {FZX_ROAD_STREAM_MAX_DRAWS=512,FZX_ROAD_STREAM_SHADE_BYTES=512*8};
+/* Owner road safety budget: road commands per frame, user clip included. */
+enum {FZX_ROAD_STREAM_BUDGET_COMMANDS=420};
 extern volatile uint32_t fzx_road_stream_status,fzx_road_stream_busy;
 extern volatile uint32_t fzx_road_stream_low_start,fzx_road_stream_low_end;
 extern volatile uint32_t fzx_road_stream_cart_start,fzx_road_stream_cart_end;

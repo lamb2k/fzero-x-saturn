@@ -27,7 +27,12 @@ enum {
     FZX_RS_FORCE_FIRST=1,
     /* HOST census only: retain unaligned CLUT addresses for diagnosis. These
      * records MUST NOT be submitted to VDP1. Normal draws reject them. */
-    FZX_RS_AUDIT_UNALIGNED=2
+    FZX_RS_AUDIT_UNALIGNED=2,
+    /* Coarse tiering (budget guard): tier by the strip's longitudinal screen
+     * extent (along which the texture periods lie) instead of the quad's
+     * largest corner distance, so thin far quads are not cut into sub-pixel
+     * period pieces. Default draws never set it. */
+    FZX_RS_COARSE=4
 };
 enum {
     FZX_RS_INVALID=1,FZX_RS_GATHER,FZX_RS_PROJECT,FZX_RS_CLIP,
@@ -155,6 +160,28 @@ bool fzx_road_stream_draw_vdp1_center(fzx_road_stream_draw_work_t *,const sh2z_v
     const RefRoadPlan *,int32_t pa,int32_t pb,unsigned flags,
     const fzx_road_stream_emit_t *,uint32_t capacity,uint32_t *count,
     fzx_road_stream_draw_stats_t *);
+#ifndef FZX_ROAD_STREAM_BUDGET
+#define FZX_ROAD_STREAM_BUDGET 0
+#endif
+#if FZX_ROAD_STREAM_BUDGET
+/* Road command budget guard (FZX_ROAD_STREAM_BUDGET=1, default off). The
+ * centre draws above, never writing more than budget commands:
+ *  1. the default draw; if it fits, its output is final and unchanged;
+ *  2. otherwise the frame is drawn again with FZX_RS_COARSE;
+ *  3. if that still exceeds the budget, it is drawn once more with its first
+ *     commands in emission order (the farthest) dropped, leaving exactly budget.
+ * info reports the passes, whether coarse tiering was used, the dropped
+ * commands and the frame's full size before dropping. */
+typedef struct { uint32_t passes,coarse,dropped,full; } fzx_road_stream_budget_t;
+bool fzx_road_stream_draw_vdp1_guarded(fzx_road_stream_draw_work_t *,const sh2z_view_center_t *,
+    const RefRoadPlan *,int32_t pa,int32_t pb,unsigned flags,
+    const fzx_road_stream_emit_t *,uint32_t budget,uint32_t *count,
+    fzx_road_stream_budget_t *,fzx_road_stream_draw_stats_t *);
+bool fzx_road_stream_draw_guarded(fzx_road_stream_draw_work_t *,const sh2z_view_center_t *,
+    const RefRoadPlan *,int32_t pa,int32_t pb,unsigned flags,
+    fzx_road_stream_command_t *,uint32_t budget,uint32_t *count,
+    fzx_road_stream_budget_t *,fzx_road_stream_draw_stats_t *);
+#endif
 #if FZX_SOURCE_CAMERA
 #include "ref.h"
 /* SH2ZAM view-camera-1 centre view of the source camera (basis, Q20.12 eye,

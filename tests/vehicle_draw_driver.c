@@ -41,7 +41,7 @@ int main(int argc,char **argv){
         .focal={160*65536,160*65536},.center={160*65536,112*65536},.near_plane=16*4096,.far_plane=2000*4096,.clip={12,16,308,224}};
     fzx_vehicle_stats_t stats;
     if(!fzx_vehicle_draw(&pack,&view,&camera,&state,&work,256,emit,0,&stats)||stats.draws!=8||emits!=8||stats.palette_updates!=pack.palettes)return 6;
-    uint16_t saved[64][16];memcpy(saved,work.palette,sizeof(saved));emits=0;
+    uint16_t saved[FZX_VEHICLE_PALETTES][16];memcpy(saved,work.palette,sizeof(saved));emits=0;
     if(!fzx_vehicle_draw(&pack,&view,&camera,&state,&work,256,emit,0,&stats)||stats.draws!=8||stats.palette_updates||memcmp(saved,work.palette,sizeof(saved)))return 7;
     state.body[2]=250;
     if(!fzx_vehicle_draw(&pack,&view,&camera,&state,&work,256,emit,0,&stats)||!stats.palette_updates||!memcmp(saved,work.palette,sizeof(saved)))return 8;

@@ -298,46 +298,54 @@ static inline __attribute__((always_inline)) bool face_loop(const fzx_vehicle_pa
 #error FZX_VEHICLE_NATIVE_FACING must be -1, 0 or 1
 #endif
 static bool native_tables(const fzx_vehicle_pack_t *pack,const fzx_vehicle_lod_t *model,unsigned lod,fzx_vehicle_work_t *work){
-    if(work->native_lod==lod+1)return true;
+    fzx_vehicle_native_tables_t *const tab=work->tables;
+    if(tab->native_lod==lod+1)return true;
     const uint8_t *p=pack->data;
     if(model->faces>FZX_VEHICLE_NATIVE_FACES||model->positions>FZX_VEHICLE_POSITIONS||model->normals>FZX_VEHICLE_NORMALS)return false;
     uint8_t head[FZX_VEHICLE_NORMALS],next[FZX_VEHICLE_NATIVE_PAIRS];unsigned pairs=0;
     memset(head,0xff,sizeof(head));
     for(unsigned i=0;i<model->faces;++i){const uint8_t *f=p+model->face_at+i*56,*first=p+model->vertex_at+u16(f)*20;
-        sh2z_shade_plane_t *plane=work->planes+i;
+        sh2z_shade_plane_t *plane=tab->planes+i;
         for(unsigned k=0;k<3;++k){plane->normal[k]=(int16_t)s16(f+20+k*2);plane->first[k]=(int16_t)s16(first+k*2);}
         plane->plane=s32(f+28);
         const unsigned palette=u16(f+8);
         for(unsigned j=0;j<4;++j){const uint8_t *v=p+model->vertex_at+u16(f+j*2)*20;const unsigned normal=u16(v+16);
             if(u16(v+14)>=model->positions||normal>=model->normals)return false;
-            work->corner_position[i][j]=(uint8_t)u16(v+14);
+            tab->corner_position[i][j]=(uint8_t)u16(v+14);
             unsigned id=head[normal];
-            while(id!=0xffu&&work->pair_table[id].base!=palette)id=next[id];
+            while(id!=0xffu&&tab->pair_table[id].base!=palette)id=next[id];
             if(id==0xffu){if(pairs>=FZX_VEHICLE_NATIVE_PAIRS)return false;
-                id=pairs++;work->pair_table[id].base=(uint16_t)palette;work->pair_table[id].light=(uint16_t)normal;next[id]=head[normal];head[normal]=(uint8_t)id;}
-            work->corner_pair[i][j]=(uint8_t)id;}
-        work->face_info[i][0]=(uint16_t)palette;work->face_info[i][1]=u16(f+10);work->face_info[i][2]=u16(f+12);work->face_info[i][3]=u16(f+14);
-        work->face_texture[i]=u32(f+16);
+                id=pairs++;tab->pair_table[id].base=(uint16_t)palette;tab->pair_table[id].light=(uint16_t)normal;next[id]=head[normal];head[normal]=(uint8_t)id;}
+            tab->corner_pair[i][j]=(uint8_t)id;}
+        tab->face_info[i][0]=(uint16_t)palette;tab->face_info[i][1]=u16(f+10);tab->face_info[i][2]=u16(f+12);tab->face_info[i][3]=u16(f+14);
+        tab->face_texture[i]=u32(f+16);
     }
-    for(unsigned o=0;o<8;++o)for(unsigned i=0;i<model->faces;++i)work->orders[o][i]=u16(p+model->order_at+(o*model->faces+i)*2);
-    for(unsigned o=0;o<8;++o)if(!sh2z_shade_planes_valid(work->planes,sizeof(work->planes[0]),model->faces,work->orders[o],model->faces))return false;
-    for(unsigned i=0;i<model->positions;++i){const uint8_t *v=p+model->position_at+i*8;work->input[i]=(sh2z_pos16_t){(int16_t)u16(v),(int16_t)u16(v+2),(int16_t)u16(v+4)};}
+#if defined(__BYTE_ORDER__)&&__BYTE_ORDER__==__ORDER_BIG_ENDIAN__
+    if((model->order_at|(uintptr_t)p)&1u)return false;
+    tab->orders=(const uint16_t *)(const void *)(p+model->order_at); /* big-endian pack order is native */
+#else
+    for(unsigned i=0;i<8u*model->faces;++i)tab->order_copy[i]=u16(p+model->order_at+i*2);
+    tab->orders=tab->order_copy;
+#endif
+    for(unsigned o=0;o<8;++o)if(!sh2z_shade_planes_valid(tab->planes,sizeof(tab->planes[0]),model->faces,tab->orders+o*model->faces,model->faces))return false;
+    for(unsigned i=0;i<model->positions;++i){const uint8_t *v=p+model->position_at+i*8;tab->input[i]=(sh2z_pos16_t){(int16_t)u16(v),(int16_t)u16(v+2),(int16_t)u16(v+4)};}
     memset(work->position_seen,0,sizeof(work->position_seen));memset(work->normal_seen,0,sizeof(work->normal_seen));memset(work->pair_seen,0,sizeof(work->pair_seen));
-    work->native_pairs=(uint16_t)pairs;work->template_lod=0;work->native_lod=(uint16_t)(lod+1);return true;
+    tab->native_pairs=(uint16_t)pairs;tab->template_lod=0;tab->native_lod=(uint16_t)(lod+1);return true;
 }
 static uint32_t pack_words(unsigned high,unsigned low){return (uint32_t)(high&0xffffu)<<16|(low&0xffffu);}
 static uint32_t vram_word(const uint8_t *at){return (uint32_t)(((uintptr_t)at&0x7ffffu)>>3);}
 static bool native_templates(const fzx_vehicle_lod_t *model,unsigned lod,fzx_vehicle_work_t *work,const fzx_vehicle_target_t *target){
-    if(work->template_lod==lod+1&&work->template_key[0]==(uintptr_t)target->pixels&&work->template_key[1]==(uintptr_t)target->shades)return true;
+    fzx_vehicle_native_tables_t *const tab=work->tables;
+    if(tab->template_lod==lod+1&&tab->template_key[0]==(uintptr_t)target->pixels&&tab->template_key[1]==(uintptr_t)target->shades)return true;
     if(((uintptr_t)target->commands&3u)||((uintptr_t)(target->shades+target->palette_bytes)&3u))return false;
-    for(unsigned i=0;i<model->faces;++i){const unsigned palette=work->face_info[i][0],width=work->face_info[i][1],height=work->face_info[i][2];
+    for(unsigned i=0;i<model->faces;++i){const unsigned palette=tab->face_info[i][0],width=tab->face_info[i][1],height=tab->face_info[i][2];
         if(i*8u+8u>target->gouraud_bytes||palette*32u+32u>target->palette_bytes)return false;
-        uint32_t *t=work->templates[i];
+        uint32_t *t=tab->templates[i];
         t[0]=pack_words(target->texture_pmod,vram_word(target->shades+palette*32u));
-        t[1]=pack_words(vram_word(target->pixels+work->face_texture[i]),((width>>3)<<8|height)&0x3fffu);
+        t[1]=pack_words(vram_word(target->pixels+tab->face_texture[i]),((width>>3)<<8|height)&0x3fffu);
         t[2]=pack_words(vram_word(target->shades+target->palette_bytes+i*8u),0);
     }
-    work->template_key[0]=(uintptr_t)target->pixels;work->template_key[1]=(uintptr_t)target->shades;work->template_lod=(uint16_t)(lod+1);return true;
+    tab->template_key[0]=(uintptr_t)target->pixels;tab->template_key[1]=(uintptr_t)target->shades;tab->template_lod=(uint16_t)(lod+1);return true;
 }
 /* No library calls in the per-draw path: the Saturn build has no builtin memcpy. */
 static uint32_t corner_word(const sh2z_view_vertex_t *a){return pack_words((uint16_t)a->sx,(uint16_t)a->sy);}
@@ -364,24 +372,25 @@ static inline __attribute__((always_inline)) bool native_draw(const fzx_vehicle_
 #endif
     SUB_NOW(loop_start);
     if(!native_tables(pack,model,lod,work)||(target&&!native_templates(model,lod,work,target))){stats->fault=7;return false;}
+    const fzx_vehicle_native_tables_t *const tab=work->tables;
     stats->lod=lod==0?1u:lod==1?4u:5u;
-    size_t kept=0;const uint16_t *order=work->orders[pose.octant];
+    size_t kept=0;const uint16_t *order=tab->orders+pose.octant*model->faces;
     const bool cull=pose.eye[0]>=-SH2Z_SHADE_EYE_MAX&&pose.eye[0]<=SH2Z_SHADE_EYE_MAX&&pose.eye[1]>=-SH2Z_SHADE_EYE_MAX&&
         pose.eye[1]<=SH2Z_SHADE_EYE_MAX&&pose.eye[2]>=-SH2Z_SHADE_EYE_MAX&&pose.eye[2]<=SH2Z_SHADE_EYE_MAX;
-    if(cull){if(!sh2z_shade_cull(work->kept,&kept,order,model->faces,work->planes,sizeof(work->planes[0]),pose.eye,pose.eye_error)){stats->fault=7;return false;}}
+    if(cull){if(!sh2z_shade_cull(work->kept,&kept,order,model->faces,tab->planes,sizeof(tab->planes[0]),pose.eye,pose.eye_error)){stats->fault=7;return false;}}
     else{memcpy(work->kept,order,model->faces*sizeof(order[0]));kept=model->faces;}
     stats->culled+=(uint32_t)(model->faces-kept);
     SUB_NOW(t_cull);SUB_ADD(SUB_CULL,loop_start,t_cull);
     /* Referenced positions of the kept faces, then indexed projection. */
-    for(size_t i=0;i<kept;++i){const uint8_t *c=work->corner_position[work->kept[i]];
+    for(size_t i=0;i<kept;++i){const uint8_t *c=tab->corner_position[work->kept[i]];
         work->position_seen[c[0]]=1;work->position_seen[c[1]]=1;work->position_seen[c[2]]=1;work->position_seen[c[3]]=1;}
     unsigned positions=0;
     for(unsigned i=0;i<model->positions;++i){work->position_index[positions]=(uint8_t)i;positions+=work->position_seen[i];work->position_seen[i]=0;}
     SUB_NOW(t_fetch);SUB_ADD(SUB_FETCH,t_cull,t_fetch);
-    if(!sh2z_view_batch_divu_indexed(work->projected,&pose.view,work->input,sizeof(work->input[0]),model->positions,work->position_index,positions)){stats->fault=3;return false;}
+    if(!sh2z_view_batch_divu_indexed(work->projected,&pose.view,tab->input,sizeof(tab->input[0]),model->positions,work->position_index,positions)){stats->fault=3;return false;}
 #if FZX_VEHICLE_NATIVE_FACING
     {const size_t before=kept;
-     if(!sh2z_shade_screen_facing(work->kept,&kept,work->kept,kept,(const uint8_t (*)[4])work->corner_position,work->projected,&pose.view,FZX_VEHICLE_NATIVE_FACING)){stats->fault=7;return false;}
+     if(!sh2z_shade_screen_facing(work->kept,&kept,work->kept,kept,(const uint8_t (*)[4])tab->corner_position,work->projected,&pose.view,FZX_VEHICLE_NATIVE_FACING)){stats->fault=7;return false;}
      stats->culled+=(uint32_t)(before-kept);}
 #endif
     stats->positions=positions;
@@ -389,11 +398,11 @@ static inline __attribute__((always_inline)) bool native_draw(const fzx_vehicle_
     palettes(pack,state,work,stats);MARK(3);
     SUB_NOW(t_palettes);
     /* Pairs of the surviving faces, then their normals. */
-    for(size_t i=0;i<kept;++i){const uint8_t *c=work->corner_pair[work->kept[i]];
+    for(size_t i=0;i<kept;++i){const uint8_t *c=tab->corner_pair[work->kept[i]];
         work->pair_seen[c[0]]=1;work->pair_seen[c[1]]=1;work->pair_seen[c[2]]=1;work->pair_seen[c[3]]=1;}
     unsigned pairs=0,normals=0;
-    for(unsigned i=0;i<work->native_pairs;++i){const unsigned seen=work->pair_seen[i];
-        work->pair_index[pairs]=(uint8_t)i;work->pairs[pairs]=work->pair_table[i];work->normal_seen[work->pair_table[i].light]|=(uint8_t)seen;
+    for(unsigned i=0;i<tab->native_pairs;++i){const unsigned seen=work->pair_seen[i];
+        work->pair_index[pairs]=(uint8_t)i;work->pairs[pairs]=tab->pair_table[i];work->normal_seen[tab->pair_table[i].light]|=(uint8_t)seen;
         pairs+=seen;work->pair_seen[i]=0;}
     for(unsigned i=0;i<model->normals;++i){work->normal_index[normals]=(uint8_t)i;normals+=work->normal_seen[i];work->normal_seen[i]=0;}
     stats->normals=normals;
@@ -411,7 +420,7 @@ static inline __attribute__((always_inline)) bool native_draw(const fzx_vehicle_
     uint8_t *const gouraud=target?target->shades+target->palette_bytes:NULL;
     const uint32_t texture_ctrl=target?pack_words(target->texture_ctrl,0):0;
     for(size_t i=0;i<kept;++i){const unsigned id=work->kept[i];SUB_NOW(t_face);
-        const uint8_t *c=work->corner_position[id],*cp=work->corner_pair[id];
+        const uint8_t *c=tab->corner_position[id],*cp=tab->corner_pair[id];
         const sh2z_view_vertex_t *const a[4]={work->projected+c[0],work->projected+c[1],work->projected+c[2],work->projected+c[3]};
         const unsigned any=a[0]->outcode|a[1]->outcode|a[2]->outcode|a[3]->outcode;
         bool simple=!any;
@@ -424,26 +433,26 @@ static inline __attribute__((always_inline)) bool native_draw(const fzx_vehicle_
             const uint16_t g[4]={work->pair_value[cp[0]],work->pair_value[cp[1]],work->pair_value[cp[2]],work->pair_value[cp[3]]};
             if(target){
                 if(stats->draws>=limit){stats->fault=8;return false;}
-                uint32_t *cmd=target->commands[stats->draws];const uint32_t *t=work->templates[id];
+                uint32_t *cmd=target->commands[stats->draws];const uint32_t *t=tab->templates[id];
                 cmd[0]=texture_ctrl;cmd[1]=t[0];cmd[2]=t[1];
                 cmd[3]=corner_word(a[0]);cmd[4]=corner_word(a[1]);cmd[5]=corner_word(a[2]);cmd[6]=corner_word(a[3]);cmd[7]=t[2];
                 volatile uint32_t *slot=(volatile uint32_t *)(void *)(gouraud+id*8u);slot[0]=gouraud_word(g[0],g[1]);slot[1]=gouraud_word(g[2],g[3]);
                 ++stats->draws;
             } else {
-                fzx_vehicle_quad_t q={0};q.face=(uint16_t)id;q.palette=work->face_info[id][0];q.width=work->face_info[id][1];q.height=work->face_info[id][2];q.texture=work->face_texture[id];
+                fzx_vehicle_quad_t q={0};q.face=(uint16_t)id;q.palette=tab->face_info[id][0];q.width=tab->face_info[id][1];q.height=tab->face_info[id][2];q.texture=tab->face_texture[id];
                 for(unsigned j=0;j<4;++j){q.x[j]=a[j]->sx;q.y[j]=a[j]->sy;q.gouraud[j]=g[j];}
                 if(!send(&q,capacity,emit,context,stats))return false;
             }
             SUB_COUNT(SUBN_SENT);{SUB_NOW(t_send);SUB_ADD(SUB_SEND,t_face,t_send);}
-        } else {SUB_COUNT(SUBN_CLIPPED);const unsigned n=work->face_info[id][3];
+        } else {SUB_COUNT(SUBN_CLIPPED);const unsigned n=tab->face_info[id][3];
             int32_t points[4][3];
             for(unsigned j=0;j<4;++j){points[j][0]=a[j]->x/4;points[j][1]=a[j]->y/4;points[j][2]=a[j]->z/4;}
             int32_t clipped[10][3],screen[10][2];int count=fzx_view_clip(view,(const int32_t(*)[3])points,n,clipped);
             if(count<0){stats->fault=5;return false;}if(count<3){++stats->culled;continue;}++stats->clipped;
             for(int j=0;j<count;++j)if(!fzx_view_project(view,clipped[j],screen[j])){stats->fault=6;return false;}
             uint8_t average[4];
-            for(unsigned k=0;k<4;++k){unsigned sum=0;for(unsigned j=0;j<n;++j)sum+=work->light[work->pair_table[cp[j]].light][k];average[k]=(uint8_t)(sum/n);}
-            const uint16_t color=sh2z_shade_solid(work->representative[work->face_info[id][0]],average,state->fog);
+            for(unsigned k=0;k<4;++k){unsigned sum=0;for(unsigned j=0;j<n;++j)sum+=work->light[tab->pair_table[cp[j]].light][k];average[k]=(uint8_t)(sum/n);}
+            const uint16_t color=sh2z_shade_solid(work->representative[tab->face_info[id][0]],average,state->fog);
             for(int j=1;j<count-1;++j){const unsigned indices[4]={0,(unsigned)j,(unsigned)j+1,(unsigned)j+1};
                 int16_t x[4],y[4];for(unsigned k=0;k<4;++k){x[k]=(int16_t)(screen[indices[k]][0]/65536);y[k]=(int16_t)(screen[indices[k]][1]/65536);}
                 if(target){
@@ -453,7 +462,7 @@ static inline __attribute__((always_inline)) bool native_draw(const fzx_vehicle_
                     for(unsigned k=0;k<4;++k)cmd[3+k]=pack_words((uint16_t)x[k],(uint16_t)y[k]);
                     cmd[7]=0;++stats->draws;
                 } else {
-                    fzx_vehicle_quad_t q={0};q.face=(uint16_t)id;q.palette=work->face_info[id][0];q.solid=true;q.color=color;
+                    fzx_vehicle_quad_t q={0};q.face=(uint16_t)id;q.palette=tab->face_info[id][0];q.solid=true;q.color=color;
                     for(unsigned k=0;k<4;++k){q.x[k]=x[k];q.y[k]=y[k];}
                     if(!send(&q,capacity,emit,context,stats))return false;
                 }
@@ -472,6 +481,9 @@ bool fzx_vehicle_draw(const fzx_vehicle_pack_t *pack,const fzx_view_t *view,cons
     if(!stats)return false;
     memset(stats,0,sizeof(*stats));
     if(!pack||!pack->data||!view||!camera||!state||!work||!emit||state->faults||state->source_lod<0||state->source_lod>6){stats->fault=1;return false;}
+    /* Host drivers that do not place the tables get static ones. */
+    static fzx_vehicle_native_tables_t tables;
+    if(!work->tables)work->tables=&tables;
     return native_draw(pack,view,camera,state,work,NULL,emit,context,capacity,stats);
 }
 bool fzx_vehicle_draw_native(const fzx_vehicle_pack_t *pack,const fzx_view_t *view,const RefCamera *camera,
@@ -479,7 +491,7 @@ bool fzx_vehicle_draw_native(const fzx_vehicle_pack_t *pack,const fzx_view_t *vi
                              uint32_t *count,fzx_vehicle_stats_t *stats){
     if(!stats)return false;
     memset(stats,0,sizeof(*stats));
-    if(!count||!pack||!pack->data||!view||!camera||!state||!work||!target||!target->commands||!target->pixels||!target->shades||
+    if(!count||!pack||!pack->data||!view||!camera||!state||!work||!work->tables||!target||!target->commands||!target->pixels||!target->shades||
        state->faults||state->source_lod<0||state->source_lod>6){stats->fault=1;return false;}
     const bool ok=native_draw(pack,view,camera,state,work,target,NULL,NULL,0,stats);
     *count=stats->draws;return ok;

@@ -37,6 +37,10 @@ endif
 ifneq ($(filter $(FZX_VEHICLE_FAST),0 1),$(FZX_VEHICLE_FAST))
 $(error FZX_VEHICLE_FAST must be 0 or 1)
 endif
+FZX_VEHICLE_NATIVE_LOW_TABLES ?= 1
+ifneq ($(filter $(FZX_VEHICLE_NATIVE_LOW_TABLES),0 1),$(FZX_VEHICLE_NATIVE_LOW_TABLES))
+$(error FZX_VEHICLE_NATIVE_LOW_TABLES must be 0 or 1)
+endif
 ifneq ($(filter $(FZX_VEHICLE_SUBPROFILE),0 1),$(FZX_VEHICLE_SUBPROFILE))
 $(error FZX_VEHICLE_SUBPROFILE must be 0 or 1)
 endif
@@ -424,7 +428,8 @@ ifeq ($(FZX_VEHICLE_FAST),1)
 SH_CFLAGS += -DFZX_VEHICLE_FAST=1
 endif
 ifeq ($(FZX_VEHICLE_NATIVE),1)
-SH_CFLAGS += -DFZX_VEHICLE_NATIVE=1 -DFZX_VEHICLE_FAST=1
+SH_CFLAGS += -DFZX_VEHICLE_NATIVE=1 -DFZX_VEHICLE_FAST=1 -DFZX_VEHICLE_NATIVE_LOW_TABLES=$(FZX_VEHICLE_NATIVE_LOW_TABLES)
+FZX_SH2ZAM_C4 := 1
 endif
 FZX_MACHINE_SRCS := vehicle_native.c ../src/fzx_vehicle.c ../src/fzx_vehicle_draw.c ../src/fzx_view16.c
 endif
@@ -478,7 +483,15 @@ else ifneq ($(FZX_SOURCE_RECORDS),0)
 $(error FZX_SOURCE_RECORDS must be 0 or 1)
 endif
 
-SH_SRCS := $(FZX_RECORDS_SRCS) $(FZX_RESULTS_SRCS) $(FZX_MACHINE_MENU_SRCS) $(FZX_COURSE_MENU_SRCS) $(FZX_MENU_SRCS) $(FZX_TITLE_SRCS) $(FZX_COUNTDOWN_SRCS) $(FZX_FRAME_PROFILE_SRCS) main.c ../src/fzx.c $(FZX_ORIG_SRCS) $(FZX_HUD_SRCS) $(FZX_CAMERA_SRCS) $(FZX_ROAD_SRCS) $(FZX_SKY_SRCS) $(FZX_MACHINE_SRCS) $(wildcard $(SH2ZAM_ROOT)/saturn/src/*.c)
+# SH2ZAM units only the C4 native vehicle arm uses (vehicle-kernels-1; pose-1
+# once tagged) are compiled only when that arm is selected: their assembly
+# kernels and tables are not garbage-collected.
+FZX_SH2ZAM_C4_UNITS := $(addprefix $(SH2ZAM_ROOT)/saturn/src/,sh2zam_vehicle.c sh2zam_view_indexed.c)
+FZX_SH2ZAM_SRCS := $(filter-out $(FZX_SH2ZAM_C4_UNITS),$(wildcard $(SH2ZAM_ROOT)/saturn/src/*.c))
+ifeq ($(FZX_SH2ZAM_C4),1)
+FZX_SH2ZAM_SRCS += $(filter $(FZX_SH2ZAM_C4_UNITS),$(wildcard $(SH2ZAM_ROOT)/saturn/src/*.c))
+endif
+SH_SRCS := $(FZX_RECORDS_SRCS) $(FZX_RESULTS_SRCS) $(FZX_MACHINE_MENU_SRCS) $(FZX_COURSE_MENU_SRCS) $(FZX_MENU_SRCS) $(FZX_TITLE_SRCS) $(FZX_COUNTDOWN_SRCS) $(FZX_FRAME_PROFILE_SRCS) main.c ../src/fzx.c $(FZX_ORIG_SRCS) $(FZX_HUD_SRCS) $(FZX_CAMERA_SRCS) $(FZX_ROAD_SRCS) $(FZX_SKY_SRCS) $(FZX_MACHINE_SRCS) $(FZX_SH2ZAM_SRCS)
 SH_CFLAGS += -DFZX_SH2_DIVU=1 -O2 -std=c11 -Wall -Wextra -I../include \
              -I$(SH2ZAM_ROOT)/saturn/include -DSH2Z_REQUIRE_SH2=1
 ifeq ($(FZX_NATIVE_CORE_EMPTY),1)

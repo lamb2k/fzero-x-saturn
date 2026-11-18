@@ -23,10 +23,21 @@ static fzx_vehicle_work_t *work;
 #define FZX_VEHICLE_NATIVE 0
 #endif
 #if FZX_VEHICLE_NATIVE
-/* Native arm: the per-draw work (projected vertices, lights, native face tables,
- * pair scratch) lives in high work RAM; only the pack metadata stays low. */
+/* Native arm: the per-draw work (projected vertices, lights, pair scratch)
+ * lives in high work RAM. FZX_VEHICLE_NATIVE_LOW_TABLES (default 1) keeps the
+ * per-LOD tables (planes, face records, corner ids, pair table, templates) in
+ * low work RAM after the pack metadata, to keep high work RAM for the stack. */
+#ifndef FZX_VEHICLE_NATIVE_LOW_TABLES
+#define FZX_VEHICLE_NATIVE_LOW_TABLES 1
+#endif
 static fzx_vehicle_work_t high_work __attribute__((aligned(32)));
+static fzx_vehicle_native_tables_t *tables;
+#if FZX_VEHICLE_NATIVE_LOW_TABLES
+#define WORK_LOW_BYTES sizeof(*tables)
+#else
+static fzx_vehicle_native_tables_t high_tables __attribute__((aligned(32)));
 #define WORK_LOW_BYTES 0u
+#endif
 #else
 #define WORK_LOW_BYTES sizeof(*work)
 #endif
@@ -56,6 +67,11 @@ bool fzx_machine_load(void *vram){
     fzx_machine_low_start=(uint32_t)metadata;fzx_machine_low_end=(uint32_t)end;
 #if FZX_VEHICLE_NATIVE
     work=&high_work;
+#if FZX_VEHICLE_NATIVE_LOW_TABLES
+    tables=(fzx_vehicle_native_tables_t *)cache;
+#else
+    tables=&high_tables;
+#endif
 #else
     work=(fzx_vehicle_work_t *)cache;
 #endif
@@ -63,7 +79,11 @@ bool fzx_machine_load(void *vram){
     if(!fzx_texture_cd_load("MACHINE.PAK",FZX_MACHINE_REBAKE_METADATA_BYTES,FZX_MACHINE_REBAKE_METADATA_HASH,(void *)metadata,(void *)scratch,log-32-scratch)||
        !fzx_vehicle_pack_open(&pack,(void *)metadata,FZX_MACHINE_REBAKE_METADATA_BYTES,FZX_MACHINE_REBAKE_TEXTURE_BYTES,FZX_MACHINE_REBAKE_METADATA_HASH,false)||
        !fzx_texture_cd_load("MACHTX.PAK",FZX_MACHINE_REBAKE_TEXTURE_BYTES,FZX_MACHINE_REBAKE_TEXTURE_HASH,vram,(void *)scratch,log-32-scratch)){fzx_machine_status=3;return false;}
-    memset(work,0,sizeof(*work));fzx_machine_status=1;return true;
+    memset(work,0,sizeof(*work));
+#if FZX_VEHICLE_NATIVE
+    memset(tables,0,sizeof(*tables));work->tables=tables;
+#endif
+    fzx_machine_status=1;return true;
 }
 
 typedef struct {vdp1_cmdt_t *commands;uintptr_t pixels,shades;unsigned count;vdp1_cmdt_t texture,solid;} submit_t;

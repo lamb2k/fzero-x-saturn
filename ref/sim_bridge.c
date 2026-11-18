@@ -112,9 +112,6 @@ static void fl3(Vec3f* v, const int32_t in[3], unsigned int frac) {
 static void fxb(sh2z_basis30_t* b, const Mtx3F* m) {
     fx3(b->x, &m->x, 30); fx3(b->y, &m->y, 30); fx3(b->z, &m->z, 30);
 }
-static void flb(Mtx3F* m, const sh2z_basis30_t* b) {
-    fl3(&m->x, b->x, 30); fl3(&m->y, b->y, 30); fl3(&m->z, b->z, 30);
-}
 
 static void fix_constants(void) {
     const CameraRaceSettingInfo* r = gNumPlayers == 2 ? &kWidescreenCameraRaceSettings[CAMERA_RACE_SETTING_REGULAR]
@@ -130,71 +127,105 @@ static void fix_constants(void) {
     k_ready = 1;
 }
 
+/* Float <-> fixed field maps (table-driven: one loop instead of ~150 inline
+ * conversions keeps the SH-2 image inside its 16 KiB stack margin). Each row:
+ * float offset in Camera (CAM) or CameraSettings (SET), FzxCam offset, binary
+ * point, number of consecutive words, and EXP when the fixed tick writes the
+ * field (exported to the float mirror at flush; every row is imported). */
+typedef struct {
+    uint16_t f, x;
+    uint8_t frac, n, flags;
+} FixMap;
+enum { CAM = 0, SET = 1, EXP = 2 };
+#define MC(fl, fi, q, n, e) { offsetof(Camera, fl), offsetof(FzxCam, fi), q, n, CAM | (e) }
+#define MS(fl, fi, q, n, e) { offsetof(CameraSettings, fl), offsetof(FzxCam, fi), q, n, SET | (e) }
+static const FixMap map_common[] = {
+    MC(targetFov, target_fov, 16, 1, EXP), MC(focusPos, focus, 12, 3, EXP), MC(racerBasis.y, racer_up, 30, 3, EXP),
+    MC(eye, eye, 12, 3, EXP), MC(at, at, 12, 3, EXP), MC(basis, basis, 30, 9, EXP),
+    MC(xzNormalizedX, xz_x, 30, 1, EXP), MC(xzNormalizedZ, xz_z, 30, 1, EXP), MC(fov, fov, 16, 1, EXP),
+    MC(frustrumCenterX, fcx, 16, 1, EXP), MC(frustrumCenterY, fcy, 16, 1, EXP),
+    MS(parameters.at, p_at, 12, 3, EXP), MS(parameters.eye, p_eye, 12, 3, EXP), MS(parameters.up, up, 30, 3, EXP),
+    MS(parameters.targetUp, target_up, 30, 3, EXP), MS(parameters.upLerpFactor, up_lerp, 30, 1, 0),
+    MS(parameters.fov, p_fov, 16, 1, EXP), MS(parameters.targetFov, p_target_fov, 16, 1, EXP),
+    MS(parameters.fovLerpFactor, fov_lerp, 30, 1, 0),
+    MS(parameters.frustrumCenterX, p_fcx, 16, 1, EXP), MS(parameters.frustrumCenterY, p_fcy, 16, 1, EXP),
+    MS(parameters.targetFrustrumCenterX, p_target_fcx, 16, 1, EXP),
+    MS(parameters.targetFrustrumCenterY, p_target_fcy, 16, 1, EXP),
+    MS(parameters.frustrumCenterXLerpFactor, fcx_lerp, 30, 1, 0),
+    MS(parameters.frustrumCenterYLerpFactor, fcy_lerp, 30, 1, 0),
+};
+static const FixMap map_follow[] = {
+    MS(followSmooth.basis, fs_basis, 30, 9, EXP), MS(followSmooth.anchorPoint, fs_anchor, 12, 3, EXP),
+    MS(followSmooth.distance, fs_distance, 12, 1, EXP), MS(followSmooth.targetDistance, fs_target_distance, 12, 1, 0),
+    MS(followSmooth.distanceLerpFactor, fs_distance_lerp, 30, 1, 0), MS(followSmooth.pitch, fs_pitch, 16, 1, EXP),
+    MS(followSmooth.targetPitch, fs_target_pitch, 16, 1, 0), MS(followSmooth.pitchLerpFactor, fs_pitch_lerp, 30, 1, 0),
+    MS(followSmooth.yaw, fs_yaw, 16, 1, EXP), MS(followSmooth.targetYaw, fs_target_yaw, 16, 1, EXP),
+    MS(followSmooth.yawLerpFactor, fs_yaw_lerp, 30, 1, 0),
+};
+static const FixMap map_orbit[] = {
+    MS(orbit.anchorPos, ob_anchor, 12, 3, EXP), MS(orbit.basis, ob_basis, 30, 9, EXP),
+    MS(orbit.distance, ob_distance, 12, 1, EXP), MS(orbit.targetDistance, ob_target_distance, 12, 1, EXP),
+    MS(orbit.distanceLerpFactor, ob_distance_lerp, 30, 1, 0), MS(orbit.pitch, ob_pitch, 16, 1, EXP),
+    MS(orbit.targetPitch, ob_target_pitch, 16, 1, 0), MS(orbit.pitchLerpFactor, ob_pitch_lerp, 30, 1, 0),
+    MS(orbit.yaw, ob_yaw, 16, 1, EXP), MS(orbit.targetYaw, ob_target_yaw, 16, 1, EXP),
+    MS(orbit.yawLerpFactor, ob_yaw_lerp, 30, 1, 0),
+};
+static const FixMap map_at_eye[] = {
+    MS(atEye.targetAt, ae_target_at, 12, 3, EXP), MS(atEye.targetEye, ae_target_eye, 12, 3, 0),
+    MS(atEye.atLerpFactor, ae_at_lerp, 30, 1, 0), MS(atEye.eyeLerpFactor, ae_eye_lerp, 30, 1, 0),
+};
+static const FixMap map_local[] = {
+    MS(localAnchor.anchorPoint, la_anchor, 12, 3, 0), MS(localAnchor.basis, la_basis, 30, 9, 0),
+    MS(localAnchor.localAtCoordinates, la_at, 12, 3, EXP), MS(localAnchor.targetLocalAt, la_target_at, 12, 3, 0),
+    MS(localAnchor.localEyeCoordinates, la_eye, 12, 3, EXP), MS(localAnchor.targetLocalEye, la_target_eye, 12, 3, 0),
+    MS(localAnchor.localAtLerpFactor, la_at_lerp, 30, 1, 0), MS(localAnchor.localEyeLerpFactor, la_eye_lerp, 30, 1, 0),
+};
+#undef MC
+#undef MS
+_Static_assert(sizeof(Vec3f) == 12 && sizeof(Mtx3F) == 36 && sizeof(sh2z_basis30_t) == 36, "packed float/fixed rows");
+
+/* to_fix: float -> fixed (import) for every row; else fixed -> float for EXP rows. */
+static void fix_map(unsigned int i, const FixMap* m, unsigned int rows, int to_fix) {
+    unsigned char* const base[2] = { (unsigned char*)&gCameras[i], (unsigned char*)&sCameraSettings[i] };
+    unsigned char* const fixed = (unsigned char*)&fzx_sim_cam[i];
+    for (; rows--; ++m) {
+        unsigned char* f = base[m->flags & SET] + m->f;
+        int32_t* x = (int32_t*)(fixed + m->x);
+        unsigned int k;
+        if (!to_fix && !(m->flags & EXP)) continue;
+        for (k = 0; k < m->n; ++k, f += 4) {
+            uint32_t bits;
+            if (to_fix) {
+                memcpy(&bits, f, 4);
+                x[k] = fzx_f32_to_fix(bits, m->frac);
+            } else {
+                bits = fzx_fix_to_f32(x[k], m->frac);
+                memcpy(f, &bits, 4);
+            }
+        }
+    }
+}
+#define ROWS(a) (sizeof(a) / sizeof((a)[0]))
+static void fix_map_all(unsigned int i, int to_fix) {
+    fix_map(i, map_common, ROWS(map_common), to_fix);
+    switch (sCameraSettings[i].type) {
+        case CAMERA_TYPE_FOLLOW_SMOOTH: fix_map(i, map_follow, ROWS(map_follow), to_fix); break;
+        case CAMERA_TYPE_ORBIT_AT:
+        case CAMERA_TYPE_ORBIT_EYE: fix_map(i, map_orbit, ROWS(map_orbit), to_fix); break;
+        case CAMERA_TYPE_AT_EYE: fix_map(i, map_at_eye, ROWS(map_at_eye), to_fix); break;
+        case CAMERA_TYPE_LOCAL_ANCHOR: fix_map(i, map_local, ROWS(map_local), to_fix); break;
+        default: break;
+    }
+}
+
 /* Float source state -> fixed (every field the fixed tick reads). */
 static void fix_import(unsigned int i) {
     const Camera* s = &gCameras[i];
-    const CameraSettings* t = &sCameraSettings[i];
-    const CameraParameters* p = &t->parameters;
     FzxCam* c = &fzx_sim_cam[i];
     c->mode = s->mode; c->race_setting = s->raceSetting; c->look_back = s->lookBackRotate;
     c->fov_flags = s->fovFlags; c->state = s->state; c->timer = s->timer;
-    c->target_fov = fx(&s->targetFov, 16);
-    fx3(c->focus, &s->focusPos, 12);
-    fx3(c->racer_up, &s->racerBasis.y, 30);
-    fx3(c->eye, &s->eye, 12); fx3(c->at, &s->at, 12);
-    fxb(&c->basis, &s->basis);
-    c->xz_x = fx(&s->xzNormalizedX, 30); c->xz_z = fx(&s->xzNormalizedZ, 30);
-    c->fov = fx(&s->fov, 16); c->fcx = fx(&s->frustrumCenterX, 16); c->fcy = fx(&s->frustrumCenterY, 16);
-    c->type = t->type;
-    fx3(c->p_at, &p->at, 12); fx3(c->p_eye, &p->eye, 12);
-    fx3(c->up, &p->up, 30); fx3(c->target_up, &p->targetUp, 30);
-    c->up_lerp = fx(&p->upLerpFactor, 30);
-    c->p_fov = fx(&p->fov, 16); c->p_target_fov = fx(&p->targetFov, 16); c->fov_lerp = fx(&p->fovLerpFactor, 30);
-    c->p_fcx = fx(&p->frustrumCenterX, 16); c->p_fcy = fx(&p->frustrumCenterY, 16);
-    c->p_target_fcx = fx(&p->targetFrustrumCenterX, 16); c->p_target_fcy = fx(&p->targetFrustrumCenterY, 16);
-    c->fcx_lerp = fx(&p->frustrumCenterXLerpFactor, 30); c->fcy_lerp = fx(&p->frustrumCenterYLerpFactor, 30);
-    switch (t->type) {
-        case CAMERA_TYPE_FOLLOW_SMOOTH: {
-            const CameraTypeFollowSmooth* f = &t->followSmooth;
-            fxb(&c->fs_basis, &f->basis);
-            fx3(c->fs_anchor, &f->anchorPoint, 12);
-            c->fs_distance = fx(&f->distance, 12); c->fs_target_distance = fx(&f->targetDistance, 12);
-            c->fs_distance_lerp = fx(&f->distanceLerpFactor, 30);
-            c->fs_pitch = fx(&f->pitch, 16); c->fs_target_pitch = fx(&f->targetPitch, 16);
-            c->fs_pitch_lerp = fx(&f->pitchLerpFactor, 30);
-            c->fs_yaw = fx(&f->yaw, 16); c->fs_target_yaw = fx(&f->targetYaw, 16);
-            c->fs_yaw_lerp = fx(&f->yawLerpFactor, 30);
-            break;
-        }
-        case CAMERA_TYPE_ORBIT_AT:
-        case CAMERA_TYPE_ORBIT_EYE: {
-            const CameraTypeOrbit* o = &t->orbit;
-            fx3(c->ob_anchor, &o->anchorPos, 12);
-            fxb(&c->ob_basis, &o->basis);
-            c->ob_distance = fx(&o->distance, 12); c->ob_target_distance = fx(&o->targetDistance, 12);
-            c->ob_distance_lerp = fx(&o->distanceLerpFactor, 30);
-            c->ob_pitch = fx(&o->pitch, 16); c->ob_target_pitch = fx(&o->targetPitch, 16);
-            c->ob_pitch_lerp = fx(&o->pitchLerpFactor, 30);
-            c->ob_yaw = fx(&o->yaw, 16); c->ob_target_yaw = fx(&o->targetYaw, 16);
-            c->ob_yaw_lerp = fx(&o->yawLerpFactor, 30);
-            break;
-        }
-        case CAMERA_TYPE_AT_EYE:
-            fx3(c->ae_target_at, &t->atEye.targetAt, 12); fx3(c->ae_target_eye, &t->atEye.targetEye, 12);
-            c->ae_at_lerp = fx(&t->atEye.atLerpFactor, 30); c->ae_eye_lerp = fx(&t->atEye.eyeLerpFactor, 30);
-            break;
-        case CAMERA_TYPE_LOCAL_ANCHOR: {
-            const CameraTypeLocalAnchor* l = &t->localAnchor;
-            fx3(c->la_anchor, &l->anchorPoint, 12);
-            fxb(&c->la_basis, &l->basis);
-            fx3(c->la_at, &l->localAtCoordinates, 12); fx3(c->la_target_at, &l->targetLocalAt, 12);
-            fx3(c->la_eye, &l->localEyeCoordinates, 12); fx3(c->la_target_eye, &l->targetLocalEye, 12);
-            c->la_at_lerp = fx(&l->localAtLerpFactor, 30); c->la_eye_lerp = fx(&l->localEyeLerpFactor, 30);
-            break;
-        }
-        default:
-            break;
-    }
+    c->type = sCameraSettings[i].type;
+    fix_map_all(i, 1);
     c->pitch_index = c->yaw_index = -99999;
     c->pan_q16 = -1;
 }
@@ -210,54 +241,9 @@ static void fix_export_tick(unsigned int i) {
 
 /* Fixed -> float mirror of every field the fixed tick writes; at the first read. */
 static void fix_export(unsigned int i) {
-    Camera* s = &gCameras[i];
-    CameraSettings* t = &sCameraSettings[i];
-    CameraParameters* p = &t->parameters;
-    const FzxCam* c = &fzx_sim_cam[i];
     fix_stale &= ~(1u << i);
     fix_export_tick(i);
-    fl(&s->targetFov, c->target_fov, 16);
-    fl3(&s->focusPos, c->focus, 12);
-    fl3(&s->racerBasis.y, c->racer_up, 30);
-    fl3(&s->eye, c->eye, 12); fl3(&s->at, c->at, 12);
-    flb(&s->basis, &c->basis);
-    fl(&s->xzNormalizedX, c->xz_x, 30); fl(&s->xzNormalizedZ, c->xz_z, 30);
-    fl(&s->fov, c->fov, 16); fl(&s->frustrumCenterX, c->fcx, 16); fl(&s->frustrumCenterY, c->fcy, 16);
-    fl3(&p->at, c->p_at, 12); fl3(&p->eye, c->p_eye, 12);
-    fl3(&p->up, c->up, 30); fl3(&p->targetUp, c->target_up, 30);
-    fl(&p->fov, c->p_fov, 16); fl(&p->targetFov, c->p_target_fov, 16);
-    fl(&p->frustrumCenterX, c->p_fcx, 16); fl(&p->frustrumCenterY, c->p_fcy, 16);
-    fl(&p->targetFrustrumCenterX, c->p_target_fcx, 16); fl(&p->targetFrustrumCenterY, c->p_target_fcy, 16);
-    switch (t->type) {
-        case CAMERA_TYPE_FOLLOW_SMOOTH: {
-            CameraTypeFollowSmooth* f = &t->followSmooth;
-            flb(&f->basis, &c->fs_basis);
-            fl3(&f->anchorPoint, c->fs_anchor, 12);
-            fl(&f->distance, c->fs_distance, 12);
-            fl(&f->pitch, c->fs_pitch, 16);
-            fl(&f->yaw, c->fs_yaw, 16); fl(&f->targetYaw, c->fs_target_yaw, 16);
-            break;
-        }
-        case CAMERA_TYPE_ORBIT_AT:
-        case CAMERA_TYPE_ORBIT_EYE: {
-            CameraTypeOrbit* o = &t->orbit;
-            fl3(&o->anchorPos, c->ob_anchor, 12);
-            flb(&o->basis, &c->ob_basis);
-            fl(&o->distance, c->ob_distance, 12); fl(&o->targetDistance, c->ob_target_distance, 12);
-            fl(&o->pitch, c->ob_pitch, 16);
-            fl(&o->yaw, c->ob_yaw, 16); fl(&o->targetYaw, c->ob_target_yaw, 16);
-            break;
-        }
-        case CAMERA_TYPE_AT_EYE:
-            fl3(&t->atEye.targetAt, c->ae_target_at, 12);
-            break;
-        case CAMERA_TYPE_LOCAL_ANCHOR:
-            fl3(&t->localAnchor.localAtCoordinates, c->la_at, 12);
-            fl3(&t->localAnchor.localEyeCoordinates, c->la_eye, 12);
-            break;
-        default:
-            break;
-    }
+    fix_map_all(i, 0);
 }
 
 static void hash_word(uint32_t w) {
@@ -326,6 +312,7 @@ static void fix_tick(unsigned int i) {
     hash_word((uint32_t)c->fov); hash_word((uint32_t)c->fcy); hash_word((uint32_t)c->pan_q16);
 }
 
+#ifndef __sh__ /* the chaos arm and the snapshot are HOST harness only */
 /* Chaos floor: +-1 ulp on every float field the camera tick writes. */
 static void nudge(f32* f) {
     uint32_t bits;
@@ -350,6 +337,8 @@ static void chaos(unsigned int i) {
     }
 }
 
+#endif
+
 void ref_sim_set_arm(int arm, unsigned int seed) {
     sim_arm = arm;
     chaos_state = seed;
@@ -370,14 +359,19 @@ void ref_sim_camera_update(void) {
         fix_valid = 0;
     }
     (Camera_Update)();
+#ifndef __sh__
     if (sim_arm == 2) for (i = 0; i < (unsigned int)sNumCameras && i < 2; ++i) chaos(i);
+#endif
 }
+
+#ifndef __sh__
 
 static float angle_float(f32 deg) { return (float)Math_Round(DEG_TO_FZXANG2(deg)); }
 
 void ref_sim_snapshot(RefSimTick* out) {
     unsigned int i;
-    memset(out, 0, sizeof(*out));
+    static const RefSimTick zero;
+    *out = zero;
     out->rng[0] = gRandSeed1; out->rng[1] = (int32_t)gRandMask1;
     out->rng[2] = gRandSeed2; out->rng[3] = (int32_t)gRandMask2;
     out->camera_count = sNumCameras;
@@ -426,4 +420,5 @@ void ref_sim_snapshot(RefSimTick* out) {
         }
     }
 }
+#endif
 #endif

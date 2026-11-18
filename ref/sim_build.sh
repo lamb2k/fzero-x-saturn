@@ -39,7 +39,7 @@ CFLAGS="-m32 -msse2 -mfpmath=sse -fno-fast-math -fno-unsafe-math-optimizations -
  -D_LANGUAGE_C -DLANGUAGE_C -DF3DEX_GBI_2 -DNDEBUG -DVERSION_US=1 -DBUILD_VERSION=VERSION_I -DASSET_VERSION=us
  -DASSET_REVISION=rev0 -DLEO_VERSION=LEO_VERSION_A -DMFS_VERSION=MFS_VERSION_A -DNON_MATCHING -DAVOID_UB
  -D_MIPS_SZLONG=32 -D_MIPS_SZINT=32 -I$D/include -I$D/include/libultra -I$D/include/libc -I$D -I$D/src
- -I$ROOT/ref -I$ROOT/src/sim -I$STUB -include $ROOT/ref/overrides.h -include $STUB/asset_syms.h
+ -I$ROOT/ref -I$ROOT/src/sim -I$ROOT/third_party/SH2ZAM/saturn/include -I$STUB -include $ROOT/ref/overrides.h -include $STUB/asset_syms.h
  -DFZX_SOURCE_CAMERA=1 -I$ASSETS -DFZX_DEFER_PROJECTION=$DEFER -DFZX_SIM_CAMERA=$SIMCAM -include $ROOT/ref/sim_overrides.h"
 [ "$MM" = 0 ] || CFLAGS="$CFLAGS -DFZX_SOURCE_MACHINE_MENU=1"
 SOURCES="src/game/racer.c src/game/course.c src/game/course_gadgets.c src/sys/math.c src/game/EA90.c src/game/common.c src/sys/controller.c src/overlays/ovl_i2/course_context.c src/overlays/ovl_i3/cpu.c src/game/game_context.c src/game/course_gadget_context.c src/game/camera.c"
@@ -91,13 +91,13 @@ fi
 OBJS="$OBJS $o"
 # Fixed-point camera: portable integer C, the same source the SH-2 closure compiles.
 if [ "$SIMCAM" = 1 ]; then
-    for s in fzx_sim_camera fzx_sim_standin; do
+    for s in fzx_sim_camera fzx_sim_convert; do
         $CC -m32 -fno-pic $OPT -g -std=gnu11 -Wall -Wextra -Werror -fno-strict-aliasing \
             -DSH2Z_FORCE_PORTABLE=1 -I"$ROOT/src/sim" -I"$ROOT/third_party/SH2ZAM/saturn/include" \
             -c "$ROOT/src/sim/$s.c" -o "$OUT/$s.o"
         OBJS="$OBJS $OUT/$s.o"
     done
-    for s in sh2zam_divu; do
+    for s in sh2zam_divu sh2zam_unit30 sh2zam_trig12; do
         $CC -m32 -fno-pic $OPT -g -std=gnu11 -w -DSH2Z_FORCE_PORTABLE=1 -I"$ROOT/third_party/SH2ZAM/saturn/include" \
             -c "$ROOT/third_party/SH2ZAM/saturn/src/$s.c" -o "$OUT/$s.o"
         OBJS="$OBJS $OUT/$s.o"

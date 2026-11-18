@@ -239,7 +239,7 @@ ifneq ($(FZX_DEFER_PROJECTION),1)
 $(error FZX_SIM_CAMERA=1 requires FZX_DEFER_PROJECTION=1)
 endif
 SH_CFLAGS += -DFZX_SIM_CAMERA=1
-FZX_SIM_SRCS := ../src/sim/fzx_sim_camera.c ../src/sim/fzx_sim_standin.c
+FZX_SIM_SRCS := ../src/sim/fzx_sim_camera.c ../src/sim/fzx_sim_convert.c
 endif
 
 ifeq ($(FZX_SOURCE_MACHINE_MENU),1)

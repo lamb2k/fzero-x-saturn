@@ -31,7 +31,13 @@
 #define FZX_SIM_CAMERA_H
 
 #include "fzx_sim_types.h"
-#include "fzx_sim_standin.h"
+/* SH2ZAM tags fixed-unit-1 (K1-K3) and trig12-1 (K4-K5), pinned at 198848f. */
+#include "sh2zam/unit30_experimental.h"
+/* trig12 defines SH2Z_U30_ONE again with different tokens (same value). */
+#undef SH2Z_U30_ONE
+#include "sh2zam/trig12_experimental.h"
+#include "sh2zam/divu_experimental.h"
+#include "fzx_sim_convert.h"
 
 #ifdef __cplusplus
 extern "C" {

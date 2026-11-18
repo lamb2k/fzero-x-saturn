@@ -4,6 +4,12 @@
  * kept so the source can be read side by side. */
 #include "fzx_sim_camera.h"
 
+#if defined(__sh__)
+/* SH-2 image: size over speed for this once-per-tick code (the high-WRAM
+ * stack margin); integer results do not depend on it. */
+#pragma GCC optimize("Os")
+#endif
+
 volatile uint32_t fzx_cam_drop_bits;
 
 /* Integer constants only: no floating-point expression anywhere in this file. */
@@ -13,8 +19,14 @@ volatile uint32_t fzx_cam_drop_bits;
 #define Q16_HALF INT32_C(32768)
 #define Q16_TENTH INT32_C(6553)          /* floor(0.1 * 65536) */
 
-/* x * f + y for a q12/q16 value x and a u30 factor (format of x kept). */
-static inline int32_t mulf(int32_t x,int32_t f) { return sh2z_q12_mul_u30(x,f); }
+/* Out-of-line wrappers of the K1 inline kernels: the SH-2 image keeps one copy
+ * of each (code size: the high-WRAM stack margin), at a call per use. */
+#define FZX_SIM_NOINLINE __attribute__((noinline))
+/* x * f for a q12/q16 value x and a u30 factor (format of x kept). */
+static FZX_SIM_NOINLINE int32_t mulf(int32_t x,int32_t f) { return sh2z_q12_mul_u30(x,f); }
+static FZX_SIM_NOINLINE int32_t umul(int32_t a,int32_t b) { return sh2z_u30_mul(a,b); }
+static FZX_SIM_NOINLINE int32_t dot3(const int32_t a[3],const int32_t b[3]) { return sh2z_u30_dot3(a,b); }
+static FZX_SIM_NOINLINE void cross(int32_t o[3],const int32_t a[3],const int32_t b[3]) { sh2z_u30_cross(o,a,b); }
 static inline int32_t lerp_step(int32_t x,int32_t target,int32_t f) { return x+mulf(target-x,f); }
 static inline void copy3(int32_t d[3],const int32_t s[3]) { d[0]=s[0];d[1]=s[1];d[2]=s[2]; }
 static inline int32_t iabs(int32_t v) { return v<0 ? -v : v; }
@@ -41,8 +53,8 @@ static inline void madd3(int32_t out[3],const int32_t p[3],const int32_t d[3],in
 }
 /* 3t^2 - 2t^3 for t in u30. */
 static int32_t smooth_u30(int32_t t) {
-    const int32_t t2=sh2z_u30_mul(t,t);
-    const int32_t t3=sh2z_u30_mul(t2,t);
+    const int32_t t2=umul(t,t);
+    const int32_t t3=umul(t2,t);
     return 3*t2-2*t3;
 }
 
@@ -156,7 +168,7 @@ static void settings_orbit(FzxCam *c) {
     for(int i=0;i<3;i++) {
         const int32_t w[3]={t1,t0,sp3c};
         const int32_t b[3]={c->ob_basis.x[i],c->ob_basis.z[i],c->ob_basis.y[i]};
-        off[i]=sh2z_u30_dot3(w,b);                      /* one rounding for the 3-term sum */
+        off[i]=dot3(w,b);                      /* one rounding for the 3-term sum */
     }
     if(c->type==FZX_CAM_TYPE_ORBIT_AT) {
         copy3(c->p_at,c->ob_anchor);
@@ -174,13 +186,13 @@ static void settings_follow(FzxCam *c,const FzxCamConst *k,const FzxCamInput *in
     c->fs_pitch=lerp_step(c->fs_pitch,c->fs_target_pitch,c->fs_pitch_lerp);
     c->fs_yaw=lerp_step(c->fs_yaw,c->fs_target_yaw,c->fs_yaw_lerp);
     copy3(c->focus,in->focus_pos);
-    int32_t v=sh2z_u30_dot3(in->focus_vel,in->gravity_up);         /* q12 */
+    int32_t v=dot3(in->focus_vel,in->gravity_up);         /* q12 */
     for(int i=0;i<3;i++) sp98[i]=(c->fs_anchor[i]-c->focus[i])+mulf(v,in->gravity_up[i]);
     /* sqrtf(...) < 0.01f: sum of q12 squares below (0.01 * 4096)^2 = 1677.72 */
     if(sumsq3(sp98)<=UINT64_C(1677)) return;
     sh2z_vec3_normalize_u30(sp98,sp98);
     madd3(c->fs_anchor,c->focus,sp98,c->fs_distance);              /* !gGamePaused (planned) */
-    const int32_t t0=sh2z_u30_dot3(in->focus_vel,c->basis.y);      /* q12 */
+    const int32_t t0=dot3(in->focus_vel,c->basis.y);      /* q12 */
     int32_t kk;
     if(c->fs_target_yaw>=Q16(50)) {
         kk=0;
@@ -192,20 +204,20 @@ static void settings_follow(FzxCam *c,const FzxCamConst *k,const FzxCamInput *in
     for(int i=0;i<3;i++)
         c->p_at[i]=c->focus[i]+mulf(in->focus_vel[i]-mulf(t0,c->basis.y[i]),kk);
     for(int i=0;i<3;i++) sp8c[i]=in->gravity_up[i]-c->racer_up[i];
-    const int32_t m=sh2z_u30_mul(length3(sp8c),INT32_C(214748365));  /* |sp8C| * 0.2 */
+    const int32_t m=umul(length3(sp8c),INT32_C(214748365));  /* |sp8C| * 0.2 */
     for(int i=0;i<3;i++) {
-        c->racer_up[i]+=sh2z_u30_mul(m,sp8c[i]);
+        c->racer_up[i]+=umul(m,sp8c[i]);
         c->fs_basis.y[i]=c->racer_up[i];
     }
-    sh2z_u30_cross(sp7c,c->fs_basis.y,sp98);
+    cross(sp7c,c->fs_basis.y,sp98);
     /* sqrtf(...) < 0.1f: sum of u30 squares below 0.01 * 2^60 */
     if(sumsq3(sp7c)<UINT64_C(11529215046068470)) return;
     sh2z_vec3_normalize_u30(sp7c,sp7c);
-    sh2z_u30_cross(sp70,sp98,sp7c);
+    cross(sp70,sp98,sp7c);
     sh2z_vec3_normalize_u30(sp70,sp70);
     c->pitch_index=angle_index(c->fs_pitch);
     sh2z_sincos12_u30((uint32_t)c->pitch_index,&s,&co);
-    const int32_t v1=mulf(mulf(c->fs_distance,s),sh2z_u30_dot3(sp70,in->true_basis.y));
+    const int32_t v1=mulf(mulf(c->fs_distance,s),dot3(sp70,in->true_basis.y));
     int32_t spa4=mulf(c->fs_distance,co);
     c->yaw_index=angle_index(c->fs_target_yaw);
     sh2z_sincos12_u30((uint32_t)c->yaw_index,&s,&co);
@@ -229,8 +241,8 @@ static void settings_local_anchor(FzxCam *c) {
     }
     for(int i=0;i<3;i++) {
         const int32_t b[3]={c->la_basis.z[i],c->la_basis.y[i],c->la_basis.x[i]};
-        c->p_at[i]=c->la_anchor[i]+sh2z_u30_dot3(c->la_at,b);
-        c->p_eye[i]=c->la_anchor[i]+sh2z_u30_dot3(c->la_eye,b);
+        c->p_at[i]=c->la_anchor[i]+dot3(c->la_at,b);
+        c->p_eye[i]=c->la_anchor[i]+dot3(c->la_eye,b);
     }
 }
 
@@ -241,13 +253,13 @@ static void settings_race_intro_start(FzxCam *c,const FzxCamConst *k,const FzxCa
     const sh2z_basis30_t *tb=&in->true_basis;
     for(int i=0;i<3;i++) b.x[i]=-tb->x[i];          /* 0 - distance * trueBasis.x, normalised */
     sh2z_vec3_normalize_u30(b.x,b.x);
-    sh2z_u30_cross(b.z,tb->y,b.x);
+    cross(b.z,tb->y,b.x);
     sh2z_vec3_normalize_u30(b.z,b.z);
-    sh2z_u30_cross(b.y,b.x,b.z);
+    cross(b.y,b.x,b.z);
     sh2z_vec3_normalize_u30(b.y,b.y);
     const int32_t idx=angle_index(k->regular_pitch);
     sh2z_sincos12_u30((uint32_t)idx,&s,&co);
-    const int32_t t0=mulf(mulf(k->regular_distance,s),sh2z_u30_dot3(b.y,tb->y));
+    const int32_t t0=mulf(mulf(k->regular_distance,s),dot3(b.y,tb->y));
     const int32_t t1=mulf(k->regular_distance,co);
     for(int i=0;i<3;i++) temp[i]=in->focus_pos[i]+mulf(t1,b.x[i])+mulf(t0,b.y[i]);
     const int32_t w=smooth_u30(sh2z_divu_q(c->timer-1,300,30));
@@ -273,7 +285,7 @@ static void engine_pan(FzxCam *c,const FzxCamInput *in) {
     int32_t d[3];
     for(int i=0;i<3;i++) d[i]=in->nearest_pos[i]-c->eye[i];
     /* var = |d| * (-(z . d) / |d|) = -(z . d), or 0 when |d| == 0 */
-    const int32_t v=sumsq3(d) ? -sh2z_u30_dot3(c->basis.z,d) : 0;  /* q12 */
+    const int32_t v=sumsq3(d) ? -dot3(c->basis.z,d) : 0;  /* q12 */
     c->pan_q16=-1;
     if(v>=Q12(-1000) && v<=Q12(1000)) {
         /* ((v + 1000) / 2000) * 127, q16 */

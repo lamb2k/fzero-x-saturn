@@ -79,7 +79,7 @@ SIMCAM=${FZX_SIM_CAMERA:-0}
 [ "$DEFER" = 0 ] || [ "$DEFER:$CAMERA" = 1:1 ] || { echo "deferred projection requires source camera" >&2; exit 1; }
 [ "$SIMCAM" = 0 ] || [ "$SIMCAM:$DEFER" = 1:1 ] || { echo "fixed camera requires deferred projection" >&2; exit 1; }
 if [ "$DEFER" = 1 ]; then
-    CFLAGS="$CFLAGS -DFZX_DEFER_PROJECTION=1 -DFZX_SIM_CAMERA=$SIMCAM -I$W/src/sim -include $W/ref/sim_overrides.h"
+    CFLAGS="$CFLAGS -DFZX_DEFER_PROJECTION=1 -DFZX_SIM_CAMERA=$SIMCAM -I$W/src/sim -I$W/third_party/SH2ZAM/saturn/include -include $W/ref/sim_overrides.h"
     BRIDGES="$BRIDGES sim_bridge"
 fi
 OBJ=$OUT/obj

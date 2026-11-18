@@ -35,6 +35,10 @@ class Toolchain:
     def __init__(self, chroot):
         self.chroot = None
         if shutil.which('sh2eb-elf-gcc') is None:
+            if chroot is None:  # the nearest enclosing directory that holds the Yaul environment script
+                chroot = next((d for d in ROOT.resolve().parents if (d / 'yaul-env.sh').is_file()), None)
+                if chroot is None:
+                    raise ArtError('sh2eb-elf-gcc is not on PATH and the tree is not inside a Yaul chroot; pass --chroot')
             self.chroot = Path(chroot).resolve()
             if not str(ROOT).startswith(str(self.chroot) + '/'):
                 raise ArtError('tree is not inside the toolchain chroot %s' % self.chroot)
@@ -154,7 +158,7 @@ def generate(output, chroot):
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument('--output', type=Path, default=ROOT / 'generated/menu_tables')
-    ap.add_argument('--chroot', default='/root/yaul-image')
+    ap.add_argument('--chroot', default=None, help='Yaul chroot holding this tree (default: nearest parent with yaul-env.sh)')
     args = ap.parse_args()
     try:
         r = generate(args.output.resolve(), args.chroot)

@@ -302,7 +302,7 @@ static inline __attribute__((always_inline)) bool face_loop(const fzx_vehicle_pa
 /* SH2ZAM vehicle-kernels-1 adoption, one kernel at a time: 1 calls the SH2ZAM
  * kernel, 0 the inline stand-in with the same signature and contract. */
 #ifndef FZX_VK1_VIEW_INDEXED
-#define FZX_VK1_VIEW_INDEXED 0
+#define FZX_VK1_VIEW_INDEXED 1
 #endif
 #ifndef FZX_VK1_FACING
 #define FZX_VK1_FACING 0

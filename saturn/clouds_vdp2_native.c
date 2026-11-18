@@ -20,7 +20,6 @@ fzx_clouds_rbg_t fzx_clouds_rbg;
 volatile uint32_t fzx_clouds_status,fzx_clouds_pending,fzx_clouds_commits;
 volatile uint32_t fzx_clouds_degenerate,fzx_clouds_bands,fzx_clouds_sky_line_count;
 static uint16_t sky_lines[224];
-static uint16_t band_colors[BAND_MAX];
 static unsigned band_count;
 extern volatile uint32_t fzx_input_count;
 
@@ -62,6 +61,10 @@ static void apply(void) {
     /* Back screen, one colour per line. */
     r->bktau=(uint16_t)(0x8000u|((vram_offset(SKY_BACK)>>17)&7u));
     r->bktal=(uint16_t)((vram_offset(SKY_BACK)>>1)&0xffffu);
+    /* Band colours: the 64 source sky samples, written once (never per frame),
+     * so CRAM stays stable through every presented frame. */
+    volatile uint16_t *cram=(volatile uint16_t *)VDP2_CRAM_MODE_1_OFFSET(0,0,BAND_CRAM_FIRST);
+    for(unsigned i=0;i<64u;++i)cram[i]=fzx_sky_colors[i];
     applied=true;++fzx_clouds_applies;
 }
 static void restore(void) {
@@ -189,8 +192,14 @@ static bool emit(void *context,const fzx_floor_polygon_t *q) {
     vdp1_cmdt_draw_mode_set(c,mode);
     if(q->band==7)c->cmd_colr=(uint16_t)(sky|0x8000u); /* opaque sky: the clouds are invisible here */
     else {
-        band_colors[band_count]=sky;
-        c->cmd_colr=(uint16_t)(0x4000u|(q->band<<11)|(BAND_CRAM_FIRST+band_count));
+        /* The nearest of the 64 resident sky samples. */
+        unsigned best=0;int32_t best_d=INT32_MAX;
+        for(unsigned i=0;i<64u;++i) {
+            int32_t d=0;
+            for(unsigned k=0;k<15;k+=5){const int32_t e=(int32_t)((sky>>k)&31u)-(int32_t)((fzx_sky_colors[i]>>k)&31u);d+=e*e;}
+            if(d<best_d){best_d=d;best=i;}
+        }
+        c->cmd_colr=(uint16_t)(0x4000u|(q->band<<11)|(BAND_CRAM_FIRST+best));
         ++band_count;
     }
     c->cmd_xa=q->x[0];c->cmd_ya=q->y[0];c->cmd_xb=q->x[1];c->cmd_yb=q->y[1];
@@ -259,8 +268,6 @@ bool fzx_clouds_present(void) {
     memcpy((void *)CLOUD_RP,&fzx_clouds_rbg.rp,sizeof(fzx_clouds_rbg.rp));
     memcpy((void *)CLOUD_WINDOW,fzx_clouds_rbg.window,sizeof(fzx_clouds_rbg.window));
     memcpy((void *)SKY_BACK,sky_lines,sizeof(sky_lines));
-    volatile uint16_t *cram=(volatile uint16_t *)VDP2_CRAM_MODE_1_OFFSET(0,0,BAND_CRAM_FIRST);
-    for(unsigned i=0;i<band_count;++i)cram[i]=band_colors[i];
     fzx_clouds_pending=0;++fzx_clouds_commits;
     return true;
 }

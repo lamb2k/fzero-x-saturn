@@ -56,6 +56,9 @@ bool fzx_clouds_vdp2_load(const void *planes_vram) {
     /* RBG0 shows inside W0 or W1 (AND of the two outside areas). */
     r->wctlc=(uint16_t)((r->wctlc&0xff00u)|0x8fu);
     r->wctld=(uint16_t)((r->wctld&0xff00u)|0x03u);
+    /* RBG0 transparency on (it was off): the floor tile is fully opaque, the
+     * cloud tile's 0x0000 texels must show the back-screen sky. */
+    r->bgon=(uint16_t)(r->bgon&~0x1000u);
     /* Back screen, one colour per line. */
     r->bktau=(uint16_t)(0x8000u|((vram_offset(SKY_BACK)>>17)&7u));
     r->bktal=(uint16_t)((vram_offset(SKY_BACK)>>1)&0xffffu);
@@ -130,6 +133,8 @@ bool fzx_clouds_sky_lines(const fzx_view_t *view,const RefBackdrop *source) {
     }
     if(last<0)for(int y=0;y<224;++y)sky_lines[y]=fzx_sky_colors[63];
     else for(int y=last+1;y<224;++y)sky_lines[y]=sky_lines[last];
+    /* Outside the view the screen stays black, as with the VDP1 sky. */
+    for(int y=0;y<224;++y)if(y<view->clip[1] || y>=view->clip[3])sky_lines[y]=0;
     fzx_clouds_sky_line_count=set;
     return true;
 }
@@ -159,7 +164,19 @@ bool fzx_clouds_native(vdp1_cmdt_t *commands,unsigned capacity,const fzx_view_t 
     if(!commands || capacity<2 || !view || !source || !count || fzx_clouds_status!=1 || fzx_clouds_pending)return false;
     memset(commands,0,sizeof(*commands));vdp1_cmdt_user_clip_coord_set(commands);
     commands->cmd_xa=view->clip[0];commands->cmd_ya=view->clip[1];commands->cmd_xc=view->clip[2]-1;commands->cmd_yc=view->clip[3]-1;
-    submit_t submit={commands+1,capacity-1,0};band_count=0;
+    /* Black side borders (outside the user clip): the back screen spans the
+     * full line. */
+    unsigned borders=0;
+    const int16_t sides[2][2]={{0,(int16_t)(view->clip[0]-1)},{(int16_t)view->clip[2],319}};
+    for(unsigned i=0;i<2;++i) {
+        if(sides[i][1]<sides[i][0] || borders+2>=capacity)continue;
+        vdp1_cmdt_t *c=&commands[1+borders++];memset(c,0,sizeof(*c));vdp1_cmdt_polygon_set(c);
+        const vdp1_cmdt_draw_mode_t mode={.end_code_disable=1,.trans_pixel_disable=1};
+        vdp1_cmdt_draw_mode_set(c,mode);c->cmd_colr=0x8000u;
+        c->cmd_xa=sides[i][0];c->cmd_ya=0;c->cmd_xb=sides[i][1];c->cmd_yb=0;
+        c->cmd_xc=sides[i][1];c->cmd_yc=223;c->cmd_xd=sides[i][0];c->cmd_yd=223;
+    }
+    submit_t submit={commands+1+borders,capacity-1-borders,0};band_count=0;
     /* The plane status words stay live for the capture harness: busy, and the
      * cloud stats in the plane stats block (draws = fade bands). */
     fzx_plane_busy=1;
@@ -169,7 +186,7 @@ bool fzx_clouds_native(vdp1_cmdt_t *commands,unsigned capacity,const fzx_view_t 
     memset(&fzx_plane_stats,0,sizeof(fzx_plane_stats));
     fzx_plane_stats.draws=submit.count;fzx_plane_stats.hash=fzx_clouds_rbg.hash;fzx_plane_busy=0;
     fzx_clouds_degenerate+=fzx_clouds_rbg.degenerate;fzx_clouds_bands=submit.count;
-    *count=submit.count+1;fzx_clouds_pending=fzx_input_count?fzx_input_count:1;return true;
+    *count=submit.count+1+borders;fzx_clouds_pending=fzx_input_count?fzx_input_count:1;return true;
 }
 void fzx_clouds_present(void) {
     if(!fzx_clouds_pending)return;

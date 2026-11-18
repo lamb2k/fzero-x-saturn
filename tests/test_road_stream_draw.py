@@ -51,7 +51,8 @@ class RoadStreamDrawTests(unittest.TestCase):
                     str(LIB/'saturn/src/sh2zam_view_round.c'),
                     str(LIB/'saturn/src/sh2zam_view_guard_src.c'),
                     str(LIB/'saturn/src/sh2zam_view_center.c'),
-                    str(LIB/'saturn/src/sh2zam_view_guard_src_center.c'),'-lm','-o',str(exe)]
+                    str(LIB/'saturn/src/sh2zam_view_guard_src_center.c'),
+                    str(LIB/'saturn/src/sh2zam_view_merge_tier.c'),'-lm','-o',str(exe)]
                 result=subprocess.run(args,capture_output=True,text=True)
                 self.assertEqual(result.returncode,0,result.stdout+result.stderr)
                 return exe

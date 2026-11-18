@@ -57,8 +57,22 @@ static void *machine_pixels,*machine_shades;
 #define FZX_SOURCE_ROAD_TILES 0
 #endif
 #if FZX_SOURCE_ROAD_TILES
+#if FZX_SOURCE_ROAD_STREAM
+#include "road_stream_native.h"
+#include "fzx_road_stream_phase.h"
+#include "road_lod_identity.h"
+#define FZX_ROAD_RENDER_TEXTURE_BYTES FZX_ROAD_LOD_TEXTURE_BYTES
+#define FZX_ROAD_RENDER_SHADE_BYTES FZX_ROAD_STREAM_SHADE_BYTES
+#define FZX_ROAD_RENDER_MAX_DRAWS FZX_ROAD_STREAM_MAX_DRAWS
+#define road_renderer_load fzx_road_stream_load
+#else
 #include "road_tiles_native.h"
 #include "road_tile_identity.h"
+#define FZX_ROAD_RENDER_TEXTURE_BYTES FZX_ROAD_TILE_TEXTURE_BYTES
+#define FZX_ROAD_RENDER_SHADE_BYTES FZX_ROAD_TILE_SHADE_BYTES
+#define FZX_ROAD_RENDER_MAX_DRAWS FZX_ROAD_TILE_MAX_DRAWS
+#define road_renderer_load fzx_road_tiles_load
+#endif
 static void *road_tile_pixels,*road_tile_shades;
 /* Debugger capture holds only after the submitted frame has finished. */
 volatile uint32_t fzx_debug_frame_hold,fzx_debug_frame_ready;
@@ -82,7 +96,7 @@ static void *planes_vram,*planes_shades;
 #define FZX_BACKDROP_CAPACITY FZX_MAX_POLYGONS
 #endif
 #if FZX_SOURCE_ROAD_TILES
-#define FZX_SCENE_CAPACITY (FZX_BACKDROP_CAPACITY+FZX_ROAD_TILE_MAX_DRAWS+1u)
+#define FZX_SCENE_CAPACITY (FZX_BACKDROP_CAPACITY+FZX_ROAD_RENDER_MAX_DRAWS+1u)
 #else
 #define FZX_SCENE_CAPACITY FZX_BACKDROP_CAPACITY
 #endif
@@ -234,6 +248,14 @@ vblank_out(void *work)
 void
 user_init(void)
 {
+#if FZX_SOURCE_ROAD_STREAM
+    /* Bound command storage by the actual scene capacity; retain the SDK's
+     * separate Gouraud/CLUT reservations and return unused command VRAM to art. */
+    const unsigned command_reserve=(COMMAND_CAPACITY+31u)&~31u;
+    vdp1_vram_partitions_set(command_reserve,
+        VDP1_VRAM_DEFAULT_TEXTURE_SIZE+(VDP1_VRAM_DEFAULT_CMDT_COUNT-command_reserve)*32u,
+        VDP1_VRAM_DEFAULT_GOURAUD_COUNT,VDP1_VRAM_DEFAULT_CLUT_COUNT);
+#endif
     smpc_peripheral_init();
     vdp2_tvmd_display_res_set(VDP2_TVMD_INTERLACE_NONE,
                             VDP2_TVMD_HORZ_NORMAL_A, VDP2_TVMD_VERT_224);
@@ -644,9 +666,20 @@ commands_build(const fzx_frame_t *frame)
 #if FZX_FRAME_PROFILE
         fzx_fp_scene_begin();
 #endif
+#if FZX_ROAD_STREAM_PHASES
+        fzx_rsp_begin();
+#endif
+#if FZX_SOURCE_ROAD_STREAM
+        const int32_t eye[3]={(int32_t)(fzx_source_camera.eye[0]*65536.0f),
+            (int32_t)(fzx_source_camera.eye[1]*65536.0f),(int32_t)(fzx_source_camera.eye[2]*65536.0f)};
+        if(!fzx_road_stream_native(&commands[COMMAND_FIRST_POLYGON+first],FZX_SCENE_CAPACITY-count-first,
+            &fzx_native_view,eye,&fzx_source_road_plan,pa,pb,road_tile_pixels,road_tile_shades,&road_count)) {
+            dbgio_printf("SOURCE C3 ROAD STREAM FAILED %lu\n",(unsigned long)fzx_road_stream_stats.fault);
+#else
         if(!fzx_road_tiles_native(&commands[COMMAND_FIRST_POLYGON+first],FZX_SCENE_CAPACITY-count-first,
             &fzx_native_view,&fzx_source_road_plan,pa,pb,road_tile_pixels,road_tile_shades,&road_count)) {
             dbgio_printf("\x1b[H\x1b[2J SOURCE ROAD TILE DRAW FAILED %lu\n",(unsigned long)fzx_road_tile_stats.fault);
+#endif
             dbgio_flush();vdp2_sync();for(;;) {}
         }
 #if FZX_ROAD_TILE_PROFILE
@@ -657,7 +690,12 @@ commands_build(const fzx_frame_t *frame)
 #if FZX_FRAME_PROFILE
         fzx_fp_scene_end(4,road_count);
 #endif
-        fzx_road_tile_fields=video_fields-before;first+=road_count;
+        #if FZX_SOURCE_ROAD_STREAM
+        fzx_road_stream_fields=video_fields-before;
+#else
+        fzx_road_tile_fields=video_fields-before;
+#endif
+        first+=road_count;
     }
 #endif
 #if FZX_SOURCE_MACHINE
@@ -833,14 +871,14 @@ main(void)
     road_tile_offset+=FZX_PLANE_RESIDENT_BYTES+FZX_PLANE_SHADE_BYTES;
 #endif
     road_tile_pixels=(void *)((uintptr_t)sky_partitions.texture_base+road_tile_offset);
-    road_tile_shades=(void *)((uintptr_t)road_tile_pixels+FZX_ROAD_TILE_TEXTURE_BYTES);
-    if(road_tile_offset+FZX_ROAD_TILE_TEXTURE_BYTES+FZX_ROAD_TILE_SHADE_BYTES>sky_partitions.texture_size ||
-       !fzx_road_tiles_load(road_tile_pixels)) {
+    road_tile_shades=(void *)((uintptr_t)road_tile_pixels+FZX_ROAD_RENDER_TEXTURE_BYTES);
+    if(road_tile_offset+FZX_ROAD_RENDER_TEXTURE_BYTES+FZX_ROAD_RENDER_SHADE_BYTES>sky_partitions.texture_size ||
+       !road_renderer_load(road_tile_pixels)) {
         dbgio_printf("\x1b[H\x1b[2J SOURCE ROAD TILES LOAD FAILED\n");dbgio_flush();vdp2_sync();for(;;) {}
     }
 #endif
 #if FZX_SOURCE_MACHINE
-    machine_pixels=(void *)((uintptr_t)road_tile_shades+FZX_ROAD_TILE_SHADE_BYTES);
+    machine_pixels=(void *)((uintptr_t)road_tile_shades+FZX_ROAD_RENDER_SHADE_BYTES);
     machine_shades=(void *)((uintptr_t)machine_pixels+FZX_MACHINE_TEXTURE_BYTES);
     if((uintptr_t)machine_shades+FZX_MACHINE_SHADE_BYTES>(uintptr_t)sky_partitions.texture_base+sky_partitions.texture_size ||
        !fzx_machine_load(machine_pixels)) {
@@ -912,7 +950,17 @@ main(void)
     }
 #if FZX_SOURCE_RESULTS
     if(!fzx_results_load(fzx_countdown_low_end,fzx_race_workspace_report[4],
-                         countdown_pixels,FZX_COUNTDOWN_TEXTURE_BYTES)) {
+                         countdown_pixels,
+#if FZX_SOURCE_FINISH_MENU
+                         /* Countdown is the final resident allocation. The
+                          * menu borrows its pixels plus the remaining bounded
+                          * texture partition; countdown restore stays exact. */
+                         (unsigned)((uintptr_t)sky_partitions.texture_base+
+                                    sky_partitions.texture_size-(uintptr_t)countdown_pixels)
+#else
+                         FZX_COUNTDOWN_TEXTURE_BYTES
+#endif
+                         )) {
         dbgio_printf("SOURCE RESULTS LOAD FAILED %lu",(unsigned long)fzx_results_status);
         dbgio_flush();vdp2_sync();for(;;){}
     }

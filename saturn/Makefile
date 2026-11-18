@@ -13,6 +13,7 @@ FZX_SOURCE_COURSE_MENU ?= 0
 FZX_SOURCE_MACHINE_MENU ?= 0
 FZX_SOURCE_RESULTS ?= 0
 FZX_SOURCE_RECORDS ?= 0
+FZX_SOURCE_FINISH_MENU ?= 0
 FZX_SOURCE_COUNTDOWN ?= 0
 FZX_NATIVE_CORE_EMPTY ?= 0
 ifeq ($(FZX_NATIVE_CORE_EMPTY),1)
@@ -76,6 +77,14 @@ else ifneq ($(FZX_FRAME_PROFILE),0)
 $(error FZX_FRAME_PROFILE must be 0 or 1)
 endif
 FZX_SOURCE_ROAD_TILES ?= 0
+FZX_SOURCE_ROAD_STREAM ?= 0
+ifeq ($(FZX_SOURCE_ROAD_STREAM),1)
+ifneq ($(FZX_SOURCE_ROAD_TILES),1)
+$(error C3 stream requires the native road scene and legacy tile cache/profile disabled)
+endif
+else ifneq ($(FZX_SOURCE_ROAD_STREAM),0)
+$(error FZX_SOURCE_ROAD_STREAM must be 0 or 1)
+endif
 FZX_ROAD_TILE_PROJECT_CULL ?= 0
 FZX_ROAD_TILE_EDGE_REUSE ?= 0
 FZX_ROAD_TILE_PROFILE ?= 0
@@ -149,6 +158,16 @@ IMAGE_DIRECTORY := $(SH_OUTPUT_DIR)/cd
 endif
 ifeq ($(FZX_SOURCE_RECORDS),1)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)-records
+SH_BUILD_DIR := $(SH_OUTPUT_DIR)/yaul
+IMAGE_DIRECTORY := $(SH_OUTPUT_DIR)/cd
+endif
+ifeq ($(FZX_SOURCE_FINISH_MENU),1)
+SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)-finishmenu
+SH_BUILD_DIR := $(SH_OUTPUT_DIR)/yaul
+IMAGE_DIRECTORY := $(SH_OUTPUT_DIR)/cd
+endif
+ifeq ($(FZX_SOURCE_ROAD_STREAM),1)
+SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)-stream
 SH_BUILD_DIR := $(SH_OUTPUT_DIR)/yaul
 IMAGE_DIRECTORY := $(SH_OUTPUT_DIR)/cd
 endif
@@ -389,6 +408,17 @@ endif
 ifeq ($(FZX_SOURCE_ROAD_DRAW),1)
 $(error Select native tiles or the software road experiment)
 endif
+ifeq ($(FZX_SOURCE_ROAD_STREAM),1)
+ifneq ($(FZX_ROAD_TILE_VERTEX_CACHE):$(FZX_ROAD_TILE_PROFILE),0:0)
+$(error C3 stream excludes legacy tile cache/profile)
+endif
+FZX_ROAD_STREAM_RECEIPT := $(shell sh ../tools/check_receipt.sh ../generated/road_bake/road_bake.receipt 2>&1; echo "rc=$$?")
+ifeq ($(findstring rc=0,$(FZX_ROAD_STREAM_RECEIPT)),)
+$(error C3 road bake is stale: $(FZX_ROAD_STREAM_RECEIPT))
+endif
+SH_CFLAGS += -DFZX_SOURCE_ROAD_TILES=1 -DFZX_SOURCE_ROAD_STREAM=1 -DFZX_INPUT_LOG_LOW_RAM=1 -I../generated/road_bake
+FZX_ROAD_SRCS += ../src/fzx_road_stream.c ../src/fzx_road_stream_draw.c ../src/fzx_view16.c ../src/fzx_view16_center.c road_stream_native.c road_stream_commands.c
+else
 FZX_ROAD_TILES_RECEIPT := $(shell sh ../tools/check_receipt.sh ../generated/road_tiles/road_tiles.receipt 2>&1; echo "rc=$$?")
 ifeq ($(findstring rc=0,$(FZX_ROAD_TILES_RECEIPT)),)
 $(error Native road tile assets are stale: $(FZX_ROAD_TILES_RECEIPT))
@@ -400,6 +430,7 @@ ifeq ($(FZX_ROAD_TILE_PROFILE),1)
 FZX_ROAD_SRCS += ../src/fzx_road_profile.c
 endif
 FZX_ROAD_SRCS += ../src/fzx_road_tiles.c road_tiles_native.c
+endif
 else ifneq ($(FZX_SOURCE_ROAD_TILES),0)
 $(error FZX_SOURCE_ROAD_TILES must be 0 or 1)
 endif
@@ -429,7 +460,6 @@ SH_CFLAGS += -DFZX_VEHICLE_FAST=1
 endif
 ifeq ($(FZX_VEHICLE_NATIVE),1)
 SH_CFLAGS += -DFZX_VEHICLE_NATIVE=1 -DFZX_VEHICLE_FAST=1 -DFZX_VEHICLE_NATIVE_LOW_TABLES=$(FZX_VEHICLE_NATIVE_LOW_TABLES)
-FZX_SH2ZAM_C4 := 1
 endif
 FZX_MACHINE_SRCS := vehicle_native.c ../src/fzx_vehicle.c ../src/fzx_vehicle_draw.c ../src/fzx_view16.c
 endif
@@ -438,6 +468,50 @@ $(error FZX_SOURCE_MACHINE must be 0 or 1)
 endif
 ifeq ($(FZX_FRAME_PROFILE),1)
 SH_CFLAGS += -DFZX_FRAME_PROFILE=1
+endif
+# Default-off C3 per-phase diagnostic; requires the stream and frame profile.
+FZX_ROAD_STREAM_PHASES ?= 0
+ifeq ($(FZX_ROAD_STREAM_PHASES),1)
+ifneq ($(FZX_FRAME_PROFILE):$(FZX_SOURCE_ROAD_STREAM),1:1)
+$(error FZX_ROAD_STREAM_PHASES requires FZX_FRAME_PROFILE=1 and FZX_SOURCE_ROAD_STREAM=1)
+endif
+SH_CFLAGS += -DFZX_ROAD_STREAM_PHASES=1
+else ifneq ($(FZX_ROAD_STREAM_PHASES),0)
+$(error FZX_ROAD_STREAM_PHASES must be 0 or 1)
+endif
+# Default-off C3 native road layout (boot-built chunk runs, 8-byte quads).
+FZX_ROAD_STREAM_NATIVE_LAYOUT ?= 0
+ifeq ($(FZX_ROAD_STREAM_NATIVE_LAYOUT),1)
+ifneq ($(FZX_SOURCE_ROAD_STREAM),1)
+$(error FZX_ROAD_STREAM_NATIVE_LAYOUT requires FZX_SOURCE_ROAD_STREAM=1)
+endif
+SH_CFLAGS += -DFZX_ROAD_STREAM_NATIVE_LAYOUT=1
+# The pack path (gather/remap) is not linked under the native layout.
+SH_CFLAGS += -DFZX_RS_PACK_PATH=0
+else ifneq ($(FZX_ROAD_STREAM_NATIVE_LAYOUT),0)
+$(error FZX_ROAD_STREAM_NATIVE_LAYOUT must be 0 or 1)
+endif
+# Default-off C3 direct VDP1 emit (templates patched in place, no packets).
+FZX_ROAD_STREAM_EMIT ?= 0
+ifeq ($(FZX_ROAD_STREAM_EMIT),1)
+ifneq ($(FZX_SOURCE_ROAD_STREAM),1)
+$(error FZX_ROAD_STREAM_EMIT requires FZX_SOURCE_ROAD_STREAM=1)
+endif
+SH_CFLAGS += -DFZX_ROAD_STREAM_EMIT=1
+# The packet path is not linked under direct emit.
+SH_CFLAGS += -DFZX_RS_PACKET_PATH=0
+else ifneq ($(FZX_ROAD_STREAM_EMIT),0)
+$(error FZX_ROAD_STREAM_EMIT must be 0 or 1)
+endif
+# Default-off C3 stepping/clip scratch in high work RAM.
+FZX_ROAD_STREAM_HOT_HIGH ?= 0
+ifeq ($(FZX_ROAD_STREAM_HOT_HIGH),1)
+ifneq ($(FZX_SOURCE_ROAD_STREAM),1)
+$(error FZX_ROAD_STREAM_HOT_HIGH requires FZX_SOURCE_ROAD_STREAM=1)
+endif
+SH_CFLAGS += -DFZX_ROAD_STREAM_HOT_HIGH=1
+else ifneq ($(FZX_ROAD_STREAM_HOT_HIGH),0)
+$(error FZX_ROAD_STREAM_HOT_HIGH must be 0 or 1)
 endif
 ifeq ($(FZX_SOURCE_COUNTDOWN),1)
 ifneq ($(FZX_SIM):$(FZX_SOURCE_MACHINE):$(FZX_SOURCE_CAMERA):$(FZX_ROM_BOOT):$(FZX_PLANE_CLOUD_ONLY):$(FZX_NATIVE_CORE_EMPTY),orig:1:1:1:1:1)
@@ -483,17 +557,52 @@ else ifneq ($(FZX_SOURCE_RECORDS),0)
 $(error FZX_SOURCE_RECORDS must be 0 or 1)
 endif
 
-# SH2ZAM units only the C4 native vehicle arm uses (vehicle-kernels-1; pose-1
-# once tagged) are compiled only when that arm is selected: their assembly
-# kernels and tables are not garbage-collected.
-FZX_SH2ZAM_C4_UNITS := $(addprefix $(SH2ZAM_ROOT)/saturn/src/,sh2zam_vehicle.c sh2zam_view_indexed.c)
-FZX_SH2ZAM_SRCS := $(filter-out $(FZX_SH2ZAM_C4_UNITS),$(wildcard $(SH2ZAM_ROOT)/saturn/src/*.c))
-ifeq ($(FZX_SH2ZAM_C4),1)
-FZX_SH2ZAM_SRCS += $(filter $(FZX_SH2ZAM_C4_UNITS),$(wildcard $(SH2ZAM_ROOT)/saturn/src/*.c))
+ifeq ($(FZX_SOURCE_FINISH_MENU),1)
+ifneq ($(FZX_SOURCE_RECORDS):$(FZX_SOURCE_FLOOR_RBG),1:1)
+$(error FZX_SOURCE_FINISH_MENU requires original records and floor presentation callback)
 endif
-SH_SRCS := $(FZX_RECORDS_SRCS) $(FZX_RESULTS_SRCS) $(FZX_MACHINE_MENU_SRCS) $(FZX_COURSE_MENU_SRCS) $(FZX_MENU_SRCS) $(FZX_TITLE_SRCS) $(FZX_COUNTDOWN_SRCS) $(FZX_FRAME_PROFILE_SRCS) main.c ../src/fzx.c $(FZX_ORIG_SRCS) $(FZX_HUD_SRCS) $(FZX_CAMERA_SRCS) $(FZX_ROAD_SRCS) $(FZX_SKY_SRCS) $(FZX_MACHINE_SRCS) $(FZX_SH2ZAM_SRCS)
+FZX_FINISH_MENU_RECEIPT := $(shell sh ../tools/check_receipt.sh ../generated/finish_menu_ui/finish_menu_ui.receipt 2>&1 && sh ../tools/check_receipt.sh ../generated/finish-menu-source/finish_menu_source.receipt 2>&1 && sh ../tools/check_receipt.sh ../generated/finish-menu-draw-source/finish_menu_draw_source.receipt 2>&1; echo "rc=$$?")
+ifeq ($(findstring rc=0,$(FZX_FINISH_MENU_RECEIPT)),)
+$(error Original finish-menu assets/source are not current: $(FZX_FINISH_MENU_RECEIPT))
+endif
+SH_CFLAGS += -DFZX_SOURCE_FINISH_MENU=1 -I../generated/finish_menu_ui
+FZX_FINISH_MENU_SRCS := finish_menu_native.c
+else ifneq ($(FZX_SOURCE_FINISH_MENU),0)
+$(error FZX_SOURCE_FINISH_MENU must be 0 or 1)
+endif
+
+# SH2ZAM units linked into the image. The library's hand-assembled kernels and
+# tables cannot be garbage-collected, so every compiled unit costs high work RAM
+# whether or not it is called. Compile only the units this build calls: the base
+# set is the 7de29ac (view-center-1) set; each lane adds its units on one line,
+# gated by the knob whose code calls them. Sorted, so link order matches the
+# former wildcard for the base set.
+FZX_SH2ZAM_UNITS := sh2zam.c sh2zam_angles.c sh2zam_batch_sh2.c sh2zam_box2.c \
+    sh2zam_cell16.c sh2zam_divu.c sh2zam_geometry.c sh2zam_m68k.c sh2zam_prepared.c \
+    sh2zam_reuse.c sh2zam_rotation_batch.c sh2zam_shade.c sh2zam_spatial.c \
+    sh2zam_transform.c sh2zam_trig.c sh2zam_view.c sh2zam_view_center.c \
+    sh2zam_view_guard_src.c sh2zam_view_guard_src_center.c sh2zam_view_round.c
+# C3 road stream (view-merge-2 tier planner, called by src/fzx_road_stream_draw.c).
+FZX_SH2ZAM_UNITS += $(if $(filter 1,$(FZX_SOURCE_ROAD_STREAM)),sh2zam_view_merge_tier.c)
+# C3 knobs that adopt shade-2 / view-camera add here, e.g.:
+#   FZX_SH2ZAM_UNITS += $(if $(filter 1,$(FZX_ROAD_STREAM_<KNOB>)),sh2zam_shade_fused.c)
+# C4 native vehicle arm (vehicle-kernels-1; pose-1 adds sh2zam_pose.c once tagged).
+FZX_SH2ZAM_UNITS += $(if $(filter 1,$(FZX_VEHICLE_NATIVE)),sh2zam_vehicle.c sh2zam_view_indexed.c)
+# Simulation knobs that adopt trig12-1 / fixed-unit-1 add here (sh2zam_trig12.c, sh2zam_unit30.c).
+FZX_SH2ZAM_SRCS := $(addprefix $(SH2ZAM_ROOT)/saturn/src/,$(sort $(FZX_SH2ZAM_UNITS)))
+FZX_SH2ZAM_MISSING := $(filter-out $(wildcard $(FZX_SH2ZAM_SRCS)),$(FZX_SH2ZAM_SRCS))
+ifneq ($(FZX_SH2ZAM_MISSING),)
+$(error SH2ZAM units missing at this pin: $(FZX_SH2ZAM_MISSING))
+endif
+
+SH_SRCS := $(FZX_FINISH_MENU_SRCS) $(FZX_RECORDS_SRCS) $(FZX_RESULTS_SRCS) $(FZX_MACHINE_MENU_SRCS) $(FZX_COURSE_MENU_SRCS) $(FZX_MENU_SRCS) $(FZX_TITLE_SRCS) $(FZX_COUNTDOWN_SRCS) $(FZX_FRAME_PROFILE_SRCS) main.c ../src/fzx.c $(FZX_ORIG_SRCS) $(FZX_HUD_SRCS) $(FZX_CAMERA_SRCS) $(FZX_ROAD_SRCS) $(FZX_SKY_SRCS) $(FZX_MACHINE_SRCS) $(FZX_SH2ZAM_SRCS)
 SH_CFLAGS += -DFZX_SH2_DIVU=1 -O2 -std=c11 -Wall -Wextra -I../include \
              -I$(SH2ZAM_ROOT)/saturn/include -DSH2Z_REQUIRE_SH2=1
+# These tagged view units contain same-named local assembler macros. Keep their
+# assembly in separate objects in both stream and reference builds.
+# Yaul expands SH_CFLAGS inside eval, hence defer the source-name test once.
+SH_CFLAGS += $$(if $$(filter %/sh2zam_view.c %/sh2zam_view_center.c,$$<),-fno-lto,)
+
 ifeq ($(FZX_NATIVE_CORE_EMPTY),1)
 SH_CFLAGS += -DFZX_NATIVE_CORE_EMPTY=1
 endif
@@ -558,12 +667,21 @@ stage-floor-rbg:
 endif
 
 ifeq ($(FZX_SOURCE_ROAD_TILES),1)
+ifeq ($(FZX_SOURCE_ROAD_STREAM),1)
+$(SH_OUTPUT_PATH)/$(SH_PROGRAM).iso: ../generated/road_bake/ROADLOD.PAK ../generated/road_bake/ROADLTX.PAK
+pre-build-iso: stage-road-stream
+.PHONY: stage-road-stream
+stage-road-stream:
+	mkdir -p $(IMAGE_DIRECTORY)
+	cp ../generated/road_bake/ROADLOD.PAK ../generated/road_bake/ROADLTX.PAK $(IMAGE_DIRECTORY)/
+else
 $(SH_OUTPUT_PATH)/$(SH_PROGRAM).iso: ../generated/road_tiles/ROADTL.PAK ../generated/road_tiles/ROADTX.PAK
 pre-build-iso: stage-road-tiles
 .PHONY: stage-road-tiles
 stage-road-tiles:
 	mkdir -p $(IMAGE_DIRECTORY)
 	cp ../generated/road_tiles/ROADTL.PAK ../generated/road_tiles/ROADTX.PAK $(IMAGE_DIRECTORY)/
+endif
 endif
 
 ifeq ($(FZX_SOURCE_MACHINE),1)
@@ -647,4 +765,13 @@ pre-build-iso: stage-records-pack
 stage-records-pack:
 	mkdir -p $(IMAGE_DIRECTORY)
 	cp $(FZX_RECORDS_PACKS) $(IMAGE_DIRECTORY)/
+endif
+
+ifeq ($(FZX_SOURCE_FINISH_MENU),1)
+$(SH_OUTPUT_PATH)/$(SH_PROGRAM).iso: ../generated/finish_menu_ui/FINMENU.PAK
+pre-build-iso: stage-finish-menu-pack
+.PHONY: stage-finish-menu-pack
+stage-finish-menu-pack:
+	mkdir -p $(IMAGE_DIRECTORY)
+	cp ../generated/finish_menu_ui/FINMENU.PAK $(IMAGE_DIRECTORY)/
 endif

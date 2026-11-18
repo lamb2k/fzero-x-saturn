@@ -808,4 +808,10 @@ pre-build-iso: stage-menu-tables-pack
 stage-menu-tables-pack:
 	mkdir -p $(IMAGE_DIRECTORY)
 	cp ../generated/menu_tables/MENUTAB.PAK $(IMAGE_DIRECTORY)/MENUTAB.PAK
+else
+# OFF: a staging directory reused from an ON build must not ship its pack.
+pre-build-iso: unstage-menu-tables-pack
+.PHONY: unstage-menu-tables-pack
+unstage-menu-tables-pack:
+	rm -f $(IMAGE_DIRECTORY)/MENUTAB.PAK
 endif

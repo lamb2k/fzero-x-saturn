@@ -5,8 +5,9 @@ Compiles saturn/menu_tables.c with the SH-2 cross compiler, extracts the four
 menu image tables byte-exact from their own sections, checks that each section
 is retained, relocation-free and count x element size, and lays them out with
 tools/menu_tables_layout.py. Run under Linux/WSL as root from the tree it
-should write into (the cross toolchain is used through the Yaul chroot when it
-is not on PATH). Outputs land in generated/menu_tables; nothing is printed
+should write into. When the cross toolchain is not on PATH it runs inside the
+Yaul chroot the caller names (--chroot or FZX_YAUL_CHROOT); it is never
+discovered, and a failed environment setup aborts. Outputs land in generated/menu_tables; nothing is printed
 from the tables themselves.
 """
 import argparse, hashlib, json, os, shutil, subprocess, sys, tempfile
@@ -30,16 +31,46 @@ def sha(p):
     return hashlib.sha256(Path(p).read_bytes()).hexdigest()
 
 
+TOOLS = ('gcc', 'objdump', 'objcopy', 'readelf')
+CHROOT_ENV = 'FZX_YAUL_CHROOT'
+ENV_FAILED = 97
+# The one shell program run inside the chroot. The tool name and every argument
+# arrive as separate argv ($1, $2...), never as shell text.
+CHROOT_PROGRAM_TEMPLATE = r'''
+. "%(env)s" >/dev/null 2>&1 || { echo "menu tables: Yaul environment setup failed (%(env)s)" >&2; exit %(rc)d; }
+[ -n "${YAUL_INSTALL_ROOT:-}" ] || { echo "menu tables: %(env)s did not set YAUL_INSTALL_ROOT" >&2; exit %(rc)d; }
+tool=$1; shift
+exec "$YAUL_INSTALL_ROOT/bin/sh2eb-elf-$tool" "$@"
+'''
+
+
+def chroot_program(env='/yaul-env.sh'):
+    return CHROOT_PROGRAM_TEMPLATE % dict(env=env, rc=ENV_FAILED)
+
+
+CHROOT_PROGRAM = chroot_program()
+
+
+def chroot_argv(chroot, tool, args, program=CHROOT_PROGRAM, shell=('/bin/bash',)):
+    """argv that runs sh2eb-elf-<tool> inside CHROOT with ARGS preserved exactly."""
+    if tool not in TOOLS:
+        raise ArtError('unknown tool %r' % tool)
+    prefix = ['chroot', str(chroot)] if chroot is not None else []
+    return [*prefix, *shell, '-c', program, 'fzx-menu-tables', tool, *map(str, args)]
+
+
 class Toolchain:
-    """Runs sh2eb-elf tools natively, or inside the Yaul chroot that holds this tree."""
+    """Runs sh2eb-elf tools natively, or inside a caller-configured Yaul chroot (--chroot or FZX_YAUL_CHROOT)."""
     def __init__(self, chroot):
         self.chroot = None
         if shutil.which('sh2eb-elf-gcc') is None:
-            if chroot is None:  # the nearest enclosing directory that holds the Yaul environment script
-                chroot = next((d for d in ROOT.resolve().parents if (d / 'yaul-env.sh').is_file()), None)
-                if chroot is None:
-                    raise ArtError('sh2eb-elf-gcc is not on PATH and the tree is not inside a Yaul chroot; pass --chroot')
+            chroot = chroot or os.environ.get(CHROOT_ENV)
+            if not chroot:
+                raise ArtError('sh2eb-elf-gcc is not on PATH; name the trusted Yaul chroot with --chroot or %s'
+                               % CHROOT_ENV)
             self.chroot = Path(chroot).resolve()
+            if not (self.chroot / 'yaul-env.sh').is_file():
+                raise ArtError('%s has no yaul-env.sh; not a Yaul chroot' % self.chroot)
             if not str(ROOT).startswith(str(self.chroot) + '/'):
                 raise ArtError('tree is not inside the toolchain chroot %s' % self.chroot)
 
@@ -48,12 +79,15 @@ class Toolchain:
         return p[len(str(self.chroot)):] if self.chroot else p
 
     def run(self, tool, *args, capture=False):
+        if tool not in TOOLS:
+            raise ArtError('unknown tool %r' % tool)
         if self.chroot:
-            cmd = ' '.join(["$YAUL_INSTALL_ROOT/bin/sh2eb-elf-" + tool, *("'%s'" % a for a in args)])
-            argv = ['chroot', str(self.chroot), '/bin/bash', '-c', 'source /yaul-env.sh >/dev/null 2>&1; ' + cmd]
+            argv = chroot_argv(self.chroot, tool, args)
         else:
             argv = ['sh2eb-elf-' + tool, *args]
         r = subprocess.run(argv, capture_output=True, text=True)
+        if r.returncode == ENV_FAILED and self.chroot:
+            raise ArtError((r.stderr or 'Yaul environment setup failed').strip()[-400:])
         if r.returncode:
             raise ArtError('sh2eb-elf-%s failed: %s' % (tool, (r.stderr or r.stdout)[-400:]))
         return r.stdout
@@ -158,7 +192,9 @@ def generate(output, chroot):
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument('--output', type=Path, default=ROOT / 'generated/menu_tables')
-    ap.add_argument('--chroot', default=None, help='Yaul chroot holding this tree (default: nearest parent with yaul-env.sh)')
+    ap.add_argument('--chroot', default=None,
+                    help='trusted Yaul chroot holding this tree, used when sh2eb-elf-gcc is not on PATH '
+                         '(default: $%s; never discovered)' % CHROOT_ENV)
     args = ap.parse_args()
     try:
         r = generate(args.output.resolve(), args.chroot)

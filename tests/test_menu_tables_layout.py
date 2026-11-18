@@ -1,9 +1,11 @@
 """HOST checks of the one menu-table layout (tools/menu_tables_layout.py) and its consumers."""
 import re
+import sys
 import unittest
 from pathlib import Path
 
-import menu_tables_layout as L
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools'))
+import menu_tables_layout as L  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 SIZES = {'fzx_machine_menu_images': 11568, 'fzx_finish_menu_images': 11172,

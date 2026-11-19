@@ -49,6 +49,41 @@ bool fzx_engine_path_open_verified(fzx_engine_path_t *out, const void *data, uin
     return true;
 }
 
+/* The header and anchors only (the drive image): the same header checks against the whole
+ * pack's size, the anchors inside the part read; no camera records (cams is NULL). */
+bool fzx_engine_path_open_head(fzx_engine_path_t *out, const void *data, uint32_t head_bytes, uint32_t bytes,
+                               uint32_t expected_hash) {
+    const uint8_t *p = data;
+    if (!out || !p || ((uintptr_t)p & 3u) || head_bytes < FZX_EPATH_HEADER_WORDS * 4u || !expected_hash) return false;
+    memset(out, 0, sizeof(*out));
+#define W(n) be32(p + 4u * (n))
+    if (W(0) != FZX_EPATH_MAGIC || W(1) != FZX_EPATH_VERSION || W(2) != bytes || W(3) != expected_hash) return false;
+    const uint32_t ticks = W(4), record = W(5), chunks = W(6), anchors = W(29), records = W(30);
+    if (!ticks || record != sizeof(fzx_engine_cam_t) || chunks < 3 || chunks > FZX_EPATH_MAX_CHUNKS ||
+        W(7) > 8 || (anchors & 3u) || (records & 3u) || anchors < FZX_EPATH_HEADER_WORDS * 4u ||
+        records != head_bytes || chunks * 6u > head_bytes - anchors || records < anchors + chunks * 6u ||
+        ticks > (bytes - records) / record || records + ticks * record != bytes) return false;
+    fzx_engine_consts_t *k = &out->consts;
+    k->near_plane = (int32_t)W(8); k->far_plane = (int32_t)W(9);
+    k->center[0] = (int32_t)W(10); k->center[1] = (int32_t)W(11);
+    for (unsigned i = 0; i < 4; ++i) k->clip[i] = (int16_t)W(12 + i);
+    k->pa = (int32_t)W(16); k->pb = (int32_t)W(17);
+    k->viewport[0] = (int32_t)W(18); k->viewport[1] = (int32_t)W(19);
+    k->origin_distance = (int32_t)W(20); k->far_distance = (int32_t)W(21); k->split_distance = (int32_t)W(22);
+    k->fog_start = (int32_t)W(23); k->aspect = (int32_t)W(24); k->lateral_sign = (int32_t)W(25);
+    k->center_h = (int32_t)W(26); k->center_v = (int32_t)W(27);
+    for (unsigned i = 0; i < 4; ++i) k->fog[i] = p[28 * 4 + i];
+    k->anchor_shift = W(7);
+#undef W
+    if (k->near_plane <= 0 || k->far_plane <= k->near_plane || k->viewport[0] <= 0 || k->viewport[1] <= 0 ||
+        k->clip[0] >= k->clip[2] || k->clip[1] >= k->clip[3] || k->pb > 0 || k->aspect <= 0 ||
+        (k->lateral_sign != 1 && k->lateral_sign != -1) || k->fog_start < 0 || k->fog_start > 996) return false;
+    out->cams = NULL;
+    out->anchors = (const fzx_engine_anchor_t *)(const void *)(p + anchors);
+    out->ticks = ticks; out->chunks = chunks; out->bytes = bytes; out->hash = expected_hash;
+    return true;
+}
+
 /* fzx_road_pack_open (src/fzx_road_pack.c) without the FNV passes. */
 static const uint32_t strides[FZX_ROAD_SECTIONS] = { 16, 12, 64, 80, 16, 1 };
 static bool zero(const uint8_t *p, uint32_t n) {

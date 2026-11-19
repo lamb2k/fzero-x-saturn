@@ -44,6 +44,7 @@
 #if ENG_SCENES
 #include "engine_scenes.h"
 #include "engine_load_fast.h"
+#include "engine_path_ranges.h"
 /* Load step stamps for the scenes lane's load-time table (fields, CD sectors and CD time). */
 #define SCN_STAMP(i) fzx_scn_stamp(i)
 /* One-time set-up, once per image (a cancelled load may stop between them). */
@@ -750,12 +751,21 @@ void fzx_race_load(void) {
     const uintptr_t scratch = ((uintptr_t)sat_stub_data_end + 31u) & ~(uintptr_t)31u;
     if (scratch != PATH_BASE + PATH_CAPACITY) fail(16, "LOW RAM LAYOUT", (uint32_t)scratch);
     for (unsigned i = 0; i < 8u; ++i) ((volatile uint32_t *)(PATH_BASE + PATH_CAPACITY))[(int)i - 8] = LOW_SENTINEL;
+#if ENG_SCENES
+    /* The drive reads only the header and anchors and the lens record (engine_path_ranges.h:
+     * about 2 KB of the pack), each checked as it arrives. */
+    static fzx_engine_cam_t lens_record __attribute__((aligned(4)));
+    if (!fzx_texture_cd_load_range("ENGPATH.PAK", FZX_ENGINE_PATH_BYTES, 0, FZX_EPATH_HEAD_BYTES, FZX_EPATH_HEAD_HASH,
+                                   (void *)PATH_BASE, (void *)scratch, 0x00300000u - scratch) ||
+        !fzx_texture_cd_load_range("ENGPATH.PAK", FZX_ENGINE_PATH_BYTES, FZX_EPATH_LENS_AT, FZX_EPATH_LENS_BYTES,
+                                   FZX_EPATH_LENS_HASH, &lens_record, (void *)scratch, 0x00300000u - scratch))
+        fail(17, "PATH LOAD", fzx_texture_cd_status.status);
+    if (!fzx_engine_path_open_head(&path, (const void *)PATH_BASE, FZX_EPATH_HEAD_BYTES, FZX_ENGINE_PATH_BYTES,
+                                   FZX_ENGINE_PATH_HASH))
+#else
     if (!fzx_texture_cd_load("ENGPATH.PAK", FZX_ENGINE_PATH_BYTES, FZX_ENGINE_PATH_FILE_HASH, (void *)PATH_BASE,
                              (void *)scratch, 0x00300000u - scratch))
         fail(17, "PATH LOAD", fzx_texture_cd_status.status);
-#if ENG_SCENES /* the CD loader checked the file hash as it read it (engine_load_fast.c) */
-    if (!fzx_engine_path_open_verified(&path, (const void *)PATH_BASE, FZX_ENGINE_PATH_BYTES, FZX_ENGINE_PATH_HASH))
-#else
     if (!fzx_engine_path_open(&path, (const void *)PATH_BASE, FZX_ENGINE_PATH_BYTES, FZX_ENGINE_PATH_HASH))
 #endif
         fail(18, "PATH PACK", 0);
@@ -766,7 +776,12 @@ void fzx_race_load(void) {
     if (!fzx_drive_load((void *)scratch, 0x00300000u - scratch))
         fail(50, "DRIVE LOAD", fzx_e1_status * 100u + fzx_texture_cd_status.status);
     /* The lens (focal, tan_half) of the race camera at speed, from the reference path. */
+#if ENG_SCENES
+    const fzx_engine_cam_t *const lens = &lens_record;
+    _Static_assert(FZX_EPATH_LENS_BYTES == sizeof(fzx_engine_cam_t), "lens record size");
+#else
     const fzx_engine_cam_t *const lens = &path.cams[(path.ticks >= 3000u ? 3000u : path.ticks) - 1u];
+#endif
 #if !ENG_SCENES
     static fzx_engine_cam_t drive_cam;
 #endif

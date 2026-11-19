@@ -104,8 +104,8 @@ bool fzx_texture_cd_load_range(const char *name,uint32_t file_bytes,uint32_t off
                                void *dest,void *scratch,uint32_t scratch_bytes) {
     if(!kept_ok) {
         /* The first use initialises the CD block and reads the directory (as any load). */
-        static uint32_t probe;
-        (void)fzx_texture_cd_load(name,0xFFFFFFFCu,0,&probe,scratch,scratch_bytes);
+        static uint32_t probe[2] __attribute__((aligned(8)));
+        (void)fzx_texture_cd_load(name,0xFFFFFFFCu,0,probe,scratch,scratch_bytes);
         if(!kept_ok)return false;
     }
     fzx_texture_cd_status=(fzx_texture_cd_status_t){0};

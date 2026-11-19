@@ -183,6 +183,23 @@ FZX_RS_COLD bool fzx_road_stream_draw_prepare(fzx_road_stream_draw_work_t *w,
     w->pack=p;w->native=native;w->prepared=true;return true;
 }
 
+/* Offline-prepared native layout (engine scenes image, FZX_ROAD_PREP_BAKED): the caller
+ * has filled nunit, npos, nquads, nspans, nchunks and images from ROADPREP.PAK
+ * (tools/road_prep.py ran this file's prepare on the same packs at build time, and the
+ * image checked each table's FNV as it read it). The same preconditions as prepare, then
+ * the native layout is adopted as prepared. */
+FZX_RS_COLD bool fzx_road_stream_draw_adopt(fzx_road_stream_draw_work_t *w,const fzx_road_stream_pack_t *p,
+    const void *textures,uint32_t bytes,uint32_t npos_count){
+    if(!w)return false;
+    w->prepared=false;w->fog_valid=false;w->native=false;
+    const uint8_t *t=textures;
+    if(!p||!p->data||!t||bytes!=p->texture_bytes||bytes<64||memcmp(t,"FZXRTX01",8)||U32(t+8)!=1||U32(t+12)!=bytes||
+       !w->images||w->image_capacity<p->count[FZX_RLD_IMAGES]||!w->projected||!w->vertex_capacity||w->vertex_capacity>65535||
+       !w->npos||!w->nquads||!w->nspans||!w->nchunks||!npos_count||npos_count>w->npos_capacity)return false;
+    w->npos_count=npos_count;
+    w->pack=p;w->native=true;w->prepared=true;return true;
+}
+
 /* Rebuild only when the fog inputs change (cold, size-optimised); the
  * per-frame check below stays on the hot path. */
 static FZX_RS_COLD void fog_rebuild(fzx_road_stream_draw_work_t *w,const sh2z_view_t *view,

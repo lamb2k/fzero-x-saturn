@@ -99,6 +99,42 @@ bool fzx_road_stream_guards(void){
     for(unsigned i=0;i<8;++i)if(a[(int)i-8]!=GUARD||b[i]!=GUARD||c[(int)i-8]!=GUARD||d[i]!=GUARD||fzx_input_log[12288u+i]!=GUARD)return false;
     return true;
 }
+#if FZX_ROAD_PREP_BAKED
+/* Engine scenes image: the native layout prepared offline (tools/road_prep.py), each table
+ * read straight into its work array and checked against its FNV as it arrives. */
+#include "road_prep_identity.h"
+volatile uint32_t fzx_road_prep_report[4]; /* [0] 1 adopted, 2+n table n refused, 9 counts, 10 alignment */
+static bool prep_table(const char *what,uint32_t at,uint32_t bytes,uint32_t hash,void *dest,uintptr_t scratch,uint32_t scratch_bytes,uint32_t code){
+    (void)what;
+    if(((uintptr_t)dest&3u)){fzx_road_prep_report[0]=10;return false;}
+    if(!fzx_texture_cd_load_range("ROADPREP.PAK",FZX_ROAD_PREP_BYTES,at,bytes,hash,dest,(void *)scratch,scratch_bytes)){
+        fzx_road_prep_report[0]=code;return false;}
+    return true;
+}
+static bool road_prepare(fzx_road_stream_draw_work_t *w,void *vram,uintptr_t scratch,uint32_t scratch_bytes){
+    static uint32_t nunit[(FZX_ROAD_PREP_NUNIT_BYTES+3u)/4u];
+    if(FZX_ROAD_PREP_LOD_HASH!=FZX_ROAD_LOD_FILE_HASH||FZX_ROAD_PREP_LTX_HASH!=FZX_ROAD_LOD_TEXTURE_FILE_HASH||
+       FZX_ROAD_PREP_QUADS!=pack.count[FZX_RLD_QUADS]||FZX_ROAD_PREP_CHUNKS!=pack.count[FZX_RLD_CHUNKS]||
+       FZX_ROAD_PREP_IMAGES!=pack.count[FZX_RLD_IMAGES]||FZX_ROAD_PREP_STRIPS>256u||
+       FZX_ROAD_PREP_NPOS_BYTES>w->npos_capacity*sizeof(*w->npos)){fzx_road_prep_report[0]=9;return false;}
+    if(!prep_table("nunit",FZX_ROAD_PREP_NUNIT_AT,FZX_ROAD_PREP_NUNIT_BYTES,FZX_ROAD_PREP_NUNIT_HASH,nunit,scratch,scratch_bytes,2)||
+       !prep_table("npos",FZX_ROAD_PREP_NPOS_AT,FZX_ROAD_PREP_NPOS_BYTES,FZX_ROAD_PREP_NPOS_HASH,w->npos,scratch,scratch_bytes,3)||
+       !prep_table("nquads",FZX_ROAD_PREP_NQUADS_AT,FZX_ROAD_PREP_NQUADS_BYTES,FZX_ROAD_PREP_NQUADS_HASH,w->nquads,scratch,scratch_bytes,4)||
+       !prep_table("nspans",FZX_ROAD_PREP_NSPANS_AT,FZX_ROAD_PREP_NSPANS_BYTES,FZX_ROAD_PREP_NSPANS_HASH,w->nspans,scratch,scratch_bytes,5)||
+       !prep_table("nchunks",FZX_ROAD_PREP_NCHUNKS_AT,FZX_ROAD_PREP_NCHUNKS_BYTES,FZX_ROAD_PREP_NCHUNKS_HASH,w->nchunks,scratch,scratch_bytes,6)||
+       !prep_table("images",FZX_ROAD_PREP_IMAGES_AT,FZX_ROAD_PREP_IMAGES_BYTES,FZX_ROAD_PREP_IMAGES_HASH,w->images,scratch,scratch_bytes,7))
+        return false;
+    const uint16_t *u=(const uint16_t *)(const void *)nunit;
+    for(unsigned s=0;s<FZX_ROAD_PREP_STRIPS;++s)w->nunit[s]=u[s];
+    if(!fzx_road_stream_draw_adopt(w,&pack,vram,FZX_ROAD_LOD_TEXTURE_BYTES,FZX_ROAD_PREP_NPOS_COUNT)){fzx_road_prep_report[0]=8;return false;}
+    fzx_road_prep_report[0]=1;return true;
+}
+#else
+static bool road_prepare(fzx_road_stream_draw_work_t *w,void *vram,uintptr_t scratch,uint32_t scratch_bytes){
+    (void)scratch;(void)scratch_bytes;
+    return fzx_road_stream_draw_prepare(w,&pack,vram,FZX_ROAD_LOD_TEXTURE_BYTES,FZX_ROAD_LOD_TEXTURE_FILE_HASH);
+}
+#endif
 bool fzx_road_stream_load(void *vram){
     work=NULL;packets=NULL;fzx_road_stream_status=2;fzx_road_stream_busy=0;
     for(unsigned i=0;i<24;++i)fzx_road_stream_report[i]=0;
@@ -165,7 +201,7 @@ bool fzx_road_stream_load(void *vram){
     }
     if(!fzx_texture_cd_load("ROADLTX.PAK",FZX_ROAD_LOD_TEXTURE_BYTES,FZX_ROAD_LOD_TEXTURE_FILE_HASH,
           vram,(void *)scratch,log-32u-scratch)||
-       !fzx_road_stream_draw_prepare(work,&pack,vram,FZX_ROAD_LOD_TEXTURE_BYTES,FZX_ROAD_LOD_TEXTURE_FILE_HASH)){
+       !road_prepare(work,vram,scratch,log-32u-scratch)){
         fzx_road_stream_status=3;return false;
     }
     if(!fzx_road_stream_guards()){fzx_road_stream_status=5;return false;}

@@ -160,6 +160,10 @@ typedef struct {
  * generated-file identity, not its embedded zero-field checksum. */
 bool fzx_road_stream_draw_prepare(fzx_road_stream_draw_work_t *,
     const fzx_road_stream_pack_t *,const void *textures,uint32_t bytes,uint32_t expected_texture_hash);
+/* The native layout prepared offline (ROADPREP.PAK, tools/road_prep.py): the caller has
+ * filled the native tables, nunit and images; adopts them as prepared. */
+bool fzx_road_stream_draw_adopt(fzx_road_stream_draw_work_t *,
+    const fzx_road_stream_pack_t *,const void *textures,uint32_t bytes,uint32_t npos_count);
 
 /* One gather and projected batch, then shared longitudinal edge stepping.
  * No per-command callback, hash, allocation or memset. count is zero on any

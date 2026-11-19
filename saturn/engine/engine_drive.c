@@ -885,6 +885,11 @@ unsigned fzx_drive_cars(vdp1_cmdt_t *commands, unsigned capacity, const fzx_view
 
 /* ---- HUD ------------------------------------------------------------------------ */
 void fzx_drive_hud(void) {
+    fzx_drive_hud_text();
+    dbgio_flush();
+}
+
+void fzx_drive_hud_text(void) {
     const uint32_t kmh = (uint32_t)(((int64_t)(body.speed < 0 ? -body.speed : body.speed) * 216) / (65536 * 10));
     const uint32_t ms = body.race_time > 0 ? (uint32_t)body.race_time : 0u;
     const uint32_t laps = (uint32_t)course.track.laps;
@@ -896,5 +901,4 @@ void fzx_drive_hud(void) {
     if (body.flags & SH2Z_VD_FINISHED) dbgio_printf("\x1b[4;14HFINISH");
     else if (body.intro > 0) dbgio_printf("\x1b[4;14H%s", body.intro > 180 ? "      " : body.intro > 120 ? "  3   " : body.intro > 60 ? "  2   " : "  1   ");
     else dbgio_printf("\x1b[4;14H      ");
-    dbgio_flush();
 }

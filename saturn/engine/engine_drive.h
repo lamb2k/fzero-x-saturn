@@ -76,4 +76,6 @@ const sh2z_vd_body_t *fzx_drive_body(void);
 #endif
 /* HUD text (dbgio, VDP2). */
 void fzx_drive_hud(void);
+/* The HUD text only, into the dbgio buffer; the caller flushes it (dbgio_flush). */
+void fzx_drive_hud_text(void);
 #endif

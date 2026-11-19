@@ -297,6 +297,64 @@ static void hw_count(void) {
 volatile uint32_t fzx_pace_last_draw, fzx_pace_limit, fzx_pace_holds;
 static uint32_t pace_last_build;
 #endif
+#if ENG_PACE == 4
+/* ENG_PACE=4, the pipelined 30 fps lock. Three frames are in flight: F-1 on screen, F drawn by
+ * VDP1, F+1 built by both CPUs. The loop builds F+1 as soon as F is submitted (no field wait
+ * before the prelude); only the submit waits, for F-1's swap, because VDP1 has two framebuffers.
+ * Yaul's variable interval with the 30 Hz cap (vdp1_sync_interval_set(-2)) draws a list as soon
+ * as it is put and changes framebuffers at the second VBlank-In after the render, or at the first
+ * one after that at which the draw has ended; a long draw delays the swap and is never cut.
+ * Yaul calls the render callback when it sees the draw end, which with the cap can be a field
+ * before the change, so the VDP2 present (floor, clouds, sky lines) moves to the VBlank-In
+ * callback, which runs after Yaul's change logic in the same interrupt and applies its rule: a
+ * frame is presented at the VBlank-In where it is drawn and has seen at least two VBlank-Ins.
+ * The submit checks that the mirror and Yaul agree (fault 45).
+ * Banks: F+1 builds into the bank F does not use, and F-1 references no VDP1 bank (it is in the
+ * display framebuffer) and no VDP2 stage (presented), so two command/shade banks, two floor and
+ * cloud stages and the sprite cache's live = 2 cover the three stages.
+ * fzx_pace_lead (W): the build of frame F starts no sooner than W fields after the field in
+ * which F-2 was presented. W = 1 never waits (the build starts at F-1's submit); W = 2 starts a
+ * field later: one field less latency and one field less build time.
+ * fzx_pace: [0] frames submitted, [1] frames presented, [2] field (VBlank-Out count) of the last
+ * present, [3] build starts held, [4] VBlank-Ins of the last presented frame, [5] presents later
+ * than two VBlank-Ins, [6] submits that waited for the swap, [7] most VBlank-Ins of a frame. */
+#if !FZX_VDP1_DBANK
+#error ENG_PACE=4 needs FZX_VDP1_DBANK=1 (two banks and the present queues)
+#endif
+#ifndef ENG_PACE_LEAD
+#define ENG_PACE_LEAD 1
+#endif
+/* Control (diagnostic only): 1 presents at the first VBlank-In after the draw, a field before
+ * Yaul's change on short draws; the submit's check must stop the image (fault 45). */
+#ifndef ENG_PACE_EARLY_CONTROL
+#define ENG_PACE_EARLY_CONTROL 0
+#endif
+volatile uint32_t fzx_pace_lead = ENG_PACE_LEAD;
+volatile uint32_t fzx_pace[8];
+static volatile uint32_t pace_rendered, pace_drawn, pace_vbi;
+/* The HUD with its picture: frame F's text is formatted after F's build and flushed by the
+ * next submit's wait, in the vertical blank of F's present (the VBlank-In callback cannot run
+ * the dbgio DMA; the master is spinning there). Probe: [0] HUD flushes, [1] flushes whose text
+ * tick differs from the tick of the frame just presented, [2] flushes that ended outside that
+ * frame's blank, [3] text tick minus presented tick of the last mismatch, [4] presented tick,
+ * [5] text tick. ENG_PACE_HUD_LEAD=1 (control) keeps the old path (text and flush right after
+ * the build, a frame ahead of the picture). */
+#ifndef ENG_PACE_HUD_LEAD
+#define ENG_PACE_HUD_LEAD 0
+#endif
+volatile uint32_t fzx_pace_hud[6];
+static volatile uint32_t pace_tick_inflight, pace_tick_presented;
+#if FZX_E1_DRIVE
+static uint32_t hud_text_tick, hud_pending;
+static void pace_hud_probe(uint32_t text_tick) {
+    const uint32_t shown = pace_tick_presented;
+    ++fzx_pace_hud[0];
+    if (text_tick != shown) { ++fzx_pace_hud[1]; fzx_pace_hud[3] = text_tick - shown; }
+    if (!vdp2_tvmd_vblank_in() || video_fields != fzx_pace[2]) ++fzx_pace_hud[2];
+    fzx_pace_hud[4] = shown; fzx_pace_hud[5] = text_tick;
+}
+#endif
+#endif
 /* The floor's render-end callback calls this when a frame has been drawn. */
 void fzx_fp_present(void) {
 #if E0_HW_COUNTER
@@ -341,10 +399,34 @@ static void fail(uint32_t code, const char *text, uint32_t detail) {
 #define MAC_RESTORE() do {} while (0)
 #endif
 static void render_end(void *work) {
+#if ENG_PACE == 4
+    (void)work;
+    pace_drawn = 1u; /* presented by pace_vblank_in, at the framebuffer change */
+#else
     MAC_SAVE();
     fzx_floor_present(work);
     MAC_RESTORE();
+#endif
 }
+#if ENG_PACE == 4
+static void pace_vblank_in(void *work) {
+    (void)work;
+    MAC_SAVE();
+    if (pace_rendered) {
+        const uint32_t n = ++pace_vbi;
+        if (pace_drawn && n >= 2u - ENG_PACE_EARLY_CONTROL) {
+            fzx_floor_present(NULL);
+            pace_tick_presented = pace_tick_inflight;
+            fzx_pace[2] = video_fields; fzx_pace[4] = n;
+            if (n > 2u) ++fzx_pace[5];
+            if (n > fzx_pace[7]) fzx_pace[7] = n;
+            pace_rendered = 0u; pace_drawn = 0u; pace_vbi = 0u;
+            ++fzx_pace[1];
+        }
+    }
+    MAC_RESTORE();
+}
+#endif
 /* Control probe (E0_MAC_PROBE=1, diagnostic only): for one field before the VBlank
  * wait, check 32x32->64 products for a changed MACH/MACL. [0] products, [1] wrong. */
 #ifndef E0_MAC_PROBE
@@ -399,6 +481,10 @@ void user_init(void) {
     /* ENG_PACE=3 (probe): Yaul's fixed interval (ENG_VDP1_INTERVAL): VDP1 draws as soon as
      * its list is put; the framebuffer change waits for the interval. */
     vdp1_sync_interval_set(ENG_VDP1_INTERVAL);
+#elif ENG_PACE == 4
+    /* ENG_PACE=4: variable interval capped at 30 Hz; the present follows the change (pace_vblank_in). */
+    vdp1_sync_interval_set(-2);
+    vdp_sync_vblank_in_set(pace_vblank_in, NULL);
 #else
     vdp1_sync_interval_set(-1); /* present when the list has been drawn */
 #endif
@@ -526,7 +612,9 @@ static void before_master(void) {
     mac_probe();
 #endif
 #if FZX_VDP1_DBANK
-    vdp2_sync_wait();
+#if ENG_PACE != 4
+    vdp2_sync_wait(); /* ENG_PACE=4: no field wait; the build's VDP2 data reaches VDP2 only at its present */
+#endif
     const uint32_t bank = sh2z_vdp1_banks_bank(&fzx_dbank_banks);
     fzx_floor_dbank_select(bank);
     fzx_clouds_dbank_select(bank);
@@ -952,6 +1040,15 @@ int main(void) {
     fzx_e0_report[4] = previous;
     fzx_e0_status = 1;
     for (;;) {
+#if ENG_PACE == 4
+        /* The build (pad read, physics, both CPUs' scene) starts at a fixed phase of the swap
+         * cadence: fzx_pace_lead fields after the present of the frame two back, while the frame
+         * one back is still in flight. */
+        if (fzx_pace[0] >= 2u && fzx_pace[1] + 1u == fzx_pace[0]) {
+            const uint32_t start = fzx_pace[2] + fzx_pace_lead;
+            if ((int32_t)(video_fields - start) < 0) { ++fzx_pace[3]; while ((int32_t)(video_fields - start) < 0) {} }
+        }
+#endif
         const uint16_t loop_start = cpu_frt_count_get();
         const uint32_t field = video_fields;
         /* Real time: the path advances one tick per 1/60 s, whatever the frame takes. */
@@ -1047,6 +1144,22 @@ int main(void) {
         {
             /* The previous frame must be drawn and swapped before this one is sent. */
             const uint16_t w2 = cpu_frt_count_get();
+#if ENG_PACE == 4
+            /* Mirror check: when Yaul's change is seen here, the VBlank-In callback has presented
+             * every submitted frame, and when this wait spanned the change, it did so at the
+             * VBlank-In just before (a present at the wrong field would show VDP2 data out of step
+             * with VDP1). */
+#if FZX_E1_DRIVE && !ENG_PACE_HUD_LEAD
+            /* The previous frame's HUD text, flushed in the blank of its present. */
+            while (fzx_pace[1] != fzx_pace[0] && vdp1_sync_busy()) {}
+            if (hud_pending) { hud_pending = 0u; dbgio_flush(); pace_hud_probe(hud_text_tick); }
+#endif
+            const bool waited = vdp1_sync_busy();
+            vdp1_sync_wait();
+            if (fzx_pace[1] != fzx_pace[0] || (waited && fzx_pace[2] + 1u != video_fields))
+                fail(45, "PACE ORDER", fzx_pace[0] * 16u + fzx_pace[1] - fzx_pace[0] + (waited ? 8u : 0u));
+            if (waited) ++fzx_pace[6];
+#endif
             vdp1_sync_wait();
             vdp2_sync_wait();
             row->wait_prev_ticks = (uint16_t)(row->wait_prev_ticks + (uint16_t)(cpu_frt_count_get() - w2));
@@ -1069,7 +1182,15 @@ int main(void) {
 #if FZX_E1_DRIVE
         {
             const uint16_t h0 = cpu_frt_count_get();
+#if ENG_PACE == 4 && !ENG_PACE_HUD_LEAD
+            fzx_drive_hud_text(); /* flushed at this frame's present (the next submit's wait) */
+            hud_text_tick = shown; hud_pending = 1u;
+#else
             fzx_drive_hud();
+#if ENG_PACE == 4
+            pace_hud_probe(shown); /* control: the old path, a frame ahead of the picture */
+#endif
+#endif
             row->hud_ticks = (uint16_t)(cpu_frt_count_get() - h0);
         }
 #endif
@@ -1106,8 +1227,25 @@ int main(void) {
 #endif
         row->submit_frt = cpu_frt_count_get();
         vdp1_sync_cmdt_list_put(&command_list, 0);
+#if ENG_PACE == 4
+        /* The render and the sync with interrupts masked, so Yaul's change logic and the
+         * mirror in pace_vblank_in count the same VBlank-Ins (the transfer is waited first:
+         * its end interrupt sets the flag the render waits on). */
+        vdp1_sync_put_wait();
+        {
+            const uint32_t mask = cpu_intc_mask_get();
+            cpu_intc_mask_set(15);
+            vdp1_sync_render();
+            vdp1_sync();
+            pace_vbi = 0u; pace_drawn = 0u; pace_rendered = 1u;
+            pace_tick_inflight = shown;
+            ++fzx_pace[0];
+            cpu_intc_mask_set(mask);
+        }
+#else
         vdp1_sync_render();
         vdp1_sync();
+#endif
         vdp2_sync();
 #if FZX_VDP1_DBANK
         sh2z_vdp1_banks_submitted(&fzx_dbank_banks, true);

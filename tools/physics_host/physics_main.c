@@ -21,7 +21,8 @@
  * with --bake-at the reference writes it to BAKE.driver.
  * --boost-reserve R: the C-059 energy-aware driver, as in the reference driver.
  * --mutate NAME plants one model mutation for the controls: grip+5%, turn+2%, damp0.9968,
- * wall1.6, boost99, zones-off, stick+1 (a one-unit stick offset on non-zero input).
+ * wall1.6, boost99, zones-off, stick+1 (a one-unit stick offset on non-zero input), gravity+5%,
+ * boost+30, ramp+10%, laps-1, air-10%, gravity+20% (C-076 event-class controls).
  * Output: the fzx-handling v1 trace, and "ticks N hash H" with H = FNV-1a 64 over the
  * raw fixed-point body state of every tick (the bit-exact check between builds). */
 #include <stdint.h>
@@ -160,6 +161,16 @@ int main(int argc, char** argv) {
         else if (strcmp(mutate, "boost99") == 0) rules.boost_ticks = 99;
         else if (strcmp(mutate, "zones-off") == 0) zones = 0;
         else if (strcmp(mutate, "stick+1") == 0) stick_offset = 1;
+        else if (strcmp(mutate, "gravity+5%") == 0) rules.gravity += rules.gravity / 20;
+        else if (strcmp(mutate, "gravity+20%") == 0) rules.gravity += rules.gravity / 5;
+        else if (strcmp(mutate, "boost+30") == 0) rules.boost_ticks += 30;
+        else if (strcmp(mutate, "ramp+10%") == 0) rules.ramp_gain += rules.ramp_gain / 10;
+        else if (strcmp(mutate, "laps-1") == 0) course.track.laps -= 1;
+        else if (strcmp(mutate, "air-10%") == 0) {
+            rules.air_road -= rules.air_road / 10;
+            rules.air_walled -= rules.air_walled / 10;
+            rules.air_tunnel -= rules.air_tunnel / 10;
+        }
         else die("unknown mutation");
         if (strcmp(mutate, "zones-off") == 0 && fzx_phys_load(&course, image, size, 0) != 0) die("bad physics pack");
     }

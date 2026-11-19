@@ -21,6 +21,10 @@
 #ifndef E1_CLOSEUP
 #define E1_CLOSEUP 0
 #endif
+/* Close-up 3D-N (Makefile E1_FIELD = rivals, engine_field.h); 0 builds no field. */
+#ifndef E1_FIELD
+#define E1_FIELD 0
+#endif
 
 /* 1: the R01 test driver steers (60 Hz, from each tick's previous state);
  * 0: the pad, read once per presented frame and held for its ticks. */
@@ -56,6 +60,15 @@ void fzx_drive_camera(fzx_engine_cam_t *cam, const fzx_engine_cam_t *lens);
 /* The player sprite (user clip, shadow, sprite) after the track; returns commands written. */
 unsigned fzx_drive_sprites(vdp1_cmdt_t *commands, unsigned capacity, const fzx_view_t *view,
                            const fzx_engine_cam_t *cam);
+#if E1_FIELD
+#include "engine_field.h"
+/* Every car of the field, far to near: sprites through the slot cache, 3D cars from
+ * their staged commands (staged[slot], staged_n[slot]); returns commands written. */
+unsigned fzx_drive_cars(vdp1_cmdt_t *commands, unsigned capacity, const fzx_view_t *view, const fzx_engine_cam_t *cam,
+                        const fzx_field_car_t *cars, unsigned n, const vdp1_cmdt_t *const *staged, const uint16_t *staged_n);
+extern volatile uint32_t fzx_field_sim_ticks, fzx_field_draw[8];
+const sh2z_vd_body_t *fzx_drive_body(void);
+#endif
 /* HUD text (dbgio, VDP2). */
 void fzx_drive_hud(void);
 #endif

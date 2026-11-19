@@ -41,7 +41,19 @@
 #ifndef E1_CLOSEUP_EARLY
 #define E1_CLOSEUP_EARLY 0
 #endif
-#if E1_CLOSEUP == 1
+#ifndef E1_FIELD
+#define E1_FIELD 0
+#endif
+#if E1_FIELD
+/* Close-up 3D-N: up to FZX_FIELD_K_MAX 3D cars of FIELD_CAR_COMMANDS each, every car's
+ * sprite and FIELD_SHADOWS + 1 shadows (engine_field.h, fzx_drive_cars). */
+#if E1_CLOSEUP != 1 || !E1_CLOSEUP_EARLY
+#error E1_FIELD needs E1_CLOSEUP=1 and E1_CLOSEUP_EARLY=1
+#endif
+#include "engine_closeup.h"
+#define FIELD_CAR_COMMANDS 96u
+#define CLOSEUP_COMMANDS (FZX_FIELD_K_MAX * FIELD_CAR_COMMANDS + FZX_FIELD_CARS + 9u)
+#elif E1_CLOSEUP == 1
 #include "engine_closeup.h"
 #define CLOSEUP_COMMANDS FZX_CLOSEUP_SLOTS
 #else
@@ -78,7 +90,7 @@ enum {
     CMD_CAPACITY = SCENE_CAPACITY + 3u + DRIVE_SLOTS,
     PATH_BASE = 0x00200000u, PATH_CAPACITY = 0x0008C000u, /* Makefile: sat_stub_data_end follows */
     ROW_MAGIC = 0x45305246u, /* "E0RF" */
-    ROW_WORDS = 9u + (FZX_E1_DRIVE ? 3u : 0u)
+    ROW_WORDS = 9u + (FZX_E1_DRIVE ? 3u : 0u) + (E1_FIELD ? 3u : 0u)
 };
 _Static_assert(FZX_ENGINE_PATH_BYTES + 64u <= PATH_CAPACITY, "path pack exceeds its low-RAM reservation");
 _Static_assert(CMD_CAPACITY <= VDP1_VRAM_DEFAULT_CMDT_COUNT, "commands exceed the VDP1 command partition");
@@ -160,6 +172,14 @@ typedef struct {
     uint16_t steps;        /* physics ticks stepped for this frame */
     uint16_t hud_ticks;    /* master FRT units: HUD text */
     int16_t sprite_x, sprite_y; /* player sprite origin, whole pixels (-32768: not drawn) */
+#endif
+#if E1_FIELD
+    uint16_t rival_ticks;  /* master FRT units: the rival field's steps (inside phys_ticks) */
+    uint16_t cars3d_ticks; /* master FRT units: the 3D cars (staged before the track wait) */
+    uint16_t emit_ticks;   /* master FRT units: sort, shadows, sprites and copies after the track */
+    uint8_t near, n3d;     /* rivals within 400 units, 3D cars this frame */
+    uint16_t car_cmds;     /* VDP1 commands of every car (shadows included) */
+    uint16_t sprites;      /* sprite cars drawn */
 #endif
 } row_t;
 _Static_assert(sizeof(row_t) == ROW_WORDS * 4u, "frame row layout");
@@ -547,7 +567,25 @@ static void build(row_t *row, const fzx_engine_cam_t *cam, uint32_t tick, uint16
 #else
     const uint32_t vbank = 0;
 #endif
-#if E1_CLOSEUP_EARLY
+#if E1_FIELD
+    /* 3D-N: the field's cars and the nearest K as 3D models, built while the slave builds
+     * the track into this build's bank tables (one slot each). */
+    static fzx_field_car_t field_cars[FZX_FIELD_CARS];
+    static vdp1_cmdt_t car_stage[FZX_FIELD_K_MAX][FIELD_CAR_COMMANDS];
+    static const vdp1_cmdt_t *car_stage_p[FZX_FIELD_K_MAX];
+    uint16_t car_stage_n[FZX_FIELD_K_MAX];
+    const uint16_t v0 = cpu_frt_count_get();
+    const unsigned ncars = fzx_field_cars(field_cars, fzx_drive_body());
+    for (unsigned i = 0; i < FZX_FIELD_K_MAX; ++i) { car_stage_n[i] = 0; car_stage_p[i] = car_stage[i]; }
+    for (unsigned i = 0; i < ncars; ++i) {
+        const fzx_field_car_t *c = &field_cars[i];
+        if (!c->is3d) continue;
+        car_stage_n[c->slot] = (uint16_t)(c->id == 0
+            ? fzx_closeup_draw(car_stage[c->slot], FIELD_CAR_COMMANDS, &fzx_native_view, cam, vbank)
+            : fzx_closeup_draw_pose(car_stage[c->slot], FIELD_CAR_COMMANDS, &fzx_native_view, cam, vbank, c->slot, c->pos, c->basis));
+    }
+    row->cars3d_ticks = (uint16_t)(cpu_frt_count_get() - v0);
+#elif E1_CLOSEUP_EARLY
     /* Arm A, early: the vehicle is built while the slave still builds the track (its
      * Gouraud words go to this build's bank, which VDP1 is not drawing); only the
      * copy of its commands after the shadow waits for the track. */
@@ -571,8 +609,20 @@ static void build(row_t *row, const fzx_engine_cam_t *cam, uint32_t tick, uint16
 #if FZX_E1_DRIVE
     {
         const uint16_t s0 = cpu_frt_count_get();
+#if E1_FIELD
+        {
+            const unsigned m = fzx_drive_cars(&commands[CMD_FIRST + draws], DRIVE_SLOTS, &fzx_native_view, cam,
+                                              field_cars, ncars, car_stage_p, car_stage_n);
+            draws += m;
+            row->car_cmds = (uint16_t)(m ? m - 1u : 0u); row->sprites = (uint16_t)fzx_field_draw[0];
+            row->near = (uint8_t)fzx_field_report[6]; row->n3d = (uint8_t)fzx_field_report[7];
+        }
+#else
         draws += fzx_drive_sprites(&commands[CMD_FIRST + draws], DRIVE_SLOTS - CLOSEUP_SLOTS, &fzx_native_view, cam);
-#if E1_CLOSEUP == 1 && E1_CLOSEUP_EARLY
+#endif
+#if E1_FIELD
+        row->emit_ticks = (uint16_t)(cpu_frt_count_get() - s0);
+#elif E1_CLOSEUP == 1 && E1_CLOSEUP_EARLY
         /* Arm A, early: the staged vehicle after its shadow. */
         memcpy(&commands[CMD_FIRST + draws], vehicle_stage, vehicle_staged * sizeof(vdp1_cmdt_t));
         draws += vehicle_staged;
@@ -582,7 +632,10 @@ static void build(row_t *row, const fzx_engine_cam_t *cam, uint32_t tick, uint16
 #endif
         row->sprite_x = (int16_t)fzx_e1_sprite_pos[0]; row->sprite_y = (int16_t)fzx_e1_sprite_pos[1];
         row->sprite_ticks = (uint16_t)(cpu_frt_count_get() - s0);
-#if E1_CLOSEUP == 1 && E1_CLOSEUP_EARLY
+#if E1_FIELD
+        /* Master time of every car's draw, wherever it ran. */
+        row->sprite_ticks = (uint16_t)(row->sprite_ticks + row->cars3d_ticks);
+#elif E1_CLOSEUP == 1 && E1_CLOSEUP_EARLY
         /* Master time of the player's draw, wherever it ran (the vehicle ran before the wait). */
         row->sprite_ticks = (uint16_t)(row->sprite_ticks + vehicle_ticks);
 #endif
@@ -738,6 +791,9 @@ int main(void) {
         if (advance > 4u) advance = 4u;
         if (hold && fzx_drive_tick() + advance > hold) advance = fzx_drive_tick() < hold ? hold - fzx_drive_tick() : 0u;
         const uint16_t p0 = cpu_frt_count_get();
+#if E1_FIELD
+        fzx_field_sim_ticks = 0;
+#endif
         fzx_drive_step(advance);
         const uint16_t phys = (uint16_t)(cpu_frt_count_get() - p0);
         tick = fzx_drive_tick() ? fzx_drive_tick() : 1u;
@@ -759,6 +815,9 @@ int main(void) {
         row->tick = shown; row->build_field = field;
 #if FZX_E1_DRIVE
         row->phys_ticks = phys; row->steps = (uint16_t)advance;
+#endif
+#if E1_FIELD
+        row->rival_ticks = (uint16_t)fzx_field_sim_ticks;
 #endif
         const uint16_t w0 = cpu_frt_count_get();
         before_slave();

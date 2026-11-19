@@ -8,6 +8,9 @@
 #include "texture_cd.h"
 #include "sh2zam/rotation_sprite_experimental.h"
 #include "sh2zam/sprite_cache_experimental.h"
+#if E1_FIELD
+#include "engine_field.h"
+#endif
 
 #ifndef E1_DRIVER
 #define E1_DRIVER 0
@@ -58,8 +61,19 @@ static signed char driver_stick(void) {
     return (signed char)(steer >= 0.0f ? (int)(steer * 63.0f + 0.5f) : -(int)(-steer * 63.0f + 0.5f));
 }
 
+#if E1_FIELD
+/* Close-up 3D-N: the rival field steps after the player, every tick (FRT time summed for the frame row). */
+volatile uint32_t fzx_field_sim_ticks;
+#endif
 static void step_once(sh2z_vd_input_t *in) {
     sh2z_vd_step(&body, &course.track, &course.vehicle, &fzx_phys_rules, in);
+#if E1_FIELD
+    {
+        const uint16_t f0 = cpu_frt_count_get();
+        fzx_field_tick(&body);
+        fzx_field_sim_ticks += (uint16_t)(cpu_frt_count_get() - f0);
+    }
+#endif
     ++ticks;
     if (ticks % CHECKPOINT_EVERY == 0u && ticks / CHECKPOINT_EVERY <= CHECKPOINTS) {
         const uint64_t h = fnv64_body(&body);
@@ -114,7 +128,7 @@ void fzx_drive_step(uint32_t n) {
 }
 
 uint32_t fzx_drive_tick(void) { return ticks; }
-#if E1_CLOSEUP == 1
+#if E1_CLOSEUP == 1 || E1_FIELD
 /* Arm A (engine_closeup.c) poses the 3D model from the body itself. */
 const sh2z_vd_body_t *fzx_drive_body(void) { return &body; }
 #endif
@@ -273,6 +287,9 @@ bool fzx_drive_load(void *scratch, uint32_t scratch_bytes) {
     if (fzx_phys_load(&course, (const uint8_t *)pack_buf, FZX_PHYSICS_PACK_BYTES, 1) != 0) { fzx_e1_status = 3; return false; }
     body = course.start; prev_n64 = 0; ticks = 0;
     memset(&pad_state, 0, sizeof(pad_state));
+#if E1_FIELD
+    if (!fzx_field_load(&course.track, &body)) { fzx_e1_status = 9; return false; }
+#endif
     return true;
 }
 
@@ -457,6 +474,104 @@ unsigned fzx_drive_sprites(vdp1_cmdt_t *commands, unsigned capacity, const fzx_v
     fzx_e1_report[10] = out - 1u;
     return out > 1u ? out : 0u;
 }
+
+#if E1_FIELD
+/* ---- close-up 3D-N: every car of the field, far to near ---------------------------
+ * Sprite cars draw through the slot cache as the player sprite does (one cell each,
+ * the car's previous cell while a fill is pending); 3D cars copy the commands built
+ * for them earlier (engine_main.c stages them while the slave builds the track).
+ * Shadows: the player and the nearest FIELD_SHADOWS other cars. */
+enum { FIELD_SHADOWS = 8u };
+static uint16_t car_cell[FZX_FIELD_CARS];
+static uint8_t car_has_cell[FZX_FIELD_CARS];
+volatile uint32_t fzx_field_draw[8]; /* sprites drawn, 3D cars drawn, shadows, sprite skips, cells pending, commands, -, - */
+
+unsigned fzx_drive_cars(vdp1_cmdt_t *commands, unsigned capacity, const fzx_view_t *view, const fzx_engine_cam_t *cam,
+                        const fzx_field_car_t *cars, unsigned n, const vdp1_cmdt_t *const *staged, const uint16_t *staged_n) {
+    if (fzx_e1_status != 1 || capacity < 2u) { ++fzx_e1_report[11]; return 0; }
+    fzx_e1_sprite_pos[0] = fzx_e1_sprite_pos[1] = (uint32_t)-32768;
+    {
+        const uint32_t done = *CT(&fill_done), count = fill_count;
+        uint32_t k = 0;
+        for (uint32_t i = done; i < count; ++i) fill_queue[k++] = fill_queue[i];
+        fill_count = k; fill_done = 0;
+    }
+    sh2z_scache_frame(&pool);
+    if (!sprite_camera(view, cam)) { ++fzx_e1_report[11]; return 0; }
+    typedef struct { sh2z_rspr_pick_t pick; sh2z_rspr_place_t place; int32_t depth; uint8_t ok; } item_t;
+    static item_t items[FZX_FIELD_CARS];
+    uint8_t order_[FZX_FIELD_CARS];
+    for (unsigned i = 0; i < n; ++i) {
+        item_t *it = &items[i];
+        int16_t basis[9];
+        memcpy(basis, cars[i].basis, sizeof(basis));
+        it->ok = sh2z_rspr_pose(&it->pick, &it->place, &it->depth, &racer_camera, racer_set, cars[i].pos, basis) ? 1u : 0u;
+        if (!it->ok) it->depth = cars[i].is3d ? 0 : INT32_MAX; /* behind the camera: no sprite; 3D cars last */
+        const int32_t key = it->depth;
+        unsigned j = i;
+        while (j > 0 && items[order_[j - 1]].depth < key) { order_[j] = order_[j - 1]; --j; }
+        order_[j] = (uint8_t)i;
+    }
+    /* Shadows: the player and the nearest FIELD_SHADOWS others (nearest = end of the order). */
+    uint8_t shadow[FZX_FIELD_CARS];
+    {
+        unsigned others = 0;
+        for (unsigned k = n; k-- > 0;) {
+            const unsigned i = order_[k];
+            shadow[i] = (uint8_t)(items[i].ok && (cars[i].id == 0 || others < FIELD_SHADOWS));
+            if (cars[i].id != 0 && items[i].ok) ++others;
+        }
+    }
+    unsigned out = 0, sprites = 0, solid = 0, shadows = 0;
+    memset(&commands[out], 0, sizeof(commands[out])); vdp1_cmdt_user_clip_coord_set(&commands[out]);
+    commands[out].cmd_xa = view->clip[0]; commands[out].cmd_ya = view->clip[1];
+    commands[out].cmd_xc = view->clip[2] - 1; commands[out].cmd_yc = view->clip[3] - 1;
+    ++out;
+    const int32_t drop = (int32_t)(0.3f * FZX_RACER_SPRITE_RADIUS * 0.1f * 4.0f);
+    const sh2z_rspr_pick_t zero = {0};
+    for (unsigned k = 0; k < n; ++k) {
+        const unsigned i = order_[k];
+        const fzx_field_car_t *c = &cars[i];
+        if (shadow[i] && out < capacity) {
+            int32_t ground[3], depth; sh2z_rspr_pick_t pick; sh2z_rspr_place_t place;
+            int16_t basis[9]; memcpy(basis, c->basis, sizeof(basis));
+            for (unsigned a = 0; a < 3u; ++a) ground[a] = c->pos[a] - basis[3 + a] * drop;
+            if (sh2z_rspr_pose(&pick, &place, &depth, &shadow_camera, shadow_set, ground, basis) &&
+                sh2z_rspr_emit_valid((uint16_t *)(void *)&commands[out], shadow_set, &zero, &place, shadow_vram, shadow_pmod)) { ++out; ++shadows; }
+        }
+        if (c->is3d) {
+            const unsigned m = staged_n[c->slot];
+            if (m && out + m <= capacity) { memcpy(&commands[out], staged[c->slot], m * sizeof(vdp1_cmdt_t)); out += m; ++solid; }
+            continue;
+        }
+        if (!items[i].ok || out >= capacity) continue;
+        sh2z_rspr_pick_t pick = items[i].pick;
+        uint32_t slot = 0;
+        const int r = sh2z_scache_get(&pool, pick.cell, cell_bytes(pick.cell), false, &slot);
+        if (r == SH2Z_SCACHE_MISS) fill_push(slot, pick.cell);
+        bool draw = r == SH2Z_SCACHE_HIT;
+        if (!draw && r != SH2Z_SCACHE_REFUSED && car_has_cell[c->id]) {
+            uint32_t again = 0;
+            if (sh2z_scache_get(&pool, car_cell[c->id], cell_bytes(car_cell[c->id]), false, &again) == SH2Z_SCACHE_HIT) {
+                pick.cell = car_cell[c->id]; slot = again; draw = true; ++fzx_e1_cache[4];
+            }
+        }
+        if (!draw) { ++fzx_field_draw[4]; continue; }
+        if (sh2z_rspr_emit_valid((uint16_t *)(void *)&commands[out], racer_set, &pick, &items[i].place, 0u, racer_pmod)) {
+            const sh2z_rspr_cell_t *cell = (const sh2z_rspr_cell_t *)(const void *)(racer_set + 1) + pick.cell;
+            commands[out].cmd_srca = (uint16_t)(pool.slots[slot].addr >> 3);
+            commands[out].cmd_colr = (uint16_t)((clut_vram + (uint32_t)cell->clut * 32u) >> 3);
+            car_cell[c->id] = pick.cell; car_has_cell[c->id] = 1;
+            if (c->id == 0) { fzx_e1_sprite_pos[0] = (uint32_t)(int32_t)items[i].place.x; fzx_e1_sprite_pos[1] = (uint32_t)(int32_t)items[i].place.y; }
+            ++out; ++sprites;
+        } else ++fzx_field_draw[3];
+    }
+    fzx_e1_cache[0] = pool.hits; fzx_e1_cache[1] = pool.misses; fzx_e1_cache[2] = pool.evictions; fzx_e1_cache[3] = pool.refused;
+    fzx_field_draw[0] = sprites; fzx_field_draw[1] = solid; fzx_field_draw[2] = shadows; fzx_field_draw[5] = out - 1u;
+    fzx_e1_report[10] = out - 1u;
+    return out > 1u ? out : 0u;
+}
+#endif
 
 /* ---- HUD ------------------------------------------------------------------------ */
 void fzx_drive_hud(void) {

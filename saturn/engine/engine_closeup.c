@@ -15,10 +15,15 @@ volatile uint32_t fzx_ab_report[16];
 fzx_vehicle_stats_t fzx_ab_vehicle_stats;
 
 #define ALIGN32(x) (((x) + 31u) & ~31u)
+/* 3D car slots: shade tables (palettes + Gouraud words) and template tables per slot
+ * and per VDP1 bank; the texels are shared. FZX_CLOSEUP_CARS 1 is arm A's layout. */
+#ifndef FZX_CLOSEUP_CARS
+#define FZX_CLOSEUP_CARS 1
+#endif
 enum {
     TEXEL_BYTES = ALIGN32(FZX_MACHINE_REBAKE_TEXTURE_BYTES),
     SHADE_BYTES = ALIGN32(FZX_MACHINE_REBAKE_PALETTE_BYTES + FZX_MACHINE_REBAKE_GOURAUD_BYTES),
-    REGION_BYTES = TEXEL_BYTES + 2u * SHADE_BYTES
+    REGION_BYTES = TEXEL_BYTES + 2u * FZX_CLOSEUP_CARS * SHADE_BYTES
 };
 
 _Static_assert(FZX_CLOSEUP_META_BYTES == FZX_MACHINE_REBAKE_METADATA_BYTES &&
@@ -29,8 +34,8 @@ _Static_assert(FZX_CLOSEUP_META_BYTES == FZX_MACHINE_REBAKE_METADATA_BYTES &&
 static uint32_t meta[FZX_CLOSEUP_PACK_BYTES / 4u] __attribute__((aligned(32)));
 static fzx_vehicle_pack_t pack;
 static fzx_vehicle_work_t work __attribute__((aligned(32)));
-static fzx_vehicle_native_tables_t tables[2] __attribute__((aligned(32))); /* one per VDP1 bank */
-static uint8_t *pixels, *shades[2];
+static fzx_vehicle_native_tables_t tables[2][FZX_CLOSEUP_CARS] __attribute__((aligned(32))); /* per bank, per slot */
+static uint8_t *pixels, *shades[2][FZX_CLOSEUP_CARS];
 static uint16_t texture_ctrl, texture_pmod, solid_ctrl, solid_pmod;
 static RefMachine state;
 static RefCamera camera;
@@ -60,8 +65,8 @@ uint32_t fzx_closeup_load(const vdp1_vram_partitions_t *parts, uint32_t ceiling,
     const uintptr_t base = (uintptr_t)parts->texture_base;
     if (base & 31u) { fzx_ab_report[0] = 5; return 0; }
     pixels = (uint8_t *)(base + floor);
-    shades[0] = pixels + TEXEL_BYTES;
-    shades[1] = shades[0] + SHADE_BYTES;
+    for (unsigned b = 0; b < 2u; ++b)
+        for (unsigned s = 0; s < FZX_CLOSEUP_CARS; ++s) shades[b][s] = pixels + TEXEL_BYTES + (b * FZX_CLOSEUP_CARS + s) * SHADE_BYTES;
     /* One CD file (MACHAB.PAK: metadata, then texels) to work RAM; the texels then to VRAM. */
     if (!fzx_texture_cd_load("MACHAB.PAK", FZX_CLOSEUP_PACK_BYTES, FZX_CLOSEUP_PACK_HASH, meta,
                              scratch, scratch_bytes)) { fzx_ab_report[0] = 2; return 0; }
@@ -74,7 +79,7 @@ uint32_t fzx_closeup_load(const vdp1_vram_partitions_t *parts, uint32_t ceiling,
         for (uint32_t i = 0; i < FZX_MACHINE_REBAKE_TEXTURE_BYTES / 4u; ++i)
             if (dst[i] != src[i]) { fzx_ab_report[0] = 4; return 0; }
     }
-    memset(shades[0], 0, 2u * SHADE_BYTES);
+    memset(shades[0][0], 0, 2u * FZX_CLOSEUP_CARS * SHADE_BYTES);
     memset(&work, 0, sizeof(work));
     memset(tables, 0, sizeof(tables));
     {
@@ -101,40 +106,36 @@ uint32_t fzx_closeup_load(const vdp1_vram_partitions_t *parts, uint32_t ceiling,
     state.body[0] = FZX_CLOSEUP_BODY_R; state.body[1] = FZX_CLOSEUP_BODY_G; state.body[2] = FZX_CLOSEUP_BODY_B;
     state.source_lod = 1; state.normal_body_visible = 1;
     fzx_ab_report[9] = (uint32_t)((uintptr_t)pixels & 0x7ffffu);
-    fzx_ab_report[10] = (uint32_t)((uintptr_t)shades[0] & 0x7ffffu);
-    fzx_ab_report[11] = (uint32_t)((uintptr_t)shades[1] & 0x7ffffu);
-    fzx_ab_report[12] = (uint32_t)(((uintptr_t)shades[1] + SHADE_BYTES) & 0x7ffffu);
+    fzx_ab_report[10] = (uint32_t)((uintptr_t)shades[0][0] & 0x7ffffu);
+    fzx_ab_report[11] = (uint32_t)((uintptr_t)shades[1][0] & 0x7ffffu);
+    fzx_ab_report[12] = (uint32_t)(((uintptr_t)shades[1][FZX_CLOSEUP_CARS - 1u] + SHADE_BYTES) & 0x7ffffu);
     fzx_ab_report[0] = 1;
     return floor;
 }
 
-unsigned fzx_closeup_draw(vdp1_cmdt_t *commands, unsigned capacity, const fzx_view_t *view,
-                          const fzx_engine_cam_t *cam, uint32_t bank) {
-    if (fzx_ab_report[0] != 1 || bank > 1u) return 0;
-    const uint16_t t0 = cpu_frt_count_get();
-    const sh2z_vd_body_t *b = fzx_drive_body();
+/* The draw for a pose already in `state` (model_pos, model_basis), into a slot's tables. */
+static unsigned draw_state(vdp1_cmdt_t *commands, unsigned capacity, const fzx_view_t *view,
+                           const fzx_engine_cam_t *cam, uint32_t bank, uint32_t slot, uint16_t t0) {
     /* Source reflection: (world light - camera forward) * 16383, rounded; 0.57735
      * is the source's outside light component. Camera forward is row 2, Q30. */
     for (unsigned i = 0; i < 3u; ++i) {
-        state.model_pos[i] = fixed_to_float(b->pos[i], 16);
-        for (unsigned j = 0; j < 3u; ++j) state.model_basis[i][j] = fixed_to_float(b->body[i][j], 30);
         camera.eye[i] = fixed_to_float(cam->eye[i], 16);
         const int64_t r = ((int64_t)619924842 - (int64_t)view->rotation[2][i]) * 16383; /* 0.57735 Q30 */
         state.reflection[i] = (short)((r + (r >= 0 ? (1 << 29) : -(1 << 29))) / (1 << 30));
     }
-    work.tables = &tables[bank];
+    work.tables = &tables[bank][slot];
     const fzx_vehicle_target_t target = {
-        .commands = (uint32_t (*)[8])(void *)commands, .capacity = capacity, .pixels = pixels, .shades = shades[bank],
+        .commands = (uint32_t (*)[8])(void *)commands, .capacity = capacity, .pixels = pixels, .shades = shades[bank][slot],
         .palette_bytes = FZX_MACHINE_REBAKE_PALETTE_BYTES, .gouraud_bytes = FZX_MACHINE_REBAKE_GOURAUD_BYTES,
         .texture_ctrl = texture_ctrl, .texture_pmod = texture_pmod, .solid_ctrl = solid_ctrl, .solid_pmod = solid_pmod};
     uint32_t drawn = 0;
     const bool ok = fzx_vehicle_draw_native(&pack, view, &camera, &state, &work, &target, &drawn, &fzx_ab_vehicle_stats);
     if (!ok) { ++fzx_ab_report[5]; fzx_ab_report[6] = fzx_ab_vehicle_stats.fault; drawn = 0; }
-    /* Palettes change only with the body colour (once here): both banks get them. */
+    /* Palettes change only with the body colour (once here): every table gets them. */
     for (unsigned i = 0; i < pack.palettes; ++i)
         if (work.palette_dirty[i]) {
-            memcpy(shades[0] + i * 32u, work.palette[i], 32u);
-            memcpy(shades[1] + i * 32u, work.palette[i], 32u);
+            for (unsigned b = 0; b < 2u; ++b)
+                for (unsigned s = 0; s < FZX_CLOSEUP_CARS; ++s) memcpy(shades[b][s] + i * 32u, work.palette[i], 32u);
             ++fzx_ab_report[15];
         }
     fzx_ab_report[1] = drawn;
@@ -147,4 +148,28 @@ unsigned fzx_closeup_draw(vdp1_cmdt_t *commands, unsigned capacity, const fzx_vi
     fzx_ab_report[13] = t;
     if (t > fzx_ab_report[14]) fzx_ab_report[14] = t;
     return drawn;
+}
+
+unsigned fzx_closeup_draw(vdp1_cmdt_t *commands, unsigned capacity, const fzx_view_t *view,
+                          const fzx_engine_cam_t *cam, uint32_t bank) {
+    if (fzx_ab_report[0] != 1 || bank > 1u) return 0;
+    const uint16_t t0 = cpu_frt_count_get();
+    const sh2z_vd_body_t *b = fzx_drive_body();
+    for (unsigned i = 0; i < 3u; ++i) {
+        state.model_pos[i] = fixed_to_float(b->pos[i], 16);
+        for (unsigned j = 0; j < 3u; ++j) state.model_basis[i][j] = fixed_to_float(b->body[i][j], 30);
+    }
+    return draw_state(commands, capacity, view, cam, bank, 0, t0);
+}
+
+unsigned fzx_closeup_draw_pose(vdp1_cmdt_t *commands, unsigned capacity, const fzx_view_t *view,
+                               const fzx_engine_cam_t *cam, uint32_t bank, uint32_t slot,
+                               const int32_t pos[3], const int16_t basis[3][3]) {
+    if (fzx_ab_report[0] != 1 || bank > 1u || slot >= FZX_CLOSEUP_CARS) return 0;
+    const uint16_t t0 = cpu_frt_count_get();
+    for (unsigned i = 0; i < 3u; ++i) {
+        state.model_pos[i] = fixed_to_float(pos[i], 16);
+        for (unsigned j = 0; j < 3u; ++j) state.model_basis[i][j] = fixed_to_float(basis[i][j], 14);
+    }
+    return draw_state(commands, capacity, view, cam, bank, slot, t0);
 }

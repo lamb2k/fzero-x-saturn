@@ -1249,19 +1249,21 @@ int main(void) {
     memcpy((void *)fzx_e0_vdp2_regs, vdp2_regs_get(), sizeof(fzx_e0_vdp2_regs));
     for (unsigned i = 0; i < 0x800u; ++i) fzx_e0_cram[i] = ((const volatile uint16_t *)VDP2_CRAM(0))[i];
 #endif
+#if ENG_CDDA
+    /* After the last CD data load, before the loop takes its time origin: music from its own
+     * track, streamed by the drive. A failure is recorded in engine_cdda_stats for the capture;
+     * the image runs on without music. */
+    (void)engine_cdda_start(ENG_CDDA_MUSIC, ENG_CDDA_LOOPTEST);
+#endif
+#if ENG_SND
+    engine_snd_start(1u); /* after the last disc read: course music and the race's sound epoch;
+                           before the loop takes its time origin, so the first frame keeps its phase */
+#endif
     uint32_t tick = 0, remainder = 0, previous = video_fields, row_index = 0;
 #if E0_HW_COUNTER
     uint32_t hw_loops = 0, hw_next = 0, hw_mark_frames = 0;
 #endif
     fzx_e0_report[4] = previous;
-#if ENG_CDDA
-    /* After the last CD data load: music from its own track, streamed by the drive. A failure is
-     * recorded in engine_cdda_stats for the capture; the image runs on without music. */
-    (void)engine_cdda_start(ENG_CDDA_MUSIC, ENG_CDDA_LOOPTEST);
-#endif
-#if ENG_SND
-    engine_snd_start(1u); /* after the last disc read: course music and the race's sound epoch */
-#endif
     fzx_e0_status = 1;
     for (;;) {
 #if ENG_PACE == 4

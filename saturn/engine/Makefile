@@ -5,7 +5,8 @@
 #
 #   make -C saturn/engine SH2ZAM_ROOT=<checkout of the engine pin> [FZX_VDP1_DBANK=0|1]
 #
-# The SH2ZAM pin is saturn/engine/sh2zam.pin (branch claude/e2-field-train: claude/e1-train plus segmesh-2 and line-field-1).
+# The SH2ZAM pin is saturn/engine/sh2zam.pin (branch claude/e2-field-train: claude/e1-train (segmesh-2,
+# vehicle-dynamics-1, sprite-cache-1, rotation-sprites-2) plus line-field-1).
 # Assets come from ../../generated (owning generators, receipts checked here).
 ifeq ($(strip $(YAUL_INSTALL_ROOT)),)
 $(error Undefined YAUL_INSTALL_ROOT (install root directory))
@@ -27,8 +28,9 @@ E0_LOD_SHIFT ?= 2
 E0_ISR_MAC_SAVE ?= 1
 # Diagnostic: per-frame check for multiply registers changed under the VBlank interrupt.
 E0_MAC_PROBE ?= 0
-# 1: wait for a due floor/cloud present before queueing the next bank; 0 is the control.
-E0_PRESENT_WAIT ?= 1
+# 1: the floor/cloud bank queues are pushed with interrupts masked (the VBlank-In
+# present pops them); 0 is the control that loses updates (fault 25/23).
+E0_QUEUE_ATOMIC ?= 1
 # E1 drive slice (engine_drive.c): native physics, chase camera, sprite player, HUD.
 # Needs generated/physics (tools/engine_drive_assets.py, local only) and
 # generated/racer_sprites (tools/racer_sprites.py), and an SH2ZAM pin with
@@ -38,21 +40,22 @@ FZX_E1_DRIVE ?= 0
 E1_DRIVER ?= 0
 # Test driver boost period in ticks (0 = R01; 240 = R02).
 E1_DRIVER_BOOST ?= 0
-# Close-up A/B (E1 only; generated/CLOSEUP-AB.md): 0 the sprite player (the control,
-# unchanged); 1 the player as the 3D model (engine_closeup.c: the prepared vehicle
+# E1 player (generated/CLOSEUP-AB.md). Default with FZX_E1_DRIVE=1: 1, the owner's pick (arm AE,
+# with E1_CLOSEUP_EARLY=1). 0 the sprite player (sprite-cache-1 slot pool, the switch); 1 the player as the 3D model (engine_closeup.c: the prepared vehicle
 # pack, vehicle-kernels-1 and pose-1); 2 the high-quality near sprite set
 # (generated/racer_sprites_hq: tools/racer_sprites.py --views tools/racer_sprites_hq.json).
-E1_CLOSEUP ?= 0
+E1_CLOSEUP ?= $(if $(filter 1,$(FZX_E1_DRIVE)),1,0)
 # Arm A only: 1 builds the vehicle's commands while the slave builds the track (staged,
 # copied after the shadow); 0 builds them after the track, as the sprite.
-E1_CLOSEUP_EARLY ?= 0
+E1_CLOSEUP_EARLY ?= $(if $(filter 1,$(E1_CLOSEUP)),1,0)
 # The 3D vehicle's generated folders (stills of other machines: machine_rebake_fNN / closeup_fNN).
 E1_REBAKE ?= machine_rebake
 E1_VEHICLE ?= closeup
 # Close-up 3D-N (generated/CLOSEUP-3DN.md): N rivals (1..29) on the SH2ZAM line field, the
 # nearest K cars within D drawn in 3D (K, D: run-time words fzx_field_k, fzx_field_d).
 # Needs E1_CLOSEUP=1 E1_CLOSEUP_EARLY=1 and an SH2ZAM pin with line-field-1.
-E1_FIELD ?= 0
+# Default with the drive (3D player, early): the field of 29 rivals (E2 field lane, owner 2026-11-19 merge step).
+E1_FIELD ?= $(if $(filter 1:1,$(E1_CLOSEUP):$(E1_CLOSEUP_EARLY)),29,0)
 # E2 field lane (generated/E2-FIELD.md), with E1_FIELD only; each 0 = the 3D-N field as it was.
 # E2_PACK: the E2 rival line (RIVALS.PAK: CPU line laterals, speed caps, widths) and the reference
 #   GP field config (generated/rivals: tools/rivals_assets.py, ref/rivals_main.c, tools/rivals_field_header.py).
@@ -60,14 +63,17 @@ E1_FIELD ?= 0
 # E2_CULL: cheap reject before any sprite work (behind, past the draw distance, off screen);
 #   shadows only for near cars.
 # E2_LOD: the field's distance level of detail at E2_LOD_NEAR (units: full rate, 1/2, 1/4; else 1/8).
-# E2_EARLY: every car (3D and sprites) is built before the slave's kick and the master's field
-#   wait (staged), so after the VBlank the master only runs the prelude and one copy.
-E2_PACK ?= 0
-E2_FASTPOSE ?= 0
-E2_CULL ?= 0
-E2_LOD ?= 0
+# E2_EARLY: every car (3D and sprites; without the field, the 3D player) is built after the slave's
+#   kick and before the master's field wait (staged), so after the VBlank the master only runs the
+#   prelude and the copies.
+E2_FIELD_ON := $(if $(filter-out 0,$(E1_FIELD)),1,0)
+E2_PACK ?= $(E2_FIELD_ON)
+E2_FASTPOSE ?= $(E2_FIELD_ON)
+E2_CULL ?= $(E2_FIELD_ON)
+E2_LOD ?= $(E2_FIELD_ON)
 E2_LOD_NEAR ?= 1000,3000,8000
-E2_EARLY ?= 0
+# E2_EARLY default with the 3D player built early (with or without the field).
+E2_EARLY ?= $(if $(filter 1:1,$(E1_CLOSEUP):$(E1_CLOSEUP_EARLY)),1,0)
 # Diagnostic: per-frame master phase times (fzx_e2_prof); changes timing slightly, never a floor measurement.
 E2_PROF ?= 0
 # E2_FASTSPRITE (needs E2_CULL): rival sprite poses reuse the cull's camera-space terms; one division for the up vector.
@@ -125,7 +131,7 @@ endif
 # The racer sprite set the player is drawn from.
 E1_SPRITES := $(if $(filter 2,$(E1_CLOSEUP)),racer_sprites_hq,racer_sprites)
 comma := ,
-SH_OUTPUT_DIR := build-$(if $(filter 1,$(FZX_E1_DRIVE)),e1-d$(E1_DRIVER)$(if $(filter-out 0,$(E1_DRIVER_BOOST)),-b$(E1_DRIVER_BOOST),)$(if $(filter-out 0,$(E1_CLOSEUP)),-ab$(E1_CLOSEUP)$(if $(filter 1,$(E1_CLOSEUP_EARLY)),e,)$(if $(filter-out 0,$(E1_FIELD)),-f$(E1_FIELD)$(if $(filter 1,$(E2_PACK)),p,)$(if $(filter 1,$(E2_FASTPOSE)),q,)$(if $(filter 1,$(E2_CULL)),c,)$(if $(filter 1,$(E2_LOD)),l$(subst $(comma),_,$(E2_LOD_NEAR)),)$(if $(filter 1,$(E2_EARLY)),e,)$(if $(filter 1,$(E2_FASTSPRITE)),f,)$(if $(filter 1,$(E2_ROSTER)),r,)$(if $(filter 1,$(E2_PROF)),P,),),)-,e0-)bank$(FZX_VDP1_DBANK)$(if $(filter 1,$(FZX_VDP1_DBANK_STALE)),-stale,)-g$(E0_GUARD_MARGIN)-c$(E0_FAST_CULL)-l$(E0_LOD_SHIFT)-f$(E0_FAN_FIX)-r$(E0_RBG_LEAN)-k$(E0_CLUSTERS)-w$(E0_WORK_HIGH)$(if $(filter-out 0,$(E0_CHUNK_CAP)),-cap$(E0_CHUNK_CAP),)-n$(E0_LEAN_CLIP)-e$(E0_FOG_EARLY)$(if $(filter 1,$(E0_HW_COUNTER)),-hw,)$(if $(filter 1,$(E0_VDP2_MAP)),-map,)$(if $(filter 1,$(E0_SENTINEL_CONTROL)),-sentinel,)$(if $(filter 1,$(E0_POP_LOG)),-pop,)$(if $(filter 1,$(E0_CAP_STABLE)),-stable,)$(if $(filter 1,$(E0_CLUSTER_AUDIT)),-audit,)$(if $(filter 1,$(E0_PHASES)),-phases,)
+SH_OUTPUT_DIR := build-$(if $(filter 1,$(FZX_E1_DRIVE)),e1-d$(E1_DRIVER)$(if $(filter-out 0,$(E1_DRIVER_BOOST)),-b$(E1_DRIVER_BOOST),)$(if $(filter-out 0,$(E1_CLOSEUP)),-ab$(E1_CLOSEUP)$(if $(filter 1,$(E1_CLOSEUP_EARLY)),e,)$(if $(filter-out 0,$(E1_FIELD)),-f$(E1_FIELD)$(if $(filter 1,$(E2_PACK)),p,)$(if $(filter 1,$(E2_FASTPOSE)),q,)$(if $(filter 1,$(E2_CULL)),c,)$(if $(filter 1,$(E2_LOD)),l$(subst $(comma),_,$(E2_LOD_NEAR)),)$(if $(filter 1,$(E2_EARLY)),e,)$(if $(filter 1,$(E2_FASTSPRITE)),f,)$(if $(filter 1,$(E2_ROSTER)),r,)$(if $(filter 1,$(E2_PROF)),P,),)$(if $(filter 0,$(E1_FIELD)),$(if $(filter 1,$(E2_EARLY)),E,),),)-,e0-)bank$(FZX_VDP1_DBANK)$(if $(filter 1,$(FZX_VDP1_DBANK_STALE)),-stale,)-g$(E0_GUARD_MARGIN)-c$(E0_FAST_CULL)-l$(E0_LOD_SHIFT)-f$(E0_FAN_FIX)-r$(E0_RBG_LEAN)-k$(E0_CLUSTERS)-w$(E0_WORK_HIGH)$(if $(filter-out 0,$(E0_CHUNK_CAP)),-cap$(E0_CHUNK_CAP),)-n$(E0_LEAN_CLIP)-e$(E0_FOG_EARLY)$(if $(filter 1,$(E0_HW_COUNTER)),-hw,)$(if $(filter 1,$(E0_VDP2_MAP)),-map,)$(if $(filter 1,$(E0_SENTINEL_CONTROL)),-sentinel,)$(if $(filter 1,$(E0_POP_LOG)),-pop,)$(if $(filter 1,$(E0_CAP_STABLE)),-stable,)$(if $(filter 1,$(E0_CLUSTER_AUDIT)),-audit,)$(if $(filter 0,$(E0_ISR_MAC_SAVE)),-nomac,)$(if $(filter 1,$(E0_MAC_PROBE)),-macprobe,)$(if $(filter 0,$(E0_QUEUE_ATOMIC)),-qrace,)$(if $(filter 1,$(E0_PHASES)),-phases,)
 SH_BUILD_DIR := $(SH_OUTPUT_DIR)/yaul
 IMAGE_DIRECTORY := $(SH_OUTPUT_DIR)/cd
 IMAGE_1ST_READ_BIN := A.BIN
@@ -189,12 +195,15 @@ SH_CFLAGS += -DFZX_ENGINE=1 -DFZX_FRAME_PROFILE=1 -DFZX_VDP1_DBANK=$(FZX_VDP1_DB
     -I$(G)/engine_path -DFZX_SH2_DIVU=1 -O2 -std=c11 -Wall -Wextra \
     -I. -I.. -I../../include -I../../ref -I$(SH2ZAM_ROOT)/saturn/include -DSH2Z_REQUIRE_SH2=1 \
     -ffunction-sections -fdata-sections \
-    -DE0_ISR_MAC_SAVE=$(E0_ISR_MAC_SAVE) -DE0_MAC_PROBE=$(E0_MAC_PROBE) -DE0_PRESENT_WAIT=$(E0_PRESENT_WAIT) -DFZX_E1_DRIVE=$(FZX_E1_DRIVE) -DE1_DRIVER=$(E1_DRIVER) -DE1_DRIVER_BOOST=$(E1_DRIVER_BOOST) \
+    -DE0_ISR_MAC_SAVE=$(E0_ISR_MAC_SAVE) -DE0_MAC_PROBE=$(E0_MAC_PROBE) -DFZX_DBANK_QUEUE_ATOMIC=$(E0_QUEUE_ATOMIC) -DFZX_E1_DRIVE=$(FZX_E1_DRIVE) -DE1_DRIVER=$(E1_DRIVER) -DE1_DRIVER_BOOST=$(E1_DRIVER_BOOST) \
     $(if $(filter 1,$(FZX_E1_DRIVE)),-I$(G)/physics -I$(G)/$(E1_SPRITES),)
 # As ../Makefile: these SH2ZAM units carry same-named assembler macros.
 SH_CFLAGS += $$(if $$(filter %/sh2zam_view.c %/sh2zam_view_center.c,$$<),-fno-lto,)
 ifneq ($(E1_CLOSEUP),0)
 SH_CFLAGS += -DE1_CLOSEUP=$(E1_CLOSEUP) -DE1_CLOSEUP_EARLY=$(E1_CLOSEUP_EARLY)
+ifeq ($(E1_FIELD),0)
+SH_CFLAGS += -DE2_EARLY=$(E2_EARLY)
+endif
 ifneq ($(E1_FIELD),0)
 # FZX_CLOSEUP_CARS: 3D slots (engine_field.h FZX_FIELD_K_MAX).
 SH_CFLAGS += -DE1_FIELD=$(E1_FIELD) -DFZX_CLOSEUP_CARS=6
@@ -255,6 +264,7 @@ stage-e0-packs:
 	cp $(G)/engine_path/ENGPATH.PAK $(G)/road_pack/ROAD.PAK $(G)/road_bake/ROADLOD.PAK $(G)/road_bake/ROADLTX.PAK \
 	   $(G)/skyline/SKYLINE.PAK $(G)/planes_cloud/PLANES.PAK \
 	   $(G)/floor_rbg/FLOORCHR.BIN $(G)/floor_rbg/FLOORMAP.BIN $(G)/floor_rbg/FLOORKOF.BIN "$(IMAGE_DIRECTORY)/"
+	$(if $(filter 1,$(E0_CLUSTERS)),cp $(G)/road_cluster/ROADCL.PAK "$(IMAGE_DIRECTORY)/",)
 ifeq ($(FZX_E1_DRIVE),1)
 	cp $(G)/physics/PHYS.PAK $(G)/$(E1_SPRITES)/RSPRITE.PAK "$(IMAGE_DIRECTORY)/"
 endif
@@ -267,4 +277,3 @@ endif
 ifeq ($(E2_ROSTER),1)
 	cp $(G)/roster/ROSTER.PAK "$(IMAGE_DIRECTORY)/"
 endif
-	$(if $(filter 1,$(E0_CLUSTERS)),cp $(G)/road_cluster/ROADCL.PAK "$(IMAGE_DIRECTORY)/",)

@@ -361,9 +361,7 @@ volatile uint32_t fzx_debug_autopilot;
 volatile uint32_t fzx_autopilot_rejected;
 void __attribute__((noreturn)) fzx_autopilot_unsupported(void) {
     fzx_autopilot_rejected = 1;
-    dbgio_printf("[H[2J AUTOPILOT NEEDS A RINGS BUILD
- (FZX_MEM_NO_PROTO_RINGS=0)
-");
+    dbgio_printf("\x1b[H\x1b[2J AUTOPILOT NEEDS A RINGS BUILD\n (FZX_MEM_NO_PROTO_RINGS=0)\n");
     dbgio_flush(); vdp2_sync();
     for (;;) {}
 }

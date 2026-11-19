@@ -4,6 +4,7 @@
 #include "global.h"
 #include "fzx_racer.h"
 #include "fzx_course.h"
+#include "fzx_game.h"
 
 extern CourseInfo* gCurrentCourseInfo;
 extern Racer gRacers[];

@@ -161,8 +161,33 @@ __asm__(
     "3:  .long _fzx_e0_draw_end_next\n"
     ".text\n");
 
+#ifndef E0_HW_COUNTER
+#define E0_HW_COUNTER 0
+#endif
+#if E0_HW_COUNTER
+/* E0_HW_COUNTER (default 0; the owner's hardware disc only): count every newly
+ * presented frame and the field gap since the previous one, from the first
+ * flythrough frame, for an on-screen readout a TV can show. gaps[k]: gaps of
+ * k+1 fields, gaps[3]: four or more. */
+volatile uint32_t fzx_hw_frames, fzx_hw_first_field, fzx_hw_last_field, fzx_hw_worst, fzx_hw_over2, fzx_hw_gaps[4];
+static void hw_count(void) {
+    const uint32_t now = video_fields;
+    if (fzx_hw_frames) {
+        const uint32_t gap = now - fzx_hw_last_field;
+        if (gap > fzx_hw_worst) fzx_hw_worst = gap;
+        if (gap > 2u) ++fzx_hw_over2;
+        if (gap) ++fzx_hw_gaps[gap > 4u ? 3u : gap - 1u];
+    } else fzx_hw_first_field = now;
+    fzx_hw_last_field = now;
+    ++fzx_hw_frames;
+}
+#endif
+
 /* The floor's render-end callback calls this when a frame has been drawn. */
 void fzx_fp_present(void) {
+#if E0_HW_COUNTER
+    hw_count();
+#endif
     const uint32_t i = pending_row;
     if (i && i <= row_capacity && !rows[i - 1u].present_field) {
         rows[i - 1u].present_field = video_fields;
@@ -344,6 +369,27 @@ static void before_slave(void) {
 #endif
 }
 
+/* Low work RAM sentinels: eight words after the path pack (0x0028bfe0) and
+ * eight after the frame rows (0x002fffe0), checked every frame. */
+#define LOW_SENTINEL 0x45504744u
+#ifndef E0_SENTINEL_CONTROL
+#define E0_SENTINEL_CONTROL 0
+#endif
+static bool low_sentinels(void) {
+    const volatile uint32_t *a = (const volatile uint32_t *)(PATH_BASE + PATH_CAPACITY - 32u);
+    const volatile uint32_t *b = (const volatile uint32_t *)(0x00300000u - 32u);
+    for (unsigned i = 0; i < 8u; ++i) if (a[i] != LOW_SENTINEL || b[i] != LOW_SENTINEL) return false;
+    return true;
+}
+#ifndef E0_VDP2_MAP
+#define E0_VDP2_MAP 0
+#endif
+#if E0_VDP2_MAP
+/* Diagnostic (E0_VDP2_MAP=1): the VDP2 register shadow and CRAM as set up for
+ * the flythrough, for the allocation map (tools: vdp2map.py). */
+volatile uint16_t fzx_e0_vdp2_regs[0x120 / 2], fzx_e0_cram[0x1000 / 2];
+#endif
+
 static void before_master(void) {
 #if FZX_VDP1_DBANK
     vdp2_sync_wait();
@@ -351,10 +397,12 @@ static void before_master(void) {
     fzx_floor_dbank_select(bank);
     fzx_clouds_dbank_select(bank);
     if (!dbank_guards()) { fzx_dbank_status = 3; fail(42, "DBANK GUARD", 0); }
+    if (!low_sentinels()) fail(44, "LOW RAM SENTINEL", 0);
     /* A build that would write the bank VDP1 is still drawing must never run. */
     if (fzx_dbank_banks.conflicts) { fzx_dbank_status = 4; fail(43, "DBANK STALE BANK", fzx_dbank_banks.conflicts); }
 #else
     vdp2_sync_wait();
+    if (!low_sentinels()) fail(44, "LOW RAM SENTINEL", 0);
 #endif
 }
 
@@ -442,7 +490,7 @@ int main(void) {
     /* The path pack: CD to low work RAM, then validated in place. */
     const uintptr_t scratch = ((uintptr_t)sat_stub_data_end + 31u) & ~(uintptr_t)31u;
     if (scratch != PATH_BASE + PATH_CAPACITY) fail(16, "LOW RAM LAYOUT", (uint32_t)scratch);
-    for (unsigned i = 0; i < 8u; ++i) ((volatile uint32_t *)(PATH_BASE + PATH_CAPACITY))[(int)i - 8] = 0x45504744u;
+    for (unsigned i = 0; i < 8u; ++i) ((volatile uint32_t *)(PATH_BASE + PATH_CAPACITY))[(int)i - 8] = LOW_SENTINEL;
     if (!fzx_texture_cd_load("ENGPATH.PAK", FZX_ENGINE_PATH_BYTES, FZX_ENGINE_PATH_FILE_HASH, (void *)PATH_BASE,
                              (void *)scratch, 0x00300000u - scratch))
         fail(17, "PATH LOAD", fzx_texture_cd_status.status);
@@ -484,7 +532,7 @@ int main(void) {
         rows = (row_t *)base;
         row_capacity = (uint32_t)((0x00300000u - 64u - base) / sizeof(row_t));
         memset(rows, 0, row_capacity * sizeof(row_t));
-        for (unsigned i = 0; i < 8u; ++i) ((volatile uint32_t *)(0x00300000u - 32u))[i] = 0x45504744u;
+        for (unsigned i = 0; i < 8u; ++i) ((volatile uint32_t *)(0x00300000u - 32u))[i] = LOW_SENTINEL;
         fzx_e0_report[2] = row_capacity; fzx_e0_report[3] = (uint32_t)base;
     }
     fzx_e0_report[6] = vdp2_tvmd_tv_standard_get() == VDP2_TVMD_TV_STANDARD_PAL ? 50u : 60u;
@@ -506,7 +554,14 @@ int main(void) {
     /* VRAM use for the memory report: texture partition bytes used by E0. */
     fzx_e0_report[7] = offset;
 
+#if E0_VDP2_MAP
+    memcpy((void *)fzx_e0_vdp2_regs, vdp2_regs_get(), sizeof(fzx_e0_vdp2_regs));
+    for (unsigned i = 0; i < 0x800u; ++i) fzx_e0_cram[i] = ((const volatile uint16_t *)VDP2_CRAM(0))[i];
+#endif
     uint32_t tick = 0, remainder = 0, previous = video_fields, row_index = 0;
+#if E0_HW_COUNTER
+    uint32_t hw_loops = 0, hw_next = 0, hw_mark_frames = 0;
+#endif
     fzx_e0_report[4] = previous;
     fzx_e0_status = 1;
     for (;;) {
@@ -519,7 +574,16 @@ int main(void) {
         remainder -= advance * hz;
         if (!tick) advance = 1;
         tick += advance;
+#if E0_HW_COUNTER
+        /* The hardware disc loops the flythrough for the soak. */
+        if (tick >= path.ticks) { tick = 1; ++hw_loops; }
+#else
         if (tick >= path.ticks) { tick = path.ticks; fzx_e0_done = 1; fzx_e0_status = 2; }
+#endif
+#if E0_SENTINEL_CONTROL
+        /* Control: an overrun past the frame rows at tick 600 must stop the image. */
+        if (tick >= 600u) ((volatile uint32_t *)(0x00300000u - 32u))[3] = 0;
+#endif
         const uint32_t hold = HOLD_TICK;
         const uint32_t shown = hold && hold <= path.ticks ? hold : tick;
         fzx_input_count = shown;
@@ -551,6 +615,27 @@ int main(void) {
 #endif
         if (row != &scratch_row) { pending_row = row_index + 1u; ++row_index; fzx_e0_report[1] = row_index; }
         else pending_row = 0;
+#if E0_HW_COUNTER
+        {   /* Once a second (60 fields): the readout, inset from the top left for TV overscan. */
+            const uint32_t frames = fzx_hw_frames, last = fzx_hw_last_field;
+            if (frames > 1u && field >= hw_next) {
+                const uint32_t fields = last - fzx_hw_first_field, secs = (field - fzx_hw_first_field) / 60u;
+                const uint32_t mean10 = fields ? (frames - 1u) * 600u / fields : 0u;
+                dbgio_printf("\x1b[H\n\n    E0 HW  %02lu:%02lu  LOOP %lu\n"
+                             "    FRAMES %lu  FIELDS %lu\n"
+                             "    FPS %lu  MEAN %lu.%lu\n"
+                             "    WORST %luF  OVER2 %lu\n"
+                             "    GAPS 1F %lu 2F %lu 3F %lu 4F+ %lu  \n",
+                             (unsigned long)(secs / 60u), (unsigned long)(secs % 60u), (unsigned long)hw_loops,
+                             (unsigned long)frames, (unsigned long)fields,
+                             (unsigned long)(frames - hw_mark_frames), (unsigned long)(mean10 / 10u), (unsigned long)(mean10 % 10u),
+                             (unsigned long)fzx_hw_worst, (unsigned long)fzx_hw_over2,
+                             (unsigned long)fzx_hw_gaps[0], (unsigned long)fzx_hw_gaps[1], (unsigned long)fzx_hw_gaps[2], (unsigned long)fzx_hw_gaps[3]);
+                dbgio_flush();
+                hw_mark_frames = frames; hw_next = (hw_next ? hw_next : field) + 60u;
+            }
+        }
+#endif
         row->submit_frt = cpu_frt_count_get();
         vdp1_sync_cmdt_list_put(&command_list, 0);
         vdp1_sync_render();

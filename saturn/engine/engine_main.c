@@ -332,6 +332,28 @@ static uint32_t pace_last_build;
 volatile uint32_t fzx_pace_lead = ENG_PACE_LEAD;
 volatile uint32_t fzx_pace[8];
 static volatile uint32_t pace_rendered, pace_drawn, pace_vbi;
+/* The HUD with its picture: frame F's text is formatted after F's build and flushed by the
+ * next submit's wait, in the vertical blank of F's present (the VBlank-In callback cannot run
+ * the dbgio DMA; the master is spinning there). Probe: [0] HUD flushes, [1] flushes whose text
+ * tick differs from the tick of the frame just presented, [2] flushes that ended outside that
+ * frame's blank, [3] text tick minus presented tick of the last mismatch, [4] presented tick,
+ * [5] text tick. ENG_PACE_HUD_LEAD=1 (control) keeps the old path (text and flush right after
+ * the build, a frame ahead of the picture). */
+#ifndef ENG_PACE_HUD_LEAD
+#define ENG_PACE_HUD_LEAD 0
+#endif
+volatile uint32_t fzx_pace_hud[6];
+static volatile uint32_t pace_tick_inflight, pace_tick_presented;
+#if FZX_E1_DRIVE
+static uint32_t hud_text_tick, hud_pending;
+static void pace_hud_probe(uint32_t text_tick) {
+    const uint32_t shown = pace_tick_presented;
+    ++fzx_pace_hud[0];
+    if (text_tick != shown) { ++fzx_pace_hud[1]; fzx_pace_hud[3] = text_tick - shown; }
+    if (!vdp2_tvmd_vblank_in() || video_fields != fzx_pace[2]) ++fzx_pace_hud[2];
+    fzx_pace_hud[4] = shown; fzx_pace_hud[5] = text_tick;
+}
+#endif
 #endif
 /* The floor's render-end callback calls this when a frame has been drawn. */
 void fzx_fp_present(void) {
@@ -394,6 +416,7 @@ static void pace_vblank_in(void *work) {
         const uint32_t n = ++pace_vbi;
         if (pace_drawn && n >= 2u - ENG_PACE_EARLY_CONTROL) {
             fzx_floor_present(NULL);
+            pace_tick_presented = pace_tick_inflight;
             fzx_pace[2] = video_fields; fzx_pace[4] = n;
             if (n > 2u) ++fzx_pace[5];
             if (n > fzx_pace[7]) fzx_pace[7] = n;
@@ -1303,6 +1326,11 @@ int main(void) {
              * every submitted frame, and when this wait spanned the change, it did so at the
              * VBlank-In just before (a present at the wrong field would show VDP2 data out of step
              * with VDP1). */
+#if FZX_E1_DRIVE && !ENG_PACE_HUD_LEAD
+            /* The previous frame's HUD text, flushed in the blank of its present. */
+            while (fzx_pace[1] != fzx_pace[0] && vdp1_sync_busy()) {}
+            if (hud_pending) { hud_pending = 0u; dbgio_flush(); pace_hud_probe(hud_text_tick); }
+#endif
             const bool waited = vdp1_sync_busy();
             vdp1_sync_wait();
             if (fzx_pace[1] != fzx_pace[0] || (waited && fzx_pace[2] + 1u != video_fields))
@@ -1331,7 +1359,15 @@ int main(void) {
 #if FZX_E1_DRIVE
         {
             const uint16_t h0 = cpu_frt_count_get();
+#if ENG_PACE == 4 && !ENG_PACE_HUD_LEAD
+            fzx_drive_hud_text(); /* flushed at this frame's present (the next submit's wait) */
+            hud_text_tick = shown; hud_pending = 1u;
+#else
             fzx_drive_hud();
+#if ENG_PACE == 4
+            pace_hud_probe(shown); /* control: the old path, a frame ahead of the picture */
+#endif
+#endif
             row->hud_ticks = (uint16_t)(cpu_frt_count_get() - h0);
         }
 #endif
@@ -1379,6 +1415,7 @@ int main(void) {
             vdp1_sync_render();
             vdp1_sync();
             pace_vbi = 0u; pace_drawn = 0u; pace_rendered = 1u;
+            pace_tick_inflight = shown;
             ++fzx_pace[0];
             cpu_intc_mask_set(mask);
         }

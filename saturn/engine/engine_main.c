@@ -172,7 +172,7 @@ typedef struct {
     uint16_t sprite_ticks; /* master FRT units: player sprite pose and emit */
     uint16_t steps;        /* physics ticks stepped for this frame */
     uint16_t hud_ticks;    /* master FRT units: HUD text */
-    int16_t sprite_x, sprite_y; /* player sprite origin, whole pixels (-32768: not drawn) */
+    int16_t sprite_x, sprite_y; /* player sprite corner A as drawn (-32768: not drawn) */
 #endif
 } row_t;
 _Static_assert(sizeof(row_t) == ROW_WORDS * 4u, "frame row layout");

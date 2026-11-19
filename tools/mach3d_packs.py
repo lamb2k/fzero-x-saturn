@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Engine 3D vehicle packs, one per stock machine: MACH3Dnn.PAK (nn = two-digit family).
 
-Each pack is laid out as MACHAB.PAK: the prepared vehicle metadata (tools/machine_rebake.py
+Each pack is laid out as MACHAB.PAK: the prepared vehicle metadata (tools/vehicle_rebake.py
 build, format FZXMCH02, LODs 1/4/5, eight centroid orders) then its texels. The models are
 the family's own race models (Machine_Draw<Stem>Lod1..5) and texture loads
 (Machine_DrawLoad<Stem>Textures) from the pinned decomp, read through
@@ -28,12 +28,12 @@ import struct  # noqa: E402
 from import_source_art import ArtError, DECOMP, SourceArt, output_location, verify_source, commands, stock_function, bounded  # noqa: E402
 from import_course import normalize_rom  # noqa: E402
 from model_assets import source_probe_state  # noqa: E402
-import machine_rebake  # noqa: E402
+import vehicle_rebake  # noqa: E402
 import racer_sprites  # noqa: E402
 
 STOCK = 30
 GUESTS = (33, 34)  # reserved guest identities: never baked here
-GENERATORS = ('tools/mach3d_packs.py', 'tools/machine_rebake.py', 'tools/import_source_art.py', 'tools/model_assets.py',
+GENERATORS = ('tools/mach3d_packs.py', 'tools/vehicle_rebake.py', 'tools/machine_rebake.py', 'tools/import_source_art.py', 'tools/model_assets.py',
               'tools/countdown_pack.py', 'tools/road_pack.py', 'tools/racer_sprites.py')
 
 
@@ -180,7 +180,7 @@ def family_pack(source, row, lut, probe_body, fog, skin):
     # The prebaked palette uses the probe's body for family 0 (MACHRLD.PAK as baked); the
     # engine re-tints body palettes at run time from the identity table's body colour.
     body = list(row['skins'][skin][:3])
-    data, bank, report = machine_rebake.build(models, bindings, textures, raw, lut,
+    data, bank, report = vehicle_rebake.build(models, bindings, textures, raw, lut,
                                               probe_body if row['family'] == 0 else body, fog, quantize=True)
     return data + bank, data, bank, report, body
 

@@ -30,7 +30,8 @@ typedef struct {
     uint16_t yaw, pitch, roll, pad;
 } fzx_rival_node_pose_t;
 
-extern fzx_rival_pose_t fzx_rival_poses[FZX_RIVALS_MAX];
+/* Points into low WRAM once the pack is loaded (NULL before); fzx_rival_count entries. */
+extern fzx_rival_pose_t *fzx_rival_poses;
 extern volatile uint32_t fzx_rival_count;
 
 /* Counters for the diagnostic (FRT ticks at the frame profiler's clock). */

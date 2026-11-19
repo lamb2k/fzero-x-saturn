@@ -10,7 +10,7 @@
 #error FZX_DIAG_RIVALS must be 1..29 when built
 #endif
 
-fzx_rival_pose_t fzx_rival_poses[FZX_RIVALS_MAX];
+fzx_rival_pose_t *fzx_rival_poses;
 volatile uint32_t fzx_rival_count = FZX_DIAG_RIVALS;
 volatile uint32_t fzx_rivals_prof[8];
 
@@ -21,16 +21,27 @@ static sh2z_line_t line;
 static int loaded;
 volatile uint32_t fzx_rivals_load_status;
 static const sh2z_follow_params_t follow = { 24, 48, 3277, 64, 6 * 256 };
-static sh2z_track_state_t rv[FZX_DIAG_RIVALS];
-static int32_t expect[FZX_DIAG_RIVALS], lane[FZX_DIAG_RIVALS], pace_v[FZX_DIAG_RIVALS];
-static uint8_t order[FZX_DIAG_RIVALS];
+/* Rival state also lives in the low-WRAM carve (high WRAM keeps its stack margin). */
+typedef struct {
+    sh2z_track_state_t rv[FZX_DIAG_RIVALS];
+    int32_t expect[FZX_DIAG_RIVALS], lane[FZX_DIAG_RIVALS], pace_v[FZX_DIAG_RIVALS];
+    uint8_t order[(FZX_DIAG_RIVALS + 3) & ~3];
+    fzx_rival_pose_t poses[FZX_DIAG_RIVALS];
+} rivals_work_t;
+static rivals_work_t *w;
+#define rv (w->rv)
+#define expect (w->expect)
+#define lane (w->lane)
+#define pace_v (w->pace_v)
+#define order (w->order)
 static int started;
 
 #define RIVALS_GUARD 0x52495641u /* "RIVA" */
 uint32_t fzx_rivals_diag_load(uint32_t low_end) {
     /* As every low-WRAM allocator: the previous owner's trailing guard at low_end stays untouched. */
     const uintptr_t base = (low_end + 95u) & ~(uintptr_t)31u;
-    const uintptr_t end = base + ((FZX_RIVALS_PACK_BYTES + 31u) & ~31u);
+    const uintptr_t work = base + ((FZX_RIVALS_PACK_BYTES + 31u) & ~31u);
+    const uintptr_t end = work + ((sizeof(rivals_work_t) + 31u) & ~31u);
     const uintptr_t scratch = end + 32u;
     const uint32_t scratch_bytes = fzx_texture_cd_scratch_bytes();
     if (scratch + scratch_bytes > 0x00300000u) { fzx_rivals_load_status = 2; return low_end; }
@@ -40,6 +51,9 @@ uint32_t fzx_rivals_diag_load(uint32_t low_end) {
         return low_end;
     }
     for (unsigned i = 0; i < 8u; ++i) ((volatile uint32_t *)end)[i] = RIVALS_GUARD;
+    w = (rivals_work_t *)work;
+    memset(w, 0, sizeof *w);
+    fzx_rival_poses = w->poses;
     fzx_rivals_nodes = (const sh2z_line_node_t *)base;
     fzx_rivals_poses = (const fzx_rival_node_pose_t *)(base + FZX_RIVALS_NODE_COUNT * sizeof(sh2z_line_node_t));
     line.nodes = fzx_rivals_nodes; line.count = FZX_RIVALS_NODE_COUNT; line.length = FZX_RIVALS_LINE_LENGTH;

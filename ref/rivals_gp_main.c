@@ -28,7 +28,7 @@ static uint16_t be16(const unsigned char* p) { return (uint16_t)((p[0] << 8) | p
 
 int main(int argc, char** argv) {
     const char *pack = 0, *config = 0, *report = 0, *trace = 0, *control = "none", *tune = 0;
-    int32_t tune_accel = 40, tune_grip = U(3), tune_lane = 30;
+    int32_t tune_accel = 40, tune_grip = U(6), tune_lane = 30;
     long length = 0; unsigned seed = 1; int max_ticks = 14000, start_tick = 420, lod = 1, hash_every = 0;
     for (int i = 1; i + 1 < argc; i += 2) {
         if (!strcmp(argv[i], "--pack")) pack = argv[i + 1];
@@ -66,9 +66,10 @@ int main(int argc, char** argv) {
     P.pace_gain = 3277;            /* 0.05 per unit, as the source's distance term */
     P.pace_max = 81920;            /* 1.25 x pace */
     P.chase_gain = 655;            /* 0.01 per unit, as the source's chase term */
-    P.steer_gain = 3277;
+    P.steer_gain = 9830;           /* 0.15 */
     P.margin = U(6);
     P.avoid_long = U(92); P.avoid_lat = U(69); P.avoid_offset = U(92);   /* the source's 92 / 69 / 92 */
+    P.avoid_ticks = 40;
     P.pass_hold = 60;
     P.contact_long = U(46); P.contact_lat = U(40);
     P.bump_keep = 16384;
@@ -85,7 +86,7 @@ int main(int argc, char** argv) {
         for (char* tok = strtok(tb, ","); tok; tok = strtok(NULL, ",")) {
             char* eq = strchr(tok, '='); if (!eq) die("--tune name=value"); *eq = 0; const int32_t val = (int32_t)atol(eq + 1);
             #define T(n) if (!strcmp(tok, #n)) { P.n = val; continue; }
-            T(pace_gain) T(pace_max) T(chase_gain) T(steer_gain) T(avoid_long) T(avoid_lat) T(avoid_offset) T(pass_hold) T(contact_long) T(contact_lat)
+            T(pace_gain) T(pace_max) T(chase_gain) T(steer_gain) T(avoid_long) T(avoid_lat) T(avoid_offset) T(avoid_ticks) T(pass_hold) T(contact_long) T(contact_lat)
             T(bump_keep) T(hit_energy) T(side_energy) T(attack_energy) T(wall_energy) T(wall_keep) T(boost_speed) T(boost_energy) T(boost_behind) T(cruise)
             #undef T
             if (!strcmp(tok, "boost_ticks")) { P.boost_ticks = (int16_t)val; continue; }

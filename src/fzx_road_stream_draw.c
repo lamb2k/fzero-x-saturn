@@ -201,6 +201,9 @@ static bool fail(draw_t *d,unsigned fault){d->stats->fault=fault;return false;}
  * distorted sprite, clipped or not, so a near piece with corners hundreds of
  * pixels off screen costs many times a full-screen fill; the band bounds that
  * work. Texture spans of clipped pieces are approximate either way. */
+#ifndef FZX_ROAD_STREAM_FAN_FIX
+#define FZX_ROAD_STREAM_FAN_FIX 0
+#endif
 #ifndef FZX_ROAD_STREAM_LOD_SHIFT
 #define FZX_ROAD_STREAM_LOD_SHIFT 0
 #endif
@@ -310,6 +313,13 @@ static bool piece(draw_t *d,const vref_t v[4],unsigned quad,unsigned piece_id,
         const uint16_t size=(uint16_t)((((unsigned)material.width>>3)<<8|material.height)&0x3fffu);
         const uint16_t colr=material.mode&&!solid?(uint16_t)(((e->texture_offset+material.palette)&0x7ffffu)>>3):tmpl->colr;
         for(unsigned first=1;first+1<count;first+=2){
+#if FZX_ROAD_STREAM_FAN_FIX
+            /* FZX_ROAD_STREAM_FAN_FIX (default 0): a clipped polygon's fan can
+             * end in a zero-area piece (a repeated corner); VDP1 draws such a
+             * piece as a one-pixel line of texels, a dark seam across the road. */
+            {const vref_t fan[4]={corners[0],corners[first],corners[first+1],corners[first+2<count?first+2:count-1]};
+             if(!area(fan,4))continue;}
+#endif
             const uint32_t at=d->stats->commands;
 #if FZX_ROAD_STREAM_BUDGET
             FZX_RS_KEEP()

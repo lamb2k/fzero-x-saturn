@@ -509,6 +509,8 @@ static void load_turn(void) {
 static volatile uint16_t spin_words[4];
 static volatile uint32_t spin_fields, spin_phase;
 static bool load_done, load_ran, menu_frame_prev;
+static uint32_t menu_scene_prev, menu_phase_prev;
+volatile uint32_t fzx_scn_gap_at[8]; /* manager frames over two fields: scene << 16 | phase << 8 | fields */
 
 static volatile uint32_t card_updates;
 static void bar_draw(void);
@@ -633,6 +635,10 @@ static void load_tick(void *u, uint32_t s) {
     fzx_scn_report[29] = resident_key;
     retry_pending = false;
     load_done = true;
+    /* Settle VDP1 and VDP2 inside the load's own frame, so the next manager frame keeps the
+     * two-field cadence. */
+    vdp1_sync_wait();
+    vdp2_sync_wait();
     (void)request(FZX_SCN_RACE, RANK_GOTO);
 }
 static void load_draw(void) {}
@@ -813,7 +819,7 @@ void fzx_scn_main(void) {
          * fields): the gap measured here belongs to the previous iteration, counted only when
          * that iteration was a manager frame that ran no blocking load. */
         if (menu_frame_prev && steps > fzx_scn_ctl[6]) fzx_scn_ctl[6] = steps;
-        if (menu_frame_prev && steps > 2u) ++fzx_scn_ctl[7];
+        if (menu_frame_prev && steps > 2u) { ++fzx_scn_ctl[7]; fzx_scn_gap_at[fzx_scn_ctl[7] & 7u] = (menu_scene_prev << 16) | menu_phase_prev << 8 | steps; }
         frame_fields = now;
         if (steps == 0u) steps = 1u;
         if (steps > 4u) steps = 4u;
@@ -891,6 +897,7 @@ void fzx_scn_main(void) {
                 sh2z_scene_retired(&seq);
             }
         }
+        menu_scene_prev = seq.current; menu_phase_prev = seq.phase;
         menu_frame_prev = seq.current != FZX_SCN_RACE && !load_ran && !(seq.phase <= SH2Z_SCENE_RUN && seq.current == FZX_SCN_RACE);
         load_ran = false;
         fzx_scn_report[1] = seq.current; fzx_scn_report[2] = seq.phase; fzx_scn_report[3] = level;

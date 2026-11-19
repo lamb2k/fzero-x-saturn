@@ -383,8 +383,16 @@ uint32_t fzx_drive_texture_floor(void) { return fzx_e1_vram[14]; }
 /* Scenes image: race-local state back to the start of a race, with the packs, the
  * sprite set and the slot pool layout kept (a retry). The slot pool is emptied so
  * a retry fills it exactly as the first race did. */
+#if E1_FIELD
+static void field_state_reset(void);
+#endif
 void fzx_drive_reset(void) {
     body = course.start; prev_n64 = 0; ticks = 0;
+#if E1_FIELD
+    /* The rival field back to its grid (the pack is resident; no CD read) and the per-car draw state. */
+    (void)fzx_field_load(&course.track, &body);
+    field_state_reset();
+#endif
     memset(&pad_state, 0, sizeof(pad_state));
     memset((void *)fzx_e1_checkpoints, 0, sizeof(fzx_e1_checkpoints));
     memset((void *)fzx_e1_report, 0, sizeof(fzx_e1_report));
@@ -574,6 +582,16 @@ static uint8_t car_prof[FZX_FIELD_CARS];
 #endif
 static uint8_t car_has_cell[FZX_FIELD_CARS];
 volatile uint32_t fzx_field_draw[8]; /* sprites drawn, 3D cars drawn, shadows, sprite skips, cells pending, commands, -, - */
+#if ENG_SCENES
+static void field_state_reset(void) {
+    memset(car_cell, 0, sizeof(car_cell));
+    memset(car_has_cell, 0, sizeof(car_has_cell));
+#if E2_ROSTER
+    memset(car_prof, 0, sizeof(car_prof));
+#endif
+    memset((void *)fzx_field_draw, 0, sizeof(fzx_field_draw));
+}
+#endif
 #if defined(E2_PROF) && E2_PROF
 /* Diagnostic: FRT totals over the run: [0] cull + pose + sort, [1] shadows, [2] sprite cache + emit, [3] frames. */
 volatile uint32_t fzx_e2_emit_split[4];

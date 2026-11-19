@@ -92,6 +92,9 @@ bool fzx_road_load(const void *course,uint32_t course_bytes) {
        !cart || !cart_probe(cart)) {fzx_road_load_status.status=2;return false;}
     fzx_road_load_status.status=10;
     if(cd_block_init()!=0) {fzx_road_load_status.status=3;return false;}
+#if FZX_CD_STREAM
+    fzx_road_stream_invalidate();
+#endif
     /* CDFS's default callback discards read errors and then asserts on a bad
      * volume header. Probe it first so boot can report a plain load failure. */
     fzx_road_load_status.io_result=fzx_road_sector_read(166,&sector);

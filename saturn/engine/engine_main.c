@@ -43,10 +43,10 @@
 #endif
 #if ENG_SCENES
 #include "engine_scenes.h"
-/* Load step stamps (fields) for the scenes lane's load-time table. */
-#define SCN_STAMP(i) (fzx_scn_load_fields[(i)] = video_fields)
-#define SCN_ONCE(stmt) do { if (!scn_once) { stmt; } } while (0)
-static bool scn_once;
+/* Load step stamps for the scenes lane's load-time table (fields, CD sectors and CD time). */
+#define SCN_STAMP(i) fzx_scn_stamp(i)
+/* One-time set-up, once per image (a cancelled load may stop between them). */
+#define SCN_ONCE(stmt) do { static bool once_; if (!once_) { stmt; once_ = true; } } while (0)
 #else
 #define SCN_STAMP(i) ((void)0)
 #define SCN_ONCE(stmt) stmt
@@ -838,7 +838,8 @@ void fzx_race_load(void) {
     cpu_frt_init(CPU_FRT_CLOCK_DIV_32);
     /* Chain the end-of-draw stamp ahead of Yaul's handler. */
 #if ENG_SCENES
-    if (!scn_once)
+    static bool chained;
+    if (!chained && (chained = true))
 #endif
     {
         const uint32_t mask = cpu_intc_mask_get();
@@ -860,7 +861,7 @@ void fzx_race_load(void) {
     for (unsigned i = 0; i < 0x800u; ++i) fzx_e0_cram[i] = ((const volatile uint16_t *)VDP2_CRAM(0))[i];
 #endif
 #if ENG_SCENES
-    scn_hz = hz; scn_lens = lens; scn_once = true;
+    scn_hz = hz; scn_lens = lens;
     SCN_STAMP(6);
 }
 

@@ -37,6 +37,10 @@ typedef struct {
  * [2] sky, skyline, cloud and floor planes, [3] track pack + stream, [4] sprite set,
  * [5] 3D player pack, [6] end. */
 extern volatile uint32_t fzx_scn_load_fields[8];
+/* Per stamp: [i][0] CD sectors read, [i][1] fields inside CD reads, [i][2] longest
+ * interval between loading-screen turns so far (fields). */
+extern volatile uint32_t fzx_scn_load_cd[8][3];
+void fzx_scn_stamp(unsigned i);
 /* Called from the VBlank-out interrupt (inside the multiply-register wrapper). */
 extern void (*volatile fzx_scn_vblank_hook)(void);
 

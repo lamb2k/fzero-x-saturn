@@ -5,6 +5,19 @@
 #include <limits.h>
 #include <stddef.h>
 #include <string.h>
+/* FZX_LOAD_VERIFIED (engine scenes image): the CD loader has just checked this
+ * file's FNV over every byte as it read it; the open does not hash it again. */
+#ifndef FZX_LOAD_VERIFIED
+#define FZX_LOAD_VERIFIED 0
+#endif
+/* Engine scenes image: the loading screen's turn inside the long load loops (the CD
+ * reader's yield hook; road_cd.h). Nothing in any other build. */
+#if FZX_CD_STREAM
+extern void (*volatile fzx_cd_yield)(void);
+#define LOAD_TURN() do { void (*h_)(void) = fzx_cd_yield; if (h_) h_(); } while (0)
+#else
+#define LOAD_TURN() ((void)0)
+#endif
 /* Saturn native builds compile out the paths they do not select, to keep
  * high work RAM for the stack: the pack path (gather/remap, legacy quads)
  * under the native layout, and the packet path under direct emit. HOST
@@ -39,6 +52,7 @@ static FZX_RS_COLD bool native_prepare(fzx_road_stream_draw_work_t *w,const fzx_
     memset(w->remap,0xff,nv*sizeof(*w->remap));
     uint32_t used=0,window=0;
     for(uint32_t c=0;c<nc;++c){
+        if((c&63u)==0u)LOAD_TURN();
         const uint8_t *cr=fzx_road_stream_record(p,FZX_RLD_CHUNKS,c);
         const uint32_t first=U32(cr),number=U32(cr+4);uint32_t low=UINT32_MAX;
         if(first>nq||number>nq-first)return false;
@@ -136,7 +150,7 @@ FZX_RS_COLD bool fzx_road_stream_draw_prepare(fzx_road_stream_draw_work_t *w,
     const bool native=w->npos||w->nquads||w->nspans||w->nchunks;
     const uint8_t *t=textures;
     if(!p||!p->data||!t||bytes!=p->texture_bytes||bytes<64||!expected||
-       fzx_road_hash(t,bytes)!=expected||memcmp(t,"FZXRTX01",8)||U32(t+8)!=1||
+       (!FZX_LOAD_VERIFIED&&fzx_road_hash(t,bytes)!=expected)||memcmp(t,"FZXRTX01",8)||U32(t+8)!=1||
        U32(t+12)!=bytes||!w->images||w->image_capacity<p->count[FZX_RLD_IMAGES]||
        !w->remap||w->remap_capacity<p->count[FZX_RLD_VERTICES]||
        (!native&&!w->positions)||!w->projected||!w->vertex_capacity||w->vertex_capacity>65535)return false;
@@ -149,6 +163,7 @@ FZX_RS_COLD bool fzx_road_stream_draw_prepare(fzx_road_stream_draw_work_t *w,
     }
 #endif
     for(uint32_t i=0;i<p->count[FZX_RLD_IMAGES];++i){
+        LOAD_TURN();
         const uint8_t *im=fzx_road_stream_record(p,FZX_RLD_IMAGES,i);
         fzx_road_stream_image_t *out=w->images+i;
         const unsigned mode=U16(im),width=U16(im+2),height=U16(im+4);

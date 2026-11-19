@@ -33,6 +33,12 @@ static uint32_t hash_bytes(uint32_t hash,const volatile uint8_t *data,uint32_t b
     while(bytes--)hash=(hash^*data++)*16777619u;
     return hash;
 }
+#if FZX_CD_STREAM
+static cdfs_filelist_entry_t kept[ROOT_ENTRIES];
+static uint32_t kept_count;
+static bool kept_ok;
+void fzx_texture_cd_reset(void){kept_ok=false;fzx_road_stream_invalidate();}
+#endif
 bool fzx_texture_cd_load(const char *name,uint32_t bytes,uint32_t expected,
                          void *vram,void *scratch,uint32_t scratch_bytes) {
     fzx_texture_cd_status=(fzx_texture_cd_status_t){0};
@@ -43,21 +49,39 @@ bool fzx_texture_cd_load(const char *name,uint32_t bytes,uint32_t expected,
     fzx_texture_cd_status.scratch_start=(uint32_t)(uintptr_t)scratch;
     fzx_texture_cd_status.scratch_end=(uint32_t)(uintptr_t)scratch+sizeof(*workspace);
     fzx_texture_cd_status.status=10;
+#if FZX_CD_STREAM
+    /* Scenes image: the CD block is initialised and the root directory read once;
+     * every later load looks its file up in the kept list. */
+    cdfs_filelist_entry_t *const entries=kept;
+    if(!kept_ok) {
+        cpu_frt_init(CPU_FRT_CLOCK_DIV_32);
+        if(cd_block_init())return fail(3);
+        fzx_road_stream_invalidate();
+#else
+    cdfs_filelist_entry_t *const entries=workspace->entries;
     cpu_frt_init(CPU_FRT_CLOCK_DIV_32);
     if(cd_block_init())return fail(3);
+#endif
     volume_read(16,&workspace->sector);
     if(fzx_texture_cd_status.io_result)return fail(3);
     if(workspace->sector.buffer8[0]!=1 || memcmp(workspace->sector.buffer8+1,"CD001",5))return fail(4);
     const cdfs_config_t config={.sector_read=volume_read,.sectors=&workspace->sector,.sector_count=1};
     cdfs_config_set(&config);
     cdfs_filelist_t list;
-    cdfs_filelist_init(&list,workspace->entries,ROOT_ENTRIES);
+    cdfs_filelist_init(&list,entries,ROOT_ENTRIES);
     cdfs_filelist_root_read(&list);
     if(fzx_texture_cd_status.io_result)return fail(3);
     if(list.entries_count>ROOT_ENTRIES)return fail(5);
+#if FZX_CD_STREAM
+    kept_count=list.entries_count;kept_ok=true;
+    }
+    const uint32_t entries_count=kept_count;
+#else
+    const uint32_t entries_count=list.entries_count;
+#endif
     const cdfs_filelist_entry_t *file=NULL;
-    for(uint32_t i=0;i<list.entries_count;++i) {
-        const cdfs_filelist_entry_t *entry=&workspace->entries[i];
+    for(uint32_t i=0;i<entries_count;++i) {
+        const cdfs_filelist_entry_t *entry=&entries[i];
         if(entry->type==CDFS_ENTRY_TYPE_FILE && !strcmp(entry->name,name)) {
             if(file)return fail(5);
             file=entry;

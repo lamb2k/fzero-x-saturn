@@ -11,6 +11,8 @@
  * runs; its release turns RBG0 off and puts the back screen to black. */
 #include <string.h>
 #include <yaul.h>
+#include "road_cd.h"
+#include "texture_cd.h"
 #include "engine_scenes.h"
 #include "engine_closeup.h"
 #include "engine_drive.h"
@@ -266,16 +268,66 @@ static void results_draw(void) {
 
 /* ---- LOAD ------------------------------------------------------------------ */
 #define NBG3_MAP 0x25E7E000u /* VDP2_MAP.md: NBG3 map, 64 x 64 one-word cells */
+volatile uint32_t fzx_scn_load_cd[8][3];
+static uint32_t turn_field, turn_gap_max;
+static void *load_cancel[5]; /* GCC __builtin_setjmp buffer (no libc setjmp here) */
+static bool load_running;
+/* Progress bar: row 15, columns 3..34, from CD sectors read against the cold load's
+ * sector total of the previous cold load (first load: the sector count so far). */
+#define BAR_ROW 15u
+#define BAR_COLS 32u
+static uint32_t bar_total = 674u, bar_drawn; /* sectors of a cold load (measured 2026-11-19) */
+static uint16_t bar_on, bar_off;
+
+static uint32_t bar_base;
+static void bar_draw(void) {
+    uint32_t n = ((fzx_cd_stats[0] - bar_base) * BAR_COLS) / bar_total;
+    if (n > BAR_COLS) n = BAR_COLS;
+    volatile uint16_t *row = (volatile uint16_t *)(NBG3_MAP + (BAR_ROW * 64u + 3u) * 2u);
+    while (bar_drawn < n) row[bar_drawn++] = bar_on;
+}
+
+void fzx_scn_stamp(unsigned i) {
+    if (i >= 8u) return;
+    fzx_scn_load_fields[i] = video_fields_get();
+    fzx_scn_load_cd[i][0] = fzx_cd_stats[0];
+    fzx_scn_load_cd[i][1] = fzx_cd_stats[2];
+    fzx_scn_load_cd[i][2] = turn_gap_max;
+}
+
+/* The loading screen's turn, called from inside the CD reads (and while they wait):
+ * once per field at most it draws the progress bar, reads the pad and, on the soft
+ * reset chord, abandons the load. */
+static void load_turn(void) {
+    const uint32_t now = video_fields_get();
+    if (now == turn_field) return;
+    const uint32_t gap = now - turn_field;
+    if (gap > turn_gap_max) turn_gap_max = gap;
+    turn_field = now;
+    bool connected;
+    const uint32_t pad = read_pad(&connected);
+    fzx_scn_report[31] = pad | (connected ? 0x10000u : 0u);
+    if ((pad & PAD_CHORD) == PAD_CHORD && load_running) {
+        load_running = false;
+        __builtin_longjmp(load_cancel, 1);
+    }
+}
 #define SPIN_ROW 13u
 #define SPIN_COL 3u
 static volatile uint16_t spin_words[4];
 static volatile uint32_t spin_fields, spin_phase;
 static bool load_done;
 
+static volatile uint32_t card_updates;
+static void bar_draw(void);
+/* VBlank-out: the loading card changes every 2 fields (spinner, progress bar) whatever
+ * the CPU is doing in the load. */
 static void spin_hook(void) {
-    if (++spin_fields % 6u) return;
+    if (++spin_fields % 2u) return;
     spin_phase = (spin_phase + 1u) & 3u;
     *(volatile uint16_t *)(NBG3_MAP + (SPIN_ROW * 64u + SPIN_COL) * 2u) = spin_words[spin_phase];
+    bar_draw();
+    ++card_updates;
 }
 
 static bool load_enter(void *u, uint32_t s) {
@@ -289,11 +341,19 @@ static bool load_enter(void *u, uint32_t s) {
     dbgio_flush();
     for (unsigned k = 0; k < 4u; ++k) spin_words[k] = *(volatile uint16_t *)(NBG3_MAP + (SPIN_ROW * 64u + 3u + k) * 2u);
     dbgio_printf("\x1b[14;5H   ");
+    dbgio_printf("\x1b[16;4H                                ");
     dbgio_flush();
+    /* The bar's glyphs: the card's full-block-like '=' and the space, read back. */
+    dbgio_printf("\x1b[16;4H=");
+    dbgio_flush();
+    bar_on = *(volatile uint16_t *)(NBG3_MAP + (BAR_ROW * 64u + 3u) * 2u);
+    bar_off = *(volatile uint16_t *)(NBG3_MAP + (BAR_ROW * 64u + 4u) * 2u);
+    *(volatile uint16_t *)(NBG3_MAP + (BAR_ROW * 64u + 3u) * 2u) = bar_off;
     text_dirty = false;
     return true;
 }
 
+static void load_tick(void *u, uint32_t s) __attribute__((noinline));
 static void load_tick(void *u, uint32_t s) {
     (void)u; (void)s;
     if (load_done || seq.phase != SH2Z_SCENE_RUN) return;
@@ -315,7 +375,33 @@ static void load_tick(void *u, uint32_t s) {
         memset((void *)fzx_scn_load_fields, 0, sizeof(fzx_scn_load_fields));
         fzx_scn_report[11] = 2;
     } else {
+        /* Cold load: the loading screen takes a turn inside every CD read (load_turn). */
+        const uint32_t s0 = fzx_cd_stats[0];
+        turn_field = video_fields_get(); turn_gap_max = 0; bar_drawn = 0; bar_base = s0;
+        fzx_cd_clock = video_fields_get;
+        fzx_cd_yield = load_turn;
+        load_running = true;
+        if (__builtin_setjmp(load_cancel)) {
+            /* Soft reset mid-load: drop everything the load made, back to TITLE. */
+            fzx_cd_yield = NULL;
+            fzx_scn_vblank_hook = NULL;
+            fzx_texture_cd_reset();
+            *vdp2_regs_get() = baseline_regs;
+            resident_key = 0; race_regs_kept = false; retry_entering = false;
+            ++fzx_scn_report[9]; ++fzx_scn_report[21];
+            chord_latched = 1;
+            session_defaults();
+            sh2z_scene_input_consume(&input);
+            load_done = true;
+            fzx_scn_report[10] = video_fields_get() - f0;
+            fzx_scn_report[11] = 3; /* cancelled */
+            (void)sh2z_scene_request(&seq, FZX_SCN_TITLE, RANK_RESET);
+            return;
+        }
         fzx_race_load();
+        load_running = false;
+        fzx_cd_yield = NULL;
+        bar_total = fzx_cd_stats[0] - s0;
         race_regs_kept = false; retry_entering = false;
         resident_key = family + 1u;
         ++fzx_scn_report[8];

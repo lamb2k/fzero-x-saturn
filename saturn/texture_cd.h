@@ -17,4 +17,8 @@ extern volatile fzx_texture_cd_status_t fzx_texture_cd_status;
 bool fzx_texture_cd_load(const char *name,uint32_t bytes,uint32_t hash,
                          void *vram,void *scratch,uint32_t scratch_bytes);
 uint32_t fzx_texture_cd_scratch_bytes(void);
+#if FZX_CD_STREAM
+/* Scenes image: forget the kept root list; the next load initialises the CD block. */
+void fzx_texture_cd_reset(void);
+#endif
 #endif

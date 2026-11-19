@@ -11,16 +11,23 @@ const uint8_t *fzx_road_stream_record(const fzx_road_stream_pack_t *p,unsigned s
 static bool texture_range(uint32_t at,uint32_t length,uint32_t bytes) {
     return at>=64 && !(at&7u) && at<=bytes && length<=bytes-at;
 }
+/* FZX_LOAD_VERIFIED (engine scenes image): the CD loader has just checked this
+ * file's FNV over every byte as it read it; the open does not hash it again. */
+#ifndef FZX_LOAD_VERIFIED
+#define FZX_LOAD_VERIFIED 0
+#endif
 /* Boot-only: cold (optimized for size, kept out of the hot text). */
 __attribute__((cold)) bool fzx_road_stream_open(fzx_road_stream_pack_t *out,const void *data,uint32_t bytes,
                           uint32_t hash,uint32_t texture_bytes) {
     const uint8_t *p=data;
     if(!out || !p || bytes<160 || bytes>160000 || texture_bytes<64 || texture_bytes>150000 ||
-       !hash || fzx_road_hash(p,bytes)!=hash || memcmp(p,"FZXRLD01",8) ||
+       !hash || (!FZX_LOAD_VERIFIED && fzx_road_hash(p,bytes)!=hash) || memcmp(p,"FZXRLD01",8) ||
        U32(p+8)!=1 || U32(p+12)!=bytes || U32(p+16)!=1 || p[155]!=255 || !zero(p+156,4))return false;
+#if !FZX_LOAD_VERIFIED
     uint32_t embedded=2166136261u;
     for(uint32_t i=0;i<bytes;++i)embedded=(embedded^((i>=20 && i<24)?0u:p[i]))*16777619u;
     if(U32(p+20)!=embedded)return false;
+#endif
     fzx_road_stream_pack_t pack={0};pack.data=p;pack.bytes=bytes;pack.texture_bytes=texture_bytes;
     const uint32_t nv=U32(p+88),nq=U32(p+92),nc=U32(p+96),ns=U32(p+100),ni=U32(p+104);
     if(!nv || nv>65535 || !nq || nq>32768 || !nc || nc>65535 || !ns || ns>256 ||

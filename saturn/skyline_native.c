@@ -41,6 +41,7 @@ bool fzx_skyline_load(void *vram) {
 #endif
 }
 void fzx_skyline_restart(void){ready=false;published=false;fzx_skyline_status=0;}
+#ifndef FZX_ENGINE /* the engine line fills this state itself (saturn/engine) */
 bool fzx_skyline_publish(uint32_t tick) {
     if(published && tick==published_tick)return fzx_skyline_status==1;
     fzx_skyline_busy=1;
@@ -49,6 +50,7 @@ bool fzx_skyline_publish(uint32_t tick) {
     if(fzx_source_skyline.faults || fzx_source_skyline.count!=REF_SKYLINE_COUNT){fzx_skyline_status=3;return false;}
     published_tick=tick;published=true;fzx_skyline_status=1;fzx_skyline_busy=0;return true;
 }
+#endif
 typedef struct {vdp1_cmdt_t *commands;uintptr_t vram;uint32_t count;} submit_t;
 static bool emit(void *context,const fzx_skyline_quad_t *q) {
     submit_t *s=context;vdp1_cmdt_t *cmd=&s->commands[s->count++];

@@ -79,6 +79,12 @@ static void backdrop_gate(int tick) {
 #endif
 #if FZX_ROAD_PLAN
 #include "road_plan.h"
+#ifndef FZX_ENGINE_DUMP
+#define FZX_ENGINE_DUMP 0
+#endif
+#if FZX_ENGINE_DUMP
+#include "engine_dump.h"
+#endif
 int ref_road_plan_check(RefRoadPlan *out,unsigned int draw_frame,const unsigned char fog[3]);
 int ref_road_plan_branch_check(void);
 static FILE *road_plan_trace;
@@ -403,6 +409,26 @@ int main(int argc, char** argv) {
 #endif
 #if FZX_ROAD_PLAN
     if(road_plan_trace)fclose(road_plan_trace);
+#endif
+#if FZX_ENGINE_DUMP
+    if(getenv("REF_ENGINE_COURSE")) { /* the course ring and constants, as fzx-sim --engine-course */
+        FILE *e=fopen(getenv("REF_ENGINE_COURSE"),"w");
+        float c[REF_ENGINE_CONSTANTS];
+        unsigned n=ref_engine_chunk_count(),k,j;
+        uint32_t word;
+        if(!e || !n) die("cannot write the engine course dump");
+        ref_engine_constants(c);
+        fprintf(e,"constants");
+        for(j=0;j<REF_ENGINE_CONSTANTS;++j) { memcpy(&word,&c[j],4); fprintf(e," %08x",word); }
+        fprintf(e,"%cchunks %u%c",10,n,10);
+        for(k=0;k<n;++k) {
+            float p[3];
+            ref_engine_chunk(k,p);
+            for(j=0;j<3;++j) { memcpy(&word,&p[j],4); fprintf(e,j?" %08x":"%08x",word); }
+            fputc(10,e);
+        }
+        fclose(e);
+    }
 #endif
     return 0;
 }

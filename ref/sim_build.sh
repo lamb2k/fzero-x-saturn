@@ -16,12 +16,16 @@ D=$ROOT/upstream/G-Diffuser/decomp
 ART=${REF_CAMERA_ART:-fixture}
 MM=${FZX_SOURCE_MACHINE_MENU:-0}
 DEFER=${FZX_DEFER_PROJECTION:-0}
+# FZX_ENGINE_DUMP=0|1: HOST-only course/camera dump for the engine bake (ref/engine_dump.c).
+EDUMP=${FZX_ENGINE_DUMP:-0}
 [ "${FZX_SIM_CAMERA:-0}" = 0 ] || { echo "the fixed-point camera is not integrated (claude/sim-native)" >&2; exit 1; }
 case "$ART" in fixture|retail) ;; *) echo "invalid REF_CAMERA_ART" >&2; exit 1;; esac
 for v in "$MM" "$DEFER"; do case "$v" in 0|1) ;; *) echo "sim knobs are 0 or 1" >&2; exit 1;; esac; done
 OUT=$ROOT/ref/build/sim-${CC}${OPT}-$ART
 [ "$MM" = 0 ] || OUT=$OUT-mm
 [ "$DEFER" = 0 ] || OUT=$OUT-defer
+case "$EDUMP" in 0|1) ;; *) echo "FZX_ENGINE_DUMP is 0 or 1" >&2; exit 1;; esac
+[ "$EDUMP" = 0 ] || OUT=$OUT-edump
 ASSETS=$ROOT/generated/camera_$ART
 bash "$ROOT/tools/check_receipt.sh" "$ASSETS/viewports.receipt"
 export REF_STUB_CALLS=1
@@ -86,10 +90,16 @@ if ! current "$o" "$ROOT/ref/sim_bridge.c"; then
     $CC $CFLAGS -E "$ROOT/ref/sim_bridge.c" -o "${o%.o}.i"
 fi
 OBJS="$OBJS $o"
+if [ "$EDUMP" = 1 ]; then
+    o=$OUT/ref_engine_dump.o
+    $CC $CFLAGS -Werror=implicit-function-declaration -c "$ROOT/ref/engine_dump.c" -o "$o"
+    $CC $CFLAGS -E "$ROOT/ref/engine_dump.c" -o "${o%.o}.i"
+    OBJS="$OBJS $o"
+fi
 # Driver side: host headers only.
 $CC -m32 -msse2 -mfpmath=sse -fno-fast-math -fno-unsafe-math-optimizations -ffp-contract=off -fno-builtin \
     -fno-pic -O2 -g -std=gnu11 -Wall -Wextra -Werror -I"$ROOT/ref" -DFZX_SOURCE_CAMERA=1 \
-    -DFZX_SOURCE_MACHINE_MENU=$MM -DFZX_DEFER_PROJECTION=$DEFER \
+    -DFZX_SOURCE_MACHINE_MENU=$MM -DFZX_DEFER_PROJECTION=$DEFER -DFZX_ENGINE_DUMP=$EDUMP \
     -c "$ROOT/ref/sim_main.c" -o "$OUT/sim_main.o"
 OBJS="$OBJS $OUT/sim_main.o"
 python3 "$ROOT/ref/gen_stubs.py" "$OUT/stubs.c" "$OUT"/*.i -- $OBJS > "$OUT/stubs.log"

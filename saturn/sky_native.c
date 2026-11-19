@@ -50,6 +50,7 @@ static uint32_t backdrop_tick;
 typedef struct {vdp1_cmdt_t *commands;uint16_t *shades;unsigned count;} submit_t;
 
 void fzx_sky_restart(void){ready=false;fzx_sky_status=0;}
+#ifndef FZX_ENGINE /* the engine line fills this state itself (saturn/engine) */
 bool fzx_sky_publish(void) {
 #if FZX_SOURCE_PLANES
     if(ready && backdrop_tick==fzx_input_count)return fzx_sky_status==1;
@@ -91,6 +92,7 @@ bool fzx_sky_publish(void) {
     if(fzx_source_backdrop.faults || fzx_source_backdrop.count!=20){fzx_sky_status=3;return false;}
     fzx_sky_status=1;fzx_sky_busy=0;return true;
 }
+#endif
 static bool emit(void *context,const fzx_sky_polygon_t *p) {
     submit_t *s=context;vdp1_cmdt_t *cmd=&s->commands[s->count];
     uint16_t *colors=&s->shades[s->count*4u];

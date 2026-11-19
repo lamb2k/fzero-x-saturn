@@ -24,6 +24,22 @@ fzx_floor_rbg_t fzx_floor_rbg;
 volatile uint32_t fzx_floor_status,fzx_floor_busy,fzx_floor_ticks;
 volatile uint32_t fzx_floor_pending,fzx_floor_presented,fzx_floor_commits;
 volatile uint32_t fzx_floor_upload_ticks,fzx_floor_upload_blanking;
+#if FZX_VDP1_DBANK
+/* FZX_VDP1_DBANK: frame N+1 is prepared while N still waits for its upload at
+ * the end of its draw, so the tables have two banks, both in VDP1 VRAM (set by
+ * main). Prepared frames queue in build order; each present uploads the oldest,
+ * which is the frame whose draw has just completed, and copies it into
+ * fzx_floor_rbg, which therefore always holds the presented tables. */
+#include "sh2zam/vdp1_banks_experimental.h"
+static fzx_floor_rbg_t *floor_stage[2];
+static unsigned floor_bank;
+static sh2z_vdp1_queue_t floor_queue;
+void fzx_floor_dbank(void *bank0,void *bank1){floor_stage[0]=bank0;floor_stage[1]=bank1;sh2z_vdp1_queue_init(&floor_queue);}
+void fzx_floor_dbank_select(unsigned bank){floor_bank=bank&1u;}
+#define FLOOR_STAGE (*floor_stage[floor_bank])
+#else
+#define FLOOR_STAGE fzx_floor_rbg
+#endif
 static bool load(const char *name,unsigned size,uint32_t hash,uintptr_t destination) {
     const uintptr_t scratch=((uintptr_t)sat_stub_data_end+31u)&~(uintptr_t)31u;
     return scratch>=0x00200000u && scratch<0x00300000u &&
@@ -85,13 +101,21 @@ static bool emit(void *context,const fzx_floor_polygon_t *q) {
 }
 bool fzx_floor_native(vdp1_cmdt_t *commands,unsigned capacity,const fzx_view_t *view,
                        const RefBackdrop *source,uint32_t *count) {
+#if FZX_VDP1_DBANK
+    if(!commands || capacity<2 || !view || !source || !count || !floor_stage[floor_bank] ||
+       !sh2z_vdp1_queue_free(&floor_queue,floor_bank))return false;
+#else
     if(!commands || capacity<2 || !view || !source || !count || fzx_floor_pending)return false;
+#endif
     const uint16_t start=cpu_frt_count_get();fzx_floor_busy=1;
     memset(commands,0,sizeof(*commands));vdp1_cmdt_user_clip_coord_set(commands);
     commands->cmd_xa=view->clip[0];commands->cmd_ya=view->clip[1];commands->cmd_xc=view->clip[2]-1;commands->cmd_yc=view->clip[3]-1;
     submit_t submit={commands+1,capacity-1,0};
-    if(!fzx_floor_rbg_prepare(view,source,&fzx_floor_rbg,emit,&submit)){fzx_floor_status=3;fzx_floor_busy=0;return false;}
+    if(!fzx_floor_rbg_prepare(view,source,&FLOOR_STAGE,emit,&submit)){fzx_floor_status=3;fzx_floor_busy=0;return false;}
     *count=submit.count+1;fzx_floor_ticks=(uint16_t)(cpu_frt_count_get()-start);
+#if FZX_VDP1_DBANK
+    (void)sh2z_vdp1_queue_push(&floor_queue,floor_bank,fzx_input_count?fzx_input_count:1u);
+#endif
     fzx_floor_pending=fzx_input_count;fzx_floor_busy=0;return true;
 }
 void fzx_floor_present(void *unused) {
@@ -104,20 +128,40 @@ void fzx_floor_present(void *unused) {
     const uint16_t upload_start=cpu_frt_count_get();
     const uint32_t upload_blank=vdp2_tvmd_vblank_in()?1u:0u;
     const bool clouds=fzx_clouds_present();
+#if FZX_VDP1_DBANK
+    if(!floor_queue.count){if(clouds)fzx_clouds_upload_record(upload_start,upload_blank);return;}
+#else
     if(!fzx_floor_pending){if(clouds)fzx_clouds_upload_record(upload_start,upload_blank);return;}
+#endif
+#else
+#if FZX_VDP1_DBANK
+    if(!floor_queue.count)return;
 #else
     if(!fzx_floor_pending)return;
+#endif
 #endif
     const uint16_t start=cpu_frt_count_get();
     const uint32_t blank_start=vdp2_tvmd_vblank_in()?1u:0u;
     /* Variable interval -1 invokes this at VBlank when drawing has completed,
      * immediately before requesting the framebuffer change. No active draw or
      * scanout reads these tables while they are copied. */
+#if FZX_VDP1_DBANK
+    uint32_t bank=0,tick=0;(void)sh2z_vdp1_queue_pop(&floor_queue,&bank,&tick);
+    const fzx_floor_rbg_t *stage=floor_stage[bank];
+    memcpy((void *)FLOOR_RP,&stage->rp,sizeof(stage->rp));
+    memcpy((void *)FLOOR_WINDOW,stage->window,sizeof(stage->window));
+    fzx_floor_upload_blanking=blank_start|(vdp2_tvmd_vblank_in()?2u:0u);
+    fzx_floor_upload_ticks=(uint16_t)(cpu_frt_count_get()-start);
+    memcpy(&fzx_floor_rbg,stage,sizeof(fzx_floor_rbg));
+    fzx_floor_presented=tick;
+    fzx_floor_pending=sh2z_vdp1_queue_front(&floor_queue);++fzx_floor_commits;
+#else
     memcpy((void *)FLOOR_RP,&fzx_floor_rbg.rp,sizeof(fzx_floor_rbg.rp));
     memcpy((void *)FLOOR_WINDOW,fzx_floor_rbg.window,sizeof(fzx_floor_rbg.window));
     fzx_floor_upload_blanking=blank_start|(vdp2_tvmd_vblank_in()?2u:0u);
     fzx_floor_upload_ticks=(uint16_t)(cpu_frt_count_get()-start);
     fzx_floor_presented=fzx_floor_pending;fzx_floor_pending=0;++fzx_floor_commits;
+#endif
 #if FZX_CLOUDS_VDP2
     fzx_clouds_upload_record(upload_start,upload_blank);
 #endif

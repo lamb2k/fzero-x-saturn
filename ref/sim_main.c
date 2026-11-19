@@ -28,6 +28,12 @@
  * Both probes are HOST controls (ref_sim_test_move_camera is never in an image). */
 #include <stdint.h>
 #include <math.h>
+#ifndef FZX_ENGINE_DUMP
+#define FZX_ENGINE_DUMP 0
+#endif
+#if FZX_ENGINE_DUMP
+#include "engine_dump.h"
+#endif
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -205,6 +211,9 @@ int main(int argc, char** argv) {
     static Step steps[16384];
     static unsigned char record[REF_COURSE_RECORD_SIZE];
     int nsteps, i, tick = 0, limit = -1, restart_at = -1, records_probe = -1, read_after_restart = 0;
+#if FZX_ENGINE_DUMP
+    const char* engine_course = NULL;
+#endif
     FILE* f;
     Driver* d = calloc(1, sizeof(Driver));
     if (!d) die("out of memory");
@@ -226,6 +235,9 @@ int main(int argc, char** argv) {
         else if (strcmp(argv[i], "--restart-at") == 0) restart_at = atoi(argv[i + 1]);
         else if (strcmp(argv[i], "--read-after-restart") == 0) read_after_restart = atoi(argv[i + 1]);
         else if (strcmp(argv[i], "--records-probe") == 0) records_probe = atoi(argv[i + 1]);
+#if FZX_ENGINE_DUMP
+        else if (strcmp(argv[i], "--engine-course") == 0) engine_course = argv[i + 1];
+#endif
         else die("unknown option");
     }
     if (i != argc) die("options take one value each");
@@ -303,6 +315,26 @@ int main(int argc, char** argv) {
         fclose(d->trace);
     }
     if (d->camera) fclose(d->camera);
+#if FZX_ENGINE_DUMP
+    if (engine_course) { /* course ring and camera constants for tools/engine_path.py */
+        FILE* e = fopen(engine_course, "w");
+        float c[REF_ENGINE_CONSTANTS];
+        unsigned n = ref_engine_chunk_count(), k, j;
+        uint32_t word;
+        if (!e || !n) die("cannot write the engine course dump");
+        ref_engine_constants(c);
+        fprintf(e, "constants");
+        for (j = 0; j < REF_ENGINE_CONSTANTS; ++j) { memcpy(&word, &c[j], 4); fprintf(e, " %08x", word); }
+        fprintf(e, "\nchunks %u\n", n);
+        for (k = 0; k < n; ++k) {
+            float p[3];
+            ref_engine_chunk(k, p);
+            for (j = 0; j < 3; ++j) { memcpy(&word, &p[j], 4); fprintf(e, j ? " %08x" : "%08x", word); }
+            fputc('\n', e);
+        }
+        if (fclose(e)) die("engine course dump write failed");
+    }
+#endif
     printf("ticks %d hash %016llx", tick, (unsigned long long)d->hash);
 #if FZX_DEFER_PROJECTION
     printf(" deferrals %u builds %u", ref_camera_deferrals, ref_camera_deferred_builds);

@@ -53,7 +53,14 @@ static void slave_entry(void){
     if(job.seq==2u)stack_probe();
 #endif
     const uint16_t t0=cpu_frt_count_get();
+#ifdef FZX_ENGINE
+    /* Engine line: the slave picks the visible track, then builds it. */
+    extern bool fzx_engine_slave_pick(void);
+    const bool ok=fzx_engine_slave_pick()&&
+        fzx_road_stream_native(a.commands,a.capacity,a.view,a.eye,a.plan,a.pa,a.pb,a.pixels,a.shades,&n);
+#else
     const bool ok=fzx_road_stream_native(a.commands,a.capacity,a.view,a.eye,a.plan,a.pa,a.pb,a.pixels,a.shades,&n);
+#endif
     job.ticks=(uint16_t)(cpu_frt_count_get()-t0);
     job.count=n;job.ok=ok;
     BARRIER(); /* road output, count and result are stored before done */

@@ -240,8 +240,8 @@ static bool dbank_prev_race;
 volatile uint32_t fzx_dbank_status,fzx_dbank_frames,fzx_dbank_serial,fzx_dbank_overlap,fzx_dbank_conflicts;
 volatile uint32_t fzx_dbank_base,fzx_dbank_bytes,fzx_dbank_stage_base,fzx_dbank_stage_bytes;
 /* Post-build wait for the previous frame (FRT ticks): total, maximum and a
- * 64-bin histogram of 1/16-field bins (bin 63 holds the rest). */
-volatile uint32_t fzx_dbank_wait_total,fzx_dbank_wait_max,fzx_dbank_wait_hist[64];
+ * 16-bin histogram of 1/8-field bins (bin 15 holds the rest). */
+volatile uint32_t fzx_dbank_wait_total,fzx_dbank_wait_max,fzx_dbank_wait_hist[16];
 #endif
 static volatile uint32_t video_fields;
 #if FZX_ROAD_TILE_PROFILE
@@ -947,13 +947,15 @@ static bool dbank_init(void) {
     memcpy(dbank_road[1],dbank_road[0],FZX_ROAD_RENDER_SHADE_BYTES);
     fzx_machine_dbank(dbank_machine[0],dbank_machine[1]);
 #if FZX_SOURCE_FLOOR_RBG || FZX_CLOUDS_VDP2
-    /* Bank 1 of the VDP2 floor/cloud tables (uploaded at the end of each draw)
-     * in Yaul's CLUT partition, which nothing else uses: guard, floor tables,
-     * cloud tables, sky lines, guard. Bank 0 is the original WRAM tables. */
+    /* The VDP2 floor/cloud tables (uploaded at the end of each draw) in Yaul's
+     * CLUT partition, which nothing else uses: guard, floor banks 0 and 1, cloud
+     * bank 1, sky lines bank 1, guard. Cloud bank 0 is the original WRAM tables;
+     * the WRAM floor tables become the presented copy the capture checks. */
     {
         const uintptr_t clut=(uintptr_t)p.clut_base;
         uintptr_t at=clut+guard;
 #if FZX_SOURCE_FLOOR_RBG
+        void *const floor0=(void *)at;at=(at+sizeof(fzx_floor_rbg_t)+3u)&~(uintptr_t)3u;
         void *const floor1=(void *)at;at=(at+sizeof(fzx_floor_rbg_t)+3u)&~(uintptr_t)3u;
 #endif
 #if FZX_CLOUDS_VDP2
@@ -966,7 +968,7 @@ static bool dbank_init(void) {
         dbank_stage_lo=(volatile uint32_t *)clut;dbank_stage_hi=(volatile uint32_t *)at;
         for(unsigned i=0;i<DBANK_GUARD_WORDS;++i){dbank_stage_lo[i]=DBANK_GUARD^(i<<16);dbank_stage_hi[i]=DBANK_GUARD^(i<<24);}
 #if FZX_SOURCE_FLOOR_RBG
-        memset(floor1,0,sizeof(fzx_floor_rbg_t));fzx_floor_dbank(floor1);
+        memset(floor0,0,sizeof(fzx_floor_rbg_t));memset(floor1,0,sizeof(fzx_floor_rbg_t));fzx_floor_dbank(floor0,floor1);
 #endif
 #if FZX_CLOUDS_VDP2
         memset(clouds1,0,sizeof(fzx_clouds_rbg_t));memset(sky1,0,224u*sizeof(uint16_t));fzx_clouds_dbank(clouds1,sky1);
@@ -1018,8 +1020,8 @@ static void dbank_before_build(void) {
 static void dbank_after_build(uint16_t ticks,uint32_t field_ticks) {
     ++fzx_dbank_frames;fzx_dbank_wait_total+=ticks;
     if(ticks>fzx_dbank_wait_max)fzx_dbank_wait_max=ticks;
-    const uint32_t bin=(uint32_t)ticks*16u/(field_ticks?field_ticks:1u);
-    ++fzx_dbank_wait_hist[bin<63u?bin:63u];
+    const uint32_t bin=(uint32_t)ticks*8u/(field_ticks?field_ticks:1u);
+    ++fzx_dbank_wait_hist[bin<15u?bin:15u];
 }
 static void dbank_submitted(void) {
     dbank_inflight=dbank_build;

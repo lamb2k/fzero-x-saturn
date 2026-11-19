@@ -11,6 +11,6 @@ bool fzx_floor_native(vdp1_cmdt_t *,unsigned,const fzx_view_t *,const RefBackdro
  * and rotation data must become visible at the same frame-buffer change. */
 void fzx_floor_present(void *);
 /* FZX_VDP1_DBANK: bank 1 of the staged tables, and the bank the next prepare uses. */
-void fzx_floor_dbank(void *bank1);
+void fzx_floor_dbank(void *bank0,void *bank1);
 void fzx_floor_dbank_select(unsigned bank);
 #endif

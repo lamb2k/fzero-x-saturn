@@ -26,14 +26,15 @@ volatile uint32_t fzx_floor_pending,fzx_floor_presented,fzx_floor_commits;
 volatile uint32_t fzx_floor_upload_ticks,fzx_floor_upload_blanking;
 #if FZX_VDP1_DBANK
 /* FZX_VDP1_DBANK: frame N+1 is prepared while N still waits for its upload at
- * the end of its draw, so the tables have two banks (bank 1 in VDP1 VRAM, set
- * by main). Prepared frames queue in build order; each present uploads the
- * oldest, which is the frame whose draw has just completed. */
-static fzx_floor_rbg_t *floor_stage[2]={&fzx_floor_rbg,0};
+ * the end of its draw, so the tables have two banks, both in VDP1 VRAM (set by
+ * main). Prepared frames queue in build order; each present uploads the oldest,
+ * which is the frame whose draw has just completed, and copies it into
+ * fzx_floor_rbg, which therefore always holds the presented tables. */
+static fzx_floor_rbg_t *floor_stage[2];
 static unsigned floor_bank,floor_queued;
 static uint8_t floor_queue[2];
 static uint32_t floor_tick[2];
-void fzx_floor_dbank(void *bank1){floor_stage[1]=bank1;}
+void fzx_floor_dbank(void *bank0,void *bank1){floor_stage[0]=bank0;floor_stage[1]=bank1;}
 void fzx_floor_dbank_select(unsigned bank){floor_bank=bank&1u;}
 #define FLOOR_STAGE (*floor_stage[floor_bank])
 #else
@@ -150,6 +151,7 @@ void fzx_floor_present(void *unused) {
     memcpy((void *)FLOOR_WINDOW,stage->window,sizeof(stage->window));
     fzx_floor_upload_blanking=blank_start|(vdp2_tvmd_vblank_in()?2u:0u);
     fzx_floor_upload_ticks=(uint16_t)(cpu_frt_count_get()-start);
+    memcpy(&fzx_floor_rbg,stage,sizeof(fzx_floor_rbg));
     fzx_floor_presented=floor_tick[bank];floor_tick[bank]=0;
     floor_queue[0]=floor_queue[1];--floor_queued;
     fzx_floor_pending=floor_queued?floor_tick[floor_queue[0]]:0u;++fzx_floor_commits;

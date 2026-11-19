@@ -34,7 +34,7 @@ E0_WORK_HIGH ?= 1
 # Visible chunk cap: drop the farthest pick runs beyond N chunks (0 = off). Owner 2026-11-19: "cap 32".
 E0_CHUNK_CAP ?= 32
 # Road piece clip: near plane in 3D, then the guard rectangle in 2D.
-E0_LEAN_CLIP ?= 0
+E0_LEAN_CLIP ?= 1
 # Hardware disc only: on-screen presented-frame counters, looping flythrough.
 E0_HW_COUNTER ?= 0
 # Diagnostics: VDP2 register/CRAM capture for the map; low-RAM sentinel overwrite control.

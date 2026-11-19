@@ -647,6 +647,21 @@ FZX_SKY_SRCS += ../src/fzx_rbg_fast.c
 else ifneq ($(FZX_RBG_FAST),0)
 $(error FZX_RBG_FAST must be 0 or 1)
 endif
+# FZX_SLAVE_ROAD=1 (default 0): the slave SH-2 builds the C3 road while the
+# master builds the prelude (generated/SLAVE-ROAD-PLAN.md). Same road output.
+FZX_SLAVE_ROAD ?= 0
+ifeq ($(FZX_SLAVE_ROAD),1)
+ifneq ($(FZX_SOURCE_ROAD_STREAM):$(FZX_ROAD_STREAM_EMIT):$(FZX_CLOUDS_VDP2),1:1:1)
+$(error FZX_SLAVE_ROAD requires FZX_SOURCE_ROAD_STREAM=1, FZX_ROAD_STREAM_EMIT=1 and FZX_CLOUDS_VDP2=1)
+endif
+ifeq ($(FZX_ROAD_STREAM_PHASES),1)
+$(error FZX_SLAVE_ROAD is incompatible with FZX_ROAD_STREAM_PHASES (master-clock phase markers))
+endif
+SH_CFLAGS += -DFZX_SLAVE_ROAD=1
+FZX_SKY_SRCS += slave_road.c
+else ifneq ($(FZX_SLAVE_ROAD),0)
+$(error FZX_SLAVE_ROAD must be 0 or 1)
+endif
 # FZX_ROAD_LOD=1 (default 0): simplified far road. Every frame uses the
 # budget guard's coarse tiering (strip-length tiers), not only frames over
 # the budget. Approximation: far road texture periods merge sooner.

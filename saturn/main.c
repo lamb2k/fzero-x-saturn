@@ -57,6 +57,9 @@ extern unsigned char sat_stub_data_start[];
 #endif
 static void *machine_pixels,*machine_shades;
 #endif
+#ifndef FZX_SLAVE_ROAD
+#define FZX_SLAVE_ROAD 0
+#endif
 #ifndef FZX_SOURCE_ROAD_TILES
 #define FZX_SOURCE_ROAD_TILES 0
 #endif
@@ -69,6 +72,9 @@ static void *machine_pixels,*machine_shades;
 #define FZX_ROAD_RENDER_SHADE_BYTES FZX_ROAD_STREAM_SHADE_BYTES
 #define FZX_ROAD_RENDER_MAX_DRAWS FZX_ROAD_STREAM_MAX_DRAWS
 #define road_renderer_load fzx_road_stream_load
+#if FZX_SLAVE_ROAD
+#include "slave_road.h"
+#endif
 #else
 #include "road_tiles_native.h"
 #include "road_tile_identity.h"
@@ -645,6 +651,12 @@ orig_publish(void)
 }
 #endif
 
+#if FZX_SLAVE_ROAD
+/* The prelude (sky lines, cloud bands, skyline, floor) stays below the slave's road block. */
+#define FZX_PRELUDE_CAPACITY(f) (FZX_SLAVE_ROAD_RESERVE-1u-(f))
+#else
+#define FZX_PRELUDE_CAPACITY(f) (FZX_SCENE_CAPACITY-count-(f))
+#endif
 static void
 commands_build(const fzx_frame_t *frame)
 {
@@ -653,6 +665,22 @@ commands_build(const fzx_frame_t *frame)
                          ? frame->count : FZX_MAX_POLYGONS;
 
     uint32_t first=0;
+#if FZX_SLAVE_ROAD
+    /* The slave builds this frame's road at a fixed slot while the master builds the prelude. */
+    if(fzx_input_count) {
+        fzx_slave_road_args_t road_job;
+        road_job.pa=(int32_t)(-fzx_source_camera.projection[2][2]*1073741824.0f);
+        road_job.pb=(int32_t)(fzx_source_camera.projection[3][2]*4096.0f);
+        road_job.eye[0]=(int32_t)(fzx_source_camera.eye[0]*65536.0f);
+        road_job.eye[1]=(int32_t)(fzx_source_camera.eye[1]*65536.0f);
+        road_job.eye[2]=(int32_t)(fzx_source_camera.eye[2]*65536.0f);
+        road_job.commands=&commands[COMMAND_FIRST_POLYGON+FZX_SLAVE_ROAD_RESERVE];
+        road_job.capacity=FZX_SCENE_CAPACITY-count-FZX_SLAVE_ROAD_RESERVE;
+        road_job.view=&fzx_native_view;road_job.plan=&fzx_source_road_plan;
+        road_job.pixels=road_tile_pixels;road_job.shades=road_tile_shades;
+        fzx_slave_road_start(&road_job);
+    }
+#endif
 #if FZX_SOURCE_SKY
     if(fzx_input_count) {
         const unsigned bank=command_list==&command_lists[0]?0u:1u;
@@ -673,7 +701,7 @@ commands_build(const fzx_frame_t *frame)
         fzx_fp_scene_end(0,0);
         fzx_fp_scene_begin();
 #endif
-        if(!fzx_clouds_native(&commands[COMMAND_FIRST_POLYGON],FZX_SCENE_CAPACITY-count,
+        if(!fzx_clouds_native(&commands[COMMAND_FIRST_POLYGON],FZX_PRELUDE_CAPACITY(0u),
                               &fzx_native_view,&fzx_source_backdrop,&first)) {
             dbgio_printf("\x1b[H\x1b[2J SOURCE CLOUDS VDP2 FAILED %lu\n",(unsigned long)fzx_clouds_rbg.fault);
             dbgio_flush();vdp2_sync();for(;;) {}
@@ -700,7 +728,7 @@ commands_build(const fzx_frame_t *frame)
 #if FZX_FRAME_PROFILE
         fzx_fp_scene_begin();
 #endif
-        if(!fzx_skyline_native(&commands[COMMAND_FIRST_POLYGON+first],FZX_SCENE_CAPACITY-count-first,
+        if(!fzx_skyline_native(&commands[COMMAND_FIRST_POLYGON+first],FZX_PRELUDE_CAPACITY(first),
                                &fzx_native_view,skyline_vram,&skyline_count)) {
             dbgio_printf("\x1b[H\x1b[2J SOURCE SKYLINE DRAW FAILED %lu\n",(unsigned long)fzx_skyline_stats.fault);
             dbgio_flush();vdp2_sync();for(;;) {}
@@ -718,7 +746,7 @@ commands_build(const fzx_frame_t *frame)
 #if FZX_FRAME_PROFILE
         fzx_fp_scene_begin();
 #endif
-        if(!fzx_floor_native(&commands[COMMAND_FIRST_POLYGON+first],FZX_SCENE_CAPACITY-count-first,
+        if(!fzx_floor_native(&commands[COMMAND_FIRST_POLYGON+first],FZX_PRELUDE_CAPACITY(first),
             &fzx_native_view,&fzx_source_backdrop,&floor_count)) {
             dbgio_printf("\x1b[H\x1b[2J SOURCE FLOOR DRAW FAILED %lu\n",(unsigned long)fzx_floor_rbg.fault);
             dbgio_flush();vdp2_sync();for(;;) {}
@@ -760,7 +788,21 @@ commands_build(const fzx_frame_t *frame)
 #if FZX_ROAD_STREAM_PHASES
         fzx_rsp_begin();
 #endif
-#if FZX_SOURCE_ROAD_STREAM
+#if FZX_SLAVE_ROAD
+        (void)pa;(void)pb;
+        /* Skip the unused prelude slots, then the slave's road block follows. */
+        if(first>=FZX_SLAVE_ROAD_RESERVE) {
+            dbgio_printf("SLAVE ROAD PRELUDE OVERFLOW %lu\n",(unsigned long)first);dbgio_flush();vdp2_sync();for(;;) {}
+        }
+        vdp1_cmdt_t *road_jump=&commands[COMMAND_FIRST_POLYGON+first];
+        memset(road_jump,0,sizeof(*road_jump));
+        vdp1_cmdt_jump_skip_assign(road_jump,COMMAND_FIRST_POLYGON+FZX_SLAVE_ROAD_RESERVE);
+        first=FZX_SLAVE_ROAD_RESERVE;
+        uint32_t slave_ticks=0;
+        if(!fzx_slave_road_finish(&video_fields,&road_count,&slave_ticks)) {
+            dbgio_printf("SOURCE C3 ROAD STREAM FAILED %lu/%lu\n",(unsigned long)fzx_road_stream_stats.fault,
+                (unsigned long)fzx_slave_road_status);
+#elif FZX_SOURCE_ROAD_STREAM
         const int32_t eye[3]={(int32_t)(fzx_source_camera.eye[0]*65536.0f),
             (int32_t)(fzx_source_camera.eye[1]*65536.0f),(int32_t)(fzx_source_camera.eye[2]*65536.0f)};
         if(!fzx_road_stream_native(&commands[COMMAND_FIRST_POLYGON+first],FZX_SCENE_CAPACITY-count-first,
@@ -778,7 +820,9 @@ commands_build(const fzx_frame_t *frame)
         fzx_road_profile_outer[0]=(uint16_t)(profile_end.ticks-profile_start.ticks);
         fzx_road_profile_outer[1]=profile_end.fields-profile_start.fields;
 #endif
-#if FZX_FRAME_PROFILE
+#if FZX_FRAME_PROFILE && FZX_SLAVE_ROAD
+        fzx_fp_scene_add(4,slave_ticks,road_count);
+#elif FZX_FRAME_PROFILE
         fzx_fp_scene_end(4,road_count);
 #endif
         #if FZX_SOURCE_ROAD_STREAM
@@ -982,6 +1026,9 @@ main(void)
        !road_renderer_load(road_tile_pixels)) {
         dbgio_printf("\x1b[H\x1b[2J SOURCE ROAD TILES LOAD FAILED\n");dbgio_flush();vdp2_sync();for(;;) {}
     }
+#if FZX_SLAVE_ROAD
+    fzx_slave_road_init();
+#endif
 #endif
 #if FZX_SOURCE_MACHINE
     machine_pixels=(void *)((uintptr_t)road_tile_shades+FZX_ROAD_RENDER_SHADE_BYTES);

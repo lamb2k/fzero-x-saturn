@@ -840,6 +840,18 @@ FZX_SH2ZAM_UNITS += $(if $(filter 1,$(FZX_ROAD_STREAM_CAMERA30)),sh2zam_view_cam
 # C4 native vehicle arm (vehicle-kernels-1) and vehicle pose (pose-1).
 FZX_SH2ZAM_UNITS += $(if $(filter 1,$(FZX_VEHICLE_NATIVE)),sh2zam_vehicle.c sh2zam_view_indexed.c) $(if $(filter 1,$(FZX_VEHICLE_POSE1)),sh2zam_pose.c)
 # Simulation knobs that adopt trig12-1 / fixed-unit-1 add here (sh2zam_trig12.c, sh2zam_unit30.c).
+# Diagnostic only (claude/rivals-native, never for gate1): FZX_DIAG_RIVALS=N (1..29, default 0)
+# steps N native rivals (SH2ZAM line follower) per executed tick and writes their draw
+# poses each frame. Needs generated/rivals/rivals_course.h from the owner's ROM.
+FZX_DIAG_RIVALS ?= 0
+ifneq ($(FZX_DIAG_RIVALS),0)
+ifeq ($(wildcard ../generated/rivals/rivals_course.h),)
+$(error FZX_DIAG_RIVALS needs generated/rivals/rivals_course.h (ref/rivals_build.sh + fzx-rivals))
+endif
+FZX_SH2ZAM_UNITS += sh2zam_line_follower.c
+SH_CFLAGS += -DFZX_DIAG_RIVALS=$(FZX_DIAG_RIVALS) -I../generated/rivals
+FZX_DIAG_RIVALS_SRCS := rivals_diag.c
+endif
 FZX_SH2ZAM_SRCS := $(addprefix $(SH2ZAM_ROOT)/saturn/src/,$(sort $(FZX_SH2ZAM_UNITS)))
 FZX_SH2ZAM_MISSING := $(filter-out $(wildcard $(FZX_SH2ZAM_SRCS)),$(FZX_SH2ZAM_SRCS))
 ifneq ($(FZX_SH2ZAM_MISSING),)
@@ -868,7 +880,7 @@ else ifneq ($(FZX_MENU_TABLES_LOW),0)
 $(error FZX_MENU_TABLES_LOW must be 0 or 1)
 endif
 
-SH_SRCS := $(FZX_FINISH_MENU_SRCS) $(FZX_RECORDS_SRCS) $(FZX_RESULTS_SRCS) $(FZX_MACHINE_MENU_SRCS) $(FZX_COURSE_MENU_SRCS) $(FZX_MENU_SRCS) $(FZX_TITLE_SRCS) $(FZX_COUNTDOWN_SRCS) $(FZX_FRAME_PROFILE_SRCS) main.c ../src/fzx.c $(FZX_ORIG_SRCS) $(FZX_HUD_SRCS) $(FZX_CAMERA_SRCS) $(FZX_ROAD_SRCS) $(FZX_SKY_SRCS) $(FZX_MACHINE_SRCS) $(FZX_SH2ZAM_SRCS) $(FZX_MENU_TABLES_SRCS)
+SH_SRCS := $(FZX_FINISH_MENU_SRCS) $(FZX_RECORDS_SRCS) $(FZX_RESULTS_SRCS) $(FZX_MACHINE_MENU_SRCS) $(FZX_COURSE_MENU_SRCS) $(FZX_MENU_SRCS) $(FZX_TITLE_SRCS) $(FZX_COUNTDOWN_SRCS) $(FZX_FRAME_PROFILE_SRCS) main.c ../src/fzx.c $(FZX_ORIG_SRCS) $(FZX_HUD_SRCS) $(FZX_CAMERA_SRCS) $(FZX_ROAD_SRCS) $(FZX_SKY_SRCS) $(FZX_MACHINE_SRCS) $(FZX_SH2ZAM_SRCS) $(FZX_MENU_TABLES_SRCS) $(FZX_DIAG_RIVALS_SRCS)
 SH_CFLAGS += -DFZX_SH2_DIVU=1 -O2 -std=c11 -Wall -Wextra -I../include \
              -I$(SH2ZAM_ROOT)/saturn/include -DSH2Z_REQUIRE_SH2=1
 # These tagged view units contain same-named local assembler macros. Keep their

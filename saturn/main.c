@@ -161,6 +161,9 @@ volatile uint32_t fzx_source_hud_status; /* 1 uploaded, 2 bad atlas, 3 bad snaps
 #endif
 #if FZX_SIM == FZX_SIM_ORIG
 #include "ref.h"
+#if FZX_DIAG_RIVALS
+#include "rivals_diag.h"
+#endif
 #if FZX_SIMPIPE_DBUF
 #include "simpipe.h"
 #endif
@@ -1346,6 +1349,9 @@ main(void)
         for (;;) {
         }
     }
+#if FZX_DIAG_RIVALS
+    fzx_rivals_diag_reset();
+#endif
 #if FZX_SOURCE_RESULTS
     if(!fzx_results_load(fzx_countdown_low_end,fzx_race_workspace_report[4],
                          countdown_pixels,
@@ -1461,6 +1467,9 @@ main(void)
         uint32_t simpipe_ticks = 0, simpipe_before = fzx_simpipe_prof[3];
         simpipe_paint();
 #endif
+#if FZX_DIAG_RIVALS
+        uint32_t rivals_k = 0;
+#endif
         while (tick_remainder >= fields_per_second) {
 #if FZX_SIM == FZX_SIM_ORIG
             if (pending_reset != 0 || fzx_debug_restart != 0) {
@@ -1479,6 +1488,9 @@ main(void)
 #if FZX_FRAME_PROFILE
                 fzx_fp_restart();
 #endif
+#if FZX_DIAG_RIVALS
+                fzx_rivals_diag_reset();
+#endif
             }
 #if FZX_SIMPIPE_PROFILE
             simpipe_ticks += simpipe_dispatch_tick();
@@ -1490,7 +1502,18 @@ main(void)
 #endif
             pending_reset = 0;
             tick_remainder -= fields_per_second;
+#if FZX_DIAG_RIVALS
+            ++rivals_k;
+#endif
         }
+#if FZX_DIAG_RIVALS
+        {
+            RefState rivals_state;
+            ref_state(&rivals_state);
+            fzx_rivals_diag_ticks(rivals_k, rivals_state.race_time);
+            fzx_rivals_diag_poses();
+        }
+#endif
 #if FZX_SIMPIPE_PROFILE
         simpipe_depth(3);
         if (fzx_simpipe_prof[3] != simpipe_before) fzx_simpipe_prof[14] = simpipe_ticks;

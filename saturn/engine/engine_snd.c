@@ -9,6 +9,12 @@
 #ifndef ENG_SND_MUSIC
 #define ENG_SND_MUSIC 0
 #endif
+#ifndef ENG_SND_MIX
+#define ENG_SND_MIX 5u          /* effects' direct send, 0..7 (6 dB steps) */
+#endif
+#ifndef ENG_SND_MUSIC_LEVEL
+#define ENG_SND_MUSIC_LEVEL 6u  /* CD input level, 0..7 (6 dB steps) */
+#endif
 
 #define SCSP_RAM ((volatile uint16_t *)0x25A00000u)
 #define SCSP_SLOTS ((volatile uint16_t *)0x25B00000u)
@@ -72,6 +78,9 @@ void engine_snd_power(void) {
     *(volatile uint16_t *)0x25B00402u = 0u;         /* RBL/RBP: no ring in use */
     sh2z_snd_init(&snd, SCSP_SLOTS);
     sh2z_cdda_init(&cd, CD_REGS, SCSP_SLOTS);       /* after the slots: sets the CD input level */
+    /* Mix (Ymir capture: full levels clipped 6.5 % of samples): music -6 dB, effects -12 dB. */
+    snd.mix_level = ENG_SND_MIX;
+    cd.level_max = ENG_SND_MUSIC_LEVEL;
     sh2z_snd_queue_init(&queue);
 }
 

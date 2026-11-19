@@ -75,9 +75,9 @@ Codex owns the family-by-family bake, angle/pitch sampling, cell size, race resi
 | Mad Wolf | Stock | N20 / F8 | 18,248 / 2,168 | Skin 1 baked / Pending / Pending |
 | Sonic Phantom | Stock | N20 / F8 | 18,560 / 2,208 | Skin 1 baked / Pending / Pending |
 | Blood Hawk | Stock | N20 / F8 | 18,384 / 2,272 | Skin 1 baked / Pending / Pending |
-| Super Falcon | Extra source | TBD | TBD | Pending / Pending / Pending |
-| Super Stingray | Extra source | TBD | TBD | Pending / Pending / Pending |
-| Super Cat | Extra source | TBD | TBD | Pending / Pending / Pending |
+| Super Falcon | Extra source | N20 / F8 | 18,528 / 2,272 | Skin 1 baked / Pending / Pending |
+| Super Stingray | Extra source | N20 / F8 | 18,608 / 2,232 | Skin 1 baked / Pending / Pending |
+| Super Cat | Extra source | N20 / F8 | 18,416 / 2,256 | Skin 1 baked / Pending / Pending |
 | Dr. Robotnik (classic Eggmobile) | Private guest | TBD | TBD | Pending / Pending / Pending |
 | Metal Sonic | Private guest | TBD | TBD | Pending / Pending / Pending |
 
@@ -89,6 +89,10 @@ For each 30-entry race, stream only its machine assets. Budget actual aligned at
 
 HOST bake with RSP1 v1 at `307d280`. The table records complete 8-byte-aligned packs, including cell tables and palettes. Both trial profiles use skin 1, menu LOD1 geometry, explicit left and right views, and one 32-degree pitch row. N20 uses the player's 20 rear-weighted yaw angles with an 18,664-byte ceiling. F8 uses eight equally spaced angles and a 2,304-byte ceiling. The baker fits resolution independently per machine. Selection art, records presentation, other skins, angle coverage and final framing await review. Re-bake on the proposed framing revision.
 
-For a race containing each stock family once, store only those 30 entrant variants on the cartridge. All near and far sets together total **622,984 B** of payload (555,960 near and 67,024 far), before directory and guards. Size the field at race setup from its actual unique variant keys. The three extra families and two guests need additional input bindings before their sizes can be measured.
+For a race containing each stock family once, store only those 30 entrant variants on the cartridge. All near and far sets together total **622,984 B** of payload (555,960 near and 67,024 far), before directory and guards. Size the field at race setup from its actual unique variant keys. The two private guests still need model-to-baker adapters.
 
 For VDP1, keep all far sets resident (**67,024 B**) and reserve four near slots (player plus three close rivals). At the largest observed near size of 18,632 B this is **141,552 B**. A fifth slot for one upload in flight raises the reservation to **160,184 B** before guards. Retain each old slot until every submitted list referencing it has retired; draw the resident far set when no safe slot is available. This exceeds the legacy machine region of 18,664 B. E2 needs an engine VRAM map that fits this reservation alongside the track, both command/shade banks, HUD and effects, plus measured transfer time. Slot counts are a planning choice; these are HOST payload sizes.
+
+The Super families have distinct draw-table slots 30–32 with their own LOD1 geometry and body colours. Their texture loaders are shared with Blue Falcon, Fire Stingray and White Cat respectively. A private adapter binds these three input rows to the pinned baker. They have no stock character selection slots; select and records still need stable family keys. Skin 1 now covers all 33 source families in both trial profiles. The 66 HOST packs contain **924 cells**. Independent checks validated per-cell offsets, packed extents, palette placement and file integrity, and rejected a cell pointing into its header, overlapping upload/display slots, and an undersized arena.
+
+Across fields of 30 **distinct families** chosen from these 33 measured skin-1 variants, the largest near-plus-far cartridge payload is **623,728 B**. Far sets require at most **67,264 B**, giving conservative VDP1 budgets of **141,792 B** for four near slots or **160,424 B** including one upload slot. Other skins, mixed variants of a family and guest packs need separately measured keys.

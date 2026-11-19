@@ -38,6 +38,14 @@ FZX_E1_DRIVE ?= 0
 E1_DRIVER ?= 0
 # Test driver boost period in ticks (0 = R01; 240 = R02).
 E1_DRIVER_BOOST ?= 0
+# Close-up A/B (E1 only; generated/CLOSEUP-AB.md): 0 the sprite player (the control,
+# unchanged); 1 the player as the 3D model (engine_closeup.c: the prepared vehicle
+# pack, vehicle-kernels-1 and pose-1); 2 the high-quality near sprite set
+# (generated/racer_sprites_hq: tools/racer_sprites.py --views tools/racer_sprites_hq.json).
+E1_CLOSEUP ?= 0
+# Arm A only: 1 builds the vehicle's commands while the slave builds the track (staged,
+# copied after the shadow); 0 builds them after the track, as the sprite.
+E1_CLOSEUP_EARLY ?= 0
 # Skip zero-area fan pieces of clipped road polygons (the tick-3000 seam).
 E0_FAN_FIX ?= 1
 # Floor/cloud fog bands: near/far 3D clip + 2D clip at the view, no diagnostic hash.
@@ -62,7 +70,22 @@ E0_CLUSTER_AUDIT ?= 0
 ifeq ($(filter 0 1,$(FZX_VDP1_DBANK)),)
 $(error FZX_VDP1_DBANK must be 0 or 1)
 endif
-SH_OUTPUT_DIR := build-$(if $(filter 1,$(FZX_E1_DRIVE)),e1-d$(E1_DRIVER)$(if $(filter-out 0,$(E1_DRIVER_BOOST)),-b$(E1_DRIVER_BOOST),)-,e0-)bank$(FZX_VDP1_DBANK)$(if $(filter 1,$(FZX_VDP1_DBANK_STALE)),-stale,)-g$(E0_GUARD_MARGIN)-c$(E0_FAST_CULL)-l$(E0_LOD_SHIFT)-f$(E0_FAN_FIX)-r$(E0_RBG_LEAN)-k$(E0_CLUSTERS)-w$(E0_WORK_HIGH)$(if $(filter-out 0,$(E0_CHUNK_CAP)),-cap$(E0_CHUNK_CAP),)-n$(E0_LEAN_CLIP)-e$(E0_FOG_EARLY)$(if $(filter 1,$(E0_HW_COUNTER)),-hw,)$(if $(filter 1,$(E0_VDP2_MAP)),-map,)$(if $(filter 1,$(E0_SENTINEL_CONTROL)),-sentinel,)$(if $(filter 1,$(E0_CLUSTER_AUDIT)),-audit,)$(if $(filter 1,$(E0_PHASES)),-phases,)$(if $(filter 0,$(E0_ISR_MAC_SAVE)),-nomac,)$(if $(filter 1,$(E0_MAC_PROBE)),-macprobe,)$(if $(filter 0,$(E0_PRESENT_WAIT)),-nowait,)
+ifeq ($(filter 0 1 2,$(E1_CLOSEUP)),)
+$(error E1_CLOSEUP must be 0, 1 or 2)
+endif
+ifneq ($(E1_CLOSEUP),0)
+ifneq ($(FZX_E1_DRIVE),1)
+$(error E1_CLOSEUP needs FZX_E1_DRIVE=1)
+endif
+endif
+ifneq ($(E1_CLOSEUP_EARLY),0)
+ifneq ($(E1_CLOSEUP_EARLY):$(E1_CLOSEUP),1:1)
+$(error E1_CLOSEUP_EARLY=1 needs E1_CLOSEUP=1)
+endif
+endif
+# The racer sprite set the player is drawn from.
+E1_SPRITES := $(if $(filter 2,$(E1_CLOSEUP)),racer_sprites_hq,racer_sprites)
+SH_OUTPUT_DIR := build-$(if $(filter 1,$(FZX_E1_DRIVE)),e1-d$(E1_DRIVER)$(if $(filter-out 0,$(E1_DRIVER_BOOST)),-b$(E1_DRIVER_BOOST),)$(if $(filter-out 0,$(E1_CLOSEUP)),-ab$(E1_CLOSEUP)$(if $(filter 1,$(E1_CLOSEUP_EARLY)),e,),)-,e0-)bank$(FZX_VDP1_DBANK)$(if $(filter 1,$(FZX_VDP1_DBANK_STALE)),-stale,)-g$(E0_GUARD_MARGIN)-c$(E0_FAST_CULL)-l$(E0_LOD_SHIFT)-f$(E0_FAN_FIX)-r$(E0_RBG_LEAN)-k$(E0_CLUSTERS)-w$(E0_WORK_HIGH)$(if $(filter-out 0,$(E0_CHUNK_CAP)),-cap$(E0_CHUNK_CAP),)-n$(E0_LEAN_CLIP)-e$(E0_FOG_EARLY)$(if $(filter 1,$(E0_HW_COUNTER)),-hw,)$(if $(filter 1,$(E0_VDP2_MAP)),-map,)$(if $(filter 1,$(E0_SENTINEL_CONTROL)),-sentinel,)$(if $(filter 1,$(E0_CLUSTER_AUDIT)),-audit,)$(if $(filter 1,$(E0_PHASES)),-phases,)$(if $(filter 0,$(E0_ISR_MAC_SAVE)),-nomac,)$(if $(filter 1,$(E0_MAC_PROBE)),-macprobe,)$(if $(filter 0,$(E0_PRESENT_WAIT)),-nowait,)
 SH_BUILD_DIR := $(SH_OUTPUT_DIR)/yaul
 IMAGE_DIRECTORY := $(SH_OUTPUT_DIR)/cd
 IMAGE_1ST_READ_BIN := A.BIN
@@ -80,7 +103,7 @@ E0_RECEIPTS := engine_path/engine_path.receipt road_pack/road_pack.receipt road_
                $(if $(filter 1,$(E0_CLUSTERS)),road_cluster/road_cluster.receipt,)
 E0_RECEIPT_CHECK := $(foreach R,$(E0_RECEIPTS),$(shell sh ../../tools/check_receipt.sh $(G)/$(R) >/dev/null 2>&1 || echo $(R)))
 ifeq ($(FZX_E1_DRIVE),1)
-E1_RECEIPT_CHECK := $(foreach R,physics/physics.receipt racer_sprites/racer_sprites.receipt,$(shell sh ../../tools/check_receipt.sh $(G)/$(R) >/dev/null 2>&1 || echo $(R)))
+E1_RECEIPT_CHECK := $(foreach R,physics/physics.receipt $(E1_SPRITES)/racer_sprites.receipt $(if $(filter 1,$(E1_CLOSEUP)),machine_rebake/machine_rebake.receipt closeup/closeup.receipt,),$(shell sh ../../tools/check_receipt.sh $(G)/$(R) >/dev/null 2>&1 || echo $(R)))
 ifneq ($(strip $(E1_RECEIPT_CHECK)),)
 $(error Missing or stale E1 assets; run their generators: $(E1_RECEIPT_CHECK))
 endif
@@ -96,7 +119,7 @@ SH2ZAM_UNITS := sh2zam.c sh2zam_angles.c sh2zam_batch_sh2.c sh2zam_box2.c sh2zam
     sh2zam_geometry.c sh2zam_m68k.c sh2zam_prepared.c sh2zam_reuse.c sh2zam_rotation_batch.c sh2zam_shade.c \
     sh2zam_spatial.c sh2zam_transform.c sh2zam_trig.c sh2zam_view.c sh2zam_view_center.c \
     sh2zam_view_guard_src.c sh2zam_view_guard_src_center.c sh2zam_view_round.c \
-    sh2zam_view_merge_tier.c sh2zam_shade_fused.c sh2zam_view_rails.c sh2zam_segmesh.c sh2zam_segmesh_cull.c sh2zam_vdp1_banks.c \n    $(if $(filter 1,$(FZX_E1_DRIVE)),sh2zam_vehicle_dynamics.c sh2zam_unit30.c sh2zam_rotation_sprite.c sh2zam_sprite_cache.c sh2zam_vlc2.c,)
+    sh2zam_view_merge_tier.c sh2zam_shade_fused.c sh2zam_view_rails.c sh2zam_segmesh.c sh2zam_segmesh_cull.c sh2zam_vdp1_banks.c \n    $(if $(filter 1,$(FZX_E1_DRIVE)),sh2zam_vehicle_dynamics.c sh2zam_unit30.c sh2zam_rotation_sprite.c sh2zam_sprite_cache.c sh2zam_vlc2.c,) \n    $(if $(filter 1,$(E1_CLOSEUP)),sh2zam_vehicle.c sh2zam_view_indexed.c sh2zam_pose.c,)
 
 SH_SRCS := engine_main.c engine_scene.c engine_path.c \
     ../sky_native.c ../skyline_native.c ../planes_native.c ../floor_rbg_native.c ../clouds_vdp2_native.c \
@@ -106,6 +129,7 @@ SH_SRCS := engine_main.c engine_scene.c engine_path.c \
     ../../src/fzx_road_pack.c ../../src/fzx_road_stream.c ../../src/fzx_road_stream_draw.c \
     $(G)/course_record.c \
     $(if $(filter 1,$(FZX_E1_DRIVE)),engine_drive.c ../physics_native.c,) \
+    $(if $(filter 1,$(E1_CLOSEUP)),engine_closeup.c ../../src/fzx_vehicle.c ../../src/fzx_vehicle_draw.c,) \
     $(addprefix $(SH2ZAM_ROOT)/saturn/src/,$(sort $(SH2ZAM_UNITS)))
 
 SH_CFLAGS += -DFZX_ENGINE=1 -DFZX_FRAME_PROFILE=1 -DFZX_VDP1_DBANK=$(FZX_VDP1_DBANK) \
@@ -122,9 +146,24 @@ SH_CFLAGS += -DFZX_ENGINE=1 -DFZX_FRAME_PROFILE=1 -DFZX_VDP1_DBANK=$(FZX_VDP1_DB
     -I. -I.. -I../../include -I../../ref -I$(SH2ZAM_ROOT)/saturn/include -DSH2Z_REQUIRE_SH2=1 \
     -ffunction-sections -fdata-sections \
     -DE0_ISR_MAC_SAVE=$(E0_ISR_MAC_SAVE) -DE0_MAC_PROBE=$(E0_MAC_PROBE) -DE0_PRESENT_WAIT=$(E0_PRESENT_WAIT) -DFZX_E1_DRIVE=$(FZX_E1_DRIVE) -DE1_DRIVER=$(E1_DRIVER) -DE1_DRIVER_BOOST=$(E1_DRIVER_BOOST) \
-    $(if $(filter 1,$(FZX_E1_DRIVE)),-I$(G)/physics -I$(G)/racer_sprites,)
+    $(if $(filter 1,$(FZX_E1_DRIVE)),-I$(G)/physics -I$(G)/$(E1_SPRITES),)
 # As ../Makefile: these SH2ZAM units carry same-named assembler macros.
 SH_CFLAGS += $$(if $$(filter %/sh2zam_view.c %/sh2zam_view_center.c,$$<),-fno-lto,)
+ifneq ($(E1_CLOSEUP),0)
+SH_CFLAGS += -DE1_CLOSEUP=$(E1_CLOSEUP) -DE1_CLOSEUP_EARLY=$(E1_CLOSEUP_EARLY)
+endif
+ifeq ($(E1_CLOSEUP),1)
+# Arm A: the legacy native vehicle path (FZX_VEHICLE_NATIVE + FZX_VEHICLE_POSE1) for
+# the vehicle files only. RefMachine and RefCamera are only the draw's input layouts;
+# no original code is linked (engine_closeup.c fills them from the native physics).
+# As ../Makefile: view_indexed shares assembler names with view_rails, and pose-1's
+# assembly reads a file-static table, so both stay out of LTO.
+SH_CFLAGS += -I$(G)/machine_rebake -I$(G)/closeup
+# 16 root files plus MACHAB.PAK: the CD loader reads up to 32 root entries (default 16).
+SH_CFLAGS += $$(if $$(filter %/texture_cd.c,$$<),-DFZX_TEXTURE_CD_ROOT_ENTRIES=32,)
+SH_CFLAGS += $$(if $$(filter engine_closeup.c %/fzx_vehicle.c %/fzx_vehicle_draw.c,$$<),-DFZX_SOURCE_CAMERA=1 -DFZX_SOURCE_MACHINE=1 -DFZX_VEHICLE_NATIVE=1 -DFZX_VEHICLE_FAST=1 -DFZX_VEHICLE_POSE1=1,)
+SH_CFLAGS += $$(if $$(filter %/sh2zam_view_indexed.c %/sh2zam_pose.c,$$<),-fno-lto,)
+endif
 
 # Low work RAM layout of this image: the path pack at 0x00200000 (0x8C000
 # reserved), then the CD scratch (4,096 B), then a 12,288-word block the track
@@ -157,5 +196,8 @@ stage-e0-packs:
 	   $(G)/floor_rbg/FLOORCHR.BIN $(G)/floor_rbg/FLOORMAP.BIN $(G)/floor_rbg/FLOORKOF.BIN "$(IMAGE_DIRECTORY)/"
 	$(if $(filter 1,$(E0_CLUSTERS)),cp $(G)/road_cluster/ROADCL.PAK "$(IMAGE_DIRECTORY)/",)
 ifeq ($(FZX_E1_DRIVE),1)
-	cp $(G)/physics/PHYS.PAK $(G)/racer_sprites/RSPRITE.PAK "$(IMAGE_DIRECTORY)/"
+	cp $(G)/physics/PHYS.PAK $(G)/$(E1_SPRITES)/RSPRITE.PAK "$(IMAGE_DIRECTORY)/"
+endif
+ifeq ($(E1_CLOSEUP),1)
+	cp $(G)/closeup/MACHAB.PAK "$(IMAGE_DIRECTORY)/"
 endif

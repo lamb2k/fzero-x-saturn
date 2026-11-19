@@ -16,6 +16,9 @@
 #define FZX_RS_PACKET_PATH 1
 #endif
 #define FZX_RS_COLD __attribute__((cold))
+#ifndef FZX_ROAD_STREAM_FOG_EARLY
+#define FZX_ROAD_STREAM_FOG_EARLY 0
+#endif
 #ifndef FZX_ROAD_STREAM_CLUSTER_AUDIT
 #define FZX_ROAD_STREAM_CLUSTER_AUDIT 0
 #endif
@@ -231,6 +234,14 @@ typedef struct {
 #if FZX_ROAD_STREAM_PHASES
     unsigned alive; /* diagnostic: the last quad reached piece construction */
 #endif
+#if FZX_ROAD_STREAM_FOG_EARLY
+    /* Pieces with every corner nearer than the first fog threshold (fade 0):
+     * one shading result per strip's base image (slot 63: solid pieces), this frame. */
+    int32_t fog0;
+    uint16_t fog0_word[64];
+    int8_t fog0_variant[64];
+    uint8_t fog0_valid[64];
+#endif
 #if FZX_ROAD_STREAM_CLUSTERS
     sh2z_segmesh_cull_t cull;  /* segmesh-2 state for this view */
     uint32_t live;             /* the current chunk's classes that may draw */
@@ -411,6 +422,26 @@ static bool piece(draw_t *d,const vref_t v[4],unsigned quad,unsigned piece_id,
      * return is the colour variant ([mean fade >= 64] + [mean fade >= 192]). */
     int variant;
     if(solid&&!w->mix_valid&&!mix_prepare(w))return fail(d,FZX_RS_INVALID);
+#if FZX_ROAD_STREAM_FOG_EARLY
+    /* FZX_ROAD_STREAM_FOG_EARLY (default 0): when every corner's fade is 0
+     * (z below the first fog threshold), each corner gets the same word and
+     * the variant is the ramp's for an all-zero batch whatever the count, so
+     * the first such piece of an image computes it with one corner and the
+     * rest reuse it: the same bytes as the full call. */
+    /* Textured pieces use base image strip*5 (one per strip). */
+    const unsigned slot=solid?63u:base_image%5u?64u:base_image/5u;bool early=false;
+    if(w->fogp_ok&&slot<64u){early=true;
+        for(unsigned i=0;i<count;++i)if(corners[i]->z>=d->fog0){early=false;break;}}
+    if(early){
+        if(!d->fog0_valid[slot]){
+            const int v=sh2z_shade_fog_gouraud_refs(&d->fog0_word[slot],(const void *const *)corners,
+                offsetof(sh2z_view_vertex_t,z),1,&w->fogp,solid?&w->ramp_mix:&w->ramp_offset,w->images[base_image].mean);
+            if(v<0)return fail(d,FZX_RS_INVALID);
+            d->fog0_variant[slot]=(int8_t)v;d->fog0_valid[slot]=1;}
+        for(unsigned i=0;i<count;++i)shades[i]=d->fog0_word[slot];
+        variant=d->fog0_variant[slot];
+    } else
+#endif
     if(w->fogp_ok)variant=sh2z_shade_fog_gouraud_refs(shades,(const void *const *)corners,
         offsetof(sh2z_view_vertex_t,z),count,&w->fogp,solid?&w->ramp_mix:&w->ramp_offset,
         w->images[base_image].mean);
@@ -784,6 +815,9 @@ static bool draw_any(fzx_road_stream_draw_work_t *w,const sh2z_view_center_t *vi
     ramp_prepare(w,plan);
     if(!w->ramp_valid)return false;
     if(!sh2z_view_rails_prepare(&d.rails,&d.view))return false;
+#if FZX_ROAD_STREAM_FOG_EARLY
+    memset(d.fog0_valid,0,sizeof(d.fog0_valid));
+#endif
 #if FZX_ROAD_STREAM_CLUSTERS
     d.live=UINT32_MAX;
     if(w->clusters&&!sh2z_segmesh_cull_prepare(&d.cull,&d.view,2))return false;
@@ -792,6 +826,10 @@ static bool draw_any(fzx_road_stream_draw_work_t *w,const sh2z_view_center_t *vi
         FZX_RSP(FOG);
         fog_prepare(w,&d.view.view,plan,pa,pb,stats);
         if(!w->fog_valid)return fail(&d,FZX_RS_INVALID);
+#if FZX_ROAD_STREAM_FOG_EARLY
+        /* fade(z) = 0 exactly when max(z,0) < depth[1]. */
+        d.fog0=w->fog.depth[1]>(uint32_t)INT32_MAX?INT32_MAX:(int32_t)w->fog.depth[1];
+#endif
         if(!native_frame(&d))return false;
         FZX_RSP(REPORT);
 #if FZX_ROAD_STREAM_BUDGET

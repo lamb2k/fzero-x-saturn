@@ -111,6 +111,12 @@ E0_POP_LOG ?= 0
 E0_CAP_STABLE ?= 1
 # Diagnostic (needs E0_PHASES=1): draw skipped quads anyway and count any that would draw.
 E0_CLUSTER_AUDIT ?= 0
+# Music as CD audio (generated/SOUND-PLAN.md): play music id ENG_CDDA_MUSIC from its disc track while
+# the image runs. Needs generated/cdda/cdda_tracks.h (tools/disc_cdda.py, local) and a multi-track disc.
+ENG_CDDA ?= 0
+ENG_CDDA_MUSIC ?= 0
+# Diagnostic: start this many sectors before the track end, so the loop-back happens within the run.
+ENG_CDDA_LOOPTEST ?= 0
 ifeq ($(filter 0 1,$(FZX_VDP1_DBANK)),)
 $(error FZX_VDP1_DBANK must be 0 or 1)
 endif
@@ -135,7 +141,7 @@ endif
 # The racer sprite set the player is drawn from.
 E1_SPRITES := $(if $(filter 2,$(E1_CLOSEUP)),racer_sprites_hq,racer_sprites)
 comma := ,
-SH_OUTPUT_DIR := build-$(if $(filter-out 0,$(ENG_PACE)),pace$(ENG_PACE)$(if $(filter 3,$(ENG_PACE)),i$(ENG_VDP1_INTERVAL),)-,)$(if $(filter 1,$(FZX_E1_DRIVE)),e1-d$(E1_DRIVER)$(if $(filter-out 0,$(E1_DRIVER_BOOST)),-b$(E1_DRIVER_BOOST),)$(if $(filter-out 0,$(E1_CLOSEUP)),-ab$(E1_CLOSEUP)$(if $(filter 1,$(E1_CLOSEUP_EARLY)),e,)$(if $(filter-out 0,$(E1_FIELD)),-f$(E1_FIELD)$(if $(filter 1,$(E2_PACK)),p,)$(if $(filter 1,$(E2_FASTPOSE)),q,)$(if $(filter 1,$(E2_CULL)),c,)$(if $(filter 1,$(E2_LOD)),l$(subst $(comma),_,$(E2_LOD_NEAR)),)$(if $(filter 1,$(E2_EARLY)),e,)$(if $(filter 1,$(E2_FASTSPRITE)),f,)$(if $(filter 1,$(E2_ROSTER)),r,)$(if $(filter 1,$(E2_PROF)),P,),)$(if $(filter 0,$(E1_FIELD)),$(if $(filter 1,$(E2_EARLY)),E,),),)-,e0-)bank$(FZX_VDP1_DBANK)$(if $(filter 1,$(FZX_VDP1_DBANK_STALE)),-stale,)-g$(E0_GUARD_MARGIN)-c$(E0_FAST_CULL)-l$(E0_LOD_SHIFT)-f$(E0_FAN_FIX)-r$(E0_RBG_LEAN)-k$(E0_CLUSTERS)-w$(E0_WORK_HIGH)$(if $(filter-out 0,$(E0_CHUNK_CAP)),-cap$(E0_CHUNK_CAP),)-n$(E0_LEAN_CLIP)-e$(E0_FOG_EARLY)$(if $(filter 1,$(E0_HW_COUNTER)),-hw,)$(if $(filter 1,$(E0_VDP2_MAP)),-map,)$(if $(filter 1,$(E0_SENTINEL_CONTROL)),-sentinel,)$(if $(filter 1,$(E0_POP_LOG)),-pop,)$(if $(filter 1,$(E0_CAP_STABLE)),-stable,)$(if $(filter 1,$(E0_CLUSTER_AUDIT)),-audit,)$(if $(filter 0,$(E0_ISR_MAC_SAVE)),-nomac,)$(if $(filter 1,$(E0_MAC_PROBE)),-macprobe,)$(if $(filter 0,$(E0_QUEUE_ATOMIC)),-qrace,)$(if $(filter 1,$(E0_PHASES)),-phases,)
+SH_OUTPUT_DIR := build-$(if $(filter-out 0,$(ENG_PACE)),pace$(ENG_PACE)$(if $(filter 3,$(ENG_PACE)),i$(ENG_VDP1_INTERVAL),)-,)$(if $(filter 1,$(FZX_E1_DRIVE)),e1-d$(E1_DRIVER)$(if $(filter-out 0,$(E1_DRIVER_BOOST)),-b$(E1_DRIVER_BOOST),)$(if $(filter-out 0,$(E1_CLOSEUP)),-ab$(E1_CLOSEUP)$(if $(filter 1,$(E1_CLOSEUP_EARLY)),e,)$(if $(filter-out 0,$(E1_FIELD)),-f$(E1_FIELD)$(if $(filter 1,$(E2_PACK)),p,)$(if $(filter 1,$(E2_FASTPOSE)),q,)$(if $(filter 1,$(E2_CULL)),c,)$(if $(filter 1,$(E2_LOD)),l$(subst $(comma),_,$(E2_LOD_NEAR)),)$(if $(filter 1,$(E2_EARLY)),e,)$(if $(filter 1,$(E2_FASTSPRITE)),f,)$(if $(filter 1,$(E2_ROSTER)),r,)$(if $(filter 1,$(E2_PROF)),P,),)$(if $(filter 0,$(E1_FIELD)),$(if $(filter 1,$(E2_EARLY)),E,),),)-,e0-)bank$(FZX_VDP1_DBANK)$(if $(filter 1,$(FZX_VDP1_DBANK_STALE)),-stale,)-g$(E0_GUARD_MARGIN)-c$(E0_FAST_CULL)-l$(E0_LOD_SHIFT)-f$(E0_FAN_FIX)-r$(E0_RBG_LEAN)-k$(E0_CLUSTERS)-w$(E0_WORK_HIGH)$(if $(filter-out 0,$(E0_CHUNK_CAP)),-cap$(E0_CHUNK_CAP),)-n$(E0_LEAN_CLIP)-e$(E0_FOG_EARLY)$(if $(filter 1,$(E0_HW_COUNTER)),-hw,)$(if $(filter 1,$(E0_VDP2_MAP)),-map,)$(if $(filter 1,$(E0_SENTINEL_CONTROL)),-sentinel,)$(if $(filter 1,$(E0_POP_LOG)),-pop,)$(if $(filter 1,$(E0_CAP_STABLE)),-stable,)$(if $(filter 1,$(E0_CLUSTER_AUDIT)),-audit,)$(if $(filter 0,$(E0_ISR_MAC_SAVE)),-nomac,)$(if $(filter 1,$(E0_MAC_PROBE)),-macprobe,)$(if $(filter 0,$(E0_QUEUE_ATOMIC)),-qrace,)$(if $(filter 1,$(E0_PHASES)),-phases,)$(if $(filter 1,$(ENG_CDDA)),-cdda$(ENG_CDDA_MUSIC)$(if $(filter-out 0,$(ENG_CDDA_LOOPTEST)),-lt$(ENG_CDDA_LOOPTEST),),)
 SH_BUILD_DIR := $(SH_OUTPUT_DIR)/yaul
 IMAGE_DIRECTORY := $(SH_OUTPUT_DIR)/cd
 IMAGE_1ST_READ_BIN := A.BIN
@@ -201,6 +207,13 @@ SH_CFLAGS += -DENG_PACE=$(ENG_PACE) $(if $(filter 3,$(ENG_PACE)),-DENG_VDP1_INTE
     -ffunction-sections -fdata-sections \
     -DE0_ISR_MAC_SAVE=$(E0_ISR_MAC_SAVE) -DE0_MAC_PROBE=$(E0_MAC_PROBE) -DFZX_DBANK_QUEUE_ATOMIC=$(E0_QUEUE_ATOMIC) -DFZX_E1_DRIVE=$(FZX_E1_DRIVE) -DE1_DRIVER=$(E1_DRIVER) -DE1_DRIVER_BOOST=$(E1_DRIVER_BOOST) \
     $(if $(filter 1,$(FZX_E1_DRIVE)),-I$(G)/physics -I$(G)/$(E1_SPRITES),)
+ifeq ($(ENG_CDDA),1)
+ifeq ($(wildcard $(G)/cdda/cdda_tracks.h),)
+$(error ENG_CDDA=1 needs $(G)/cdda/cdda_tracks.h: run tools/disc_cdda.py --header)
+endif
+SH_SRCS += engine_cdda.c
+SH_CFLAGS += -DENG_CDDA=1 -DENG_CDDA_MUSIC=$(ENG_CDDA_MUSIC) -DENG_CDDA_LOOPTEST=$(ENG_CDDA_LOOPTEST) -I$(G)/cdda
+endif
 # As ../Makefile: these SH2ZAM units carry same-named assembler macros.
 SH_CFLAGS += $$(if $$(filter %/sh2zam_view.c %/sh2zam_view_center.c,$$<),-fno-lto,)
 ifneq ($(E1_CLOSEUP),0)

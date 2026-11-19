@@ -31,9 +31,13 @@ MAGIC = 0x52535031
 MAX_YAW, MAX_PITCH = 32, 4
 HEADER = 24 + MAX_YAW*4 + MAX_PITCH*4  # sizeof(sh2z_rspr_set_t) = 168
 CELL = 16
+# Player default (POC-1): skin 1 matches the race body colour exactly; the chase
+# camera sits behind (yaw 180) about 32 degrees up at about 3.55 model radii
+# (hold diagnostics, Ymir), so yaw cells are dense toward the rear.
 DEFAULT_VIEWS = dict(
-    character=0, skin=0, mirror='auto', yaw_bins=16, yaw_dense_deg=0, pitch_deg=[12.0],
-    distance_radii=4.0, budget_bytes=18664, cell_limit=120,
+    character=0, skin=1, mirror='auto',
+    yaw_deg=[0, 25, 50, 75, 100, 120, 135, 145, 152, 158, 163, 167, 171, 174, 177, 180],
+    pitch_deg=[32.0], distance_radii=3.55, budget_bytes=18664, cell_limit=120,
     light=dict(ambient=[96, 96, 104], color=[176, 176, 168], view_dir=[-0.35, 0.75, 0.55]))
 
 
@@ -53,6 +57,12 @@ def cross3(a, b):
 
 
 def yaw_angles(views, mirror):
+    if views.get('yaw_deg'):
+        yaws = [float(v) for v in views['yaw_deg']]
+        lo, hi = (0.0, 180.0) if mirror else (-180.0, 180.0)
+        if not 1 <= len(yaws) <= MAX_YAW or yaws != sorted(yaws) or not all(lo <= v <= hi for v in yaws):
+            raise ArtError('yaw_deg list')
+        return yaws
     n = views['yaw_bins']
     if not 1 <= n <= MAX_YAW:
         raise ArtError('yaw_bins out of range')

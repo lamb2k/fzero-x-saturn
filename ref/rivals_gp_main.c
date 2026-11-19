@@ -120,6 +120,7 @@ int main(int argc, char** argv) {
         v->flags = 0;
         const int lap_ticks = (ms > 0 ? ms : 36000) * 60 / 1000;
         b->pace = (int32_t)(length / lap_ticks);
+        b->pace += (int32_t)((int64_t)b->pace * ((int)(RND() % 81) - 40) / 10000);   /* +-0.4% skill variation: no two rivals tie for long */
         b->lane = (int32_t)((int)(RND() % (uint32_t)(2 * tune_lane + 1)) - tune_lane) * 256;
         b->chase = (int16_t)(chase == 255 ? -1 : chase);
         b->chase_lead = (int16_t)(chase == 0 ? (int)(RND() % 400) - 10 : 30);   /* the source's offset ranges */

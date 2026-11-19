@@ -25,6 +25,12 @@
 #include "texture_cd.h"
 #include "sh2zam/segmesh_experimental.h"
 #include "fzx_road_stream_phase.h"
+#ifndef ENG_CDDA
+#define ENG_CDDA 0
+#endif
+#if ENG_CDDA
+#include "engine_cdda.h"
+#endif
 #if FZX_ROAD_STREAM_PHASES
 /* Diagnostic builds only: the track build's phase totals (slave timer units). */
 fzx_rsp_state_t fzx_rsp;
@@ -218,6 +224,9 @@ void user_init(void) {
     vdp1_vram_partitions_set(command_reserve,
         VDP1_VRAM_DEFAULT_TEXTURE_SIZE + (VDP1_VRAM_DEFAULT_CMDT_COUNT - command_reserve) * 32u,
         VDP1_VRAM_DEFAULT_GOURAUD_COUNT, VDP1_VRAM_DEFAULT_CLUT_COUNT);
+#if ENG_CDDA
+    engine_cdda_power(); /* before peripheral polling: SMPC sound commands must not meet an INTBACK */
+#endif
     smpc_peripheral_init();
     vdp2_tvmd_display_res_set(VDP2_TVMD_INTERLACE_NONE, VDP2_TVMD_HORZ_NORMAL_A, VDP2_TVMD_VERT_224);
     vdp2_scrn_back_color_set(VDP2_VRAM_ADDR(3, 0x01FFFE), RGB1555(1, 1, 2, 6));
@@ -563,9 +572,17 @@ int main(void) {
     uint32_t hw_loops = 0, hw_next = 0, hw_mark_frames = 0;
 #endif
     fzx_e0_report[4] = previous;
+#if ENG_CDDA
+    /* After the last CD data load: music from its own track, streamed by the drive. A failure is
+     * recorded in engine_cdda_stats for the capture; the image runs on without music. */
+    (void)engine_cdda_start(ENG_CDDA_MUSIC, ENG_CDDA_LOOPTEST);
+#endif
     fzx_e0_status = 1;
     for (;;) {
         const uint16_t loop_start = cpu_frt_count_get();
+#if ENG_CDDA
+        engine_cdda_service();
+#endif
         const uint32_t field = video_fields;
         /* Real time: the path advances one tick per 1/60 s, whatever the frame takes. */
         remainder += (field - previous) * 60u;

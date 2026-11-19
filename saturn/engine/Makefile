@@ -181,7 +181,7 @@ ifeq ($(E1_CLOSEUP),1)
 # As ../Makefile: view_indexed shares assembler names with view_rails, and pose-1's
 # assembly reads a file-static table, so both stay out of LTO.
 ifeq ($(ENG_SCENES),1)
-SH_CFLAGS += -DENG_SCENES=1 -DFZX_GUEST_MASK=$(FZX_GUEST_MASK)ull -I$(G)/mach3d $(SCN_EXP)
+SH_CFLAGS += -DENG_SCENES=1 -DFZX_GUEST_MASK=$(FZX_GUEST_MASK)ull -I$(G)/mach3d
 else
 SH_CFLAGS += -I$(G)/machine_rebake -I$(G)/closeup
 endif

@@ -208,7 +208,6 @@ static void select_tick(void *u, uint32_t s) {
         fzx_session = keep;
         fzx_scn_report[14] = 0x100u | (sel ? 1u : 0u) | (id << 16);
         fzx_scn_report[15] = (machine_allowed(id) && fzx_closeup_has_family(id)) ? 1u : 0u;
-        ++fzx_scn_report[31];
         POKED(fzx_scn_probe) = 0;
     }
     uint32_t n = 0, visible[MACHINE_COUNT];
@@ -289,7 +288,7 @@ static bool load_enter(void *u, uint32_t s) {
     dbgio_printf("\x1b[H\x1b[2J\n\n\n\n\n     MUTE CITY\n\n     TIME ATTACK\n\n     %s\n\n\n\n   |/-\\  LOADING\n", name);
     dbgio_flush();
     for (unsigned k = 0; k < 4u; ++k) spin_words[k] = *(volatile uint16_t *)(NBG3_MAP + (SPIN_ROW * 64u + 3u + k) * 2u);
-    dbgio_printf("\x1b[15;4H    ");
+    dbgio_printf("\x1b[14;5H   ");
     dbgio_flush();
     text_dirty = false;
     return true;
@@ -453,6 +452,7 @@ void fzx_scn_main(void) {
         fzx_scn_report[20] += steps;
         bool connected = false;
         const uint32_t pad = read_pad(&connected);
+        fzx_scn_report[31] = pad | (connected ? 0x10000u : 0u);
         /* Soft reset: the chord fires once, then stays latched until all four are released. */
         if ((pad & PAD_CHORD) == PAD_CHORD) {
             if (!chord_latched) {

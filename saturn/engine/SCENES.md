@@ -323,3 +323,13 @@ A scene that needs a plain background asks `fzx_scene_back_colour(rgb)`.
 | Records: ranking against the `racer.c` rule (ties keep older rows ahead); the three outcomes; an interrupted commit keeps the previous save; FULL/FAILED stay dirty, and flush inserts once; a second commit for one `run_id` refused; `slider_bits` round trip | Opus (service), Codex (screens) |
 | Retirement: a reclaim before confirmed replacement is caught by a deliberate early-release control | Opus |
 | Sound: a pre-leave confirm plays once across the transition; post-leave posts rejected | Opus |
+
+## Implementation status (claude/e3-scenes, 2026-11-19; EMULATOR, Ymir, modelled)
+
+- **What runs:** `ENG_SCENES=1` (with `FZX_E1_DRIVE=1 E1_CLOSEUP=1 E1_CLOSEUP_EARLY=1`) runs the whole loop around the E1 drive with the 3D player: BOOT, TITLE, SELECT, LOAD, RACE, RESULTS, retry, RECORDS and soft reset, sequenced by SH2ZAM scene-1 (PR #43).
+  - TITLE, SELECT, RESULTS and RECORDS are text placeholders until the C8 screens bind.
+  - `ENG_SCENES=0` builds the E0, E1 pad and E1 driver images byte for byte as before.
+- **Deviations from this draft, to close:**
+  - **Load is not chunked yet.** The race load blocks for about 27 s on a cold load in Ymir. The loading card keeps animating from the VBlank interrupt, but no frame is presented during the load, and a soft reset during a load takes effect when the load ends. Chunking the load (section 7) is the next item.
+  - **No VDP1 list outside RACE.** Submitting one stalled Yaul's VDP1 sync in this image, so menus hide the sprite layer (VDP2 sprite priority 0). Retirement is confirmed when a field has been shown with the sprite layer hidden and VDP1 has no list in flight.
+  - **Placeholders:** RESULTS doesn't keep the race backdrop; the records service and the sound queue's driver aren't linked.

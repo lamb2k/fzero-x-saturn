@@ -936,6 +936,9 @@ static int simpipe_draw_machine;             /* its machine snapshot flag (each 
 static bool simpipe_frame_pipelined;         /* this loop dispatches a job */
 static bool simpipe_last_serial = true;      /* the globals hold a serial publication */
 static bool simpipe_collected_unapplied;
+#if FZX_SIM_PIPELINE_CTL == 1
+static bool simpipe_ctl_force_serial;
+#endif
 /* The finish cut, as C-040 asks it reported: generation, the log index after
  * the cut tick's input (consumed input), the cut tick's batch index, and the
  * unused tail the master then runs in order. */
@@ -1244,6 +1247,9 @@ simpipe_pl_plan(uint32_t k, uint32_t pending_reset)
     if (pending_reset != 0 || fzx_debug_restart != 0) return UINT32_MAX;
     if (fzx_debug_autopilot != 0) return UINT32_MAX;
     if (simpipe_draw_results) return UINT32_MAX;       /* results draw: master owns them */
+#if FZX_SIM_PIPELINE_CTL == 1
+    if (simpipe_ctl_force_serial) return UINT32_MAX;
+#endif
     if (orig_pose.state_flags & (RACER_FINISHED | RACER_RETIRED)) return UINT32_MAX;
     if (!fzx_input_count) return UINT32_MAX;           /* the first tick is serial */
     const uint32_t expected = fzx_simpipe_expected_ticks(k, fzx_debug_replay_count, fzx_input_count, INPUT_LOG_TICKS);
@@ -2028,9 +2034,12 @@ main(void)
         /* The previous loop's job retires here; its publication (or a finish
          * cut completed on the master) becomes this loop's draw state. */
 #if FZX_SIM_PIPELINE_CTL == 1
-        /* Control: no drain on the loop that restarts. */
-        if (fzx_debug_restart && fzx_simpipe_dual_outstanding()) ++fzx_simpipe_present[15];
-        else
+        /* Control: no drain before a serial loop. Job 300 is left outstanding
+         * and the loop is forced serial (the restart in the route comes on a
+         * loop with no job out, so it cannot exercise this). */
+        if (fzx_simpipe_pl[9] == 300u && fzx_simpipe_dual_outstanding() && !fzx_simpipe_present[15]) {
+            ++fzx_simpipe_present[15]; simpipe_ctl_force_serial = true;
+        } else
 #endif
         { simpipe_pl_collect(); simpipe_pl_apply(); }
         /* A loop that re-presents the drawn publication (nothing new applied)

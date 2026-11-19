@@ -196,7 +196,7 @@ int main(int argc, char** argv) {
         }
         /* No vehicle inside another after contact resolution. */
         for (int a = 0; a < count; ++a) for (int b2 = a + 1; b2 < count; ++b2) {
-            if ((veh[a].flags | veh[b2].flags) & (SH2Z_VEH_STOPPED | SH2Z_VEH_EXTERNAL)) continue;
+            if ((veh[a].flags | veh[b2].flags) & (SH2Z_VEH_STOPPED | SH2Z_VEH_RETIRED | SH2Z_VEH_EXTERNAL)) continue;
             int32_t g2 = sh2z_track_near_gap(&L, &veh[a].t, &veh[b2].t); if (g2 < 0) g2 = -g2;
             int32_t dl = veh[a].t.lateral - veh[b2].t.lateral; if (dl < 0) dl = -dl;
             if (g2 < P.contact_long / 4 && dl < P.contact_lat / 4 && P.contact_long) ++through;

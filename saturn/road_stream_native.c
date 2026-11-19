@@ -129,11 +129,6 @@ static bool road_prepare(fzx_road_stream_draw_work_t *w,void *vram,uintptr_t scr
     if(!fzx_road_stream_draw_adopt(w,&pack,vram,FZX_ROAD_LOD_TEXTURE_BYTES,FZX_ROAD_PREP_NPOS_COUNT)){fzx_road_prep_report[0]=8;return false;}
     fzx_road_prep_report[0]=1;return true;
 }
-#else
-static bool road_prepare(fzx_road_stream_draw_work_t *w,void *vram,uintptr_t scratch,uint32_t scratch_bytes){
-    (void)scratch;(void)scratch_bytes;
-    return fzx_road_stream_draw_prepare(w,&pack,vram,FZX_ROAD_LOD_TEXTURE_BYTES,FZX_ROAD_LOD_TEXTURE_FILE_HASH);
-}
 #endif
 bool fzx_road_stream_load(void *vram){
     work=NULL;packets=NULL;fzx_road_stream_status=2;fzx_road_stream_busy=0;
@@ -201,7 +196,11 @@ bool fzx_road_stream_load(void *vram){
     }
     if(!fzx_texture_cd_load("ROADLTX.PAK",FZX_ROAD_LOD_TEXTURE_BYTES,FZX_ROAD_LOD_TEXTURE_FILE_HASH,
           vram,(void *)scratch,log-32u-scratch)||
+#if FZX_ROAD_PREP_BAKED
        !road_prepare(work,vram,scratch,log-32u-scratch)){
+#else
+       !fzx_road_stream_draw_prepare(work,&pack,vram,FZX_ROAD_LOD_TEXTURE_BYTES,FZX_ROAD_LOD_TEXTURE_FILE_HASH)){
+#endif
         fzx_road_stream_status=3;return false;
     }
     if(!fzx_road_stream_guards()){fzx_road_stream_status=5;return false;}

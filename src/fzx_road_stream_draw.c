@@ -183,6 +183,7 @@ FZX_RS_COLD bool fzx_road_stream_draw_prepare(fzx_road_stream_draw_work_t *w,
     w->pack=p;w->native=native;w->prepared=true;return true;
 }
 
+#if FZX_ROAD_PREP_BAKED
 /* Offline-prepared native layout (engine scenes image, FZX_ROAD_PREP_BAKED): the caller
  * has filled nunit, npos, nquads, nspans, nchunks and images from ROADPREP.PAK
  * (tools/road_prep.py ran this file's prepare on the same packs at build time, and the
@@ -199,6 +200,7 @@ FZX_RS_COLD bool fzx_road_stream_draw_adopt(fzx_road_stream_draw_work_t *w,const
     w->npos_count=npos_count;
     w->pack=p;w->native=true;w->prepared=true;return true;
 }
+#endif
 
 /* Rebuild only when the fog inputs change (cold, size-optimised); the
  * per-frame check below stays on the hot path. */

@@ -78,8 +78,8 @@ Codex owns the family-by-family bake, angle/pitch sampling, cell size, race resi
 | Super Falcon | Extra source | N20 / F8 | 18,528 / 2,272 | Skin 1 baked / Pending / Pending |
 | Super Stingray | Extra source | N20 / F8 | 18,608 / 2,232 | Skin 1 baked / Pending / Pending |
 | Super Cat | Extra source | N20 / F8 | 18,416 / 2,256 | Skin 1 baked / Pending / Pending |
-| Dr. Robotnik (classic Eggmobile) | Private guest | TBD | TBD | Pending / Pending / Pending |
-| Metal Sonic | Private guest | TBD | TBD | Pending / Pending / Pending |
+| Dr. Robotnik (classic Eggmobile) | Private guest | N20 / F8 revision 2 | 18,592 / 2,224 | Baked / HOST art / HOST preview |
+| Metal Sonic | Private guest | N20 / F8 revision 2 | 18,632 / 2,224 | Baked / HOST art / HOST preview |
 
 Use the player's proof as a starting profile. Compare near rear, banked, side and distant rival views per family before choosing yaw, pitch, mirroring and size. Check asymmetric details and skins. Record the chosen profile and receipt per row. Bind C8 selection and records to the same family identity and check each at its native presentation size.
 
@@ -93,6 +93,13 @@ For a race containing each stock family once, store only those 30 entrant varian
 
 For VDP1, keep all far sets resident (**67,024 B**) and reserve four near slots (player plus three close rivals). At the largest observed near size of 18,632 B this is **141,552 B**. A fifth slot for one upload in flight raises the reservation to **160,184 B** before guards. Retain each old slot until every submitted list referencing it has retired; draw the resident far set when no safe slot is available. This exceeds the legacy machine region of 18,664 B. E2 needs an engine VRAM map that fits this reservation alongside the track, both command/shade banks, HUD and effects, plus measured transfer time. Slot counts are a planning choice; these are HOST payload sizes.
 
-The Super families have distinct draw-table slots 30–32 with their own LOD1 geometry and body colours. Their texture loaders are shared with Blue Falcon, Fire Stingray and White Cat respectively. A private adapter binds these three input rows to the pinned baker. They have no stock character selection slots; select and records still need stable family keys. Skin 1 now covers all 33 source families in both trial profiles. The 66 HOST packs contain **924 cells**. Independent checks validated per-cell offsets, packed extents, palette placement and file integrity, and rejected a cell pointing into its header, overlapping upload/display slots, and an undersized arena.
+The Super families have distinct draw-table slots 30â€“32 with their own LOD1 geometry and body colours. Their texture loaders are shared with Blue Falcon, Fire Stingray and White Cat respectively. A private adapter binds these three input rows to the pinned baker. They have no stock character selection slots; select and records still need stable family keys. Skin 1 now covers all 33 source families in both trial profiles. The 66 HOST packs contain **924 cells**. Independent checks validated per-cell offsets, packed extents, palette placement and file integrity, and rejected a cell pointing into its header, overlapping upload/display slots, and an undersized arena.
 
 Across fields of 30 **distinct families** chosen from these 33 measured skin-1 variants, the largest near-plus-far cartridge payload is **623,728 B**. Far sets require at most **67,264 B**, giving conservative VDP1 budgets of **141,792 B** for four near slots or **160,424 B** including one upload slot. Other skins, mixed variants of a family and guest packs need separately measured keys.
+
+
+### Private guest assets
+
+Both 256-triangle guest models have been baked with the stock rotation-sprite renderer at 45b74b7 (interface 1.1, square-pixel framing revision 2). Each has 20 near and eight far yaw cells at 32 degrees pitch, viewer-relative stock lighting, and one shared 16-entry RGB555 palette per set including transparency. HOST checks decoded all 56 cells and rejected out-of-range cell offsets. The three-dimensional meshes, material definitions, receipts and packs are private.
+
+Both guest keys have a 40×40 selection portrait, 180×245 settings illustration, 80×40 name card, shared 32×32 HUD/results icon and a machine preview rendered from the new mesh using the Records camera. HOST checks cover byte order, transparency, stride and source identity. The race/select/records bindings, on-track review and physical Saturn checks remain open.

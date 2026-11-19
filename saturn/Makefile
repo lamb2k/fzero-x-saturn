@@ -729,6 +729,24 @@ $(error FZX_SIMPIPE_DBUF must be 0 or 1)
 else ifneq ($(FZX_SIMPIPE_DBUF_STALE),0)
 $(error FZX_SIMPIPE_DBUF_STALE requires FZX_SIMPIPE_DBUF=1)
 endif
+# FZX_SIM_PIPELINE=1 (default 0): sim-pipeline checkpoint 4. The slave SH-2
+# runs a frame's race ticks and publication into a low-WRAM slot while the
+# master draws the previous slot. Restart, the finish and C8 stay serial on
+# the master. One slave owner: the road stays on the master (FZX_SLAVE_ROAD=0).
+# The slave stack is the guarded IP.BIN area, as for FZX_SLAVE_ROAD.
+FZX_SIM_PIPELINE ?= 0
+ifeq ($(FZX_SIM_PIPELINE),1)
+ifneq ($(FZX_SIMPIPE_DBUF):$(FZX_MACHINE_PUBLISH):$(FZX_NATIVE_CORE_EMPTY):$(FZX_SLAVE_ROAD):$(FZX_SOURCE_RESULTS),1:1:1:0:1)
+$(error FZX_SIM_PIPELINE requires FZX_SIMPIPE_DBUF=1, FZX_MACHINE_PUBLISH=1, FZX_NATIVE_CORE_EMPTY=1, FZX_SOURCE_RESULTS=1 and FZX_SLAVE_ROAD=0)
+endif
+ifneq ($(FZX_SIMPIPE_DBUF_STALE)$(FZX_SIMPIPE_DBUF_STALE_AT),00)
+$(error the FZX_SIMPIPE_DBUF stale controls apply to the serial copy, not FZX_SIM_PIPELINE)
+endif
+SH_CFLAGS += -DFZX_SIM_PIPELINE=1
+FZX_SKY_SRCS += simpipe_dual.c ../src/fzx_simpipe_logic.c
+else ifneq ($(FZX_SIM_PIPELINE),0)
+$(error FZX_SIM_PIPELINE must be 0 or 1)
+endif
 # FZX_ROAD_LOD=1 (default 0): simplified far road. Every frame uses the
 # budget guard's coarse tiering (strip-length tiers), not only frames over
 # the budget. Approximation: far road texture periods merge sooner.
@@ -896,7 +914,7 @@ IP_MASTER_STACK_ADDR := 0x06004000
 endif
 # FZX_SLAVE_ROAD: the slave stack is the 8 KB IP.BIN area 0x06002000..0x06004000
 # (free after boot; master stack at 0x06100000 for these builds), guarded at its floor.
-IP_SLAVE_STACK_ADDR := $(if $(filter 1,$(FZX_SLAVE_ROAD)),0x06004000,0x06001E00)
+IP_SLAVE_STACK_ADDR := $(if $(filter 1,$(FZX_SLAVE_ROAD) $(FZX_SIM_PIPELINE)),0x06004000,0x06001E00)
 IP_1ST_READ_ADDR := 0x06004000
 IP_1ST_READ_SIZE := 0
 

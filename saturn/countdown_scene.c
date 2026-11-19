@@ -1,4 +1,5 @@
 #include "countdown_scene.h"
+#include "simpipe_pub.h"
 #include "texture_cd.h"
 #include "countdown_identity.h"
 #include <string.h>
@@ -84,12 +85,12 @@ bool fzx_countdown_publish(void){
     if(fzx_countdown_status!=FZX_COUNTDOWN_SCENE_READY)return false;
     fzx_countdown_busy=1;
     if(!fzx_countdown_guards())return fail(FZX_COUNTDOWN_SCENE_GUARD);
-    scene->published=false;
-    const bool okay=ref_countdown(&fzx_source_countdown)&&!fzx_source_countdown.faults&&
-        fzx_countdown_phase(fzx_source_countdown.timer,&scene->phase);
+    FZX_PUB(countdown_published,scene->published)=false;
+    const bool okay=ref_countdown(&FZX_PUB(countdown,fzx_source_countdown))&&!FZX_PUB(countdown,fzx_source_countdown).faults&&
+        fzx_countdown_phase(FZX_PUB(countdown,fzx_source_countdown).timer,&FZX_PUB(countdown_phase,scene->phase));
     if(!fzx_countdown_guards())return fail(FZX_COUNTDOWN_SCENE_GUARD);
     if(!okay)return fail(FZX_COUNTDOWN_SCENE_PUBLISH);
-    scene->published=true;fzx_countdown_busy=0;return true;
+    FZX_PUB(countdown_published,scene->published)=true;fzx_countdown_busy=0;return true;
 }
 #if FZX_SIMPIPE_DBUF
 /* Sim-pipeline checkpoint 3: the publication's phase and flag travel with the

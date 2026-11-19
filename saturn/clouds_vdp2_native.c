@@ -23,6 +23,7 @@ static uint16_t sky_lines[224];
 static uint8_t sky_keys[64];
 static unsigned band_count;
 extern volatile uint32_t fzx_input_count;
+#include "simpipe_pub.h"
 
 static uint32_t vram_offset(uintptr_t address){return (uint32_t)(address-VDP2_VRAM_ADDR(0,0));}
 
@@ -271,7 +272,7 @@ bool fzx_clouds_native(vdp1_cmdt_t *commands,unsigned capacity,const fzx_view_t 
     memset(&fzx_plane_stats,0,sizeof(fzx_plane_stats));
     fzx_plane_stats.draws=submit.count;fzx_plane_stats.hash=fzx_clouds_rbg.hash;fzx_plane_busy=0;
     fzx_clouds_degenerate+=fzx_clouds_rbg.degenerate;fzx_clouds_bands=submit.count;
-    *count=submit.count+1+borders;fzx_clouds_pending=fzx_input_count?fzx_input_count:1;return true;
+    *count=submit.count+1+borders;fzx_clouds_pending=FZX_DRAW_TICK?FZX_DRAW_TICK:1;return true;
 }
 uint16_t fzx_clouds_upload_log[FZX_CLOUDS_UPLOAD_LOG];
 volatile uint32_t fzx_clouds_upload_count,fzx_clouds_upload_max,fzx_clouds_upload_overruns;

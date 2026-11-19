@@ -117,6 +117,19 @@ bool fzx_results_tick(bool connected) {
     if(!fzx_results_guards())return fail(FZX_RESULTS_GUARD);
     ++scene->frame;scene->published=true;fzx_results_busy=0;return true;
 }
+#if FZX_SIM_PIPELINE
+/* Sim-pipeline checkpoint 4 (C-035 item 2): would fzx_results_native draw
+ * anything for the state as it stands? Read-only. The slave publishes this
+ * after its ticks so the master never reads live results state while the
+ * slave advances it; a pipelined frame requires it to be false. */
+bool fzx_results_draw_pending(void) {
+    if(fzx_results_status!=FZX_RESULTS_READY||!scene)return false;
+#if FZX_SOURCE_RECORDS
+    if(fzx_records_active)return true;
+#endif
+    return scene->published&&(scene->snapshot.finish.visible||scene->snapshot.count);
+}
+#endif
 bool fzx_results_restart(void) {
     if(fzx_results_status!=FZX_RESULTS_READY)return false;
     if(!fzx_results_guards())return fail(FZX_RESULTS_GUARD);

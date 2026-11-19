@@ -1,4 +1,5 @@
 #include "machine_native.h"
+#include "simpipe_pub.h"
 #include "fzx_vehicle.h"
 #include "vehicle_identity.h"
 #if FZX_SOURCE_ROAD_STREAM
@@ -124,9 +125,9 @@ int fzx_machine_published;
 static int machine_published;
 #endif
 bool fzx_machine_publish(void){
-    machine_published=0;
+    FZX_PUB(machine_published,machine_published)=0;
     if(fzx_machine_status!=1)return false;
-    machine_published=ref_machine(&fzx_source_machine,pack.data+51)?1:-1;
+    FZX_PUB(machine_published,machine_published)=ref_machine(&FZX_PUB(machine,fzx_source_machine),pack.data+51)?1:-1;
     return true;
 }
 #endif

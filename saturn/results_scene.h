@@ -31,4 +31,7 @@ bool fzx_results_tick(bool connected);
 bool fzx_results_restart(void);
 bool fzx_results_native(vdp1_cmdt_t *,unsigned capacity,unsigned *count);
 #define FZX_RESULTS_COMMANDS (FZX_RESULTS_UI_COMMANDS+FZX_FINISH_COMMANDS)
+#if FZX_SIM_PIPELINE
+bool fzx_results_draw_pending(void);
+#endif
 #endif

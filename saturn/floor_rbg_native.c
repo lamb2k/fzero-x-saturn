@@ -20,6 +20,7 @@ _Static_assert(offsetof(fzx_floor_rp_t,coefficient_start)==offsetof(vdp2_scrn_rp
 #define FLOOR_WINDOW VDP2_VRAM_ADDR(3,0)
 extern unsigned char sat_stub_data_end[];
 extern volatile uint32_t fzx_input_count;
+#include "simpipe_pub.h"
 fzx_floor_rbg_t fzx_floor_rbg;
 volatile uint32_t fzx_floor_status,fzx_floor_busy,fzx_floor_ticks;
 volatile uint32_t fzx_floor_pending,fzx_floor_presented,fzx_floor_commits;
@@ -92,7 +93,7 @@ bool fzx_floor_native(vdp1_cmdt_t *commands,unsigned capacity,const fzx_view_t *
     submit_t submit={commands+1,capacity-1,0};
     if(!fzx_floor_rbg_prepare(view,source,&fzx_floor_rbg,emit,&submit)){fzx_floor_status=3;fzx_floor_busy=0;return false;}
     *count=submit.count+1;fzx_floor_ticks=(uint16_t)(cpu_frt_count_get()-start);
-    fzx_floor_pending=fzx_input_count;fzx_floor_busy=0;return true;
+    fzx_floor_pending=FZX_DRAW_TICK;fzx_floor_busy=0;return true;
 }
 void fzx_floor_present(void *unused) {
     (void)unused;

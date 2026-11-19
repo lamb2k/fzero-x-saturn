@@ -1,4 +1,5 @@
 #include "skyline_native.h"
+#include "simpipe_pub.h"
 #ifndef FZX_SKYLINE_CD
 #define FZX_SKYLINE_CD 0
 #endif
@@ -42,12 +43,12 @@ bool fzx_skyline_load(void *vram) {
 }
 void fzx_skyline_restart(void){ready=false;published=false;fzx_skyline_status=0;}
 bool fzx_skyline_publish(uint32_t tick) {
-    if(published && tick==published_tick)return fzx_skyline_status==1;
+    if(published && tick==published_tick)return FZX_PUB_WORD(skyline_status,fzx_skyline_status)==1;
     fzx_skyline_busy=1;
-    if(!ready){if(ref_skyline_init()){fzx_skyline_status=2;return false;}ready=true;}
-    ref_skyline_tick(&fzx_source_skyline,0);
-    if(fzx_source_skyline.faults || fzx_source_skyline.count!=REF_SKYLINE_COUNT){fzx_skyline_status=3;return false;}
-    published_tick=tick;published=true;fzx_skyline_status=1;fzx_skyline_busy=0;return true;
+    if(!ready){if(ref_skyline_init()){FZX_PUB_WORD(skyline_status,fzx_skyline_status)=2;return false;}ready=true;}
+    ref_skyline_tick(&FZX_PUB(skyline,fzx_source_skyline),0);
+    if(FZX_PUB(skyline,fzx_source_skyline).faults || FZX_PUB(skyline,fzx_source_skyline).count!=REF_SKYLINE_COUNT){FZX_PUB_WORD(skyline_status,fzx_skyline_status)=3;return false;}
+    published_tick=tick;published=true;FZX_PUB_WORD(skyline_status,fzx_skyline_status)=1;fzx_skyline_busy=0;return true;
 }
 typedef struct {vdp1_cmdt_t *commands;uintptr_t vram;uint32_t count;} submit_t;
 static bool emit(void *context,const fzx_skyline_quad_t *q) {

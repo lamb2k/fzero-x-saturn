@@ -1,4 +1,5 @@
 #include "sky_native.h"
+#include "simpipe_pub.h"
 #include "sky_colors.h"
 #include <mm/tlsf.h>
 #include <string.h>
@@ -52,21 +53,21 @@ typedef struct {vdp1_cmdt_t *commands;uint16_t *shades;unsigned count;} submit_t
 void fzx_sky_restart(void){ready=false;fzx_sky_status=0;}
 bool fzx_sky_publish(void) {
 #if FZX_SOURCE_PLANES
-    if(ready && backdrop_tick==fzx_input_count)return fzx_sky_status==1;
+    if(ready && backdrop_tick==fzx_input_count)return FZX_PUB_WORD(sky_status,fzx_sky_status)==1;
     fzx_sky_busy=1;
     /* Fixed source-valid wind is a deterministic presentation adaptation.
      * It consumes no simulation RNG and advances only on source logic ticks. */
     if(!ready) {
-        if(ref_backdrop_init(3*0.0005f,-4*0.0005f)){fzx_sky_status=2;return false;}
+        if(ref_backdrop_init(3*0.0005f,-4*0.0005f)){FZX_PUB_WORD(sky_status,fzx_sky_status)=2;return false;}
         backdrop_tick=0;ready=true;
-        ref_backdrop_tick(&fzx_source_backdrop,0,1);
+        ref_backdrop_tick(&FZX_PUB(backdrop,fzx_source_backdrop),0,1);
     }
-    if(fzx_input_count<backdrop_tick || fzx_input_count-backdrop_tick>12288){fzx_sky_status=3;return false;}
+    if(fzx_input_count<backdrop_tick || fzx_input_count-backdrop_tick>12288){FZX_PUB_WORD(sky_status,fzx_sky_status)=3;return false;}
 #if FZX_BACKDROP_CATCHUP_VERIFY
     /* Diagnostic: both catch-up forms from the same state, every publication. */
     if(backdrop_tick<fzx_input_count) {
         const uint32_t span=fzx_input_count-backdrop_tick;
-        const int r=ref_backdrop_catchup_check(&fzx_source_backdrop,span,0,0);
+        const int r=ref_backdrop_catchup_check(&FZX_PUB(backdrop,fzx_source_backdrop),span,0,0);
         ++fzx_backdrop_verify[0];fzx_backdrop_verify[1]+=span;
         if(span>fzx_backdrop_verify[2])fzx_backdrop_verify[2]=span;
         if(r){++fzx_backdrop_verify[3];fzx_backdrop_verify[4]=(uint32_t)r;}
@@ -79,17 +80,17 @@ bool fzx_sky_publish(void) {
          * advance just the cloud scroll (ref_backdrop_scroll, exact). */
         if(backdrop_tick+1u<fzx_input_count){ref_backdrop_scroll(0);++backdrop_tick;continue;}
 #endif
-        ref_backdrop_tick(&fzx_source_backdrop,0,0);++backdrop_tick;
+        ref_backdrop_tick(&FZX_PUB(backdrop,fzx_source_backdrop),0,0);++backdrop_tick;
     }
 #else
     fzx_sky_busy=1;
     /* Sky is independent of cloud velocity and scroll. These explicit zero
      * inputs neither consume game RNG nor claim cloud lifecycle integration. */
-    if(!ready){if(ref_backdrop_init(0.0f,0.0f)){fzx_sky_status=2;return false;}ready=true;}
-    ref_backdrop_tick(&fzx_source_backdrop,0,1);
+    if(!ready){if(ref_backdrop_init(0.0f,0.0f)){FZX_PUB_WORD(sky_status,fzx_sky_status)=2;return false;}ready=true;}
+    ref_backdrop_tick(&FZX_PUB(backdrop,fzx_source_backdrop),0,1);
 #endif
-    if(fzx_source_backdrop.faults || fzx_source_backdrop.count!=20){fzx_sky_status=3;return false;}
-    fzx_sky_status=1;fzx_sky_busy=0;return true;
+    if(FZX_PUB(backdrop,fzx_source_backdrop).faults || FZX_PUB(backdrop,fzx_source_backdrop).count!=20){FZX_PUB_WORD(sky_status,fzx_sky_status)=3;return false;}
+    FZX_PUB_WORD(sky_status,fzx_sky_status)=1;fzx_sky_busy=0;return true;
 }
 static bool emit(void *context,const fzx_sky_polygon_t *p) {
     submit_t *s=context;vdp1_cmdt_t *cmd=&s->commands[s->count];

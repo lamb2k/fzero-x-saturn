@@ -161,8 +161,13 @@ volatile uint32_t fzx_source_hud_status; /* 1 uploaded, 2 bad atlas, 3 bad snaps
 #endif
 #if FZX_SIM == FZX_SIM_ORIG
 #include "ref.h"
+#include "simpipe_pub.h"
 #if FZX_SIMPIPE_DBUF
 #include "simpipe.h"
+#endif
+#if FZX_SIM_PIPELINE
+#include "simpipe_dual.h"
+#include "fzx_simpipe_logic.h"
 #endif
 #if FZX_DEFER_PROJECTION
 #include "sim.h"
@@ -666,19 +671,19 @@ orig_publish(void)
 #endif
     PUB_MARK(0);
     fzx_pose_t p;
-    ref_pose(&orig_pose);
-    p.position = pose_vec(orig_pose.pos, 65536.0f / 16.0f);
-    p.forward = pose_vec(orig_pose.basis[0], 65536.0f);
-    p.up = pose_vec(orig_pose.basis[1], 65536.0f);
-    p.speed = (uint32_t)(orig_pose.speed > 0.0f ? orig_pose.speed * 21.6f + 0.5f : 0.0f);
-    p.lap = (uint32_t)(orig_pose.lap > 0 ? orig_pose.lap : 0);
+    ref_pose(&FZX_PUB(pose,orig_pose));
+    p.position = pose_vec(FZX_PUB(pose,orig_pose).pos, 65536.0f / 16.0f);
+    p.forward = pose_vec(FZX_PUB(pose,orig_pose).basis[0], 65536.0f);
+    p.up = pose_vec(FZX_PUB(pose,orig_pose).basis[1], 65536.0f);
+    p.speed = (uint32_t)(FZX_PUB(pose,orig_pose).speed > 0.0f ? FZX_PUB(pose,orig_pose).speed * 21.6f + 0.5f : 0.0f);
+    p.lap = (uint32_t)(FZX_PUB(pose,orig_pose).lap > 0 ? FZX_PUB(pose,orig_pose).lap : 0);
     fzx_set_pose(&p);
     PUB_MARK(1);
 #if FZX_SOURCE_CAMERA
     /* Camera matrices are produced by the first ordinary source tick, not init.
      * Publishing the initial racer/energy must not advance the simulation. */
     if(!fzx_input_count) {
-        fzx_set_camera(NULL);fzx_camera_status=0;PUB_END();return;
+        fzx_set_camera(NULL);FZX_PUB_WORD(camera_status,fzx_camera_status)=0;PUB_END();return;
     }
     float scissor[4];
 #if FZX_DEFER_PROJECTION
@@ -687,17 +692,17 @@ orig_publish(void)
     ref_camera_flush(0);
 #endif
     PUB_MARK(2);
-    ref_camera(&fzx_source_camera);
-    if(fzx_source_camera.faults || !ref_camera_draw_scissor(scissor) ||
-       !fzx_view_from_source(&fzx_native_view,
-           (const float(*)[4])fzx_source_camera.view,
-           (const float(*)[4])fzx_source_camera.projection,
-           fzx_source_camera.viewport,scissor,fzx_source_camera.near_plane,
-           fzx_source_camera.far_plane)) {
-        fzx_camera_status=2;
+    ref_camera(&FZX_PUB(camera,fzx_source_camera));
+    if(FZX_PUB(camera,fzx_source_camera).faults || !ref_camera_draw_scissor(scissor) ||
+       !fzx_view_from_source(&FZX_PUB(view,fzx_native_view),
+           (const float(*)[4])FZX_PUB(camera,fzx_source_camera).view,
+           (const float(*)[4])FZX_PUB(camera,fzx_source_camera).projection,
+           FZX_PUB(camera,fzx_source_camera).viewport,scissor,FZX_PUB(camera,fzx_source_camera).near_plane,
+           FZX_PUB(camera,fzx_source_camera).far_plane)) {
+        FZX_PUB_WORD(camera_status,fzx_camera_status)=2;
         for(;;) {}
     }
-    fzx_set_camera(&fzx_native_view);
+    fzx_set_camera(&FZX_PUB(view,fzx_native_view));
     PUB_MARK(3);
 #if FZX_SOURCE_COUNTDOWN
     if(!fzx_countdown_publish()) {
@@ -731,8 +736,8 @@ orig_publish(void)
      * camera build makes into GfxPool, into a scratch matrix nothing reads. */
     {
         const uint16_t probe_start=cpu_frt_count_get();
-        Matrix_ToMtx(fzx_source_camera.projection,pub_probe_mtx);
-        Matrix_ToMtx(fzx_source_camera.view,pub_probe_mtx);
+        Matrix_ToMtx(FZX_PUB(camera,fzx_source_camera).projection,pub_probe_mtx);
+        Matrix_ToMtx(FZX_PUB(camera,fzx_source_camera).view,pub_probe_mtx);
         pub_add(9,(uint16_t)(cpu_frt_count_get()-probe_start));
     }
 #endif
@@ -741,7 +746,7 @@ orig_publish(void)
      * taken after camera 0's flush and every other publication reader. */
     fzx_machine_publish();
 #endif
-    if(fzx_camera_status!=3)fzx_camera_status=1;
+    if(FZX_PUB_WORD(camera_status,fzx_camera_status)!=3)FZX_PUB_WORD(camera_status,fzx_camera_status)=1;
     PUB_END();
 #endif
 }
@@ -889,6 +894,314 @@ simpipe_copy(bool out)
 }
 #endif
 
+#if FZX_SIM_PIPELINE
+/* Sim-pipeline checkpoint 4 (C-033/C-035/C-038/C-039/C-040). In a pipelined
+ * loop the slave runs this loop's ticks and orig_publish into a low-WRAM slot
+ * while the master draws the slot the previous job published. Input, the
+ * connected sample, k and the expected tick count stay on the master. Restart,
+ * C8 (from the finish on) and every frame that cannot be pipelined run
+ * serially on the master, exactly as without the knob. */
+fzx_pub_t *volatile fzx_pub_out;
+/* Report: 0 magic 'SPPL', 1 pipelined loops, 2 serial loops, 3 jobs collected,
+ * 4 finish cuts, 5 batch-check failures, 6 last failure, 7 slave tick errors,
+ * 8 status (1 running, 2 slot carve, 3 batch, 4 slave tick, 6 channel), 9 slot sequence, 10 holds drained,
+ * 11 seeds from serial state, 12 last expected, 13 last executed,
+ * 14 generation (restarts), 15 loops serial because results would draw. */
+volatile uint32_t fzx_simpipe_pl[16];
+typedef struct {
+    uint32_t slot, sequence, generation, ticks, seed;
+    uint32_t words[FZX_SIMPIPE_JOB_TICKS], connected[FZX_SIMPIPE_JOB_TICKS];
+    uint32_t executed, cut, error;
+} simpipe_job_t;
+static fzx_pub_t *simpipe_pub[2];
+static simpipe_job_t *simpipe_job;
+static volatile uint32_t *simpipe_pl_guard[4];
+volatile uint32_t fzx_simpipe_draw_tick;     /* the drawn publication's log index (floor/clouds stamp it) */
+static fzx_hud_clock_t simpipe_draw_hud;     /* the drawn publication's HUD clock */
+static uint32_t simpipe_draw_results;        /* the drawn publication would draw results */
+static bool simpipe_frame_pipelined;         /* this loop dispatches a job */
+static bool simpipe_last_serial = true;      /* the globals hold a serial publication */
+static bool simpipe_collected_unapplied;
+#define SIMPIPE_PL_GUARD 0x5a17c3e9u
+#define SIMPIPE_PUB_BYTES ((sizeof(fzx_pub_t) + 31u) & ~31u)
+#define SIMPIPE_JOB_BYTES2 ((sizeof(simpipe_job_t) + 31u) & ~31u)
+
+static void __attribute__((noinline, noreturn))
+simpipe_pl_stop(uint32_t status, uint32_t detail)
+{
+    fzx_simpipe_pl[8] = status; fzx_simpipe_pl[6] = detail;
+    dbgio_printf("\x1b[H\x1b[2J SIM PIPELINE STOP %lu/%lu\n", (unsigned long)status, (unsigned long)detail);
+    dbgio_flush(); vdp2_sync(); for (;;) {}
+}
+
+/* Two guarded publication slots and the guarded job, from LOW_END up. */
+static uint32_t __attribute__((noinline))
+simpipe_pl_carve(uint32_t low_end)
+{
+    uintptr_t a = (low_end + 95u) & ~(uintptr_t)31u;
+    for (unsigned i = 0; i < 2u; ++i) {
+        simpipe_pl_guard[i] = (volatile uint32_t *)a; a += 32u;
+        simpipe_pub[i] = (fzx_pub_t *)a; a += SIMPIPE_PUB_BYTES;
+    }
+    simpipe_pl_guard[2] = (volatile uint32_t *)a; a += 32u;
+    simpipe_job = (simpipe_job_t *)a; a += SIMPIPE_JOB_BYTES2;
+    simpipe_pl_guard[3] = (volatile uint32_t *)a; a += 32u;
+    if (a > FZX_SIMPIPE_TOP_RESERVE_BASE) simpipe_pl_stop(2, (uint32_t)a);
+    memset((void *)simpipe_pl_guard[0], 0, a - (uintptr_t)simpipe_pl_guard[0]);
+    for (unsigned g = 0; g < 4u; ++g) for (unsigned w = 0; w < 8u; ++w) simpipe_pl_guard[g][w] = SIMPIPE_PL_GUARD;
+    fzx_simpipe_pl[0] = 0x5350504cu; fzx_simpipe_pl[8] = 1;
+    return (uint32_t)a;
+}
+
+static void
+simpipe_pl_guards(void)
+{
+    for (unsigned g = 0; g < 4u; ++g) for (unsigned w = 0; w < 8u; ++w)
+        if (simpipe_pl_guard[g][w] != SIMPIPE_PL_GUARD) simpipe_pl_stop(2, g);
+}
+
+/* ---- logged_tick split (C-009 site 2, C-040 order kept) -----------------
+ * The head and tail are logged_tick's own statements in its own order:
+ * input log, ref_tick | results/records step, road note, HUD clock. The slave
+ * runs head and tail; when the finish shows after ref_tick it stops before the
+ * tail and the master completes that tick. connected is the master's sample. */
+static void
+simpipe_tick_head(uint32_t word)
+{
+    const uint16_t buttons = (uint16_t)(word >> 16);
+    const int8_t sx = (int8_t)(word >> 8), sy = (int8_t)word;
+    const uint32_t n = fzx_input_count;
+    if (n < INPUT_LOG_TICKS) {
+        fzx_input_log[n] = (uint32_t)buttons << 16 | (uint32_t)(uint8_t)sx << 8 | (uint8_t)sy;
+        fzx_input_count = n + 1u;
+    }
+    ref_tick(buttons, sx, sy);
+}
+/* 0, or 1 results tick failed, 2 HUD clock failed: reported, never halted on
+ * the slave. */
+static uint32_t
+simpipe_tick_tail(bool connected)
+{
+#if FZX_SOURCE_RESULTS
+    if (!fzx_results_tick(connected)) return 1;
+#else
+    (void)connected;
+#endif
+#if FZX_SOURCE_ROAD
+    fzx_road_note_tick();
+#endif
+#if FZX_SOURCE_HUD
+    RefHud source;
+    ref_hud(&source);
+    const fzx_hud_clock_input_t input = {
+        source.lap, (uint32_t)source.race_time,
+        {(uint32_t)source.lap_times[0], (uint32_t)source.lap_times[1],
+         (uint32_t)source.lap_times[2]}, false
+    };
+    if (!fzx_hud_clock_step(&hud_clock, &input)) return 2;
+#endif
+    return 0;
+}
+static bool
+simpipe_finished(void)
+{
+    RefPose p;
+    ref_pose(&p);
+    return (p.state_flags & (RACER_FINISHED | RACER_RETIRED)) != 0;
+}
+
+/* The slave job: this loop's ticks, then orig_publish into the job's slot. */
+static void
+simpipe_slave_job(void *arg)
+{
+    simpipe_job_t *j = arg;
+    fzx_pub_t *out = simpipe_pub[j->slot];
+    if (j->seed) {
+        /* After serial frames the globals hold the latest publication: seed the
+         * slot from them so cached producers carry their outputs forward. */
+        out->pose = orig_pose; out->camera = fzx_source_camera; out->view = fzx_native_view;
+        out->machine = fzx_source_machine; out->machine_published = fzx_machine_published;
+        out->countdown = fzx_source_countdown;
+        out->skyline = fzx_source_skyline; out->backdrop = fzx_source_backdrop;
+        out->road_plan = fzx_source_road_plan;
+        out->camera_status = fzx_camera_status; out->sky_status = fzx_sky_status;
+        out->skyline_status = fzx_skyline_status; out->road_plan_status = fzx_road_plan_status;
+        out->road_plan_sequence = fzx_road_plan_sequence;
+        memcpy(&out->countdown_phase, fzx_simpipe_area->dynamic[0].address, sizeof(out->countdown_phase));
+        memcpy(&out->countdown_published, fzx_simpipe_area->dynamic[1].address, sizeof(out->countdown_published));
+    } else {
+        *out = *simpipe_pub[j->slot ^ 1u];
+    }
+    j->executed = 0; j->cut = 0; j->error = 0;
+    for (uint32_t i = 0; i < j->ticks; ++i) {
+        simpipe_tick_head(j->words[i]);
+        if (simpipe_finished()) { j->cut = 1; return; }  /* tick i: head done, tail for the master */
+        const uint32_t e = simpipe_tick_tail(j->connected[i] != 0);
+        if (e) { j->error = e; return; }
+#if FZX_SIMPIPE_PROFILE
+        simpipe_hash_tick((uint32_t)ref_pad_button << 16 | (uint32_t)(uint8_t)ref_pad_stick_x << 8 |
+                          (uint8_t)ref_pad_stick_y);
+#endif
+        j->executed = i + 1u;
+    }
+    fzx_pub_out = out;
+    orig_publish();
+    fzx_pub_out = NULL;
+    out->hud_clock = hud_clock;
+    out->ticks = fzx_input_count;
+    out->results_draw = fzx_results_draw_pending();
+    out->generation = j->generation; out->sequence = j->sequence;
+    out->magic = 0x53505542u;
+}
+
+/* The word orig_tick would build from the live pad (its non-replay,
+ * non-autopilot paths, in its order of precedence). */
+static uint32_t
+simpipe_live_word(void)
+{
+    const uint32_t forced = fzx_debug_n64;
+    if (forced != 0) return forced;
+    const uint16_t d = pad_down;
+    uint16_t n64 = 0;
+    int8_t sx = 0, sy = 0;
+    if (d & (PERIPHERAL_DIGITAL_A | PERIPHERAL_DIGITAL_C)) n64 |= 0x8000;
+#if FZX_SOURCE_RESULTS
+    if (d & PERIPHERAL_DIGITAL_START) n64 |= 0x1000;
+#endif
+    if (d & PERIPHERAL_DIGITAL_B) n64 |= 0x4000;
+    if (d & PERIPHERAL_DIGITAL_L) n64 |= 0x2000;
+    if (d & PERIPHERAL_DIGITAL_R) n64 |= 0x0010;
+    if (d & PERIPHERAL_DIGITAL_Y) n64 |= 0x0004;
+#if FZX_SOURCE_CAMERA
+    if (d & PERIPHERAL_DIGITAL_X) n64 |= 0x0001;
+    if (d & PERIPHERAL_DIGITAL_Z) n64 |= 0x0008;
+#endif
+    if (d & PERIPHERAL_DIGITAL_LEFT) sx = -63;
+    if (d & PERIPHERAL_DIGITAL_RIGHT) sx = 63;
+    if (d & PERIPHERAL_DIGITAL_UP) sy = 63;
+    if (d & PERIPHERAL_DIGITAL_DOWN) sy = -63;
+    return (uint32_t)n64 << 16 | (uint32_t)(uint8_t)sx << 8 | (uint8_t)sy;
+}
+
+/* The draw copy from the live state, after a serial publication. */
+static void
+simpipe_draw_from_live(void)
+{
+    fzx_simpipe_draw_tick = fzx_input_count; simpipe_draw_hud = hud_clock;
+    /* The master owns the results state here: if they draw, stay serial. */
+    simpipe_draw_results = fzx_results_draw_pending(); simpipe_last_serial = true;
+}
+
+/* Master: wait for the outstanding job (bounded); C-009 site 4's drain. */
+static void
+simpipe_pl_collect(void)
+{
+    if (!fzx_simpipe_dual_outstanding()) return;
+    if (!fzx_simpipe_dual_collect(&video_fields)) simpipe_pl_stop(6, fzx_simpipe_dual_status);
+    simpipe_pl_guards();
+    simpipe_collected_unapplied = true;
+}
+
+/* Master, loop start: take over the collected job. A finish cut is completed
+ * here, once, in source order: the cut tick's tail, then the batch's unused
+ * ticks serially, then a serial publication. Otherwise the job's slot becomes
+ * the draw state. */
+static void
+simpipe_pl_apply(void)
+{
+    if (!simpipe_collected_unapplied) return;
+    simpipe_collected_unapplied = false;
+    simpipe_job_t *j = simpipe_job;
+    ++fzx_simpipe_pl[3]; fzx_simpipe_pl[13] = j->executed;
+    if (j->error) { ++fzx_simpipe_pl[7]; simpipe_pl_stop(4, j->error); }
+    const fzx_simpipe_batch_t b = { j->executed, j->cut };
+    const uint32_t check = fzx_simpipe_batch_check(j->ticks, &b);
+    if (check) { ++fzx_simpipe_pl[5]; simpipe_pl_stop(3, check); }
+    if (j->cut) {
+        ++fzx_simpipe_pl[4];
+        const uint32_t e = simpipe_tick_tail(j->connected[j->executed] != 0);
+        if (e) simpipe_pl_stop(4, e);
+#if FZX_SIMPIPE_PROFILE
+        simpipe_hash_tick((uint32_t)ref_pad_button << 16 | (uint32_t)(uint8_t)ref_pad_stick_x << 8 |
+                          (uint8_t)ref_pad_stick_y);
+#endif
+        /* The batch's remaining ticks, once, in order, with the words and
+         * connected samples the master built for them (logged_tick's order). */
+        for (uint32_t i = j->executed + 1u; i < j->ticks; ++i) {
+            simpipe_tick_head(j->words[i]);
+            const uint32_t e2 = simpipe_tick_tail(j->connected[i] != 0);
+            if (e2) simpipe_pl_stop(4, e2);
+#if FZX_SIMPIPE_PROFILE
+            simpipe_hash_tick((uint32_t)ref_pad_button << 16 | (uint32_t)(uint8_t)ref_pad_stick_x << 8 |
+                              (uint8_t)ref_pad_stick_y);
+#endif
+        }
+        orig_publish();
+        simpipe_draw_from_live();
+        return;
+    }
+    const fzx_pub_t *s = simpipe_pub[j->slot];
+    if (s->magic != 0x53505542u || s->sequence != j->sequence || s->generation != j->generation)
+        simpipe_pl_stop(3, 10);
+    orig_pose = s->pose; fzx_source_camera = s->camera; fzx_native_view = s->view;
+    fzx_source_machine = s->machine; fzx_machine_published = s->machine_published;
+    fzx_source_countdown = s->countdown;
+    fzx_source_skyline = s->skyline; fzx_source_backdrop = s->backdrop; fzx_source_road_plan = s->road_plan;
+    fzx_camera_status = s->camera_status; fzx_sky_status = s->sky_status;
+    fzx_skyline_status = s->skyline_status; fzx_road_plan_status = s->road_plan_status;
+    fzx_road_plan_sequence = s->road_plan_sequence;
+    memcpy(fzx_simpipe_area->dynamic[0].address, &s->countdown_phase, sizeof(s->countdown_phase));
+    memcpy(fzx_simpipe_area->dynamic[1].address, &s->countdown_published, sizeof(s->countdown_published));
+    fzx_simpipe_draw_tick = s->ticks; simpipe_draw_hud = s->hud_clock; simpipe_draw_results = s->results_draw;
+    simpipe_last_serial = false;
+    /* Results would draw: the live results state equals this publication's
+     * (the slave is idle), and this loop runs serially so the master owns it. */
+    if (simpipe_draw_results) ++fzx_simpipe_pl[15];
+}
+
+/* Master: can this loop's K ticks run on the slave? Returns the expected
+ * count, or UINT32_MAX for a serial loop. Restart, the finish and C8, the
+ * debugger autopilot and zero-tick loops stay serial. */
+static uint32_t
+simpipe_pl_plan(uint32_t k, uint32_t pending_reset)
+{
+    if (!k || k > FZX_SIMPIPE_JOB_TICKS) return UINT32_MAX;
+    if (pending_reset != 0 || fzx_debug_restart != 0) return UINT32_MAX;
+    if (fzx_debug_autopilot != 0) return UINT32_MAX;
+    if (simpipe_draw_results) return UINT32_MAX;       /* results draw: master owns them */
+    if (orig_pose.state_flags & (RACER_FINISHED | RACER_RETIRED)) return UINT32_MAX;
+    if (!fzx_input_count) return UINT32_MAX;           /* the first tick is serial */
+    const uint32_t expected = fzx_simpipe_expected_ticks(k, fzx_debug_replay_count, fzx_input_count, INPUT_LOG_TICKS);
+    return expected ? expected : UINT32_MAX;
+}
+
+/* Master: fill and hand over this loop's job. */
+static void
+simpipe_pl_dispatch(uint32_t expected)
+{
+    simpipe_job_t *j = simpipe_job;
+    const bool connected = digital.connected != 0;
+    const uint32_t n = fzx_input_count, replay = fzx_debug_replay_count;
+    for (uint32_t i = 0; i < expected; ++i) {
+        j->words[i] = replay ? fzx_input_log[n + i] : simpipe_live_word();
+        j->connected[i] = connected;
+    }
+    j->ticks = expected; j->seed = simpipe_last_serial;
+    if (simpipe_last_serial) ++fzx_simpipe_pl[11];
+    j->sequence = ++fzx_simpipe_pl[9]; j->slot = j->sequence & 1u;
+    j->generation = fzx_simpipe_pl[14]; fzx_simpipe_pl[12] = expected;
+    simpipe_pl_guards();
+    if (!fzx_simpipe_dual_start(simpipe_slave_job, j)) simpipe_pl_stop(6, fzx_simpipe_dual_status);
+    ++fzx_simpipe_pl[1];
+}
+/* The draw side reads the drawn publication's log index and HUD clock. */
+#define SIMPIPE_DRAW_TICKS fzx_simpipe_draw_tick
+#define SIMPIPE_DRAW_HUD simpipe_draw_hud
+#else
+#define SIMPIPE_DRAW_TICKS fzx_input_count
+#define SIMPIPE_DRAW_HUD hud_clock
+#endif
+
 #if FZX_SLAVE_ROAD
 /* The prelude (sky lines, cloud bands, skyline, floor) stays below the slave's road block. */
 #define FZX_PRELUDE_CAPACITY(f) (FZX_SLAVE_ROAD_RESERVE-1u-(f))
@@ -905,7 +1218,7 @@ commands_build(const fzx_frame_t *frame)
     uint32_t first=0;
 #if FZX_SLAVE_ROAD
     /* The slave builds this frame's road at a fixed slot while the master builds the prelude. */
-    if(fzx_input_count) {
+    if(SIMPIPE_DRAW_TICKS) {
         fzx_slave_road_args_t road_job;
         road_job.pa=(int32_t)(-fzx_source_camera.projection[2][2]*1073741824.0f);
         road_job.pb=(int32_t)(fzx_source_camera.projection[3][2]*4096.0f);
@@ -920,7 +1233,7 @@ commands_build(const fzx_frame_t *frame)
     }
 #endif
 #if FZX_SOURCE_SKY
-    if(fzx_input_count) {
+    if(SIMPIPE_DRAW_TICKS) {
         const unsigned bank=command_list==&command_lists[0]?0u:1u;
         void *shades=(void *)((uintptr_t)sky_partitions.texture_base+sky_shade_offset+
                              bank*FZX_SKY_MAX_COMMANDS*8u);
@@ -961,7 +1274,7 @@ commands_build(const fzx_frame_t *frame)
 #endif
 
 #if FZX_SOURCE_SKYLINE
-    if(fzx_input_count) {
+    if(SIMPIPE_DRAW_TICKS) {
         uint32_t skyline_count=0;
 #if FZX_FRAME_PROFILE
         fzx_fp_scene_begin();
@@ -979,7 +1292,7 @@ commands_build(const fzx_frame_t *frame)
 #endif
 
 #if FZX_SOURCE_FLOOR_RBG
-    if(fzx_input_count) {
+    if(SIMPIPE_DRAW_TICKS) {
         uint32_t floor_count=0;
 #if FZX_FRAME_PROFILE
         fzx_fp_scene_begin();
@@ -996,7 +1309,7 @@ commands_build(const fzx_frame_t *frame)
     }
 #endif
 #if FZX_SOURCE_PLANES && !FZX_CLOUDS_VDP2
-    if(fzx_input_count) {
+    if(SIMPIPE_DRAW_TICKS) {
         uint32_t plane_count=0;const uint32_t before=video_fields;
 #if FZX_FRAME_PROFILE
         fzx_fp_scene_begin();
@@ -1013,7 +1326,7 @@ commands_build(const fzx_frame_t *frame)
     }
 #endif
 #if FZX_SOURCE_ROAD_TILES
-    if(fzx_input_count) {
+    if(SIMPIPE_DRAW_TICKS) {
         uint32_t road_count=0;const uint32_t before=video_fields;
 #if FZX_ROAD_TILE_PROFILE
         const road_profile_clock_t profile_start=road_profile_clock();
@@ -1070,7 +1383,7 @@ commands_build(const fzx_frame_t *frame)
     }
 #endif
 #if FZX_SOURCE_MACHINE
-    if(fzx_input_count) {
+    if(SIMPIPE_DRAW_TICKS) {
         uint32_t machine_count=0;const uint32_t before=video_fields;
 #if FZX_FRAME_PROFILE
         fzx_fp_scene_begin();
@@ -1104,7 +1417,7 @@ commands_build(const fzx_frame_t *frame)
 
     uint32_t draw_count = first+count;
 #if FZX_SOURCE_COUNTDOWN
-    if(fzx_input_count) {
+    if(SIMPIPE_DRAW_TICKS) {
         uint32_t countdown_count=0;const uint32_t before=video_fields;
         if(!fzx_countdown_native(&commands[COMMAND_FIRST_POLYGON+draw_count],
             FZX_COUNTDOWN_NATIVE_COMMANDS,&fzx_native_view,&countdown_count)) {
@@ -1122,13 +1435,13 @@ commands_build(const fzx_frame_t *frame)
 #endif
     const float energy_pixels = (orig_pose.energy / orig_start_energy) * 68.0f + 0.5f;
     const fzx_hud_snapshot_t state = {
-        hud_clock.time_ms,
+        SIMPIPE_DRAW_HUD.time_ms,
         (uint32_t)(orig_pose.speed > 0.0f ? orig_pose.speed * 21.6f + 0.5f : 0.0f),
-        (uint16_t)hud_clock.lap, RACE_LAPS,
+        (uint16_t)SIMPIPE_DRAW_HUD.lap, RACE_LAPS,
         (orig_pose.state_flags & RACER_FINISHED) != 0,
         (uint16_t)(energy_pixels > 68.0f ? 68 : energy_pixels > 0.0f ? (unsigned)energy_pixels : 0),
         (orig_pose.state_flags & (1 << 20)) != 0, /* RACER_STATE_CAN_BOOST */
-        !hud_clock.visible
+        !SIMPIPE_DRAW_HUD.visible
     };
     if (!fzx_hud_build(&fzx_hud_atlas, &state, &hud_draws) ||
         !fzx_hud_vdp1(&commands[COMMAND_FIRST_POLYGON+draw_count], FZX_HUD_MAX_DRAWS,
@@ -1143,6 +1456,13 @@ commands_build(const fzx_frame_t *frame)
 #endif
 #if FZX_SOURCE_RESULTS
     unsigned results_count=0;
+#if FZX_SIM_PIPELINE
+    /* A pipelined frame: the slave is advancing the results state, and the
+     * drawn publication says results draw nothing (checked at apply). */
+    if(simpipe_frame_pipelined) {
+        fzx_results_command_start=0;fzx_results_command_count=0;
+    } else
+#endif
     if(draw_count>=COMMAND_CAPACITY-COMMAND_FIRST_POLYGON-1u ||
        !fzx_results_native(&commands[COMMAND_FIRST_POLYGON+draw_count],
             COMMAND_CAPACITY-COMMAND_FIRST_POLYGON-draw_count-1u,&results_count)) {
@@ -1268,6 +1588,12 @@ main(void)
         dbgio_printf("\x1b[H\x1b[2J SLAVE ROAD INIT FAILED %lu\n",(unsigned long)fzx_slave_road_status);dbgio_flush();vdp2_sync();for(;;) {}
     }
 #endif
+#endif
+#if FZX_SIM_PIPELINE
+    fzx_simpipe_dual_init();
+    if(fzx_simpipe_dual_status!=1) {
+        dbgio_printf("\x1b[H\x1b[2J SIM PIPELINE SLAVE INIT FAILED %lu\n",(unsigned long)fzx_simpipe_dual_status);dbgio_flush();vdp2_sync();for(;;) {}
+    }
 #endif
 #if FZX_SOURCE_MACHINE
     machine_pixels=(void *)((uintptr_t)road_tile_shades+FZX_ROAD_RENDER_SHADE_BYTES);
@@ -1402,7 +1728,9 @@ main(void)
     fzx_timing.magic = 0x465A5854u;
 #if FZX_FRAME_PROFILE
 #if FZX_SOURCE_RECORDS
-#if FZX_SIMPIPE_DBUF
+#if FZX_SIM_PIPELINE
+    if(!fzx_fp_init(simpipe_pl_carve(simpipe_carve(fzx_records_low_end)),fields_per_second)) {
+#elif FZX_SIMPIPE_DBUF
     if(!fzx_fp_init(simpipe_carve(fzx_records_low_end),fields_per_second)) {
 #else
     if(!fzx_fp_init(fzx_records_low_end,fields_per_second)) {
@@ -1429,6 +1757,13 @@ main(void)
             fzx_simpipe_prof[0] = 0x53505046u; fzx_simpipe_prof[7] = sp;
             fzx_simpipe_prof[8] = fzx_sky_stack_start; ++fzx_simpipe_prof[1];
         }
+#endif
+#if FZX_SIM_PIPELINE
+        /* The previous loop's job retires here; its publication (or a finish
+         * cut completed on the master) becomes this loop's draw state. */
+        simpipe_pl_collect();
+        simpipe_pl_apply();
+        simpipe_frame_pipelined = false;
 #endif
 #if FZX_FRAME_PROFILE
         fzx_fp_begin(fzx_input_count);
@@ -1461,6 +1796,24 @@ main(void)
         uint32_t simpipe_ticks = 0, simpipe_before = fzx_simpipe_prof[3];
         simpipe_paint();
 #endif
+#if FZX_SIM_PIPELINE
+        uint32_t simpipe_expected = 0;
+        {
+            const uint32_t k = tick_remainder / fields_per_second;
+            simpipe_expected = simpipe_pl_plan(k, pending_reset);
+            if (simpipe_expected != UINT32_MAX) {
+                /* The same K ticks the serial loop would dispatch; the replay-
+                 * frozen ones among them run no tick there either. */
+                tick_remainder -= k * fields_per_second;
+                simpipe_frame_pipelined = true;
+#if FZX_SIMPIPE_PROFILE
+                fzx_simpipe_ticks[3] += k - simpipe_expected;
+                simpipe_ticks = simpipe_expected;
+#endif
+            }
+        }
+        if (!simpipe_frame_pipelined)
+#endif
         while (tick_remainder >= fields_per_second) {
 #if FZX_SIM == FZX_SIM_ORIG
             if (pending_reset != 0 || fzx_debug_restart != 0) {
@@ -1474,6 +1827,9 @@ main(void)
 #endif
 #if FZX_SIMPIPE_DBUF
                 ++fzx_simpipe_area->generation;
+#endif
+#if FZX_SIM_PIPELINE
+                ++fzx_simpipe_pl[14];  /* a new generation: serial until its first job */
 #endif
                 orig_restart();
 #if FZX_FRAME_PROFILE
@@ -1508,9 +1864,14 @@ main(void)
 #if FZX_SIMPIPE_PROFILE
         simpipe_paint();
 #endif
+#if FZX_SIM_PIPELINE
+        if (simpipe_frame_pipelined) simpipe_pl_dispatch(simpipe_expected);
+        else { ++fzx_simpipe_pl[2]; orig_publish(); simpipe_draw_from_live(); }
+#else
         orig_publish();
 #endif
-#if FZX_SIMPIPE_DBUF
+#endif
+#if FZX_SIMPIPE_DBUF && !FZX_SIM_PIPELINE
         simpipe_copy(true);
 #endif
 #if FZX_SIMPIPE_PROFILE
@@ -1528,7 +1889,7 @@ main(void)
 #if FZX_FRAME_PROFILE
         fzx_fp_mark(4);
 #endif
-#if FZX_SIMPIPE_DBUF
+#if FZX_SIMPIPE_DBUF && !FZX_SIM_PIPELINE
         simpipe_copy(false);
 #endif
         const fzx_frame_t *frame = fzx_render();
@@ -1605,7 +1966,7 @@ main(void)
         }
         fzx_timing.hud = (uint16_t)(cpu_frt_count_get() - hud_start);
 #if FZX_FRAME_PROFILE
-        fzx_fp_submit(fzx_input_count);
+        fzx_fp_submit(SIMPIPE_DRAW_TICKS);
 #endif
         vdp1_sync_cmdt_list_put(command_list, 0);
         vdp1_sync_render();
@@ -1616,9 +1977,14 @@ main(void)
 #endif
 #if FZX_SOURCE_ROAD_TILES
         if(FRAME_HOLD && !fzx_debug_restart && fzx_debug_replay_count &&
-           fzx_input_count==fzx_debug_replay_count) {
+           SIMPIPE_DRAW_TICKS==fzx_debug_replay_count) {
             vdp1_sync_wait();vdp2_sync_wait();
-            fzx_debug_frame_ready=fzx_input_count;
+#if FZX_SIM_PIPELINE
+            /* Quiescent capture: the outstanding job retires before the hold
+             * (it ran no tick: the replay ends at the presented tick). */
+            if (fzx_simpipe_dual_outstanding()) { simpipe_pl_collect(); ++fzx_simpipe_pl[10]; }
+#endif
+            fzx_debug_frame_ready=SIMPIPE_DRAW_TICKS;
             while(FRAME_HOLD) {
 #if FZX_SOURCE_MACHINE
                 /* A VBlank wait lets the emulator observe debugger releases;

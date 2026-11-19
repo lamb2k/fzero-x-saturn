@@ -1,6 +1,7 @@
 #include <yaul.h>
 #include <string.h>
 #include "road_native.h"
+#include "simpipe_pub.h"
 #include "road_cd.h"
 #include "road_identity.h"
 
@@ -43,21 +44,21 @@ void fzx_road_note_tick(void) {
 void fzx_road_restart(void) {road_plan_seen=false;road_tick_seen=false;}
 bool fzx_road_publish(void) {
     if(!road_tick_seen) return true;
-    if(road_plan_seen && planned_frame==fzx_road_frame) return fzx_road_plan_status==1;
-    ref_road_plan(&fzx_source_road_plan,fzx_road_frame,road_fog);
+    if(road_plan_seen && planned_frame==fzx_road_frame) return FZX_PUB_WORD(road_plan_status,fzx_road_plan_status)==1;
+    ref_road_plan(&FZX_PUB(road_plan,fzx_source_road_plan),fzx_road_frame,road_fog);
     const unsigned int chunks=fzx_native_road.count[FZX_ROAD_CHUNK];
-    if(fzx_source_road_plan.faults || fzx_source_road_plan.outer>1 ||
-       fzx_source_road_plan.visible_chunks>chunks || fzx_source_road_plan.count>REF_ROAD_GROUPS) {
-        fzx_road_plan_status=2;return false;
+    if(FZX_PUB(road_plan,fzx_source_road_plan).faults || FZX_PUB(road_plan,fzx_source_road_plan).outer>1 ||
+       FZX_PUB(road_plan,fzx_source_road_plan).visible_chunks>chunks || FZX_PUB(road_plan,fzx_source_road_plan).count>REF_ROAD_GROUPS) {
+        FZX_PUB_WORD(road_plan_status,fzx_road_plan_status)=2;return false;
     }
-    for(unsigned int i=0;i<fzx_source_road_plan.count;++i) {
-        const RefRoadGroup *g=&fzx_source_road_plan.groups[i];
+    for(unsigned int i=0;i<FZX_PUB(road_plan,fzx_source_road_plan).count;++i) {
+        const RefRoadGroup *g=&FZX_PUB(road_plan,fzx_source_road_plan).groups[i];
         if(g->start>=chunks || g->end>=chunks || (g->direction!=1 && g->direction!=-1)) {
-            fzx_road_plan_status=3;return false;
+            FZX_PUB_WORD(road_plan_status,fzx_road_plan_status)=3;return false;
         }
     }
     planned_frame=fzx_road_frame;road_plan_seen=true;
-    ++fzx_road_plan_sequence;fzx_road_plan_status=1;
+    ++FZX_PUB_WORD(road_plan_sequence,fzx_road_plan_sequence);FZX_PUB_WORD(road_plan_status,fzx_road_plan_status)=1;
     return true;
 }
 static void read_volume_sector(sector_t lba,sector_buffer_t *out) {

@@ -94,6 +94,10 @@ int main(int argc, char** argv) {
             if (!strcmp(tok, "accel")) { tune_accel = val; continue; }
             if (!strcmp(tok, "grip")) { tune_grip = val; continue; }
             if (!strcmp(tok, "lane")) { tune_lane = val; continue; }
+            /* Distance level of detail (whole units): full rate inside lod0, 1/2 inside lod1, 1/4 inside lod2. */
+            if (!strcmp(tok, "lod0")) { P.lod_near[0] = U(val); continue; }
+            if (!strcmp(tok, "lod1")) { P.lod_near[1] = U(val); continue; }
+            if (!strcmp(tok, "lod2")) { P.lod_near[2] = U(val); continue; }
             die("unknown tuning name");
         }
     }

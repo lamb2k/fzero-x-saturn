@@ -303,6 +303,9 @@ bool fzx_drive_load(void *scratch, uint32_t scratch_bytes) {
     body = course.start; prev_n64 = 0; ticks = 0;
     memset(&pad_state, 0, sizeof(pad_state));
 #if E1_FIELD
+#if E2_PACK
+    if (!fzx_field_pack_load(scratch, scratch_bytes)) { fzx_e1_status = 10; return false; }
+#endif
     if (!fzx_field_load(&course.track, &body)) { fzx_e1_status = 9; return false; }
 #endif
     return true;
@@ -500,6 +503,16 @@ enum { FIELD_SHADOWS = 8u };
 static uint16_t car_cell[FZX_FIELD_CARS];
 static uint8_t car_has_cell[FZX_FIELD_CARS];
 volatile uint32_t fzx_field_draw[8]; /* sprites drawn, 3D cars drawn, shadows, sprite skips, cells pending, commands, -, - */
+#if E2_CULL
+/* Run-time words: the smallest car drawn (pixels of the set's largest cell extent) and the
+ * smallest sprite scale (Q16) that still gets a shadow. */
+volatile uint32_t fzx_e2_min_px = 4, fzx_e2_shadow_scale = 16384;
+static uint32_t cull_extent;
+static int32_t cull_dot(const int16_t row[3], const int32_t d[3]) {
+    const int64_t sum = (int64_t)row[0] * d[0] + (int64_t)row[1] * d[1] + (int64_t)row[2] * d[2];
+    return (int32_t)(sum >> 16);
+}
+#endif
 
 unsigned fzx_drive_cars(vdp1_cmdt_t *commands, unsigned capacity, const fzx_view_t *view, const fzx_engine_cam_t *cam,
                         const fzx_field_car_t *cars, unsigned n, const vdp1_cmdt_t *const *staged, const uint16_t *staged_n) {
@@ -516,8 +529,52 @@ unsigned fzx_drive_cars(vdp1_cmdt_t *commands, unsigned capacity, const fzx_view
     typedef struct { sh2z_rspr_pick_t pick; sh2z_rspr_place_t place; int32_t depth; uint8_t ok; } item_t;
     static item_t items[FZX_FIELD_CARS];
     uint8_t order_[FZX_FIELD_CARS];
+#if E2_CULL
+    /* Cheap reject before any sprite work (render only): behind the near plane, past the
+     * size where the car would be under fzx_e2_min_px pixels, or off the view rectangle by
+     * more than the set's largest cell extent at that depth. The player and 3D cars always
+     * pass. Survivors are posed and sorted; the rest never reach the command list. */
+    if (!cull_extent) {
+        const sh2z_rspr_cell_t *cells = (const sh2z_rspr_cell_t *)(const void *)(racer_set + 1);
+        const uint32_t count = (uint32_t)racer_set->yaw_count * racer_set->pitch_count;
+        for (uint32_t c = 0; c < count; ++c) {
+            if (cells[c].width > cull_extent) cull_extent = cells[c].width;
+            if (cells[c].height > cull_extent) cull_extent = cells[c].height;
+        }
+    }
+    const int64_t ext = racer_camera.scale_num * (int64_t)cull_extent;
+    const int64_t far_tz = ext / ((int64_t)(fzx_e2_min_px ? fzx_e2_min_px : 1u) << 16);
+    const int32_t cx = racer_camera.center_x, cy = racer_camera.center_y;
+    const int64_t lx = (int64_t)(cx - view->clip[0]) << 16, rx = (int64_t)(view->clip[2] - cx) << 16;
+    const int64_t ty_ = (int64_t)(cy - view->clip[1]) << 16, by = (int64_t)(view->clip[3] - cy) << 16;
+    uint32_t c_behind = 0, c_far = 0, c_off = 0;
+#endif
     for (unsigned i = 0; i < n; ++i) {
         item_t *it = &items[i];
+#if E2_CULL
+        if (cars[i].id != 0 && !cars[i].is3d) {
+            const int32_t d[3] = { (int32_t)((uint32_t)cars[i].pos[0] - (uint32_t)racer_camera.eye[0]),
+                                   (int32_t)((uint32_t)cars[i].pos[1] - (uint32_t)racer_camera.eye[1]),
+                                   (int32_t)((uint32_t)cars[i].pos[2] - (uint32_t)racer_camera.eye[2]) };
+            const int32_t tz = cull_dot(racer_camera.r[2], d);
+            uint8_t reason = 0;
+            if (tz <= racer_camera.near_z || tz <= 0) reason = 1;
+            else if (tz > far_tz) reason = 2;
+            else {
+                const int64_t qx = (int64_t)racer_camera.focal_x * cull_dot(racer_camera.r[0], d);
+                const int64_t qy = (int64_t)racer_camera.focal_y * cull_dot(racer_camera.r[1], d);
+                if (qx - ext > rx * tz || -qx - ext > lx * tz || qy - ext > ty_ * tz || -qy - ext > by * tz) reason = 3;
+            }
+            if (reason) {
+                it->ok = 0; it->depth = INT32_MAX;
+                if (reason == 1) ++c_behind; else if (reason == 2) ++c_far; else ++c_off;
+                unsigned j = i; /* culled: far end of the order, never drawn */
+                while (j > 0 && items[order_[j - 1]].depth < INT32_MAX) { order_[j] = order_[j - 1]; --j; }
+                order_[j] = (uint8_t)i;
+                continue;
+            }
+        }
+#endif
         int16_t basis[9];
         memcpy(basis, cars[i].basis, sizeof(basis));
         it->ok = sh2z_rspr_pose(&it->pick, &it->place, &it->depth, &racer_camera, racer_set, cars[i].pos, basis) ? 1u : 0u;
@@ -533,7 +590,12 @@ unsigned fzx_drive_cars(vdp1_cmdt_t *commands, unsigned capacity, const fzx_view
         unsigned others = 0;
         for (unsigned k = n; k-- > 0;) {
             const unsigned i = order_[k];
+#if E2_CULL
+            shadow[i] = (uint8_t)(items[i].ok && (cars[i].id == 0 ||
+                (others < FIELD_SHADOWS && items[i].place.scale >= (int32_t)fzx_e2_shadow_scale)));
+#else
             shadow[i] = (uint8_t)(items[i].ok && (cars[i].id == 0 || others < FIELD_SHADOWS));
+#endif
             if (cars[i].id != 0 && items[i].ok) ++others;
         }
     }
@@ -583,6 +645,11 @@ unsigned fzx_drive_cars(vdp1_cmdt_t *commands, unsigned capacity, const fzx_view
     }
     fzx_e1_cache[0] = pool.hits; fzx_e1_cache[1] = pool.misses; fzx_e1_cache[2] = pool.evictions; fzx_e1_cache[3] = pool.refused;
     fzx_field_draw[0] = sprites; fzx_field_draw[1] = solid; fzx_field_draw[2] = shadows; fzx_field_draw[5] = out - 1u;
+#if E2_CULL
+    fzx_e2_report[2] = sprites + solid; if (sprites + solid > fzx_e2_report[3]) fzx_e2_report[3] = sprites + solid;
+    fzx_e2_report[4] += c_behind; fzx_e2_report[5] += c_far; fzx_e2_report[6] += c_off; fzx_e2_report[7] = shadows;
+    fzx_e2_report[8] += c_behind + c_far + c_off;
+#endif
     fzx_e1_report[10] = out - 1u;
     return out > 1u ? out : 0u;
 }

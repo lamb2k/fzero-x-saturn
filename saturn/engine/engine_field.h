@@ -26,6 +26,21 @@
 #define E1_FIELD 0
 #endif
 #define FZX_FIELD_CARS (E1_FIELD + 1)
+#ifndef E2_PACK
+#define E2_PACK 0
+#endif
+#ifndef E2_FASTPOSE
+#define E2_FASTPOSE 0
+#endif
+#ifndef E2_CULL
+#define E2_CULL 0
+#endif
+#ifndef E2_LOD
+#define E2_LOD 0
+#endif
+#ifndef E2_EARLY
+#define E2_EARLY 0
+#endif
 #define FZX_FIELD_K_MAX 6
 
 /* A car for this frame: Q16 position, Q1.14 rows (forward, up, left), 3D or sprite. */
@@ -45,6 +60,14 @@ extern volatile uint32_t fzx_field_k, fzx_field_d, fzx_field_margin;
  * [12] rivals retired, [13] left sign, [14] hover Q16, [15] field hash. */
 extern volatile uint32_t fzx_field_report[16];
 
+/* E2 field lane: [0] pack (1 ok, 2 refused, 3 count/length, 4 starts), [1] max node start delta Q8,
+ * [2] cars drawn last frame, [3] max drawn, [4] culled behind, [5] culled far, [6] culled off screen,
+ * [7] shadows last frame, [8] culled total, [9]..[15] spare. */
+extern volatile uint32_t fzx_e2_report[16];
+#if E2_PACK
+/* Before fzx_field_load: RIVALS.PAK from the disc (size and hash checked). */
+bool fzx_field_pack_load(void *scratch, uint32_t scratch_bytes);
+#endif
 /* After the physics load: builds the line and the field (high work RAM). */
 bool fzx_field_load(const sh2z_vd_track_t *track, const sh2z_vd_body_t *player);
 /* One tick, after the player's step: the player into the field, then the field. */

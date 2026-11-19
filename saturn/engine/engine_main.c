@@ -164,6 +164,7 @@ static void floor_probe(const fzx_engine_cam_t *cam, uint32_t tick) {
     if (first) { fzx_e1_floor_probe[4] = okm; fzx_e1_floor_probe[5] = probe_out.fault; }
     fzx_e1_floor_probe[7] += okm ? 1u : 0u;
 }
+#endif
 #ifndef E0_CHUNK_CAP
 #define E0_CHUNK_CAP 0
 #endif
@@ -415,8 +416,16 @@ volatile uint32_t fzx_e0_pick[6]; /* result, runs, marked, bad view, FRT ticks, 
 _Static_assert(sizeof(sh2z_segmesh_anchor_t) == sizeof(fzx_engine_anchor_t), "anchor layout");
 
 /* The slave's job after the track build (slave_road.c, engine line). */
+#if E1_FIELD && E2_EARLY
+static volatile uint32_t stage_ready;
+#define STAGE_READY (*(volatile uint32_t *)((uintptr_t)&stage_ready | CPU_CACHE_THROUGH))
+#endif
 void fzx_engine_slave_after(void) {
 #if FZX_E1_DRIVE
+#if E1_FIELD && E2_EARLY
+    /* The master stages the cars (and queues their fills) after the kick: wait for it. */
+    while (!STAGE_READY) {}
+#endif
     fzx_drive_slave_fill();
 #endif
 }
@@ -719,6 +728,45 @@ static void kick(const fzx_engine_cam_t *cam, uint32_t tick) {
     fzx_slave_road_start(&job);
 }
 
+#if E1_FIELD && E2_EARLY
+/* E2_EARLY: every car (the 3D ones, then the sorted sprites, shadows and copies) is built
+ * before the slave's kick, while the slave is idle (the sprite cache and its fill queue are
+ * only touched by one CPU at a time) and before the master's field-boundary wait. After the
+ * VBlank the master only runs the prelude and one copy, so the list reaches VDP1 sooner. */
+static vdp1_cmdt_t field_stage_cmds[DRIVE_SLOTS];
+static unsigned field_stage_n;
+static uint16_t field_stage_c3d, field_stage_emit, field_stage_sprites;
+static uint8_t field_stage_near, field_stage_n3d;
+static void field_stage(const fzx_engine_cam_t *cam) {
+#if FZX_VDP1_DBANK
+    const uint32_t vbank = sh2z_vdp1_banks_bank(&fzx_dbank_banks);
+#else
+    const uint32_t vbank = 0;
+#endif
+    static fzx_field_car_t field_cars[FZX_FIELD_CARS];
+    static vdp1_cmdt_t car_stage[FZX_FIELD_K_MAX][FIELD_CAR_COMMANDS];
+    static const vdp1_cmdt_t *car_stage_p[FZX_FIELD_K_MAX];
+    uint16_t car_stage_n[FZX_FIELD_K_MAX];
+    const uint16_t v0 = cpu_frt_count_get();
+    const unsigned ncars = fzx_field_cars(field_cars, fzx_drive_body());
+    for (unsigned i = 0; i < FZX_FIELD_K_MAX; ++i) { car_stage_n[i] = 0; car_stage_p[i] = car_stage[i]; }
+    for (unsigned i = 0; i < ncars; ++i) {
+        const fzx_field_car_t *c = &field_cars[i];
+        if (!c->is3d) continue;
+        car_stage_n[c->slot] = (uint16_t)(c->id == 0
+            ? fzx_closeup_draw(car_stage[c->slot], FIELD_CAR_COMMANDS, &fzx_native_view, cam, vbank)
+            : (fzx_closeup_lod = (fzx_field_k >> 8) & 0xffu,
+               fzx_closeup_draw_pose(car_stage[c->slot], FIELD_CAR_COMMANDS, &fzx_native_view, cam, vbank, c->slot, c->pos, c->basis)));
+    }
+    const uint16_t v1 = cpu_frt_count_get();
+    field_stage_n = fzx_drive_cars(field_stage_cmds, DRIVE_SLOTS, &fzx_native_view, cam, field_cars, ncars, car_stage_p, car_stage_n);
+    field_stage_c3d = (uint16_t)(v1 - v0);
+    field_stage_emit = (uint16_t)(cpu_frt_count_get() - v1);
+    field_stage_sprites = (uint16_t)fzx_field_draw[0];
+    field_stage_near = (uint8_t)fzx_field_report[6]; field_stage_n3d = (uint8_t)fzx_field_report[7];
+}
+#endif
+
 static void build(row_t *row, const fzx_engine_cam_t *cam, uint32_t tick, uint16_t kicked) {
     vdp1_cmdt_t *const commands = commands_buf;
     const fzx_engine_consts_t *k = &path.consts;
@@ -771,7 +819,9 @@ static void build(row_t *row, const fzx_engine_cam_t *cam, uint32_t tick, uint16
 #else
     const uint32_t vbank = 0;
 #endif
-#if E1_FIELD
+#if E1_FIELD && E2_EARLY
+    (void)vbank; /* the cars were staged before the kick (field_stage) */
+#elif E1_FIELD
     /* 3D-N: the field's cars and the nearest K as 3D models, built while the slave builds
      * the track into this build's bank tables (one slot each). */
     static fzx_field_car_t field_cars[FZX_FIELD_CARS];
@@ -814,7 +864,17 @@ static void build(row_t *row, const fzx_engine_cam_t *cam, uint32_t tick, uint16
 #if FZX_E1_DRIVE
     {
         const uint16_t s0 = cpu_frt_count_get();
-#if E1_FIELD
+#if E1_FIELD && E2_EARLY
+        {
+            /* The cars staged before the kick: one copy after the track. */
+            const unsigned m = field_stage_n;
+            memcpy(&commands[CMD_FIRST + draws], field_stage_cmds, m * sizeof(vdp1_cmdt_t));
+            draws += m;
+            row->car_cmds = (uint16_t)(m ? m - 1u : 0u); row->sprites = field_stage_sprites;
+            row->near = field_stage_near; row->n3d = field_stage_n3d;
+            row->cars3d_ticks = field_stage_c3d;
+        }
+#elif E1_FIELD
         {
             const unsigned m = fzx_drive_cars(&commands[CMD_FIRST + draws], DRIVE_SLOTS, &fzx_native_view, cam,
                                               field_cars, ncars, car_stage_p, car_stage_n);
@@ -825,7 +885,9 @@ static void build(row_t *row, const fzx_engine_cam_t *cam, uint32_t tick, uint16
 #else
         draws += fzx_drive_sprites(&commands[CMD_FIRST + draws], DRIVE_SLOTS - CLOSEUP_SLOTS, &fzx_native_view, cam);
 #endif
-#if E1_FIELD
+#if E1_FIELD && E2_EARLY
+        row->emit_ticks = (uint16_t)(field_stage_emit + (uint16_t)(cpu_frt_count_get() - s0)); /* staged emit + copy */
+#elif E1_FIELD
         row->emit_ticks = (uint16_t)(cpu_frt_count_get() - s0);
 #elif E1_CLOSEUP == 1 && E1_CLOSEUP_EARLY
         /* Arm A, early: the staged vehicle after its shadow. */
@@ -1042,8 +1104,15 @@ int main(void) {
 #endif
         const uint16_t w0 = cpu_frt_count_get();
         before_slave();
+#if E1_FIELD && E2_EARLY
+        STAGE_READY = 0u; /* the slave's sprite fills wait for this frame's staging */
+#endif
         const uint16_t kicked = cpu_frt_count_get();
         kick(cam, shown);
+#if E1_FIELD && E2_EARLY
+        field_stage(cam);
+        STAGE_READY = 1u;
+#endif
         const uint16_t w1 = cpu_frt_count_get();
         before_master();
         row->wait_prev_ticks = (uint16_t)((uint16_t)(kicked - w0) + (uint16_t)(cpu_frt_count_get() - w1));

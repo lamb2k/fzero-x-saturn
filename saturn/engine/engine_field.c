@@ -7,13 +7,38 @@
 #if E1_FIELD < 1 || E1_FIELD > 29
 #error E1_FIELD must be 1..29 when built
 #endif
+#ifndef E2_PACK
+#define E2_PACK 0
+#endif
+#ifndef E2_FASTPOSE
+#define E2_FASTPOSE 0
+#endif
+#ifndef E2_LOD
+#define E2_LOD 0
+#endif
+#if E2_PACK
+/* The E2 rival line and field (generated/rivals, local only): RIVALS.PAK's nodes replace the
+ * built line's payload (CPU line laterals, speed caps, widths); the reference GP's config
+ * replaces the synthetic grid. */
+#include "rivals_course.h"
+#include "rivals_field.h"
+#include "texture_cd.h"
+#if FZX_RIVALS_FIELD_COUNT < FZX_FIELD_CARS
+#error the reference field has fewer vehicles than E1_FIELD + 1
+#endif
+#endif
 
 volatile uint32_t fzx_field_k = 1, fzx_field_d = 250, fzx_field_margin = 40;
 volatile uint32_t fzx_field_report[16];
 
 #define U(x) ((int32_t)((x) * 256))
 enum { MAX_STATIONS = 2048, SPACING_Q12 = 64 << 12, HOLD_FRAMES = 8, NEAR_UNITS = 400 };
+#if E2_FASTPOSE
+/* Q16 position, Q1.14 rows forward, up and left (left = sign * up x forward, set at load). */
+typedef struct { int32_t pos[3]; int16_t fwd[3], up[3], left[3]; } station_t;
+#else
 typedef struct { int32_t pos[3]; int16_t fwd[3], up[3]; } station_t; /* Q16 position, Q1.14 rows */
+#endif
 
 static sh2z_line_node_t nodes[MAX_STATIONS];
 static station_t stations[MAX_STATIONS];
@@ -109,21 +134,99 @@ static void line_pose(const sh2z_track_state_t *t, int32_t pos[3], int32_t f[3],
     }
 }
 
+#if E2_FASTPOSE
+/* line_pose without renormalising: the station rows interpolated in Q1.14 (stations are
+ * 64 units apart, so the rows stay unit length to well under 0.1%). Render only. */
+static void line_pose_fast(const sh2z_track_state_t *t, int32_t pos[3], int16_t rows[3][3]) {
+    const uint32_t n = t->node < line.count ? t->node : 0u, m = n + 1u < line.count ? n + 1u : 0u;
+    const station_t *a = &stations[n], *b = &stations[m];
+    const int32_t d = t->dist - nodes[n].start;
+    int32_t fr = (int32_t)(((uint64_t)(uint32_t)(d < 0 ? 0 : d) * nodes[n].inv_span) >> 16);
+    if (fr > 65535) fr = 65535;
+    const int64_t lat = (int64_t)t->lateral << 8; /* Q16 */
+    for (int c = 0; c < 3; ++c) {
+        const int32_t f = a->fwd[c] + (int32_t)((((int32_t)b->fwd[c] - a->fwd[c]) * fr) >> 16);
+        const int32_t u = a->up[c] + (int32_t)((((int32_t)b->up[c] - a->up[c]) * fr) >> 16);
+        const int32_t l = a->left[c] + (int32_t)((((int32_t)b->left[c] - a->left[c]) * fr) >> 16);
+        rows[0][c] = (int16_t)f; rows[1][c] = (int16_t)u; rows[2][c] = (int16_t)l;
+        pos[c] = a->pos[c] + (int32_t)(((int64_t)(b->pos[c] - a->pos[c]) * fr) >> 16)
+               - (int32_t)((l * lat) >> 14) + (int32_t)(((int64_t)u * hover) >> 14);
+    }
+}
+#endif
+
+#if E2_PACK
+/* The field counts laps as the source's race distance does: behind the start line on the
+ * grid is lap -1. E1's line view reports lap 0 there (laps_done - 1, clamped), so until the
+ * player first crosses the line from the back half of the lap, its lap is -1. */
+static uint8_t player_crossed;
+static int32_t player_last_dist = -1;
+#endif
 static void player_into_field(const sh2z_vd_body_t *p) {
     sh2z_vd_line_view_t lv;
     sh2z_vd_line_view(p, trk, &lv);
     sh2z_vehicle_t *v = &veh[0];
     v->t.dist = lv.dist; v->t.lateral = lv.lateral; v->t.speed = lv.speed < 0 ? 0 : lv.speed;
     v->t.lat_vel = lv.lat_vel; v->t.lap = lv.lap;
+#if E2_PACK
+    if (!player_crossed) {
+        if (player_last_dist > line.length / 2 && lv.dist < line.length / 2) player_crossed = 1;
+        else if (lv.dist > line.length / 2 && lv.lap == 0) v->t.lap = -1;
+        player_last_dist = lv.dist;
+    }
+#endif
     v->t.node = sh2z_line_locate(&line, v->t.dist, v->t.node);
     v->kick_lat = 0; v->kick_speed = 0; /* not applied: the player's race stays as E1's */
     v->energy = v->max_energy;
 }
 
+volatile uint32_t fzx_e2_report[16];
+#if E2_PACK
+static uint32_t pack_buf[(FZX_RIVALS_PACK_BYTES + 7u) / 4u] __attribute__((aligned(8)));
+static bool pack_ok;
+bool fzx_field_pack_load(void *scratch, uint32_t scratch_bytes) {
+    pack_ok = fzx_texture_cd_load("RIVALS.PAK", FZX_RIVALS_PACK_BYTES, FZX_RIVALS_PACK_HASH, pack_buf, scratch, scratch_bytes);
+    fzx_e2_report[0] = pack_ok ? 1u : 2u;
+    return pack_ok;
+}
+#endif
+
 bool fzx_field_load(const sh2z_vd_track_t *track, const sh2z_vd_body_t *player) {
     memset((void *)fzx_field_report, 0, sizeof(fzx_field_report));
     trk = track;
     if (!build_line(track)) { fzx_field_report[0] = 2; return false; }
+#if E2_PACK
+    /* RIVALS.PAK is the HOST bake on course-line-1: the same station count and line length as
+     * the line built from the physics course (whose spans' arc lengths are approximate, so the
+     * built starts drift by up to ~15 units). The pack's nodes (CPU line payload) and its station
+     * poses (source units Q4 -> the physics' Q16: << 12; rows as baked) replace the built ones, so
+     * the field runs on exactly the line the HOST bands were checked on. Station 0 must agree with
+     * the built one (same point, distance 0) to within one unit. */
+    if (!pack_ok || FZX_RIVALS_NODE_COUNT != line.count || (int32_t)FZX_RIVALS_LINE_LENGTH != line.length) {
+        fzx_field_report[0] = 4; fzx_e2_report[0] = 3; return false;
+    }
+    {
+        typedef struct { int32_t pos[3]; int16_t fwd[3], up[3], left[3]; uint16_t pad; } pack_pose_t;
+        const sh2z_line_node_t *pn = (const sh2z_line_node_t *)(const void *)pack_buf;
+        const pack_pose_t *pp = (const pack_pose_t *)(const void *)((const uint8_t *)(const void *)pack_buf + 16u * line.count);
+        uint32_t worst = 0, off0 = 0;
+        for (int c = 0; c < 3; ++c) {
+            const int32_t dd = stations[0].pos[c] - (pp[0].pos[c] << 12);
+            const uint32_t ad = dd < 0 ? (uint32_t)-dd : (uint32_t)dd;
+            if (ad > off0) off0 = ad;
+        }
+        for (uint32_t i = 0; i < line.count; ++i) {
+            const int32_t dd = pn[i].start - nodes[i].start;
+            const uint32_t ad = dd < 0 ? (uint32_t)-dd : (uint32_t)dd;
+            if (ad > worst) worst = ad;
+            nodes[i] = pn[i];
+            station_t *st = &stations[i];
+            for (int c = 0; c < 3; ++c) { st->pos[c] = pp[i].pos[c] << 12; st->fwd[c] = pp[i].fwd[c]; st->up[c] = pp[i].up[c]; }
+        }
+        fzx_e2_report[1] = worst; fzx_e2_report[9] = off0;
+        if (off0 > 65536u || nodes[0].start != 0) { fzx_field_report[0] = 5; fzx_e2_report[0] = 4; return false; }
+    }
+#endif
     /* Left axis sign and hover from the player's own frame at the start. */
     {
         int32_t c[3];
@@ -131,7 +234,20 @@ bool fzx_field_load(const sh2z_vd_track_t *track, const sh2z_vd_body_t *player) 
         const int64_t s = (int64_t)c[0] * player->body[2][0] + (int64_t)c[1] * player->body[2][1] + (int64_t)c[2] * player->body[2][2];
         left_sign = s >= 0 ? 1 : -1;
     }
+#if E2_FASTPOSE
+    for (uint32_t i = 0; i < line.count; ++i) {
+        station_t *st = &stations[i];
+        for (int c = 0; c < 3; ++c) {
+            const int a = (c + 1) % 3, b = (c + 2) % 3;
+            const int32_t x = ((int32_t)st->up[a] * st->fwd[b] - (int32_t)st->up[b] * st->fwd[a]) >> 14;
+            st->left[c] = (int16_t)(left_sign * x);
+        }
+    }
+#endif
     memset(veh, 0, sizeof(veh)); memset(brain, 0, sizeof(brain));
+#if E2_PACK
+    player_crossed = 0; player_last_dist = -1;
+#endif
     veh[0].flags = SH2Z_VEH_EXTERNAL; veh[0].max_energy = veh[0].energy = U(178);
     veh[0].top_speed = U(60); veh[0].grip = U(6); veh[0].accel = 40; veh[0].brake = 96; veh[0].armor = 256;
     player_into_field(player);
@@ -156,6 +272,57 @@ bool fzx_field_load(const sh2z_vd_track_t *track, const sh2z_vd_body_t *player) 
     params.boost_behind = U(150); params.cruise = U(40); params.rank_lead = U(8);
     params.lod_near[0] = U(3000); params.lod_near[1] = U(8000); params.lod_near[2] = U(16000);
     params.boost_ticks = 90; params.laps = 3; params.boost_from_lap = 1;
+#if E2_PACK
+    /* The reference GP's field (as ref/rivals_gp_main.c sets it up, same generator order): the
+     * source grid (146 back, 100 per place, 4 columns of 100), shifted so the player's own
+     * place is where E1's physics puts the player. */
+    {
+        uint32_t rs = FZX_RIVALS_FIELD_SEED * 2654435761u + 12345u;
+#define RND() (rs ^= rs << 13, rs ^= rs >> 17, rs ^= rs << 5, rs)
+        sh2z_track_state_t ps;
+        sh2z_field_grid_slot(&line, (uint32_t)(fzx_rivals_field[0][0] - 1), U(146), U(100), U(50), 4, &ps);
+        const int64_t shift = ((int64_t)veh[0].t.lap * line.length + veh[0].t.dist) - ((int64_t)ps.lap * line.length + ps.dist);
+        for (uint32_t i = 0; i < FZX_FIELD_CARS; ++i) {
+            const int32_t *cf = fzx_rivals_field[i];
+            const int32_t ms = cf[1], chase = cf[2], maxe = cf[3], aggr = cf[4];
+            sh2z_track_state_t slot;
+            sh2z_field_grid_slot(&line, (uint32_t)(cf[0] - 1), U(146), U(100), U(50), 4, &slot);
+            const int32_t lap_ticks = (ms > 0 ? ms : 36000) * 60 / 1000;
+            int32_t pace = line.length / lap_ticks;
+            pace += (int32_t)((int64_t)pace * ((int32_t)(RND() % 81u) - 40) / 10000);
+            const int32_t lane = ((int32_t)(RND() % 61u) - 30) * 256;
+            const int32_t chase_lead = chase == 0 ? (int32_t)(RND() % 400u) - 10 : 30;
+            if (i == 0) continue; /* the player: external, set above (its draws keep the order) */
+            sh2z_vehicle_t *v = &veh[i]; sh2z_field_brain_t *b = &brain[i];
+            int64_t tot = (int64_t)slot.lap * line.length + slot.dist + shift;
+            int32_t lap = 0;
+            while (tot < 0) { tot += line.length; --lap; }
+            while (tot >= line.length) { tot -= line.length; ++lap; }
+            v->t.dist = (int32_t)tot; v->t.lap = lap; v->t.lateral = slot.lateral;
+            v->t.node = sh2z_line_locate(&line, v->t.dist, 0);
+            v->max_energy = v->energy = maxe;
+            v->accel = 40; v->brake = 96; v->top_speed = U(60); v->grip = U(6);
+            v->armor = (uint16_t)((int64_t)256 * 178 * 256 / (maxe > 256 ? maxe : U(178)));
+            v->flags = 0;
+            b->pace = pace; b->lane = lane;
+            b->chase = (int16_t)(chase == 255 ? -1 : chase);
+            b->chase_lead = (int16_t)chase_lead;
+            b->aggression = (uint8_t)aggr;
+        }
+#undef RND
+    }
+#if E2_LOD
+    {
+        static const int32_t lod[3] = { E2_LOD_NEAR };
+        params.lod_near[0] = U(lod[0]); params.lod_near[1] = U(lod[1]); params.lod_near[2] = U(lod[2]);
+    }
+#endif
+    sh2z_field_init(&field, &line, &params, veh, brain, order, slot_of, rank_order, FZX_FIELD_CARS, FZX_RIVALS_FIELD_SEED);
+    field.focus = 0;
+    memset(is3d, 0, sizeof(is3d)); memset(want_run, 0, sizeof(want_run));
+    fzx_field_report[0] = 1;
+    return true;
+#else
     /* Synthetic grid: the 29 rivals in rows of four ahead of the player (as the source's
      * Grand Prix, where the player starts last), target laps spread around the player's. */
     uint32_t rs = 0x9e3779b9u;
@@ -175,11 +342,18 @@ bool fzx_field_load(const sh2z_vd_track_t *track, const sh2z_vd_body_t *player) 
         b->lane = (int32_t)((int32_t)(rs % 61u) - 30) * 256;
         b->chase = -1; b->chase_lead = 0; b->aggression = 0;
     }
+#if E2_LOD
+    {
+        static const int32_t lod[3] = { E2_LOD_NEAR };
+        params.lod_near[0] = U(lod[0]); params.lod_near[1] = U(lod[1]); params.lod_near[2] = U(lod[2]);
+    }
+#endif
     sh2z_field_init(&field, &line, &params, veh, brain, order, slot_of, rank_order, FZX_FIELD_CARS, 1u);
     field.focus = 0;
     memset(is3d, 0, sizeof(is3d)); memset(want_run, 0, sizeof(want_run));
     fzx_field_report[0] = 1;
     return true;
+#endif
 }
 
 void fzx_field_tick(const sh2z_vd_body_t *player) {
@@ -191,6 +365,20 @@ void fzx_field_tick(const sh2z_vd_body_t *player) {
     fzx_field_report[11] = field.finished; fzx_field_report[12] = field.retired;
 }
 
+#if E2_FASTPOSE
+/* Squared distance, Q16 units^2 (no square root): compared against squared limits. */
+typedef uint64_t fdist_t;
+#define DLIM(u) (((uint64_t)(u) * (uint64_t)(u)) << 16)
+static fdist_t dist_sq(const int32_t a[3], const int32_t b[3]) {
+    uint64_t s = 0;
+    for (int c = 0; c < 3; ++c) { const int64_t d = (int64_t)(a[c] - b[c]) >> 8; s += (uint64_t)(d * d); } /* Q8 */
+    return s;
+}
+#else
+typedef uint32_t fdist_t;
+#define DLIM(u) (u)
+#endif
+#if !E2_FASTPOSE
 static uint32_t dist_units(const int32_t a[3], const int32_t b[3]) {
     int64_t s = 0;
     for (int c = 0; c < 3; ++c) { const int64_t d = (int64_t)(a[c] - b[c]) >> 8; s += d * d; } /* Q8 */
@@ -199,13 +387,15 @@ static uint32_t dist_units(const int32_t a[3], const int32_t b[3]) {
     while (bit) { if (v >= r + bit) { v -= r + bit; r = (r >> 1) + bit; } else r >>= 1; bit >>= 2; }
     return (uint32_t)(r >> 8); /* whole units */
 }
+#endif
 
 unsigned fzx_field_cars(fzx_field_car_t *out, const sh2z_vd_body_t *player) {
     if (fzx_field_report[0] != 1) return 0;
     /* fzx_field_k: K in bits 0..7, the rivals' 3D LOD (source numbering, 0 = 1) in bits 8..15. */
     const uint32_t k = (fzx_field_k & 0xffu) > FZX_FIELD_K_MAX ? FZX_FIELD_K_MAX : (fzx_field_k & 0xffu);
     const uint32_t dmax = fzx_field_d, margin = fzx_field_margin;
-    uint32_t dist[FZX_FIELD_CARS], near = 0;
+    fdist_t dist[FZX_FIELD_CARS];
+    uint32_t near = 0;
     /* The player. */
     for (int c = 0; c < 3; ++c) {
         out[0].pos[c] = player->pos[c];
@@ -213,6 +403,13 @@ unsigned fzx_field_cars(fzx_field_car_t *out, const sh2z_vd_body_t *player) {
     }
     out[0].id = 0; dist[0] = 0;
     for (uint32_t i = 1; i < FZX_FIELD_CARS; ++i) {
+#if E2_FASTPOSE
+        fzx_field_car_t *o = &out[i];
+        line_pose_fast(&veh[i].t, o->pos, o->basis);
+        o->id = (uint16_t)i;
+        dist[i] = dist_sq(o->pos, player->pos);
+        if (dist[i] < DLIM(NEAR_UNITS)) ++near;
+#else
         int32_t pos[3], f[3], u[3], l[3];
         line_pose(&veh[i].t, pos, f, u, l);
         fzx_field_car_t *o = &out[i];
@@ -220,6 +417,7 @@ unsigned fzx_field_cars(fzx_field_car_t *out, const sh2z_vd_body_t *player) {
         o->id = (uint16_t)i;
         dist[i] = dist_units(pos, player->pos);
         if (dist[i] < NEAR_UNITS) ++near;
+#endif
     }
     /* Selection with hysteresis: rivals that want 3D are within D - margin (entering) or
      * D + margin (staying); among them the nearest K - 1 (the player holds the first
@@ -228,7 +426,7 @@ unsigned fzx_field_cars(fzx_field_car_t *out, const sh2z_vd_body_t *player) {
     for (uint32_t i = 1; i < FZX_FIELD_CARS; ++i) in3d += is3d[i];
     for (uint32_t i = 1; i < FZX_FIELD_CARS; ++i) {
         const uint32_t limit = is3d[i] ? dmax + margin : (dmax > margin ? dmax - margin : 0u);
-        bool want = k >= 2 && dist[i] < limit;
+        bool want = k >= 2 && dist[i] < DLIM(limit);
         if (want) {
             /* Only the nearest K - 1 rivals may be 3D. */
             uint32_t closer = 0;

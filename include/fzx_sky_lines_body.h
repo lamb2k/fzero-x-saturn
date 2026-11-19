@@ -60,32 +60,8 @@ static bool line_emit(void *context,const fzx_sky_polygon_t *p) {
     }
     return true;
 }
-#ifndef FZX_SKY_REUSE
-#define FZX_SKY_REUSE 0
-#endif
-#if FZX_SKY_REUSE
-/* FZX_SKY_REUSE=T (default 0; approximation): reuse the last computed lines
- * while the view's world-up column (pitch and roll) moves less than T/16384 of
- * one in each component and the sky quad's corners move less than T/16 unit in
- * height. Yaw does not change the lines. */
-static uint16_t sky_reuse_lines[224];
-static int32_t sky_reuse_up[3],sky_reuse_y[4];
-static bool sky_reuse_valid;
-volatile uint32_t fzx_sky_reuse_hits,fzx_sky_reuse_misses;
-#endif
 bool fzx_clouds_sky_lines(const fzx_view_t *view,const RefBackdrop *source) {
     if(!view || !source || fzx_clouds_status!=1)return false;
-#if FZX_SKY_REUSE
-    {   const int32_t limit=(int32_t)FZX_SKY_REUSE*65536;   /* Q2.30: T/16384 */
-        bool same=sky_reuse_valid;
-        for(unsigned i=0;i<3&&same;++i){const int32_t d=view->rotation[i][1]-sky_reuse_up[i];if(d>limit||d<-limit)same=false;}
-        for(unsigned i=0;i<4&&same;++i){const int32_t d=(int32_t)source->vertices[8+i].position[1]-sky_reuse_y[i];if(d*16>(int32_t)FZX_SKY_REUSE||d*16<-(int32_t)FZX_SKY_REUSE)same=false;}
-        if(same){memcpy(&SKY_LINES[0],sky_reuse_lines,sizeof(sky_reuse_lines));++fzx_sky_reuse_hits;return true;}
-        ++fzx_sky_reuse_misses;
-        for(unsigned i=0;i<3;++i)sky_reuse_up[i]=view->rotation[i][1];
-        for(unsigned i=0;i<4;++i)sky_reuse_y[i]=source->vertices[8+i].position[1];
-    }
-#endif
     lines_t l;memset(&l,0,sizeof(l));l.center=(view->clip[0]+view->clip[2])/2;
     if(!fzx_sky_draw_bands(view,&source->vertices[8],fzx_sky_colors,
 #if FZX_SKY_SIMPLIFY
@@ -107,9 +83,6 @@ bool fzx_clouds_sky_lines(const fzx_view_t *view,const RefBackdrop *source) {
     /* Outside the view the screen stays black, as with the VDP1 sky. */
     for(int y=0;y<224;++y)if(y<view->clip[1] || y>=view->clip[3])SKY_LINES[y]=0;
     fzx_clouds_sky_line_count=set;
-    #if FZX_SKY_REUSE
-    memcpy(sky_reuse_lines,&SKY_LINES[0],sizeof(sky_reuse_lines));sky_reuse_valid=true;
-#endif
     return true;
 }
 #endif

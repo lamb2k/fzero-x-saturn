@@ -104,7 +104,7 @@ volatile int32_t fzx_racer_sprite_eye_x,fzx_racer_sprite_eye_y,fzx_racer_sprite_
 /* Per-racer cost (demo field): FRT ticks of the last frame's extra-racer pose
  * loop and how many racers it posed. */
 volatile uint32_t fzx_racer_sprite_loop_ticks,fzx_racer_sprite_loop_count;
-typedef struct {sh2z_rspr_pick_t pick;sh2z_rspr_place_t place,shadow;int32_t depth;uint8_t has_shadow;} racer_item_t;
+typedef struct {sh2z_rspr_pick_t pick;sh2z_rspr_place_t place;int32_t depth;const fzx_racer_pose16_t *source;} racer_item_t;
 static racer_item_t racer_items[FZX_RACER_SPRITE_MAX_EXTRA+1];
 #ifndef FZX_RACER_SPRITE_RIVALS
 #define FZX_RACER_SPRITE_RIVALS 0
@@ -116,7 +116,13 @@ extern volatile uint32_t fzx_rival_count;
 #endif
 static sh2z_rspr_camera_t racer_camera;
 #ifndef FZX_RACER_SPRITE_SHADOW
-#define FZX_RACER_SPRITE_SHADOW 0
+#define FZX_RACER_SPRITE_SHADOW 1
+#endif
+/* Shadows go to racers flagged always (the player) and to the nearest
+ * FZX_RACER_SPRITE_SHADOW_NEAR others, which keeps a 30-racer field at
+ * 1 clip + 30 sprites + 9 shadows = 40 commands of the 70 budget. */
+#ifndef FZX_RACER_SPRITE_SHADOW_NEAR
+#define FZX_RACER_SPRITE_SHADOW_NEAR 8
 #endif
 #if FZX_RACER_SPRITE_SHADOW
 /* Blob shadow: one 32x16 4-bit ellipse cell, generated here (no source art),
@@ -177,22 +183,25 @@ static bool racer_camera_frame(const fzx_view_t *view) {
 static bool racer_pose(racer_item_t *it,const fzx_racer_pose16_t *r,bool player) {
     int16_t basis[9];memcpy(basis,r->basis,sizeof(basis));
     if(!sh2z_rspr_pose(&it->pick,&it->place,&it->depth,&racer_camera,racer_set,r->pos,basis))return false;
-    it->has_shadow=0;
-#if FZX_RACER_SPRITE_SHADOW
-    if(r->flags&1u) {
-        /* Ground point: down the racer's up axis by 0.3 model radii (Q1.14 basis x Q2 = Q16). */
-        const int32_t drop=(int32_t)(0.3f*FZX_RACER_SPRITE_RADIUS*fzx_source_machine.model_scale[1]*4.0f);
-        int32_t ground[3],dz;sh2z_rspr_pick_t sp;
-        for(unsigned k=0;k<3;++k)ground[k]=r->pos[k]-r->basis[1][k]*drop;
-        if(sh2z_rspr_pose(&sp,&it->shadow,&dz,&shadow_camera,shadow_set,ground,basis))it->has_shadow=1;
-    }
-#endif
+    it->source=r;
     if(player)fzx_racer_sprite_cell=it->pick.cell|((uint32_t)it->pick.mirror<<16),fzx_racer_sprite_scale=it->place.scale;
     return true;
 }
 
+#if FZX_RACER_SPRITE_SHADOW
+/* Ground point: down the racer's up axis by 0.3 model radii (Q1.14 basis x Q2 = Q16). */
+static bool racer_shadow(sh2z_rspr_place_t *place,const fzx_racer_pose16_t *r) {
+    const int32_t drop=(int32_t)(0.3f*FZX_RACER_SPRITE_RADIUS*fzx_source_machine.model_scale[1]*4.0f);
+    int16_t basis[9];memcpy(basis,r->basis,sizeof(basis));
+    int32_t ground[3],depth;sh2z_rspr_pick_t pick;
+    for(unsigned k=0;k<3;++k)ground[k]=r->pos[k]-r->basis[1][k]*drop;
+    return sh2z_rspr_pose(&pick,place,&depth,&shadow_camera,shadow_set,ground,basis);
+}
+#endif
+
 /* Far to near (painter order): shadow, then racer. Sorts a byte index, not the
- * items; the sets were accepted by sh2z_rspr_valid at load. */
+ * items; the sets were accepted by sh2z_rspr_valid at load. The racers must
+ * outlive the call (items keep a pointer for the shadow pose). */
 static unsigned racer_emit(vdp1_cmdt_t *commands,unsigned capacity,unsigned n) {
     uint8_t order[FZX_RACER_SPRITE_MAX_EXTRA+1];
     for(unsigned i=0;i<n;++i) {
@@ -201,12 +210,21 @@ static unsigned racer_emit(vdp1_cmdt_t *commands,unsigned capacity,unsigned n) {
         order[j]=(uint8_t)i;
     }
     unsigned out=0;
+#if FZX_RACER_SPRITE_SHADOW
+    /* Nearest first: which racers get a shadow. */
+    uint8_t shadowed[FZX_RACER_SPRITE_MAX_EXTRA+1];unsigned others=0;
+    for(unsigned k=n;k-->0;) {
+        const unsigned flags=racer_items[order[k]].source->flags;
+        shadowed[k]=(flags&2u)?1:(uint8_t)((flags&1u)&&others<FZX_RACER_SPRITE_SHADOW_NEAR);
+        if(!(flags&2u))++others;
+    }
+#endif
     for(unsigned k=0;k<n;++k) {
         const racer_item_t *it=&racer_items[order[k]];
 #if FZX_RACER_SPRITE_SHADOW
-        const sh2z_rspr_pick_t zero={0};
-        if(it->has_shadow&&out<capacity&&
-           sh2z_rspr_emit_valid((uint16_t *)(void *)&commands[out],shadow_set,&zero,&it->shadow,shadow_vram,shadow_pmod))++out;
+        const sh2z_rspr_pick_t zero={0};sh2z_rspr_place_t ground;
+        if(shadowed[k]&&out<capacity&&racer_shadow(&ground,it->source)&&
+           sh2z_rspr_emit_valid((uint16_t *)(void *)&commands[out],shadow_set,&zero,&ground,shadow_vram,shadow_pmod))++out;
 #endif
         if(out>=capacity)break;
         if(sh2z_rspr_emit_valid((uint16_t *)(void *)&commands[out],racer_set,&it->pick,&it->place,racer_vram,racer_pmod))++out;
@@ -232,7 +250,7 @@ static bool racer_player_pose(fzx_racer_pose16_t *r) {
         r->pos[i]=(int32_t)p;
         for(unsigned j=0;j<3;++j)r->basis[i][j]=(int16_t)(fzx_source_machine.model_basis[i][j]*16384.0f);
     }
-    r->set=0;r->flags=FZX_RACER_SPRITE_SHADOW?1u:0u;return true;
+    r->set=0;r->flags=FZX_RACER_SPRITE_SHADOW?3u:0u;return true;
 }
 
 unsigned fzx_racer_sprites_draw16(vdp1_cmdt_t *commands,unsigned capacity,const fzx_view_t *view,
@@ -384,7 +402,7 @@ bool fzx_machine_native(vdp1_cmdt_t *commands,unsigned capacity,const fzx_view_t
         const int32_t side=(int32_t)(2.4f*FZX_RACER_SPRITE_RADIUS*fzx_source_machine.model_scale[2]*4.0f);
         for(unsigned i=0;i<FZX_RACER_SPRITE_DEMO_N;++i) {
             const int32_t row=(int32_t)(i/2u+1u),col=(i&1u)?1:-1;
-            demo[i]=player;
+            demo[i]=player;demo[i].flags&=1u;
             for(unsigned a=0;a<3;++a)
                 demo[i].pos[a]+=player.basis[0][a]*forward*row+player.basis[2][a]*side*col;
         }

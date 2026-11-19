@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Offline rotation sprite set baker for race machines (RSP1, version 1).
+"""Offline rotation sprite set baker for race machines (RSP1, interface 1.1).
 
 Renders one machine (any character/skin by config) from a grid of viewing
 directions around its own up axis and packs the images as an SH2ZAM rotation
@@ -18,27 +18,35 @@ import hashlib
 import json
 import math
 import os
+import re
 import struct
 import sys
 
 from import_source_art import ROOT, DECOMP, ArtError, SourceArt, output_location, verify_source
 from import_course import normalize_rom
 from model_assets import sampler
+import machine_menu_models
 from machine_menu_models import census
 from records_models import raster
 from road_pack import fnv
 
-VERSION = 1
+VERSION = 1             # binary layout: SH2ZAM rotation-sprites-1, unchanged
+INTERFACE = '1.1'       # manifest and roster directory interface (SPRITE-RACERS-PLAN.md)
+# Scale/framing revision of the baked cells. 1: interface 1.0 sizing packs, whose
+# cells are 0.75x too short (rebake them). 2: square bake pixels.
+FRAMING_REVISION = 2
+STOCK_FAMILIES, SOURCE_FAMILIES = 30, 33
 MAGIC = 0x52535031
 MAX_YAW, MAX_PITCH = 32, 4
 HEADER = 24 + MAX_YAW*4 + MAX_PITCH*4  # sizeof(sh2z_rspr_set_t) = 168
 CELL = 16
-# Player default (POC-1): skin 1 matches the race body colour exactly; the chase
-# camera sits behind (yaw 180) about 32 degrees up at about 3.55 model radii
-# (hold diagnostics, Ymir), so yaw cells are dense toward the rear.
+# Player default: skin 1 matches the race body colour exactly; the chase camera
+# sits behind (yaw 180) about 32 degrees up at about 3.55 model radii (hold
+# diagnostics, Ymir), so yaw cells are dense toward the rear. Both sides are
+# baked (no mirroring), so decals read the right way round.
 DEFAULT_VIEWS = dict(
-    character=0, skin=1, model='race', race_lod=1, mirror='auto',
-    yaw_deg=[0, 25, 50, 75, 100, 120, 135, 145, 152, 158, 163, 167, 171, 174, 177, 180],
+    family=0, skin=1, profile='near', model='race', race_lod=1, mirror=False,
+    yaw_deg=[-180, -175, -170, -164, -157, -148, -135, -110, -75, -40, 0, 40, 75, 110, 135, 148, 157, 164, 170, 175],
     pitch_deg=[32.0], distance_radii=3.55, budget_bytes=18664, cell_limit=120,
     light=dict(ambient=[96, 96, 104], color=[176, 176, 168], view_dir=[-0.35, 0.75, 0.55]))
 
@@ -89,7 +97,9 @@ def capture_for(yaw, pitch, distance, projection, light):
     model = [1.0 if i in (0, 5, 10, 15) else 0.0 for i in range(16)]
     d = light['view_dir']
     world_dir = [right[i]*d[0]+up[i]*d[1]+back[i]*d[2] for i in range(3)]
-    return dict(model=model, view=view, projection=[projection, projection],
+    # The rasterizer scales x by 160 and y by 120 (the source 4:3 viewport), so the
+    # y term carries 160/120 to keep bake pixels square.
+    return dict(model=model, view=view, projection=[projection, projection*160.0/120.0],
                 light=list(light['ambient'])+list(light['color'])+world_dir, viewport_scale=[160, 120])
 
 
@@ -189,10 +199,57 @@ def pack(views, cells, palette, mapping, mirror, yaws, pitches, ppu):
     return bytes(data)
 
 
+def source_families():
+    """Every source machine family, in sMachineDrawFuncs row order. Rows 0..29 are
+    the stock menu characters (family == character). Rows 30..32 are the three
+    extra source machines, which reuse a stock character's textures."""
+    source = machine_menu_models.RACER.read_text()
+    begin = source.index('sMachineLoadTexturesFuncs[]')
+    end = source.index('sMachineDrawFuncs[][5]')
+    loads = re.findall(r'(Machine_DrawLoad\w+Textures),', source[begin:end])
+    models = re.findall(r'\{ (Machine_Draw(\w+)Lod1),', source[end:])
+    colors = re.findall(r'\{ (CUSTOM_MACHINE_\w+), (\d+), \d+, \{([^}]+)\}, \{([^}]+)\}, \{([^}]+)\}', source)
+    if not len(loads) == len(models) == len(colors) == SOURCE_FAMILIES or len(set(models)) != SOURCE_FAMILIES:
+        raise ArtError('Source machine family table changed')
+    rows = []
+    for family, ((model, stem), load, color) in enumerate(zip(models, loads, colors)):
+        channels = [[int(v.strip()) for v in row.split(',')] for row in color[2:5]]
+        if any(len(c) != 4 or any(not 0 <= v <= 255 for v in c) for c in channels):
+            raise ArtError('Source body skin extent changed')
+        stock = family < STOCK_FAMILIES
+        if stock != (color[0] == 'CUSTOM_MACHINE_DEFAULT') or (stock and int(color[1]) != family):
+            raise ArtError('Source machine family order changed')
+        rows.append(dict(family=family, source_family=stem, model=model, loader=load, custom_type=color[0],
+                         base_character=int(color[1]), skins=[list(c) for c in zip(*channels)]))
+    return rows
+
+
+def extra_machine(rom, row):
+    """Extra-source adapter: a family outside the stock menu inventory (30..32),
+    decoded by the menu census's own model and texture readers."""
+    normalized, _ = normalize_rom(rom)
+    art = SourceArt(normalized)
+    setup = machine_menu_models.menu_setup(art)
+    stock = machine_menu_models.source_inventory
+
+    def widened():  # the readers accept only names in the inventory
+        return stock()+[dict(model=row['model'], loader=row['loader'])]
+    machine_menu_models.source_inventory = widened
+    try:
+        geometry = machine_menu_models.model(art, row['model'])
+        tiles = machine_menu_models.bindings(art, row['loader'], setup)
+    finally:
+        machine_menu_models.source_inventory = stock
+    if any(m['tile'] >= len(tiles) for m in geometry['materials']):
+        raise ArtError('Unbound source material tile')
+    textures = {tile['symbol']: art.texture(tile['symbol']) for tile in tiles}
+    return dict(character=row['family'], skins=row['skins'], geometry=geometry, bindings=tiles), textures
+
+
 def race_machine(rom, menu_machine, lod):
     """The race's own model (Machine_DrawBlueFalconLod<n>, the geometry MACHINE.PAK
     is built from) in the rasterizer's machine form; skins from the census."""
-    if menu_machine['character'] != 0:
+    if menu_machine['character'] != 0 or 'model' not in menu_machine:
         raise ArtError('Race models are authored only for the Blue Falcon')
     normalized, _ = normalize_rom(rom)
     art = SourceArt(normalized, DECOMP)
@@ -263,14 +320,16 @@ def bake(machine, textures, views):
     data = pack(views, cells, palette, mapping, mirror, yaws, pitches, ppu)
     if len(data) > views['budget_bytes']:
         raise ArtError('RSP1 over budget')
-    manifest = dict(format='RSP1', version=VERSION, character=machine['character'], skin=views['skin'],
-                    mirror=bool(mirror), yaw_deg=yaws, pitch_deg=pitches, distance_units=distance,
+    manifest = dict(format='RSP1', version=VERSION, interface=INTERFACE, framing_revision=FRAMING_REVISION,
+                    skin=views['skin'], mirror=bool(mirror), yaw_deg=yaws, pitch_deg=pitches, distance_units=distance,
                     model_radius_units=radius, pixels_per_unit=ppu, bytes=len(data),
                     header_bytes=HEADER, cell_table_bytes=len(cells)*CELL, clut_bytes=32,
                     pixel_bytes=sum((c['width']*c['height']//2+7)//8*8 for c in cells),
                     cells=[dict(index=i, pitch=pitches[i//len(yaws)], yaw=yaws[i % len(yaws)], width=c['width'],
                                 height=c['height'], origin_x=c['origin_x'], origin_y=c['origin_y']) for i, c in enumerate(cells)],
-                    palette=['%04x' % v for v in palette])
+                    palette=['%04x' % v for v in palette],
+                    cell_sha256=[sha(bytes(mapping.get(p, 0) for p in c['pixels'])) for c in cells],
+                    clut_sha256=sha(struct.pack('>16H', *palette)))
     return data, manifest, cells, palette, mapping
 
 
@@ -290,22 +349,36 @@ def review(cells, palette, mapping, output):
 
 def export(rom, output, views):
     output = output.resolve(); output_location(output); verify_source(DECOMP); output.mkdir(parents=True, exist_ok=True)
+    family = views.get('family', views.get('character'))
+    profile = views.get('profile', 'near')
+    families = source_families()
+    if not isinstance(family, int) or not 0 <= family < len(families) or views['skin'] not in range(4):
+        raise ArtError('Unknown racer family/skin')
+    if not isinstance(profile, str) or not re.fullmatch(r'[a-z0-9]{1,4}', profile):
+        raise ArtError('profile is 1 to 4 characters of a-z and 0-9')
+    row = families[family]
     machines, textures, source = census(rom)
-    matches = [m for m in machines if m['character'] == views['character']]
-    if len(matches) != 1 or not 0 <= views['skin'] < len(matches[0]['skins']):
-        raise ArtError('Unknown racer character/skin')
-    machine = matches[0]
+    if family < STOCK_FAMILIES:
+        machine = [m for m in machines if m['character'] == family][0]
+        if machine['model'] != row['model'] or machine['skins'] != row['skins']:
+            raise ArtError('Family table differs from the menu census')
+    else:
+        machine, textures = extra_machine(rom, row)
     if views.get('model', 'menu') == 'race':
         machine, textures = race_machine(rom, machine, views.get('race_lod', 1))
     data, manifest, cells, palette, mapping = bake(machine, textures, views)
-    manifest['model'] = views.get('model', 'menu')
+    key = 'c%02ds%d' % (family, views['skin'])
+    manifest.update(key=key, profile=profile, set_id=key+'.'+profile, family=family, character=family,
+                    source_family=row['source_family'], base_character=row['base_character'],
+                    custom_type=row['custom_type'], model=views.get('model', 'menu'))
     manifest.update(views=views, source=dict(rom_sha256=source['rom_sha256']), pack_sha256=sha(data), fnv=fnv(data))
     image = review(cells, palette, mapping, output)
     header = ('/* Generated by tools/racer_sprites.py; regenerate, never edit. */\n'
               '#ifndef FZX_RACER_SPRITES_IDENTITY_H\n#define FZX_RACER_SPRITES_IDENTITY_H\n'
               '#define FZX_RACER_SPRITE_BYTES %du\n#define FZX_RACER_SPRITE_HASH 0x%08Xu\n'
-              '#define FZX_RACER_SPRITE_VERSION %du\n#define FZX_RACER_SPRITE_RADIUS %.6ff\n#endif\n'
-              % (len(data), fnv(data), VERSION, manifest['model_radius_units'])).encode()
+              '#define FZX_RACER_SPRITE_VERSION %du\n#define FZX_RACER_SPRITE_FRAMING %du\n'
+              '#define FZX_RACER_SPRITE_RADIUS %.6ff\n#endif\n'
+              % (len(data), fnv(data), VERSION, FRAMING_REVISION, manifest['model_radius_units'])).encode()
     outputs = {'RSPRITE.PAK': data, 'racer_sprites.json': (json.dumps(manifest, indent=1)+'\n').encode(),
                'racer_sprites_identity.h': header, image.name: image.read_bytes()}
     deps = [Path(__file__), ROOT/'tools/records_models.py', ROOT/'tools/machine_menu_models.py', ROOT/'tools/import_source_art.py',
@@ -336,7 +409,7 @@ def main():
         rom_path = '/mnt/'+rom_path[0].lower()+'/'+rom_path[3:].replace('\\', '/')
     try:
         m = export(Path(rom_path).read_bytes(), args.output, views)
-        print(json.dumps({k: m[k] for k in ('character', 'skin', 'mirror', 'bytes', 'pixels_per_unit', 'model_radius_units')}))
+        print(json.dumps({k: m[k] for k in ('set_id', 'source_family', 'mirror', 'framing_revision', 'bytes', 'pixels_per_unit', 'model_radius_units')}))
     except Exception as exc:
         print('Racer sprite bake failed: '+(str(exc) if isinstance(exc, ArtError) else type(exc).__name__+': '+str(exc)), file=sys.stderr)
         return 1

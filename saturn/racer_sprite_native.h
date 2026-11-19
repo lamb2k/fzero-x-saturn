@@ -26,7 +26,10 @@ unsigned fzx_racer_sprites_draw(vdp1_cmdt_t *commands,unsigned capacity,const fz
  * orthonormal to about 1/1000. Row 2 is the source basis z, positive LEFT,
  * exactly the axis the source maps model vertex x onto, so cell selection and
  * mirroring use it as model +x. set: sprite set (0 = the player's set until the
- * roster bake exists). flags bit 0: draw a blob shadow (FZX_RACER_SPRITE_SHADOW). */
+ * roster bake exists). flags bit 0: may have a blob shadow, drawn when the racer
+ * is one of the nearest FZX_RACER_SPRITE_SHADOW_NEAR (8) to the camera; bit 1:
+ * always has its shadow (the player). The poses must stay valid until the draw
+ * call returns. */
 typedef struct {
     int32_t pos[3];
     int16_t basis[3][3];

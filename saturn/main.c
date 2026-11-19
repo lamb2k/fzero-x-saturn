@@ -747,100 +747,103 @@ orig_publish(void)
 #endif
 #if FZX_SIMPIPE_DBUF
 /* Sim-pipeline checkpoint 3 (C-035): serial double buffering. Every draw-facing
- * publication output is copied into slot (sequence & 1) after orig_publish and
- * restored from it before the scene draws. FZX_SIMPIPE_DBUF_STALE (negative
- * control only) restores the previous publication's slot instead. */
-volatile uint32_t fzx_simpipe_layout[16];
-static fzx_simpipe_slot_t *simpipe_slot[2];
-static fzx_simpipe_job_t *simpipe_job;
-static volatile uint32_t *simpipe_guard[4];
-static uint32_t simpipe_sequence, simpipe_generation;
-static void
-simpipe_fail(uint32_t status)
+ * publication output (the part table) is copied into slot (sequence & 1) after
+ * orig_publish and restored from it before the scene draws. Control data, the
+ * table, the slots and the job live in low work RAM; only fzx_simpipe_area and
+ * this code are in high work RAM. FZX_SIMPIPE_DBUF_STALE (negative control
+ * only) restores the previous publication's slot instead. */
+fzx_simpipe_area_t *fzx_simpipe_area;
+static const fzx_simpipe_part_t simpipe_main_parts[] = {
+    { &orig_pose, sizeof(orig_pose) }, { &fzx_source_camera, sizeof(fzx_source_camera) },
+    { &fzx_native_view, sizeof(fzx_native_view) }, { &fzx_source_machine, sizeof(fzx_source_machine) },
+    { &fzx_source_countdown, sizeof(fzx_source_countdown) }, { &fzx_source_skyline, sizeof(fzx_source_skyline) },
+    { &fzx_source_backdrop, sizeof(fzx_source_backdrop) }, { &fzx_source_road_plan, sizeof(fzx_source_road_plan) },
+    { &hud_clock, sizeof(hud_clock) }, { (void *)&fzx_camera_status, 4 }, { (void *)&fzx_sky_status, 4 },
+    { (void *)&fzx_skyline_status, 4 }, { (void *)&fzx_road_plan_status, 4 }, { (void *)&fzx_road_plan_sequence, 4 },
+};
+static void __attribute__((noinline, noreturn))
+simpipe_stop(uint32_t status)
 {
-    fzx_simpipe_layout[15] = status;
-    dbgio_printf("\x1b[H\x1b[2J SIM PIPELINE SLOT FAILED %lu\n", (unsigned long)status);
-    dbgio_flush(); vdp2_sync(); for (;;) {}
+    fzx_simpipe_area->report[16] = status;
+    for (;;) {}
 }
-/* Two slots and the job block, each behind a 32-byte guard, from LOW_END up;
+/* Control block, two guarded slots and the guarded job from LOW_END up;
  * returns the new low end for the frame profile. */
-static uint32_t
+static uint32_t __attribute__((noinline))
 simpipe_carve(uint32_t low_end)
 {
     uintptr_t a = (low_end + 31u) & ~(uintptr_t)31u;
-    const uintptr_t base = a;
-    const uint32_t slot_bytes = (sizeof(fzx_simpipe_slot_t) + 31u) & ~31u;
+    fzx_simpipe_area_t *c = (fzx_simpipe_area_t *)a;
+    a += (sizeof(*c) + 31u) & ~(uintptr_t)31u;
+    if (a > 0x00300000u) for (;;) {}
+    memset(c, 0, sizeof(*c));
+    fzx_simpipe_area = c;
+    uint32_t n = sizeof(simpipe_main_parts) / sizeof(simpipe_main_parts[0]);
+    memcpy(c->part, simpipe_main_parts, sizeof(simpipe_main_parts));
+    for (unsigned i = 0; i < FZX_CORE_PUBLICATION_PARTS; ++i, ++n) {
+        c->part[n].address = fzx_core_publication_parts[i].address;
+        c->part[n].bytes = fzx_core_publication_parts[i].bytes;
+    }
+    c->part[n].address = fzx_machine_published_ref; c->part[n++].bytes = sizeof(int);
+    if (!fzx_countdown_publication_parts(&c->part[n].address, &c->part[n].bytes,
+                                         &c->part[n + 1].address, &c->part[n + 1].bytes)) simpipe_stop(2);
+    n += 2;
+    c->parts = n;
+    uint32_t payload = 0;
+    for (unsigned i = 0; i < n; ++i) payload += (c->part[i].bytes + 3u) & ~3u;
+    const uint32_t slot_bytes = (sizeof(fzx_simpipe_slot_t) + payload + 31u) & ~31u;
     const uint32_t job_bytes = (sizeof(fzx_simpipe_job_t) + 31u) & ~31u;
     for (unsigned i = 0; i < 2; ++i) {
-        simpipe_guard[i] = (volatile uint32_t *)a; a += 32u;
-        simpipe_slot[i] = (fzx_simpipe_slot_t *)a; a += slot_bytes;
+        c->guard[i] = (volatile uint32_t *)a; a += 32u;
+        c->slot[i] = (fzx_simpipe_slot_t *)a; a += slot_bytes;
     }
-    simpipe_guard[2] = (volatile uint32_t *)a; a += 32u;
-    simpipe_job = (fzx_simpipe_job_t *)a; a += job_bytes;
-    simpipe_guard[3] = (volatile uint32_t *)a; a += 32u;
-    if (base < 0x00200000u || a > 0x00300000u) simpipe_fail(2);
-    memset((void *)base, 0, a - base);
-    for (unsigned g = 0; g < 4; ++g) for (unsigned w = 0; w < 8; ++w) simpipe_guard[g][w] = FZX_SIMPIPE_GUARD;
-    simpipe_job->magic = FZX_SIMPIPE_JOB_MAGIC;
-    const uint32_t report[11] = { 0x53504442u, 1, base, (uint32_t)simpipe_slot[0], (uint32_t)simpipe_slot[1],
-        (uint32_t)simpipe_job, a, sizeof(fzx_simpipe_slot_t), sizeof(fzx_simpipe_job_t), 2u * sizeof(fzx_simpipe_slot_t), 0 };
-    for (unsigned i = 0; i < 11; ++i) fzx_simpipe_layout[i] = report[i];
-    fzx_simpipe_layout[15] = 1;
+    c->guard[2] = (volatile uint32_t *)a; a += 32u;
+    c->job = (fzx_simpipe_job_t *)a; a += job_bytes;
+    c->guard[3] = (volatile uint32_t *)a; a += 32u;
+    if (a > 0x00300000u) simpipe_stop(2);
+    memset((void *)c->guard[0], 0, a - (uintptr_t)c->guard[0]);
+    for (unsigned g = 0; g < 4; ++g) for (unsigned w = 0; w < 8; ++w) c->guard[g][w] = FZX_SIMPIPE_GUARD;
+    c->job->magic = FZX_SIMPIPE_JOB_MAGIC;
+    c->report[0] = FZX_SIMPIPE_AREA_MAGIC; c->report[1] = 2; c->report[2] = (uint32_t)c;
+    c->report[3] = (uint32_t)c->slot[0]; c->report[4] = (uint32_t)c->slot[1]; c->report[5] = (uint32_t)c->job;
+    c->report[6] = a; c->report[7] = slot_bytes; c->report[8] = job_bytes; c->report[9] = n;
+    c->report[10] = payload; c->report[16] = 1;
     return (uint32_t)a;
 }
-static void
-simpipe_check_guards(void)
+/* OUT: the publication globals into the next slot. Otherwise the latest slot
+ * (or, as the stale control, the one before it) back into the globals. */
+static void __attribute__((noinline))
+simpipe_copy(bool out)
 {
+    fzx_simpipe_area_t *c = fzx_simpipe_area;
     for (unsigned g = 0; g < 4; ++g) for (unsigned w = 0; w < 8; ++w)
-        if (simpipe_guard[g][w] != FZX_SIMPIPE_GUARD) { ++fzx_simpipe_layout[10]; simpipe_fail(3); }
-    if (simpipe_job->magic != FZX_SIMPIPE_JOB_MAGIC) { ++fzx_simpipe_layout[10]; simpipe_fail(3); }
-}
-static void
-simpipe_copy_out(void)
-{
-    fzx_simpipe_slot_t *s = simpipe_slot[simpipe_sequence & 1u];
-    simpipe_check_guards();
-    s->magic = FZX_SIMPIPE_SLOT_MAGIC; s->generation = simpipe_generation;
-    s->sequence = ++simpipe_sequence; s->ticks = fzx_input_count;
-    s->camera_status = fzx_camera_status; s->camera_set = 0;
-    s->sky_status = fzx_sky_status; s->skyline_status = fzx_skyline_status;
-    s->road_plan_status = fzx_road_plan_status; s->road_plan_sequence = fzx_road_plan_sequence;
-    s->machine_published = fzx_machine_published_get();
-    fzx_countdown_publication_save(&s->countdown_phase, &s->countdown_published);
-    s->pose = orig_pose; s->camera = fzx_source_camera; s->view = fzx_native_view;
-    s->machine = fzx_source_machine; s->countdown = fzx_source_countdown;
-    s->skyline = fzx_source_skyline; s->backdrop = fzx_source_backdrop;
-    s->road_plan = fzx_source_road_plan; s->hud_clock = hud_clock;
-    fzx_core_publication_save(&s->core);
-    ++fzx_simpipe_layout[12];
-}
-static void
-simpipe_copy_in(void)
-{
-    simpipe_check_guards();
-    uint32_t want = simpipe_sequence;
+        if (c->guard[g][w] != FZX_SIMPIPE_GUARD) { ++c->report[11]; simpipe_stop(3); }
+    if (c->job->magic != FZX_SIMPIPE_JOB_MAGIC) { ++c->report[11]; simpipe_stop(3); }
+    fzx_simpipe_slot_t *s;
+    if (out) {
+        s = c->slot[c->sequence & 1u];
+        s->magic = FZX_SIMPIPE_SLOT_MAGIC; s->generation = c->generation;
+        s->sequence = ++c->sequence; s->ticks = fzx_input_count;
+        ++c->report[13];
+    } else {
+        uint32_t want = c->sequence;
 #if FZX_SIMPIPE_DBUF_STALE
-    if (want > 1u) { --want; ++fzx_simpipe_layout[14]; }
+        if (want > 1u) { --want; ++c->report[15]; }
 #endif
-    const fzx_simpipe_slot_t *s = simpipe_slot[(want - 1u) & 1u];
-    if (!want || s->magic != FZX_SIMPIPE_SLOT_MAGIC || s->sequence != want
+        s = c->slot[(want - 1u) & 1u];
+        if (!want || s->magic != FZX_SIMPIPE_SLOT_MAGIC || s->sequence != want
 #if !FZX_SIMPIPE_DBUF_STALE
-        || s->generation != simpipe_generation
+            || s->generation != c->generation
 #endif
-        ) {
-        ++fzx_simpipe_layout[11]; simpipe_fail(4);
+            ) { ++c->report[12]; simpipe_stop(4); }
+        ++c->report[14];
     }
-    fzx_camera_status = s->camera_status;
-    fzx_sky_status = s->sky_status; fzx_skyline_status = s->skyline_status;
-    fzx_road_plan_status = s->road_plan_status; fzx_road_plan_sequence = s->road_plan_sequence;
-    fzx_machine_published_set(s->machine_published);
-    fzx_countdown_publication_load(&s->countdown_phase, s->countdown_published);
-    orig_pose = s->pose; fzx_source_camera = s->camera; fzx_native_view = s->view;
-    fzx_source_machine = s->machine; fzx_source_countdown = s->countdown;
-    fzx_source_skyline = s->skyline; fzx_source_backdrop = s->backdrop;
-    fzx_source_road_plan = s->road_plan; hud_clock = s->hud_clock;
-    fzx_core_publication_load(&s->core);
-    ++fzx_simpipe_layout[13];
+    uint8_t *data = (uint8_t *)(s + 1);
+    for (unsigned i = 0; i < c->parts; ++i) {
+        const fzx_simpipe_part_t *p = &c->part[i];
+        if (out) memcpy(data, p->address, p->bytes); else memcpy(p->address, data, p->bytes);
+        data += (p->bytes + 3u) & ~3u;
+    }
 }
 #endif
 
@@ -1428,7 +1431,7 @@ main(void)
                 ++fzx_simpipe_prof[13]; ++fzx_simpipe_ticks[1]; fzx_simpipe_ticks[2] = 0;
 #endif
 #if FZX_SIMPIPE_DBUF
-                ++simpipe_generation;
+                ++fzx_simpipe_area->generation;
 #endif
                 orig_restart();
 #if FZX_FRAME_PROFILE
@@ -1468,7 +1471,7 @@ main(void)
         orig_publish();
 #endif
 #if FZX_SIMPIPE_DBUF
-        simpipe_copy_out();
+        simpipe_copy(true);
 #endif
 #if FZX_SIMPIPE_PROFILE
         simpipe_depth(4);
@@ -1486,7 +1489,7 @@ main(void)
         fzx_fp_mark(4);
 #endif
 #if FZX_SIMPIPE_DBUF
-        simpipe_copy_in();
+        simpipe_copy(false);
 #endif
         const fzx_frame_t *frame = fzx_render();
 #if FZX_SOURCE_CAMERA

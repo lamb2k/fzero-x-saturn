@@ -125,8 +125,7 @@ bool fzx_machine_publish(void){
 }
 #endif
 #if FZX_MACHINE_PUBLISH && FZX_SIMPIPE_DBUF
-int32_t fzx_machine_published_get(void){return machine_published;}
-void fzx_machine_published_set(int32_t v){machine_published=(int)v;}
+int *const fzx_machine_published_ref=&machine_published;
 #endif
 typedef struct {vdp1_cmdt_t *commands;uintptr_t pixels,shades;unsigned count;vdp1_cmdt_t texture,solid;} submit_t;
 #if !FZX_VEHICLE_NATIVE

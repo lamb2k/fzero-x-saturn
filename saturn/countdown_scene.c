@@ -92,11 +92,12 @@ bool fzx_countdown_publish(void){
     scene->published=true;fzx_countdown_busy=0;return true;
 }
 #if FZX_SIMPIPE_DBUF
-/* Sim-pipeline checkpoint 3: the publication's phase and flag travel with the slot. */
-void fzx_countdown_publication_save(fzx_countdown_phase_t *phase,uint32_t *published){
-    if(!scene){*published=0;return;}*phase=scene->phase;*published=scene->published;}
-void fzx_countdown_publication_load(const fzx_countdown_phase_t *phase,uint32_t published){
-    if(scene){scene->phase=*phase;scene->published=published!=0;}}
+/* Sim-pipeline checkpoint 3: the publication's phase and flag travel with the
+ * slot. Their addresses are fixed once the scene is loaded. */
+bool fzx_countdown_publication_parts(void **phase,uint32_t *phase_bytes,void **published,uint32_t *published_bytes){
+    if(!scene)return false;
+    *phase=&scene->phase;*phase_bytes=sizeof(scene->phase);
+    *published=&scene->published;*published_bytes=sizeof(scene->published);return true;}
 #endif
 bool fzx_countdown_native(vdp1_cmdt_t *commands,unsigned capacity,const fzx_view_t *view,uint32_t *count){
     if(count)*count=0;

@@ -2,6 +2,9 @@
 #include <limits.h>
 #include <string.h>
 #include "fzx_scene_phase.h"
+#ifndef FZX_RBG_LEAN
+#define FZX_RBG_LEAN 0
+#endif
 #if FZX_RBG_FAST
 #include "fzx_rbg_fast.h"
 #endif
@@ -121,6 +124,19 @@ static bool projected(const fzx_view_t *v,const int32_t in[4][3],int32_t xy[10][
     for(int i=0;i<n;++i)if(!fzx_view_project(v,clipped[i],xy[i]))return false;
     return true;
 }
+#if FZX_RBG_LEAN
+/* Band polygons: FZX_RBG_LEAN (default 0) clips only near/far in 3D and the
+ * sides in 2D at the view rectangle (as the 3D side planes did); on any
+ * failure it falls back to the exact path above. */
+static bool projected_band(const fzx_view_t *v,const int32_t in[4][3],int32_t xy[10][2],unsigned *count) {
+    const int n=fzx_view_project_guarded(v,in,0,xy);
+    if(n>=0){*count=(unsigned)n;return true;}
+    return projected(v,in,xy,count);
+}
+#define BAND_PROJECTED projected_band
+#else
+#define BAND_PROJECTED projected
+#endif
 static void window(const fzx_view_t *v,const int32_t xy[10][2],unsigned count,fzx_floor_rbg_t *out) {
     for(int y=0;y<224;++y) {
         out->window[y][0]=640;out->window[y][1]=0;
@@ -152,8 +168,10 @@ static bool polygon(const int32_t xy[10][2],unsigned count,unsigned band,
         if(out->commands>=64)return fail(out,4);
         if(!emit(context,&q))return fail(out,5);
         ++out->commands;
+#if !FZX_RBG_LEAN
         for(unsigned j=0;j<4;++j){out->hash=(out->hash^(uint32_t)(int32_t)q.x[j])*16777619u;out->hash=(out->hash^(uint32_t)(int32_t)q.y[j])*16777619u;}
         out->hash=(out->hash^band)*16777619u;
+#endif
     }
     return true;
 }
@@ -201,15 +219,17 @@ bool fzx_floor_rbg_prepare(const fzx_view_t *view,const RefBackdrop *source,
             const unsigned inner=half?4+sides[i]:2+sides[i],edge=half?6+sides[i]:sides[i];
             outer[i][j]=positions[inner][j]+(int32_t)(((int64_t)positions[edge][j]-positions[inner][j])*fractions[i]/65536);
         }
-        if(!projected(view,(const int32_t (*)[3])outer,xy,&count))return fail(out,2);
+        if(!BAND_PROJECTED(view,(const int32_t (*)[3])outer,xy,&count))return fail(out,2);
         if(!polygon((const int32_t (*)[2])xy,count,band,out,emit,context))return false;
     }
     FZX_SCP(HASH);
+#if !FZX_RBG_LEAN
     for(unsigned i=0;i<sizeof(out->rp)/4;++i) {
         uint32_t word;memcpy(&word,(const unsigned char *)&out->rp+i*4,4);
         out->hash=(out->hash^word)*16777619u;
     }
     for(unsigned y=0;y<224;++y)for(unsigned x=0;x<2;++x)out->hash=(out->hash^out->window[y][x])*16777619u;
+#endif
     FZX_SCP_END();
     return true;
 }

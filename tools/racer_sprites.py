@@ -5,6 +5,9 @@ Renders one machine (any character/skin by config) from a grid of viewing
 directions around its own up axis and packs the images as an SH2ZAM rotation
 sprite set (sh2zam/rotation_sprite_experimental.h, contract rotation-sprites-1):
 4-bit indexed cells sharing one 16-entry CLUT (index 0 transparent).
+Interface 1.2 views (same binary layout) add supersampling, a fixed pixels per
+unit and one CLUT per yaw column; tools/racer_sprites_hq.json is the close-up
+near profile (generated/racer_sprites_hq, engine E1_CLOSEUP=2).
 
 Runs only on privately extracted source geometry/textures (FZX_TEST_ROM or
 --config). Uses the Records preview rasterizer (records_models.raster): pixel-
@@ -156,17 +159,60 @@ def quantize(cells, colors=15, rounds=12):
     return [0]+palette, mapping
 
 
-def pack(views, cells, palette, mapping, mirror, yaws, pitches, ppu):
+def supersampled(sprite, factor):
+    """Box-filter a sprite rendered at factor times the pixels per unit down to 1x.
+    A pixel is opaque when at least half its factor^2 samples are; its colour is
+    the rounded mean of its opaque samples (RGB555 channels). High-resolution
+    viewport pixel X maps to floor(X / factor), so origins carry over."""
+    if factor == 1:
+        return sprite
+    w, h, px = sprite['width'], sprite['height'], sprite['pixels']
+    x0, y0 = sprite['x']//factor, sprite['y']//factor
+    x1, y1 = -((-(sprite['x']+w))//factor), -((-(sprite['y']+h))//factor)
+    need = (factor*factor+1)//2
+    out = []
+    for ly in range(y0, y1):
+        for lx in range(x0, x1):
+            sums, n = [0, 0, 0], 0
+            for sy in range(ly*factor, ly*factor+factor):
+                row = sy-sprite['y']
+                if not 0 <= row < h:
+                    continue
+                for sx in range(lx*factor, lx*factor+factor):
+                    col = sx-sprite['x']
+                    if 0 <= col < w and px[row*w+col]:
+                        c = rgb(px[row*w+col])
+                        sums[0] += c[0]; sums[1] += c[1]; sums[2] += c[2]; n += 1
+            out.append(0x8000 | sum(((s+n//2)//n) << (5*j) for j, s in enumerate(sums)) if n >= need else 0)
+    return dict(width=x1-x0, height=y1-y0, x=x0, y=y0, pixels=out)
+
+
+def clut_groups(views, n_cells, n_yaws):
+    """Each cell's CLUT index: one shared CLUT, or one per yaw column ('yaw')."""
+    mode = views.get('clut_groups', 'shared')
+    if mode == 'shared':
+        return None
+    if mode == 'yaw':
+        return [i % n_yaws for i in range(n_cells)]
+    raise ArtError('clut_groups is shared or yaw')
+
+
+def pack(views, cells, palette, mapping, mirror, yaws, pitches, ppu, groups=None):
+    """palette, mapping: one CLUT and its pixel map; or, with groups (each cell's
+    CLUT index), lists of them, one per CLUT."""
     n_cells = len(cells)
+    palettes, mappings = (palette, mapping) if groups else ([palette], [mapping])
+    groups = groups or [0]*n_cells
     head = HEADER+n_cells*CELL
     clut_offset = (head+7)//8*8
-    pixel_at = (clut_offset+32+7)//8*8
+    pixel_at = (clut_offset+32*len(palettes)+7)//8*8
     blobs = []
     descriptors = b''
-    for c in cells:
+    for c, g in zip(cells, groups):
+        mapping = mappings[g]
         data = bytes((mapping.get(c['pixels'][i], 0) << 4) | mapping.get(c['pixels'][i+1], 0)
                      for i in range(0, len(c['pixels']), 2))
-        descriptors += struct.pack('>HHhhIHH', c['width'], c['height'], c['origin_x'], c['origin_y'], pixel_at, 0, 0)
+        descriptors += struct.pack('>HHhhIHH', c['width'], c['height'], c['origin_x'], c['origin_y'], pixel_at, g, 0)
         blobs.append(data)
         pixel_at += (len(data)+7)//8*8
     total = pixel_at
@@ -182,14 +228,15 @@ def pack(views, cells, palette, mapping, mirror, yaws, pitches, ppu):
             b = math.radians(pitches[k]); pitch_words += [round(16384*math.sin(b)), round(16384*math.cos(b))]
         else:
             pitch_words += [0, 0]
-    header = struct.pack('>IIHHHHIi', MAGIC, total, len(yaws), len(pitches), 1 if mirror else 0, 1,
+    header = struct.pack('>IIHHHHIi', MAGIC, total, len(yaws), len(pitches), 1 if mirror else 0, len(palettes),
                          clut_offset, int(round(ppu*65536)))
     header += struct.pack('>%dh' % (2*MAX_YAW), *yaw_words)+struct.pack('>%dh' % (2*MAX_PITCH), *pitch_words)
     if len(header) != HEADER:
         raise ArtError('RSP1 header layout')
     data = bytearray(header+descriptors)
     data += b'\0'*(clut_offset-len(data))
-    data += struct.pack('>16H', *palette)
+    for p in palettes:
+        data += struct.pack('>16H', *p)
     for blob in blobs:
         data += b'\0'*((-len(data)) % 8)
         data += blob
@@ -288,24 +335,44 @@ def bake(machine, textures, views):
     if not 16+radius < distance < 8192-radius:
         raise ArtError('Bake distance outside source near/far')
 
+    # Interface 1.2 options (default off: 1.1 sets bake byte for byte as before):
+    # supersample k renders at k x the pixels per unit and box-filters down; a fixed
+    # pixels_per_unit replaces the budget bisection; clut_groups 'yaw' gives each yaw
+    # column (all its pitches) its own 16-colour CLUT.
+    factor = int(views.get('supersample', 1))
+    if not 1 <= factor <= 8:
+        raise ArtError('supersample is 1 to 8')
+
+    # Even factors use the rasterizer's own 2x sampling (its extent bound doubles).
+    sample = 2 if factor % 2 == 0 else 1
+
     def render(ppu):
-        projection = ppu*distance/160.0
+        projection = ppu*(factor//sample)*distance/160.0
         out = []
         for p in pitches:
             for y in yaws:
-                s = raster(machine, textures, capture_for(y, p, distance, projection, views['light']), views['skin'])
-                out.append(crop(s))
+                capture = capture_for(y, p, distance, projection, views['light'])
+                s = raster(machine, textures, capture, views['skin'], sample) if sample != 1 else \
+                    raster(machine, textures, capture, views['skin'])
+                out.append(crop(supersampled(s, factor)))
         return out
 
+    groups = clut_groups(views, len(pitches)*len(yaws), len(yaws))
+    n_cluts = 1 if groups is None else max(groups)+1
     # Largest pixels-per-unit whose packed set fits the budget (bisection).
     lo, hi, best = 0.02, 2.0, None
-    for _ in range(14):
+    if views.get('pixels_per_unit'):
+        cells = render(float(views['pixels_per_unit']))
+        if max(max(c['width'], c['height']) for c in cells) > views['cell_limit']:
+            raise ArtError('cell too large for cell_limit')
+        best, lo, hi = (float(views['pixels_per_unit']), cells), 0.0, 0.0
+    for _ in range(14 if best is None else 0):
         mid = (lo+hi)/2
         try:
             cells = render(mid)
             if max(max(c['width'], c['height']) for c in cells) > views['cell_limit']:
                 raise ArtError('cell too large')
-            size = HEADER+len(cells)*CELL+64+sum((c['width']*c['height']//2+7)//8*8 for c in cells)
+            size = HEADER+len(cells)*CELL+64+32*(n_cluts-1)+sum((c['width']*c['height']//2+7)//8*8 for c in cells)
             ok = size <= views['budget_bytes']
         except ArtError:
             ok = False
@@ -316,29 +383,46 @@ def bake(machine, textures, views):
     if best is None:
         raise ArtError('No pixels-per-unit fits the racer sprite budget')
     ppu, cells = best
-    palette, mapping = quantize(cells)
-    data = pack(views, cells, palette, mapping, mirror, yaws, pitches, ppu)
+    if groups is None:
+        palette, mapping = quantize(cells)
+        data = pack(views, cells, palette, mapping, mirror, yaws, pitches, ppu)
+        cell_maps, clut_bytes = [mapping]*len(cells), struct.pack('>16H', *palette)
+    else:
+        quantized = [quantize([c for c, g in zip(cells, groups) if g == k]) for k in range(n_cluts)]
+        palette, mapping = [q[0] for q in quantized], [q[1] for q in quantized]
+        data = pack(views, cells, palette, mapping, mirror, yaws, pitches, ppu, groups)
+        cell_maps, clut_bytes = [mapping[g] for g in groups], b''.join(struct.pack('>16H', *p) for p in palette)
     if len(data) > views['budget_bytes']:
         raise ArtError('RSP1 over budget')
-    manifest = dict(format='RSP1', version=VERSION, interface=INTERFACE, framing_revision=FRAMING_REVISION,
+    extended = factor != 1 or groups is not None or bool(views.get('pixels_per_unit'))
+    manifest = dict(format='RSP1', version=VERSION, interface='1.2' if extended else INTERFACE, framing_revision=FRAMING_REVISION,
                     skin=views['skin'], mirror=bool(mirror), yaw_deg=yaws, pitch_deg=pitches, distance_units=distance,
                     model_radius_units=radius, pixels_per_unit=ppu, bytes=len(data),
                     header_bytes=HEADER, cell_table_bytes=len(cells)*CELL, clut_bytes=32,
                     pixel_bytes=sum((c['width']*c['height']//2+7)//8*8 for c in cells),
                     cells=[dict(index=i, pitch=pitches[i//len(yaws)], yaw=yaws[i % len(yaws)], width=c['width'],
-                                height=c['height'], origin_x=c['origin_x'], origin_y=c['origin_y']) for i, c in enumerate(cells)],
-                    palette=['%04x' % v for v in palette],
-                    cell_sha256=[sha(bytes(mapping.get(p, 0) for p in c['pixels'])) for c in cells],
-                    clut_sha256=sha(struct.pack('>16H', *palette)))
-    return data, manifest, cells, palette, mapping
+                                height=c['height'], origin_x=c['origin_x'], origin_y=c['origin_y']) for i, c in enumerate(cells)])
+    if groups is None:
+        manifest['palette'] = ['%04x' % v for v in palette]
+    else:
+        manifest.update(clut_bytes=len(clut_bytes), clut_count=n_cluts, clut_groups=views['clut_groups'],
+                        cell_clut=groups, palettes=[['%04x' % v for v in p] for p in palette])
+    manifest.update(cell_sha256=[sha(bytes(m.get(p, 0) for p in c['pixels'])) for c, m in zip(cells, cell_maps)],
+                    clut_sha256=sha(clut_bytes))
+    if factor != 1:
+        manifest['supersample'] = factor
+    cell_palettes = [palette]*len(cells) if groups is None else [palette[g] for g in groups]
+    return data, manifest, cells, cell_palettes, cell_maps
 
 
-def review(cells, palette, mapping, output):
+def review(cells, palettes, mappings, output):
+    """palettes, mappings: each cell's CLUT and pixel map."""
     from PIL import Image
     cols = 8
     rows = (len(cells)+cols-1)//cols
     sheet = Image.new('RGB', (cols*128, rows*128), (40, 40, 48))
     for i, c in enumerate(cells):
+        palette, mapping = palettes[i], mappings[i]
         img = Image.new('RGB', (c['width'], c['height']), (40, 40, 48))
         img.putdata([tuple(v*255//31 for v in rgb(palette[mapping[p]])) if p else (40, 40, 48) for p in c['pixels']])
         sheet.paste(img.resize((c['width']*2, c['height']*2), Image.NEAREST), ((i % cols)*128, (i//cols)*128))

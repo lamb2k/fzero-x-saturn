@@ -16,6 +16,12 @@
 #include "engine_scene.h"
 #include "fzx_view.h"
 
+/* Close-up A/B (Makefile E1_CLOSEUP): 0 the sprite player, 1 the 3D model (engine_closeup.h),
+ * 2 the high-quality near sprite set. */
+#ifndef E1_CLOSEUP
+#define E1_CLOSEUP 0
+#endif
+
 /* 1: the R01 test driver steers (60 Hz, from each tick's previous state);
  * 0: the pad, read once per presented frame and held for its ticks. */
 extern volatile uint32_t fzx_e1_driver;

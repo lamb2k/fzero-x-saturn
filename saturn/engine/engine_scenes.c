@@ -361,10 +361,62 @@ static void records_draw(void) {
     dbgio_printf("\x1b[H\x1b[2J\n\n   [PLACEHOLDER RECORDS]\n\n   (records service not linked yet)\n\n   B: BACK\n");
 }
 
-/* Placeholder RESULTS: ranks the run and commits it with the name "SAT" (the C8 screen
- * asks for the name only for a top-5 place). */
-static fzx_rank_t results_rank;
-static fzx_rec_result_t results_commit;
+/* The source name keyboard is ten columns wide. Blanks in its final row
+ * are holes, > inserts a space, and < accepts the name. */
+static const char name_keys[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ'!.,0123456789       >-<";
+enum { NAME_COLUMNS = 10, NAME_ROWS = 5, NAME_END = NAME_COLUMNS * NAME_ROWS - 1 };
+_Static_assert(sizeof(name_keys) == NAME_END + 2, "name keyboard layout");
+
+typedef struct {
+    fzx_rank_t rank;
+    fzx_rec_result_t save;
+    unsigned key, length;
+    char name[4];
+    bool editing;
+} results_ui_t;
+static results_ui_t *results;
+
+static void name_move(int dx, int dy) {
+    int x = (int)(results->key % NAME_COLUMNS);
+    int y = (int)(results->key / NAME_COLUMNS);
+    do {
+        x = (x + dx + NAME_COLUMNS) % NAME_COLUMNS;
+        y = (y + dy + NAME_ROWS) % NAME_ROWS;
+        results->key = (unsigned)(y * NAME_COLUMNS + x);
+    } while (name_keys[results->key] == ' ');
+}
+
+static void name_tick(void) {
+    if (!input.repeat && !input.edges) return;
+    text_dirty = true;
+    if (results->length < 3u) {
+        if (input.repeat & PAD_LEFT) name_move(-1, 0);
+        if (input.repeat & PAD_RIGHT) name_move(1, 0);
+        if (input.repeat & PAD_UP) name_move(0, -1);
+        if (input.repeat & PAD_DOWN) name_move(0, 1);
+    }
+    const char key = name_keys[results->key];
+    if (input.edges & (PAD_A | PAD_START)) {
+        if (key == '<') {
+            results->save = fzx_records_commit(&fzx_scn_result, results->name);
+            results->editing = false;
+            sh2z_scene_input_consume(&input);
+        } else if (input.edges & PAD_A) {
+            results->name[results->length++] = key == '>' ? ' ' : key;
+            if (results->length == 3u) results->key = NAME_END;
+        } else {
+            results->key = NAME_END;
+        }
+    } else if (input.edges & PAD_B) {
+        results->key = 0;
+        if (results->length) {
+            char removed = results->name[--results->length];
+            results->name[results->length] = 0;
+            results->key = (unsigned)(strchr(name_keys, removed == ' ' ? '>' : removed) - name_keys);
+        }
+    }
+}
+
 static void results_release(void *u, uint32_t s) {
     (void)u; (void)s;
     /* The retained backdrop goes back with RESULTS: VDP2 to the baseline. */
@@ -373,16 +425,27 @@ static void results_release(void *u, uint32_t s) {
     dbgio_flush();
 }
 static bool results_enter(void *u, uint32_t s) {
-    (void)u; (void)s; (void)sh2z_arena_alloc(&menu_arena, 768u, 16u);
-    fzx_records_rank(&fzx_scn_result, &results_rank);
-    results_commit = fzx_records_commit(&fzx_scn_result, results_rank.place ? "SAT" : NULL);
+    (void)u; (void)s;
+    results = sh2z_arena_alloc(&menu_arena, sizeof(*results), 16u);
+    if (!results) return false;
+    memset(results, 0, sizeof(*results));
+    fzx_records_rank(&fzx_scn_result, &results->rank);
+    results->editing = results->rank.place != 0;
+    if (!results->editing && (results->rank.best_lap || results->rank.max_speed))
+        results->save = fzx_records_commit(&fzx_scn_result, NULL);
     text_dirty = true;
     return true;
 }
 static void results_tick(void *u, uint32_t s) {
     (void)u; (void)s;
+    if (results->editing) { name_tick(); return; }
+    if ((input.edges & PAD_C) && (results->save == FZX_REC_FULL || results->save == FZX_REC_FAILED)) {
+        results->save = fzx_records_flush();
+        text_dirty = true;
+        return;
+    }
     if (POKED(fzx_scn_probe) & 0x200u) { /* captures: commit the same run again */
-        { const fzx_rec_result_t again = fzx_records_commit(&fzx_scn_result, "SAT"); fzx_scn_report[14] = 0x200u | (uint32_t)again; }
+        { const fzx_rec_result_t again = fzx_records_commit(&fzx_scn_result, results->name); fzx_scn_report[14] = 0x200u | (uint32_t)again; }
         POKED(fzx_scn_probe) = 0;
     }
     if (input.edges & PAD_A) { snd_event(3); retry_pending = true; ++fzx_scn_report[7]; (void)request(FZX_SCN_LOAD, RANK_GOTO); }
@@ -393,23 +456,40 @@ static void results_draw(void) {
     text_dirty = false;
     const fzx_run_result_t *r = &fzx_scn_result;
     static const char *const why[4] = { "-", "FINISH", "RETIRE", "QUIT" };
-    dbgio_printf("\x1b[H\x1b[2J\n\n   [PLACEHOLDER RESULTS]\n\n   RUN %lu  %s\n\n", (unsigned long)r->run_id, why[r->reason & 3u]);
+    dbgio_printf("\x1b[H\x1b[2J\n\n   RACE RESULTS\n\n   RUN %lu  %s\n\n", (unsigned long)r->run_id, why[r->reason & 3u]);
     dbgio_printf("   TIME  %lu'%02lu\"%02lu\n", (unsigned long)(r->race_ms / 60000u), (unsigned long)((r->race_ms / 1000u) % 60u),
                  (unsigned long)((r->race_ms / 10u) % 100u));
     for (unsigned i = 0; i < r->laps_done && i < 3u; ++i)
         dbgio_printf("   LAP %u %lu'%02lu\"%02lu\n", i + 1u, (unsigned long)(r->lap_ms[i] / 60000u),
                      (unsigned long)((r->lap_ms[i] / 1000u) % 60u), (unsigned long)((r->lap_ms[i] / 10u) % 100u));
     dbgio_printf("   MAX SPEED %lu KM/H\n", (unsigned long)r->max_speed);
+    if (results->editing) {
+        dbgio_printf("\n   PLACE %u   NAME [%s]\n\n", (unsigned)results->rank.place, results->name);
+        for (unsigned row = 0; row < NAME_ROWS; ++row) {
+            char line[NAME_COLUMNS * 3 + 1];
+            for (unsigned col = 0; col < NAME_COLUMNS; ++col) {
+                unsigned k = row * NAME_COLUMNS + col;
+                line[col * 3] = k == results->key ? '[' : ' ';
+                line[col * 3 + 1] = name_keys[k];
+                line[col * 3 + 2] = k == results->key ? ']' : ' ';
+            }
+            line[NAME_COLUMNS * 3] = 0;
+            dbgio_printf("   %s\n", line);
+        }
+        dbgio_printf("\n   A SELECT  B DELETE  START END\n   > SPACE   < ACCEPT\n");
+        return;
+    }
     static const char *const rec[5] = { "SAVED", "SAVED (NEW)", "NOT SAVED: FULL", "NOT SAVED: FAILED", "ALREADY" };
     const fzx_rec_course_t *c = fzx_records_course(r->course);
-    dbgio_printf("\n   RECORD: PLACE %u%s%s  %s\n", (unsigned)results_rank.place, results_rank.best_lap ? " LAP" : "",
-                 results_rank.max_speed ? " SPEED" : "", rec[results_commit < 5 ? results_commit : 3]);
+    dbgio_printf("\n   RECORD: PLACE %u%s%s  %s\n", (unsigned)results->rank.place, results->rank.best_lap ? " LAP" : "",
+                 results->rank.max_speed ? " SPEED" : "", (results->rank.place || results->rank.best_lap || results->rank.max_speed) ? rec[results->save] : "NO CHANGE");
     if (c) for (unsigned i = 0; i < FZX_REC_TOP; ++i) {
         const uint32_t ms = c->top[i].ms;
         if (ms >= FZX_REC_MAX_TIMER) dbgio_printf("   %u --------\n", i + 1u);
         else dbgio_printf("   %u %lu'%02lu\"%02lu %s\n", i + 1u, (unsigned long)(ms / 60000u),
                           (unsigned long)((ms / 1000u) % 60u), (unsigned long)((ms / 10u) % 100u), c->top[i].name);
     }
+    if (results->save == FZX_REC_FULL || results->save == FZX_REC_FAILED) dbgio_printf("   C: RETRY SAVE\n");
     dbgio_printf("\n   A: RETRY   B: TITLE\n");
 }
 

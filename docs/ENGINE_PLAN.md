@@ -144,4 +144,10 @@ Sources: `E:\MvC\mvcsaturn\docs\notes\CAPREF.md` (a study of Capcom's own Saturn
 6. **Cartridge code runs slow in Yaba,** so judge cartridge-resident hot code on Ymir or hardware. Keep hot code in high work RAM.
 7. **VDP1 and tile writes by DMA** wait for a console timing, as on MvC. CPU copy stays the default.
 
+**Measured for the racers (2026-11-19, SH2ZAM PR #42 `sprite-cache-1`; HOST plus an SH-2 cycle model):**
+- **Decode cost:** decoding a compressed cell during the race costs about 1.9 ms per near cell. That is too slow for misses.
+- **So the racers:** keep the art compressed on disc (cell4z, about 0.4 of raw), decompress it into the cartridge at race load, and fill a shared 89.6 KB VDP1 slot pool by CPU copy on the slave. That replaces 254 to 310 KB of resident sets.
+- **Synthetic 30-racer race:** a miss on 4.4% of draws, and 0.2% of draws show the previous cell for one frame.
+- **The point:** MvC decodes during play because its art arrives in small tiles. Ours doesn't.
+
 SH2ZAM already has the MvC kernels for this, ready to reuse: `vlc-1`/`vlc-2` (bit reader and decode) and `memo-1` (block memo and sync).

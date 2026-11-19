@@ -127,7 +127,37 @@ void fzx_band_corners(unsigned surface, int32_t outer[4][3], const int32_t posit
     }
     fzx_band_stats[4] += 12;
 }
+
+void fzx_band_point(unsigned surface, int32_t p[3], const int32_t positions[8][3], unsigned half, unsigned side, int32_t fraction) {
+    if (state[surface] == 1) { dsp_idle(); state[surface] = sh2z_dsp_busy() ? 0u : 2u; }
+    const int32_t *base = positions[2 + 2 * half + side], *to = positions[6 * half + side];
+    unsigned ib = FRACS;
+    if (state[surface] == 2)
+        for (unsigned k = 0; k < FRACS; ++k) if (job_fraction[surface][k] == fraction) { ib = k; break; }
+    if (ib < FRACS) {
+        const volatile int32_t *const q = (const volatile int32_t *)((uintptr_t)products[surface] | 0x20000000u);
+        for (unsigned j = 0; j < 3; ++j) {
+            const unsigned k = (half * 2 + side) * 3 + j;
+            const int32_t v = q[k * FRACS + ib];
+            p[j] = base[j] + (negative[surface][k] ? -v : v);
+#if ENG_DSP_BANDS_CHECK
+            if (p[j] != lerp_exact(base[j], to[j], fraction)) ++fzx_band_stats[7];
+#endif
+        }
+    } else {
+        for (unsigned j = 0; j < 3; ++j) p[j] = lerp_exact(base[j], to[j], fraction);
+        fzx_band_stats[2] += 3;
+    }
+    fzx_band_stats[4] += 3;
+}
 #else
+void fzx_band_point(unsigned surface, int32_t p[3], const int32_t positions[8][3], unsigned half, unsigned side, int32_t fraction) {
+    (void)surface;
+    const int32_t *base = positions[2 + 2 * half + side], *to = positions[6 * half + side];
+    for (unsigned j = 0; j < 3; ++j) p[j] = lerp_exact(base[j], to[j], fraction);
+    fzx_band_stats[4] += 3;
+}
+
 void fzx_band_begin(unsigned surface, const int32_t positions[8][3], const fzx_band_fractions_t *f) {
     (void)surface; (void)positions; (void)f; ++fzx_band_stats[0];
 }

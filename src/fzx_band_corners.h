@@ -31,6 +31,8 @@ void fzx_band_fractions_clouds(fzx_band_fractions_t *f, int32_t inner);
 void fzx_band_begin(unsigned surface, const int32_t positions[8][3], const fzx_band_fractions_t *f);
 void fzx_band_corners(unsigned surface, int32_t outer[4][3], const int32_t positions[8][3],
                       unsigned half, unsigned band, const int32_t fractions[4]);
+/* One rail point (the shared band boundaries, FZX_RBG_SHARE): p = inner + trunc((edge - inner) * fraction / 65536). */
+void fzx_band_point(unsigned surface, int32_t p[3], const int32_t positions[8][3], unsigned half, unsigned side, int32_t fraction);
 /* [0] surfaces begun, [1] DSP jobs, [2] fallback coordinates (delta or fraction outside the job),
  * [3] DSP wait polls max, [4] corner coordinates, [5] program loads, [6] job refusals,
  * [7] mismatches against the SH-2 form (ENG_DSP_BANDS_CHECK=1 diagnostic builds). */

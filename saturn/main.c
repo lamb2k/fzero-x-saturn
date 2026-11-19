@@ -1026,6 +1026,9 @@ main(void)
     }
 #if FZX_SLAVE_ROAD
     fzx_slave_road_init();
+    if(fzx_slave_road_status!=1) {
+        dbgio_printf("\x1b[H\x1b[2J SLAVE ROAD INIT FAILED %lu\n",(unsigned long)fzx_slave_road_status);dbgio_flush();vdp2_sync();for(;;) {}
+    }
 #endif
 #endif
 #if FZX_SOURCE_MACHINE

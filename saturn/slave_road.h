@@ -16,11 +16,15 @@ typedef struct {
 
 /* Counters, read by captures: jobs, late jobs (over 4 fields), master wait
  * ticks (sum, max), slave road ticks (sum, max), slave stack bytes never used
- * (minimum over the race), FRT divider handed to the slave. */
+ * (minimum over the race), status. */
 extern volatile uint32_t fzx_slave_road_jobs,fzx_slave_road_late;
 extern volatile uint32_t fzx_slave_road_wait_sum,fzx_slave_road_wait_max;
 extern volatile uint32_t fzx_slave_road_busy_sum,fzx_slave_road_busy_max;
 extern volatile uint32_t fzx_slave_road_stack_unused,fzx_slave_road_status;
+/* Slave stack guard (0x06002000): trips, job of the first trip, lowest slave
+ * stack address seen. Status 7 = guard tripped (fail-stop), 8 = stack not linked
+ * at the reservation, 9 = slave timeout, 4 = road failed. */
+extern volatile uint32_t fzx_slave_road_guard_trips,fzx_slave_road_guard_first_job,fzx_slave_road_sp;
 
 /* Boot, once, after the road renderer has loaded. */
 void fzx_slave_road_init(void);

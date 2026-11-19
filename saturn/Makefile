@@ -658,6 +658,15 @@ ifeq ($(FZX_ROAD_STREAM_PHASES),1)
 $(error FZX_SLAVE_ROAD is incompatible with FZX_ROAD_STREAM_PHASES (master-clock phase markers))
 endif
 SH_CFLAGS += -DFZX_SLAVE_ROAD=1
+ifneq ($(FZX_SIM),orig)
+$(error FZX_SLAVE_ROAD needs FZX_SIM=orig (master stack at 0x06100000 frees the slave stack area))
+endif
+# Negative control only: FZX_SLAVE_ROAD_STACK_PROBE=<bytes> runs one oversized slave frame;
+# the guard trip is recorded and execution continues so a capture can show it.
+FZX_SLAVE_ROAD_STACK_PROBE ?= 0
+ifneq ($(FZX_SLAVE_ROAD_STACK_PROBE),0)
+SH_CFLAGS += -DFZX_SLAVE_ROAD_STACK_PROBE=$(FZX_SLAVE_ROAD_STACK_PROBE)
+endif
 FZX_SKY_SRCS += slave_road.c
 else ifneq ($(FZX_SLAVE_ROAD),0)
 $(error FZX_SLAVE_ROAD must be 0 or 1)
@@ -827,7 +836,9 @@ IP_MASTER_STACK_ADDR := 0x06100000
 else
 IP_MASTER_STACK_ADDR := 0x06004000
 endif
-IP_SLAVE_STACK_ADDR := 0x06001E00
+# FZX_SLAVE_ROAD: the slave stack is the 8 KB IP.BIN area 0x06002000..0x06004000
+# (free after boot; master stack at 0x06100000 for these builds), guarded at its floor.
+IP_SLAVE_STACK_ADDR := $(if $(filter 1,$(FZX_SLAVE_ROAD)),0x06004000,0x06001E00)
 IP_1ST_READ_ADDR := 0x06004000
 IP_1ST_READ_SIZE := 0
 

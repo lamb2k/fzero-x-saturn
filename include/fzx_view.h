@@ -26,4 +26,11 @@ int32_t fzx_view_fraction(int64_t previous, int64_t current);
  * all output points satisfy all six planes. Raster scissor is still half-open. */
 int fzx_view_clip(const fzx_view_t *view, const int32_t input[][3], unsigned count,
                   int32_t output[10][3]);
+/* FZX_RBG_LEAN (default 0; compiled only when set): clip a convex quad against
+ * the near and far planes only, project, then clip in 2D (Q16.16 screen) to the
+ * view rectangle grown by guard pixels on every side. VDP1's user clip trims
+ * the rest, so the visible pixels match fzx_view_clip plus projection apart
+ * from sub-pixel rounding on the guard edges. Returns -1 on failure, else 0..10. */
+int fzx_view_project_guarded(const fzx_view_t *view, const int32_t input[4][3],
+                             int32_t guard, int32_t output[10][2]);
 #endif

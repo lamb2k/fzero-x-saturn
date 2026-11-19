@@ -122,9 +122,23 @@ static void fault(uint32_t code, const char *text) {
     for (;;) {}
 }
 
+/* RESULTS over the retained race backdrop: the backdrop layers (RBG0, back screen,
+ * sprite) take colour offset B, dimmed by BACKDROP_DIM steps on top of the fade. */
+#define BACKDROP_DIM 12u
+static bool backdrop;
+static unsigned backdrop_count; /* the race's last list length (END included) */
 static void apply_fade(uint32_t level) {
     vdp2_ioregs_t *r = vdp2_regs_get();
     const uint16_t v = (uint16_t)((0u - level * 8u) & 0x1FFu); /* -8 per step: 32 = -256 (black) */
+    if (backdrop && seq.current == FZX_SCN_RESULTS) {
+        const uint32_t d = level > BACKDROP_DIM ? level : BACKDROP_DIM;
+        const uint16_t b = (uint16_t)((0u - d * 8u) & 0x1FFu);
+        r->clofen = 0x007Fu;
+        r->clofsl = 0x0070u; /* RBG0, back screen, sprite: offset B */
+        r->coar = v; r->coag = v; r->coab = v;
+        r->cobr = b; r->cobg = b; r->cobb = b;
+        return;
+    }
     r->clofen = level ? 0x007Fu : 0u; /* NBG0-3, RBG0, back screen, sprite */
     r->clofsl = 0u;
     r->coar = v; r->coag = v; r->coab = v;
@@ -242,10 +256,26 @@ static void list_frame(const vdp1_cmdt_list_t *list) {
 static void own_frame(void) { list_frame(&bare_list); }
 
 /* A menu scene's drawing frame: its span, then the list. NBG3 text goes to VRAM only on
- * the frames that printed. */
+ * the frames that printed. Over a retained race backdrop the list is the race's last one
+ * (without its END), then the scene's span, then END. */
+static vdp1_cmdt_list_t backdrop_list;
 static void text_frame(bool printed) {
     if (printed) dbgio_flush();
     span_build(seq.current);
+    if (backdrop && seq.current == FZX_SCN_RESULTS) {
+        unsigned count, capacity;
+        vdp1_cmdt_t *race = fzx_race_list(&count, &capacity);
+        const unsigned first = backdrop_count - 1u;
+        if (first + span_count + 1u <= capacity) {
+            memcpy(&race[first], &menu_cmds[SPAN_FIRST], span_count * sizeof(vdp1_cmdt_t));
+            vdp1_cmdt_end_set(&race[first + span_count]);
+            backdrop_list.cmdts = race;
+            backdrop_list.count = (uint16_t)(first + span_count + 1u);
+            list_frame(&backdrop_list);
+            return;
+        }
+        ++fzx_scn_ctl[0]; /* the span does not fit after the backdrop: refused */
+    }
     list_frame(&menu_list);
 }
 
@@ -335,6 +365,13 @@ static void records_draw(void) {
  * asks for the name only for a top-5 place). */
 static fzx_rank_t results_rank;
 static fzx_rec_result_t results_commit;
+static void results_release(void *u, uint32_t s) {
+    (void)u; (void)s;
+    /* The retained backdrop goes back with RESULTS: VDP2 to the baseline. */
+    if (backdrop) { backdrop = false; *vdp2_regs_get() = baseline_regs; }
+    dbgio_printf("\x1b[H\x1b[2J");
+    dbgio_flush();
+}
 static bool results_enter(void *u, uint32_t s) {
     (void)u; (void)s; (void)sh2z_arena_alloc(&menu_arena, 768u, 16u);
     fzx_records_rank(&fzx_scn_result, &results_rank);
@@ -582,11 +619,19 @@ static void race_tick(void *u, uint32_t s) {
 
 static void race_release(void *u, uint32_t s) {
     (void)u; (void)s;
-    /* RACE's VDP2 lease back to the baseline (registers; RBG0 off, the back screen black). */
     fzx_race_render_callback(false);
     race_regs = *vdp2_regs_get();
     race_regs_kept = true;
-    *vdp2_regs_get() = baseline_regs;
+    if (seq.next == FZX_SCN_RESULTS) {
+        /* The backdrop is handed to RESULTS as a retained lease: RBG0, the back screen and
+         * the race's last VDP1 list (its textures and the bank it read stay as they are). */
+        unsigned capacity;
+        (void)fzx_race_list(&backdrop_count, &capacity);
+        backdrop = backdrop_count >= 3u;
+    } else {
+        /* RACE's VDP2 lease back to the baseline (registers; RBG0 off, the back screen black). */
+        *vdp2_regs_get() = baseline_regs;
+    }
     dbgio_printf("\x1b[H\x1b[2J");
     dbgio_flush();
     vdp2_sync(); vdp2_sync_wait();
@@ -650,7 +695,7 @@ static const sh2z_scene_t table[FZX_SCN_COUNT] = {
     [FZX_SCN_SELECT]  = { menu_preload, select_enter, select_tick, common_leave, common_release, menu_arenas, 1 },
     [FZX_SCN_LOAD]    = { NULL, load_enter, load_tick, common_leave, common_release, NULL, 0 },
     [FZX_SCN_RACE]    = { NULL, race_enter, race_tick, common_leave, race_release, race_arenas, 1 },
-    [FZX_SCN_RESULTS] = { menu_preload, results_enter, results_tick, common_leave, common_release, menu_arenas, 1 },
+    [FZX_SCN_RESULTS] = { menu_preload, results_enter, results_tick, common_leave, results_release, menu_arenas, 1 },
     [FZX_SCN_RECORDS] = { menu_preload, records_enter, records_tick, common_leave, common_release, menu_arenas, 1 },
 };
 

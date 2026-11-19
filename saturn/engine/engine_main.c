@@ -726,6 +726,12 @@ int main(void) {
 }
 
 uint32_t video_fields_get(void) { return video_fields; }
+/* The race's last command list (prelude ... END) and the buffer's capacity: RESULTS draws
+ * it again behind its overlay (SCENES.md section 8, the retained backdrop). */
+vdp1_cmdt_t *fzx_race_list(unsigned *count, unsigned *capacity) {
+    *count = command_list.count; *capacity = CMD_CAPACITY;
+    return commands_buf;
+}
 /* The race's VDP1 render callback (the floor's present) runs only while RACE draws. */
 void fzx_race_render_callback(bool on) { vdp1_sync_render_set(on ? render_end : NULL, NULL); }
 

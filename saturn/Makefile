@@ -715,6 +715,15 @@ SH_CFLAGS += -DFZX_SIMPIPE_DBUF_STALE=1
 else ifneq ($(FZX_SIMPIPE_DBUF_STALE),0)
 $(error FZX_SIMPIPE_DBUF_STALE must be 0 or 1)
 endif
+# FZX_SIMPIPE_DBUF_STALE_AT=<tick> (negative control only): the one frame that
+# would present this tick presents the previous publication; the race goes on.
+FZX_SIMPIPE_DBUF_STALE_AT ?= 0
+ifneq ($(FZX_SIMPIPE_DBUF_STALE_AT),0)
+ifeq ($(FZX_SIMPIPE_DBUF_STALE),1)
+$(error FZX_SIMPIPE_DBUF_STALE and FZX_SIMPIPE_DBUF_STALE_AT are separate controls)
+endif
+SH_CFLAGS += -DFZX_SIMPIPE_DBUF_STALE_AT=$(FZX_SIMPIPE_DBUF_STALE_AT)
+endif
 else ifneq ($(FZX_SIMPIPE_DBUF),0)
 $(error FZX_SIMPIPE_DBUF must be 0 or 1)
 else ifneq ($(FZX_SIMPIPE_DBUF_STALE),0)

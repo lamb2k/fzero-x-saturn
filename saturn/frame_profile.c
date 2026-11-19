@@ -9,7 +9,10 @@
  * fits what is left below 0x00300000 with its guards. */
 static uint32_t row_capacity;
 #define ROW_CAPACITY row_capacity
+#include "simpipe.h"
+#define LOW_TOP FZX_SIMPIPE_TOP_RESERVE_BASE
 #else
+#define LOW_TOP 0x00300000u
 #define ROW_CAPACITY CAPACITY
 #endif
 #define GUARD 0x39c5a71eu
@@ -96,8 +99,8 @@ bool fzx_fp_init(uint32_t low_end,uint32_t hz) {
 #if FZX_SOURCE_ROAD_STREAM
         per_row+=sizeof(road_row_t);
 #endif
-        if(start+32u>=0x00300000u)return false;
-        uint32_t fit=(uint32_t)((0x00300000u-32u-start)/per_row);
+        if(start+32u>=LOW_TOP)return false;
+        uint32_t fit=(uint32_t)((LOW_TOP-32u-start)/per_row);
         row_capacity=fit<CAPACITY?fit:CAPACITY;
         if(!row_capacity)return false;
     }
@@ -107,7 +110,7 @@ bool fzx_fp_init(uint32_t low_end,uint32_t hz) {
     const uintptr_t road_start=end;
     end+=ROW_CAPACITY*sizeof(road_row_t);
 #endif
-    if(start<0x00200040u || end+32u>0x00300000u)return false;
+    if(start<0x00200040u || end+32u>LOW_TOP)return false;
     rows=(row_t *)start;
 #if FZX_SOURCE_ROAD_STREAM
     road_rows=(road_row_t *)road_start;

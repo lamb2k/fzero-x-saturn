@@ -367,9 +367,6 @@ volatile uint32_t fzx_input_count;
  * its input before logged_tick writes the same slot. No added retail data. */
 volatile uint32_t fzx_debug_replay_count;
 
-#if FZX_SIMPIPE_PROFILE
-static void simpipe_hash_tick(uint32_t word);
-#endif
 static void
 logged_tick(uint16_t buttons, int8_t sx, int8_t sy)
 {
@@ -379,10 +376,6 @@ logged_tick(uint16_t buttons, int8_t sx, int8_t sy)
         fzx_input_count = n + 1u;
     }
     ref_tick(buttons, sx, sy);
-#if FZX_SIMPIPE_PROFILE
-    /* Diagnostic only: the executed tick's own input word. */
-    const uint32_t simpipe_word = (uint32_t)buttons << 16 | (uint32_t)(uint8_t)sx << 8 | (uint8_t)sy;
-#endif
 #if FZX_SOURCE_RESULTS
     if(!fzx_results_tick(digital.connected!=0)) {
         dbgio_printf("SOURCE RESULTS TICK FAILED %lu",(unsigned long)fzx_results_status);
@@ -404,9 +397,6 @@ logged_tick(uint16_t buttons, int8_t sx, int8_t sy)
         fzx_source_hud_status = 4;
         for (;;) {}
     }
-#endif
-#if FZX_SIMPIPE_PROFILE
-    simpipe_hash_tick(simpipe_word);
 #endif
 }
 
@@ -477,9 +467,10 @@ extern volatile uint32_t fzx_sky_stack_start;
 volatile uint32_t fzx_simpipe_prof[16];
 volatile uint32_t fzx_simpipe_k[8];
 volatile uint32_t fzx_simpipe_chain[128][4];
-/* Executed ticks (counted at logged_tick, independent of the 12,288-entry input
- * log), race generation (restarts), diagnostic-replay freezes (orig_tick calls
- * that ran no tick). Rows: {generation, tick in generation, state, input}. */
+/* Executed ticks (counted after orig_tick by the road tick counter, independent
+ * of the 12,288-entry input log), race generation (restarts), diagnostic-replay
+ * freezes (orig_tick calls that ran no tick). Rows: {generation, tick in
+ * generation, state, input}; the input word is the bridge's pad state. */
 volatile uint32_t fzx_simpipe_ticks[4];
 static uint32_t
 simpipe_fnv(uint32_t h, const volatile void *data, unsigned bytes)
@@ -745,6 +736,9 @@ orig_publish(void)
 #ifndef FZX_SIMPIPE_DBUF_STALE
 #define FZX_SIMPIPE_DBUF_STALE 0
 #endif
+#ifndef FZX_SIMPIPE_DBUF_STALE_AT
+#define FZX_SIMPIPE_DBUF_STALE_AT 0
+#endif
 #if FZX_SIMPIPE_DBUF
 /* Sim-pipeline checkpoint 3 (C-035): serial double buffering. Every draw-facing
  * publication output (the part tables) is copied into slot (sequence & 1) after
@@ -789,9 +783,12 @@ simpipe_stop(uint32_t status)
     fzx_simpipe_area->report[16] = status;
     for (;;) {}
 }
+/* Guards 0..3 are the area's; 4 and 5 bracket the road file list. */
 static volatile uint32_t * __attribute__((noinline))
 simpipe_guard(const fzx_simpipe_area_t *c, unsigned g)
 {
+    if (g == 4u) return (volatile uint32_t *)FZX_SIMPIPE_TOP_RESERVE_BASE;
+    if (g == 5u) return (volatile uint32_t *)(FZX_SIMPIPE_ROAD_LIST + FZX_SIMPIPE_ROAD_LIST_BYTES);
     return g < 3u ? SIMPIPE_GUARD_AT(c, g) : SIMPIPE_LAST_GUARD(c);
 }
 /* The area from LOW_END up; returns the new low end for the frame profile. */
@@ -802,7 +799,7 @@ simpipe_carve(uint32_t low_end)
      * guard at LOW_END stays untouched. */
     fzx_simpipe_area_t *c = (fzx_simpipe_area_t *)((low_end + 95u) & ~(uintptr_t)31u);
     const uintptr_t end = SIMPIPE_END(c);
-    if (end > 0x00300000u) for (;;) {}
+    if (end > FZX_SIMPIPE_TOP_RESERVE_BASE) for (;;) {}
     memset(c, 0, end - (uintptr_t)c);
     fzx_simpipe_area = c;
     if (!fzx_countdown_publication_parts(&c->dynamic[0].address, &c->dynamic[0].bytes,
@@ -832,7 +829,7 @@ static void __attribute__((noinline))
 simpipe_copy(bool out)
 {
     fzx_simpipe_area_t *c = fzx_simpipe_area;
-    for (unsigned g = 0; g < 4u; ++g) for (unsigned w = 0; w < 8u; ++w)
+    for (unsigned g = 0; g < 6u; ++g) for (unsigned w = 0; w < 8u; ++w)
         if (simpipe_guard(c, g)[w] != FZX_SIMPIPE_GUARD) { ++c->report[11]; simpipe_stop(3); }
     if (SIMPIPE_JOB(c)->magic != FZX_SIMPIPE_JOB_MAGIC) { ++c->report[11]; simpipe_stop(3); }
     fzx_simpipe_slot_t *s;
@@ -845,6 +842,11 @@ simpipe_copy(bool out)
         uint32_t want = c->sequence;
 #if FZX_SIMPIPE_DBUF_STALE
         if (want > 1u) { --want; ++c->report[15]; }
+#elif FZX_SIMPIPE_DBUF_STALE_AT
+        /* Control: the one frame whose publication reaches this tick presents
+         * the previous (valid) publication instead; the race continues. */
+        if (want > 1u && SIMPIPE_SLOT(c, (want - 1u) & 1u)->ticks == FZX_SIMPIPE_DBUF_STALE_AT &&
+            !c->report[15]) { --want; ++c->report[15]; }
 #endif
         s = SIMPIPE_SLOT(c, (want - 1u) & 1u);
         if (!want || s->magic != FZX_SIMPIPE_SLOT_MAGIC || s->sequence != want
@@ -853,6 +855,11 @@ simpipe_copy(bool out)
 #endif
             ) { ++c->report[12]; simpipe_stop(4); }
         ++c->report[14];
+        /* Tick binding: the presented publication must be the one taken at the
+         * current tick count (serial). Counted, not fatal. */
+        if (s->ticks != fzx_input_count) {
+            if (!c->report[17]++) { c->report[18] = fzx_input_count; c->report[19] = s->ticks; }
+        }
     }
     uint8_t *data = simpipe_parts_copy(simpipe_parts, sizeof(simpipe_parts) / sizeof(simpipe_parts[0]),
                                        (uint8_t *)(s + 1), out);
@@ -1454,11 +1461,18 @@ main(void)
 #endif
             }
 #if FZX_SIMPIPE_PROFILE
-            const uint32_t simpipe_n = fzx_simpipe_ticks[0];
+            const uint32_t simpipe_n = fzx_road_next_frame;
 #endif
             orig_tick();
 #if FZX_SIMPIPE_PROFILE
-            if (fzx_simpipe_ticks[0] != simpipe_n) ++simpipe_ticks; else ++fzx_simpipe_ticks[3];
+            /* An executed tick advances the road tick counter (logged_tick ->
+             * fzx_road_note_tick) and leaves its own input in the bridge's pad
+             * globals (ref_tick); a diagnostic-replay freeze changes neither. */
+            if (fzx_road_next_frame != simpipe_n) {
+                ++simpipe_ticks;
+                simpipe_hash_tick((uint32_t)ref_pad_button << 16 | (uint32_t)(uint8_t)ref_pad_stick_x << 8 |
+                                  (uint8_t)ref_pad_stick_y);
+            } else ++fzx_simpipe_ticks[3];
 #endif
 #else
             fzx_step((buttons & ~FZX_RESET) | pending_reset);

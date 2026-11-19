@@ -24,7 +24,18 @@ enum { ROOT_ENTRIES=32 };
 #else
 enum { ROOT_ENTRIES=16 };
 #endif
+#if FZX_SIMPIPE_DBUF
+#include "simpipe.h"
+_Static_assert(ROOT_ENTRIES*sizeof(cdfs_filelist_entry_t)==FZX_SIMPIPE_ROAD_LIST_BYTES,"road file list reservation");
+#define entries ((cdfs_filelist_entry_t *)(uintptr_t)FZX_SIMPIPE_ROAD_LIST)
+static void road_list_guards(void){
+    volatile uint32_t *g=(volatile uint32_t *)(uintptr_t)FZX_SIMPIPE_TOP_RESERVE_BASE;
+    volatile uint32_t *h=(volatile uint32_t *)(uintptr_t)(FZX_SIMPIPE_ROAD_LIST+FZX_SIMPIPE_ROAD_LIST_BYTES);
+    for(unsigned i=0;i<8u;++i){g[i]=FZX_SIMPIPE_GUARD;h[i]=FZX_SIMPIPE_GUARD;}
+}
+#else
 static cdfs_filelist_entry_t entries[ROOT_ENTRIES];
+#endif
 void fzx_road_note_tick(void) {
     fzx_road_frame=fzx_road_next_frame++;
     road_tick_seen=true;
@@ -90,6 +101,9 @@ bool fzx_road_load(const void *course,uint32_t course_bytes) {
     fzx_road_load_status.status=13;
     const cdfs_config_t config={.sector_read=read_volume_sector,.sectors=&sector,.sector_count=1};
     cdfs_config_set(&config);
+#if FZX_SIMPIPE_DBUF
+    road_list_guards();
+#endif
     cdfs_filelist_init(&list,entries,ROOT_ENTRIES);
     cdfs_filelist_root_read(&list);
     if(fzx_road_load_status.io_result) {fzx_road_load_status.status=3;return false;}

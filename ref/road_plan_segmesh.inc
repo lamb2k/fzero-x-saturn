@@ -5,9 +5,11 @@
  * constants. Render-only: nothing here feeds simulation or gameplay state.
  *
  * Once per course the chunk positions become int16 anchors at a power-of-two
- * scale. The cache is keyed by the ring's storage address, its length and an
- * FNV-1a of every chunk position's bits, recomputed each frame, so any
- * same-storage rebuild or edit of any chunk rebuilds the anchors. Per frame
+ * scale. The cache is keyed by the ring's storage address, its length and
+ * ref_track_ring_generation, which the port bumps wherever it builds or
+ * replaces the ring (ref_race_init after Course_Init). The per-frame check is
+ * O(1). FZX_TRACK_VERIFY (diagnostic, default 0) also hashes every chunk
+ * position each frame, counts unannounced changes and rebuilds. Per frame
  * the camera's clip matrix becomes four fixed-point rows (x/y/w on one exponent,
  * depth on another, coefficients below 2^14, translations below 2^29) and the
  * source thresholds (far distance, the 30-unit direction step, the group split
@@ -17,7 +19,12 @@
 
 static const SegmentChunk *ref_track_base;
 static s32 ref_track_count, ref_track_shift, ref_track_ready;
+static u32 ref_track_generation_seen;
+unsigned ref_track_ring_generation;
+#if FZX_TRACK_VERIFY
 static u32 ref_track_key;
+u32 ref_track_verify_mismatches;
+#endif
 u32 ref_track_pick_calls, ref_track_pick_fallbacks, ref_track_pick_builds;
 
 static u32 ref_track_bits(f32 v) { u32 b; memcpy(&b, &v, 4); return b; }
@@ -26,6 +33,7 @@ static s32 ref_track_exp(f32 v) { return (s32)((ref_track_bits(v) >> 23) & 0xff)
 /* Power-of-two float; callers keep E in -126..127. */
 static f32 ref_track_pow2(s32 e) { u32 b = (u32)(e + 127) << 23; f32 v; memcpy(&v, &b, 4); return v; }
 
+#if FZX_TRACK_VERIFY
 /* FNV-1a over the bits of every chunk position in the current ring. */
 static u32 ref_track_ring_key(void) {
     const SegmentChunk *c;
@@ -37,8 +45,9 @@ static u32 ref_track_ring_key(void) {
     }
     return h;
 }
+#endif
 
-static s32 ref_track_build(u32 key) {
+static s32 ref_track_build(void) {
     const SegmentChunk *c;
     s32 e = -127, i, j;
     f32 scale;
@@ -70,17 +79,26 @@ static s32 ref_track_build(u32 key) {
     }
     ref_track_base = gSegmentChunks;
     ref_track_count = gSegmentChunkCount;
-    ref_track_key = key;
+    ref_track_generation_seen = ref_track_ring_generation;
+#if FZX_TRACK_VERIFY
+    ref_track_key = ref_track_ring_key();
+#endif
     ref_track_ready = 1;
     ++ref_track_pick_builds;
     return 1;
 }
 
 static s32 ref_track_current(void) {
-    const u32 key = ref_track_ring_key();
     if (ref_track_ready && ref_track_base == gSegmentChunks && ref_track_count == gSegmentChunkCount &&
-        ref_track_key == key) return 1;
-    return ref_track_build(key);
+        ref_track_generation_seen == ref_track_ring_generation) {
+#if FZX_TRACK_VERIFY
+        if (ref_track_ring_key() == ref_track_key) return 1;
+        ++ref_track_verify_mismatches; /* ring changed without a generation bump */
+#else
+        return 1;
+#endif
+    }
+    return ref_track_build();
 }
 
 /* Exponent E for a coefficient group (rows 0..2 of the given columns) so that

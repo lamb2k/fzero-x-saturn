@@ -611,6 +611,17 @@ FZX_ROAD_SRCS += track_pick.c
 else ifneq ($(FZX_TRACK_BAKED),0)
 $(error FZX_TRACK_BAKED must be 0 or 1)
 endif
+# FZX_TRACK_VERIFY=1 (diagnostic): the planner also hashes every chunk position
+# each frame and counts ring changes without a generation bump. Closure-side.
+FZX_TRACK_VERIFY ?= 0
+ifeq ($(FZX_TRACK_VERIFY),1)
+ifneq ($(FZX_TRACK_BAKED),1)
+$(error FZX_TRACK_VERIFY requires FZX_TRACK_BAKED)
+endif
+SH_CFLAGS += -DFZX_TRACK_VERIFY=1
+else ifneq ($(FZX_TRACK_VERIFY),0)
+$(error FZX_TRACK_VERIFY must be 0 or 1)
+endif
 # Default-off C3 native road layout (boot-built chunk runs, 8-byte quads).
 FZX_ROAD_STREAM_NATIVE_LAYOUT ?= 0
 ifeq ($(FZX_ROAD_STREAM_NATIVE_LAYOUT),1)

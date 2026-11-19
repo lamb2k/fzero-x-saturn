@@ -41,32 +41,43 @@ static void ring(s32 n, f32 base) {
     gSegmentChunks[n] = gSegmentChunks[0];
     gSegmentChunkCount = n; sLastSegmentChunk = &gSegmentChunks[n];
 }
+/* The port's ring-construction call site (ref_race_init after Course_Init) bumps
+ * the generation; OLD_INC_CONTROL compiles the bump away for the 659906d control. */
+#ifdef OLD_INC_CONTROL
+#define RING_BUILT() ((void)0)
+#else
+#define RING_BUILT() (++ref_track_ring_generation)
+#endif
 int main(void) {
     MtxF m; RefRoadPlan out; memset(&m, 0, sizeof m);
     m.m[0][0] = 1.0f; m.m[1][1] = 1.0f; m.m[2][2] = 1.0f; m.m[2][3] = 1.0f; m.m[3][2] = -10.0f; m.m[3][3] = 1.0f;
-    ring(5, 10.0f);
+    ring(5, 10.0f); RING_BUILT();
     /* Reuse across unchanged frames: one build, three picks. */
     for (int f = 0; f < 3; f++) CHECK(ref_road_plan_segmesh(&out, &m) == 1);
     CHECK(ref_track_pick_builds == 1u && picks == 3u && begins == 1u);
-    /* C-045 probe: unsampled chunk 1, x 10 -> 20 (here 110 -> 120), same storage and count. */
+    /* C-045 probe as a same-storage reload: unsampled chunk 1, x 110 -> 120, same
+     * storage and count, rebuilt by Course_Init (generation bump). */
     const short before = anchors[1][0];
-    gSegmentChunks[1].pos.x += 10.0f;
+    gSegmentChunks[1].pos.x += 10.0f; RING_BUILT();
     CHECK(ref_road_plan_segmesh(&out, &m) == 1);
     CHECK(ref_track_pick_builds == 2u);
     CHECK(anchors[1][0] != before);
     CHECK(ref_road_plan_segmesh(&out, &m) == 1 && ref_track_pick_builds == 2u);
     /* Same-storage reload with new contents (every chunk moved), same count. */
-    ring(5, 40.0f);
+    ring(5, 40.0f); RING_BUILT();
     CHECK(ref_road_plan_segmesh(&out, &m) == 1 && ref_track_pick_builds == 3u);
-    /* Same-storage reload with identical contents: no rebuild needed. */
-    ring(5, 40.0f);
-    CHECK(ref_road_plan_segmesh(&out, &m) == 1 && ref_track_pick_builds == 3u);
-    /* Same storage, different length. */
+    /* Same storage, different length: rebuilt even without a bump. */
     ring(7, 40.0f);
     CHECK(ref_road_plan_segmesh(&out, &m) == 1 && ref_track_pick_builds == 4u);
-    /* A single y or z bit change rebuilds too. */
+    /* Unchanged frames after all that reuse the build. */
+    for (int f = 0; f < 3; f++) CHECK(ref_road_plan_segmesh(&out, &m) == 1);
+    CHECK(ref_track_pick_builds == 4u);
+#if FZX_TRACK_VERIFY
+    /* Diagnostic: a ring change without a bump is counted and rebuilt. */
     gSegmentChunks[3].pos.z += 1.0f;
-    CHECK(ref_road_plan_segmesh(&out, &m) == 1 && ref_track_pick_builds == 5u);
+    CHECK(ref_road_plan_segmesh(&out, &m) == 1 && ref_track_pick_builds == 5u && ref_track_verify_mismatches == 1u);
+    CHECK(ref_road_plan_segmesh(&out, &m) == 1 && ref_track_pick_builds == 5u && ref_track_verify_mismatches == 1u);
+#endif
     CHECK(ref_track_pick_fallbacks == 0u);
     printf("cache ok: builds %u picks %u\n", ref_track_pick_builds, picks);
     return 0;
@@ -165,9 +176,19 @@ def build_and_run(test, source, extra):
 
 @unittest.skipIf(CC is None, 'needs a host C compiler')
 class TrackPickCacheTests(unittest.TestCase):
-    def test_cache_identity(self):
+    def test_cache_generation(self):
         out = build_and_run(self, CACHE_DRIVER, [])
         self.assertIn('cache ok', out)
+
+    def test_cache_verify_diagnostic(self):
+        out = build_and_run(self, CACHE_DRIVER, ['-DFZX_TRACK_VERIFY=1'])
+        self.assertIn('cache ok', out)
+
+    def test_bridge_bumps_generation_after_course_init(self):
+        """The ring's only construction path in the image (ref_race_init's Course_Init) bumps it."""
+        text = (ROOT / 'ref' / 'bridge.c').read_text()
+        self.assertIn('    Course_Init();\n#if FZX_TRACK_BAKED\n    ++ref_track_ring_generation;', text)
+        self.assertEqual(text.count('Course_Init();'), 1)
 
 
 @unittest.skipIf(CC is None or not (SH2ZAM / 'src' / 'sh2zam_segmesh.c').is_file(),

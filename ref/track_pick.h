@@ -18,6 +18,11 @@ typedef struct {
     float depth_unit;  /* source depth = depth units * depth_unit */
 } FzxTrackPickView;
 
+/* Bumped by the port wherever the course's chunk ring is built or replaced
+ * (ref_race_init after Course_Init); the planner rebuilds its anchors when it
+ * changes. Defined in the planner unit. */
+extern unsigned ref_track_ring_generation;
+
 /* Once per course: n anchors, then each anchor. begin returns 0 when n is
  * unsupported (the caller keeps the source path). */
 int fzx_track_anchors_begin(unsigned n);

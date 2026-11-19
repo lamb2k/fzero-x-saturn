@@ -96,6 +96,9 @@ if [ "$PLAN_FIXED" = 1 ]; then CFLAGS="$CFLAGS -DFZX_ROAD_PLAN_FIXED=1"; fi
 TRACK_BAKED=${FZX_TRACK_BAKED:-0}
 [ "$TRACK_BAKED" = 0 ] || [ "$TRACK_BAKED:$PLAN" = 1:1 ] || { echo "baked track requires the source road planner" >&2; exit 1; }
 if [ "$TRACK_BAKED" = 1 ]; then CFLAGS="$CFLAGS -DFZX_TRACK_BAKED=1"; fi
+TRACK_VERIFY=${FZX_TRACK_VERIFY:-0}
+[ "$TRACK_VERIFY" = 0 ] || [ "$TRACK_VERIFY:$TRACK_BAKED" = 1:1 ] || { echo "track verify requires the baked track" >&2; exit 1; }
+if [ "$TRACK_VERIFY" = 1 ]; then CFLAGS="$CFLAGS -DFZX_TRACK_VERIFY=1"; fi
 OBJ=$OUT/obj
 mkdir -p "$OBJ"
 objs=""

@@ -1,8 +1,8 @@
-# Engine scenes: the boot-to-reset loop (DRAFT 2, 2026-11-19)
+# Engine scenes: the boot-to-reset loop (DRAFT 3, 2026-11-19)
 
 Interface between the scene manager and race scene (Opus, branch `claude/e3-scenes`) and the menu screens (Codex,
 branch `codex/e3-c8-screens`).
-- Draft 1 (e4ac275) answered C-064; draft 2 carries C-065.
+- Draft 1 (e4ac275) answered C-064; draft 2 (16c00a9) carries C-065; draft 3 makes the guest gate per identity (C-066).
 - Nothing binds until Codex agrees.
 
 Owner (2026-11-19): "Yes boot to reset loop should be in progress with loading screens".
@@ -107,10 +107,16 @@ typedef struct {
   | 34 | Metal Sonic (guest) |
   | 35..255 | reserved |
 
-  - Guests are hidden in select, race and records until the owner approves their look. That is one build flag,
-    `FZX_GUESTS`, default 0.
-  - A guest-off build keeps guest rows in a save, showing a generic machine name and preview. Their identity is never
-    dropped or renumbered.
+  - Each guest is gated on its own: `FZX_GUEST_MASK` has bit 33 for Robotnik and bit 34 for Metal Sonic (bit n =
+    identity n; default 0).
+    - An enabled guest is selectable through select, race, results and records. A disabled guest is hidden in all
+      four.
+    - Owner lineup choice (C-066): Robotnik (33) is one of the three selectable racers in the C8 machine-select
+      lineup. Metal Sonic (34) is tracked separately and has its own bit.
+  - A build with a guest's bit clear keeps that guest's rows in a save, showing a generic machine name and preview.
+    Its identity is never dropped or renumbered.
+  - Our side is plumbing only: the identity, the gate, save stability, and loading the art pack the session names.
+    The artwork itself is Codex's lane.
 
 ## 4. Finish snapshot (immutable)
 

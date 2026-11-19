@@ -66,6 +66,10 @@ void engine_snd_power(void) {
     SCSP_RAM[8] = 0x60FEu;                          /* bra.s to itself: the 68000 idles */
     smpc_smc_sndon_call();
     SCSP_COMMON = 0x0200u | 0x000Fu;                /* 4 Mbit sound RAM, master volume full */
+    /* The DSP runs on without the 68000: a program left by the boot ROM keeps writing its reverb
+     * ring into sound RAM (it broke the clip load's read-back at 0x30820). Clear it to no-ops. */
+    for (unsigned i = 0; i < 0x200u; ++i) ((volatile uint16_t *)0x25B00800u)[i] = 0u;
+    *(volatile uint16_t *)0x25B00402u = 0u;         /* RBL/RBP: no ring in use */
     sh2z_snd_init(&snd, SCSP_SLOTS);
     sh2z_cdda_init(&cd, CD_REGS, SCSP_SLOTS);       /* after the slots: sets the CD input level */
     sh2z_snd_queue_init(&queue);

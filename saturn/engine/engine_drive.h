@@ -26,6 +26,8 @@ extern volatile uint32_t fzx_e1_pad_override;
  * [9] sprite status (1 ok), [10] sprite draws last frame, [11] sprite skips,
  * [12] physics bytes, [13] lap 1 ms, [14] lap 2 ms, [15] lap 3 ms. */
 extern volatile uint32_t fzx_e1_report[16];
+/* 1 loaded; 2 pack load, 3 pack format, 4 sprite load, 5 sprite set, 6 shadow. */
+extern volatile uint32_t fzx_e1_status;
 
 /* Loads the physics pack (CD to work RAM) and the sprite set (CD to the top of
  * the VDP1 texture partition). Returns the lowest texture-partition offset it

@@ -220,8 +220,7 @@ int main(int argc, char** argv) {
                                             (unsigned char) (w[n] >> 8), (unsigned char) w[n] };
                     mix(be, 4);
                 }
-                printf("chk %d %016llx
-", tick + 1, (unsigned long long) hash);
+                printf("chk %d %016llx\n", tick + 1, (unsigned long long) hash);
                 hash = keep;
             }
             if (dump != NULL)

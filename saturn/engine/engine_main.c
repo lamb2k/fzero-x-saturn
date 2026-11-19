@@ -422,7 +422,13 @@ static void build(row_t *row, const fzx_engine_cam_t *cam, uint32_t tick, uint16
 int main(void) {
     cpu_intc_mask_set(0);
     dbgio_init();
+#if FZX_E1_DRIVE
+    /* The HUD updates every frame: the synchronous device writes VDP2 VRAM at
+     * flush. (The asynchronous one stopped taking updates mid-race in Ymir.) */
+    dbgio_dev_default_init(DBGIO_DEV_VDP2);
+#else
     dbgio_dev_default_init(DBGIO_DEV_VDP2_ASYNC);
+#endif
     dbgio_dev_font_load();
     fzx_e0_report[0] = ROW_MAGIC; /* the image is running: captures wait for this before reading status */
     fzx_sky_stack_paint(); /* master stack watermark, read by captures */

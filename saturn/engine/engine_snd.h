@@ -7,7 +7,10 @@
  *   engine_snd_start(epoch)       after the last disc read: the course music, events open for epoch
  *   engine_snd_tick(body, vehicle) every physics tick, after the step (reads the state only)
  *   engine_snd_cars(body, cars, n) once per frame where the field's cars are known (rival engines)
- *   engine_snd_frame()            once per presented frame: deliver events, engine pitch, CD service
+ *   engine_snd_build()            once per frame build: this frame's events and engine targets, CD service
+ *   engine_snd_seal()             at the frame's submit: its sound waits for its present
+ *   engine_snd_vblank(presented)  every VBlank-In (kept tiny): applies a presented frame's sound
+ *   engine_snd_frame()            build + seal + apply at once, for loops without a present callback
  *   engine_snd_leave(frames)      LOAD/leave: close the epoch, fade the music; engine_snd_quiet()
  *                                 says when the disc is free for reads. */
 #ifndef ENGINE_SND_H
@@ -33,6 +36,9 @@ void engine_snd_tick(const sh2z_vd_body_t *body, const sh2z_vd_vehicle_t *vehicl
 #if E1_FIELD
 void engine_snd_cars(const sh2z_vd_body_t *body, const fzx_field_car_t *cars, unsigned n);
 #endif
+void engine_snd_build(void);
+void engine_snd_seal(void);
+void engine_snd_vblank(bool presented);
 void engine_snd_frame(void);
 void engine_snd_leave(uint32_t frames);
 bool engine_snd_quiet(void);

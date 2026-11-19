@@ -437,8 +437,16 @@ static void pace_vblank_in(void *work) {
             if (n > fzx_pace[7]) fzx_pace[7] = n;
             pace_rendered = 0u; pace_drawn = 0u; pace_vbi = 0u;
             ++fzx_pace[1];
+#if ENG_SND
+            engine_snd_vblank(true);
+            MAC_RESTORE();
+            return;
+#endif
         }
     }
+#if ENG_SND
+    engine_snd_vblank(false);
+#endif
     MAC_RESTORE();
 }
 #endif
@@ -1288,7 +1296,11 @@ int main(void) {
 #endif
         fzx_drive_step(advance);
 #if ENG_SND
+#if ENG_PACE == 4
+        engine_snd_build(); /* this frame's sound, released at its present (pace_vblank_in) */
+#else
         engine_snd_frame();
+#endif
 #if ENG_SND_FADETEST
         if (fzx_drive_tick() >= ENG_SND_FADETEST && !fzx_e0_snd_left) { fzx_e0_snd_left = 1; engine_snd_leave(60u); }
 #endif
@@ -1464,6 +1476,9 @@ int main(void) {
             vdp1_sync();
             pace_vbi = 0u; pace_drawn = 0u; pace_rendered = 1u;
             pace_tick_inflight = shown;
+#if ENG_SND
+            engine_snd_seal();
+#endif
             ++fzx_pace[0];
             cpu_intc_mask_set(mask);
         }

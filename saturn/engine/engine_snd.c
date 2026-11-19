@@ -41,6 +41,19 @@ static int32_t prev_boost, prev_laps = -1;
 static uint32_t prev_recoil;
 static int32_t player_speed;
 static struct { uint8_t level; int8_t pan; uint32_t ratio; } rival[2];
+/* One frame's sound, built with the frame and released at its present. Two stages: the one the
+ * build writes, and the one sealed with the frame VDP1 is drawing (engine_snd_seal). */
+#define STAGE_EVENTS 16u
+typedef struct {
+    uint16_t ev[STAGE_EVENTS];
+    uint32_t count;
+    int8_t player_oct[SND_RACE_EVENT_PARTS]; uint16_t player_fns[SND_RACE_EVENT_PARTS];
+    int8_t rival_oct[2][SND_RACE_EVENT_PARTS]; uint16_t rival_fns[2][SND_RACE_EVENT_PARTS];
+    uint8_t rival_level[2][SND_RACE_EVENT_PARTS];
+    uint8_t pitch_ok[3][SND_RACE_EVENT_PARTS];
+} stage_t;
+static stage_t stage[2];
+static volatile uint32_t build_stage, sealed = 0xFFu;
 #if E1_FIELD
 static int32_t car_prev[FZX_FIELD_CARS + 1][3];
 static uint8_t car_seen[FZX_FIELD_CARS + 1];
@@ -138,6 +151,8 @@ static uint32_t read_toc(uint32_t *toc) {
 void engine_snd_start(uint32_t epoch) {
     epoch_now = epoch;
     sh2z_snd_queue_open(&queue, epoch);
+    const uint32_t mask = cpu_intc_mask_get();
+    cpu_intc_mask_set(15);                          /* the VBlank-In plays on the same voices */
     play_event(SND_RACE_EV_ENGINE_PLAYER, SLOTS_PLAYER, 3u, player_slot);
     play_event(SND_RACE_EV_ENGINE_RIVAL, SLOTS_RIVAL0, 3u, rival_slot[0]);
     play_event(SND_RACE_EV_ENGINE_RIVAL, SLOTS_RIVAL1, 3u, rival_slot[1]);
@@ -145,6 +160,7 @@ void engine_snd_start(uint32_t epoch) {
         for (unsigned p = 0; p < SND_RACE_EVENT_PARTS; ++p)
             if (rival_slot[r][p] >= 0 && snd_race_events[SND_RACE_EV_ENGINE_RIVAL][p].clip != 0xFFu)
                 sh2z_snd_set_level(&snd, (uint32_t)rival_slot[r][p], 0u);
+    cpu_intc_mask_set(mask);
     uint32_t toc[102];
     if (!read_toc(toc)) { engine_snd_report[0] = 3u; return; }
     for (unsigned i = 0; i < FZX_CDDA_TRACK_COUNT; ++i) {
@@ -255,39 +271,79 @@ void engine_snd_cars(const sh2z_vd_body_t *body, const fzx_field_car_t *cars, un
 }
 #endif
 
-static void engine_pitch(const int8_t *slots, unsigned ev, uint32_t ratio) {
-    for (unsigned p = 0; p < SND_RACE_EVENT_PARTS; ++p) {
-        if (slots[p] < 0 || snd_race_events[ev][p].clip == 0xFFu) continue;
-        int8_t o; uint16_t f;
-        if (sh2z_snd_pitch_scale(&ev_clip[ev][p], ratio, &o, &f)) {
-            sh2z_snd_set_pitch(&snd, (uint32_t)slots[p], o, f);
-            if (slots == player_slot && p == 0) engine_snd_report[10] = f | (uint32_t)(uint8_t)o << 16;
-        }
-    }
+static void collect(const sh2z_snd_event_t *e, void *ctx) {
+    stage_t *st = ctx;
+    if (st->count < STAGE_EVENTS) st->ev[st->count++] = e->id;
 }
 
-void engine_snd_frame(void) {
-    sh2z_snd_queue_drain(&queue, deliver, NULL);
-    engine_pitch(player_slot, SND_RACE_EV_ENGINE_PLAYER, engine_ratio(player_speed));
+static void pitch_into(unsigned ev, uint32_t ratio, int8_t *oct, uint16_t *fns, uint8_t *ok) {
+    for (unsigned p = 0; p < SND_RACE_EVENT_PARTS; ++p)
+        ok[p] = snd_race_events[ev][p].clip != 0xFFu && sh2z_snd_pitch_scale(&ev_clip[ev][p], ratio, &oct[p], &fns[p]);
+}
+
+void engine_snd_build(void) {
+    stage_t *st = &stage[build_stage];
+    st->count = 0u;
+    sh2z_snd_queue_drain(&queue, collect, st);
+    pitch_into(SND_RACE_EV_ENGINE_PLAYER, engine_ratio(player_speed), st->player_oct, st->player_fns, st->pitch_ok[0]);
     for (unsigned r = 0; r < 2u; ++r) {
-        engine_pitch(rival_slot[r], SND_RACE_EV_ENGINE_RIVAL, rival[r].ratio ? rival[r].ratio : 0x4000u);
+        pitch_into(SND_RACE_EV_ENGINE_RIVAL, rival[r].ratio ? rival[r].ratio : 0x4000u, st->rival_oct[r], st->rival_fns[r],
+                   st->pitch_ok[1 + r]);
         for (unsigned p = 0; p < SND_RACE_EVENT_PARTS; ++p)
-            if (rival_slot[r][p] >= 0 && snd_race_events[SND_RACE_EV_ENGINE_RIVAL][p].clip != 0xFFu)
-                sh2z_snd_set_level(&snd, (uint32_t)rival_slot[r][p],
-                                   (uint8_t)((rival[r].level * ev_level[SND_RACE_EV_ENGINE_RIVAL][p]) >> 8));
+            st->rival_level[r][p] = (uint8_t)((rival[r].level * ev_level[SND_RACE_EV_ENGINE_RIVAL][p]) >> 8);
     }
-    sh2z_snd_frame(&snd);
     sh2z_cdda_frame(&cd);
     engine_snd_report[2] = queue.delivered; engine_snd_report[3] = queue.rejected;
-    engine_snd_report[4] = snd.plays; engine_snd_report[5] = snd.refused; engine_snd_report[6] = snd.stolen;
     engine_snd_report[7] = cd.commands; engine_snd_report[8] = cd.loop_backs; engine_snd_report[9] = cd.state;
 }
 
+void engine_snd_seal(void) {
+    sealed = build_stage;
+    build_stage ^= 1u;
+}
+
+static void apply(const stage_t *st) {
+    for (uint32_t i = 0; i < st->count; ++i) {
+        sh2z_snd_event_t e; e.id = st->ev[i]; e.arg = 0; e.epoch = epoch_now;
+        deliver(&e, NULL);
+    }
+    for (unsigned p = 0; p < SND_RACE_EVENT_PARTS; ++p) {
+        if (st->pitch_ok[0][p] && player_slot[p] >= 0) {
+            sh2z_snd_set_pitch(&snd, (uint32_t)player_slot[p], st->player_oct[p], st->player_fns[p]);
+            if (p == 0u) engine_snd_report[10] = st->player_fns[p] | (uint32_t)(uint8_t)st->player_oct[p] << 16;
+        }
+        for (unsigned r = 0; r < 2u; ++r)
+            if (rival_slot[r][p] >= 0 && snd_race_events[SND_RACE_EV_ENGINE_RIVAL][p].clip != 0xFFu) {
+                if (st->pitch_ok[1 + r][p]) sh2z_snd_set_pitch(&snd, (uint32_t)rival_slot[r][p], st->rival_oct[r][p], st->rival_fns[r][p]);
+                sh2z_snd_set_level(&snd, (uint32_t)rival_slot[r][p], st->rival_level[r][p]);
+            }
+    }
+    engine_snd_report[4] = snd.plays; engine_snd_report[5] = snd.refused; engine_snd_report[6] = snd.stolen;
+}
+
+void engine_snd_vblank(bool presented) {
+    if (presented && sealed < 2u) { apply(&stage[sealed]); sealed = 0xFFu; }
+    sh2z_snd_frame(&snd);   /* one-shot lengths count fields */
+}
+
+void engine_snd_frame(void) {
+    engine_snd_build();
+    engine_snd_seal();
+    apply(&stage[sealed]);
+    sealed = 0xFFu;
+    sh2z_snd_frame(&snd);
+}
+
 void engine_snd_leave(uint32_t frames) {
+    const uint32_t mask = cpu_intc_mask_get();
+    cpu_intc_mask_set(15);
+    sealed = 0xFFu;
+    stage[0].count = stage[1].count = 0u;
     sh2z_snd_queue_close(&queue);
     sh2z_cdda_fade(&cd, frames);
     for (uint32_t s = 0; s < SH2Z_SND_SLOTS; ++s) if (s != 16u && s != 17u) sh2z_snd_stop(&snd, s);
     for (unsigned p = 0; p < SND_RACE_EVENT_PARTS; ++p) { player_slot[p] = -1; rival_slot[0][p] = -1; rival_slot[1][p] = -1; }
+    cpu_intc_mask_set(mask);
 }
 
 bool engine_snd_quiet(void) {

@@ -28,6 +28,14 @@ FZX_HUD_CD ?= 0
 FZX_SOURCE_CAMERA ?= 0
 FZX_SOURCE_MACHINE ?= 0
 FZX_MACHINE_REBAKE ?= 0
+FZX_RACER_SPRITES ?= 0
+FZX_RACER_SPRITE_DEMO_N ?= 0
+FZX_RACER_SPRITE_SHADOW ?= 1
+FZX_RACER_SPRITE_SHADOW_NEAR ?= 8
+FZX_RACER_SPRITE_RIVALS ?= 0
+ifneq ($(filter $(FZX_RACER_SPRITES),0 1),$(FZX_RACER_SPRITES))
+$(error FZX_RACER_SPRITES must be 0 or 1)
+endif
 FZX_VEHICLE_PROFILE ?= 0
 FZX_VEHICLE_SUBPROFILE ?= 0
 FZX_VEHICLE_FAST ?= 0
@@ -521,6 +529,16 @@ endif
 ifeq ($(FZX_VEHICLE_POSE1),1)
 SH_CFLAGS += -DFZX_VEHICLE_POSE1=1
 endif
+# FZX_RACER_SPRITES=1 (default 0): the race machine is a baked rotation sprite
+# set (generated/racer_sprites, tools/racer_sprites.py; SH2ZAM rotation-sprites-1)
+# in the machine's own VRAM region. FZX_RACER_SPRITE_DEMO_N adds N copies ahead.
+ifeq ($(FZX_RACER_SPRITES),1)
+FZX_RACER_SPRITE_RECEIPT := $(shell sh ../tools/check_receipt.sh ../generated/racer_sprites/racer_sprites.receipt 2>&1; echo "rc=$$?")
+ifeq ($(findstring rc=0,$(FZX_RACER_SPRITE_RECEIPT)),)
+$(error Racer sprite set is stale: $(FZX_RACER_SPRITE_RECEIPT))
+endif
+SH_CFLAGS += -DFZX_RACER_SPRITES=1 -DFZX_RACER_SPRITE_DEMO_N=$(FZX_RACER_SPRITE_DEMO_N) -DFZX_RACER_SPRITE_SHADOW=$(FZX_RACER_SPRITE_SHADOW) -DFZX_RACER_SPRITE_SHADOW_NEAR=$(FZX_RACER_SPRITE_SHADOW_NEAR) -DFZX_RACER_SPRITE_RIVALS=$(FZX_RACER_SPRITE_RIVALS) -I../generated/racer_sprites
+endif
 ifeq ($(FZX_VEHICLE_NATIVE),1)
 SH_CFLAGS += -DFZX_VEHICLE_NATIVE=1 -DFZX_VEHICLE_FAST=1 -DFZX_VEHICLE_NATIVE_LOW_TABLES=$(FZX_VEHICLE_NATIVE_LOW_TABLES) -DFZX_VEHICLE_NATIVE_LOW_WORK=$(FZX_VEHICLE_NATIVE_LOW_WORK)
 endif
@@ -839,6 +857,8 @@ FZX_SH2ZAM_UNITS += $(if $(filter 1,$(FZX_SOURCE_ROAD_STREAM)),sh2zam_shade_fuse
 FZX_SH2ZAM_UNITS += $(if $(filter 1,$(FZX_ROAD_STREAM_CAMERA30)),sh2zam_view_camera.c)
 # C4 native vehicle arm (vehicle-kernels-1) and vehicle pose (pose-1).
 FZX_SH2ZAM_UNITS += $(if $(filter 1,$(FZX_VEHICLE_NATIVE)),sh2zam_vehicle.c sh2zam_view_indexed.c) $(if $(filter 1,$(FZX_VEHICLE_POSE1)),sh2zam_pose.c)
+# Racer rotation sprites (rotation-sprites-1).
+FZX_SH2ZAM_UNITS += $(if $(filter 1,$(FZX_RACER_SPRITES)),sh2zam_rotation_sprite.c sh2zam_divu.c)
 # Simulation knobs that adopt trig12-1 / fixed-unit-1 add here (sh2zam_trig12.c, sh2zam_unit30.c).
 FZX_SH2ZAM_SRCS := $(addprefix $(SH2ZAM_ROOT)/saturn/src/,$(sort $(FZX_SH2ZAM_UNITS)))
 FZX_SH2ZAM_MISSING := $(filter-out $(wildcard $(FZX_SH2ZAM_SRCS)),$(FZX_SH2ZAM_SRCS))
@@ -971,6 +991,14 @@ stage-machine-pack:
 	mkdir -p $(IMAGE_DIRECTORY)
 	cp ../generated/machine_rebake/MACHRLD.PAK $(IMAGE_DIRECTORY)/MACHINE.PAK
 	cp ../generated/machine_rebake/MACHRTX.PAK $(IMAGE_DIRECTORY)/MACHTX.PAK
+ifeq ($(FZX_RACER_SPRITES),1)
+$(SH_OUTPUT_PATH)/$(SH_PROGRAM).iso: ../generated/racer_sprites/RSPRITE.PAK
+pre-build-iso: stage-racer-sprites
+.PHONY: stage-racer-sprites
+stage-racer-sprites:
+	mkdir -p -- "$(IMAGE_DIRECTORY)"
+	cp -- ../generated/racer_sprites/RSPRITE.PAK "$(IMAGE_DIRECTORY)/RSPRITE.PAK"
+endif
 else
 $(SH_OUTPUT_PATH)/$(SH_PROGRAM).iso: ../generated/machine/MACHINE.PAK ../generated/machine/MACHTX.PAK
 stage-machine-pack:

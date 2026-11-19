@@ -5,6 +5,9 @@
 enum { ROOT_ENTRIES=256 };
 #elif FZX_SOURCE_COUNTDOWN
 enum { ROOT_ENTRIES=32 };
+#elif defined(FZX_TEXTURE_CD_ROOT_ENTRIES)
+/* Engine E1 close-up arm A: one more pack than the 16-entry default holds. */
+enum { ROOT_ENTRIES=FZX_TEXTURE_CD_ROOT_ENTRIES };
 #else
 enum { ROOT_ENTRIES=16 };
 #endif

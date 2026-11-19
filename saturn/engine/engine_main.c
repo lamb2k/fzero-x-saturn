@@ -85,7 +85,10 @@ volatile uint32_t fzx_e0_status, fzx_e0_done, fzx_e0_fault;
 volatile uint32_t fzx_e0_report[16];
 /* Floor refusal: queue front, presented tick and commits before and after the
  * refused call, floor status, build bank (bit 8: VDP1 busy), field, prelude. */
-volatile uint32_t fzx_e0_floor_diag[10];
+volatile uint32_t fzx_e0_floor_diag[11]; /* [10]: refused frames skipped (E1) */
+#if FZX_E1_DRIVE
+static uint32_t floor_refusals_run;
+#endif
 /* Debugger hold: when nonzero, the camera stays at this tick (stills). */
 volatile uint32_t fzx_e0_hold_tick;
 #define HOLD_TICK (*(volatile uint32_t *)((uintptr_t)&fzx_e0_hold_tick | CPU_CACHE_THROUGH))
@@ -224,6 +227,13 @@ static int8_t pick_state[FZX_EPATH_MAX_CHUNKS + 1u];
 static sh2z_segmesh_run_t pick_runs[REF_ROAD_GROUPS];
 volatile uint32_t fzx_e0_pick[6]; /* result, runs, marked, bad view, FRT ticks, calls */
 _Static_assert(sizeof(sh2z_segmesh_anchor_t) == sizeof(fzx_engine_anchor_t), "anchor layout");
+
+/* The slave's job after the track build (slave_road.c, engine line). */
+void fzx_engine_slave_after(void) {
+#if FZX_E1_DRIVE
+    fzx_drive_slave_fill();
+#endif
+}
 
 bool fzx_engine_slave_pick(void) {
     RefRoadPlan *out = &fzx_source_road_plan;
@@ -391,8 +401,20 @@ static void build(row_t *row, const fzx_engine_cam_t *cam, uint32_t tick, uint16
             fzx_e0_floor_diag[7] = sh2z_vdp1_banks_bank(&fzx_dbank_banks) | (vdp1_sync_busy() ? 0x100u : 0u);
 #endif
             fzx_e0_floor_diag[8] = video_fields; fzx_e0_floor_diag[9] = first;
+#if FZX_E1_DRIVE
+            /* E1: the floor mapping refuses some views (fault 2, intermittent; open
+             * defect). Skip its update for this frame: VDP2 keeps the last floor
+             * tables and no fog bands are drawn. Eight in a row is still a fault. */
+            ++fzx_e0_floor_diag[10];
+            if (++floor_refusals_run >= 8u) fail(25, "FLOOR", fzx_floor_rbg.fault);
+            n = 0;
+#else
             fail(25, "FLOOR", fzx_floor_rbg.fault);
+#endif
         }
+#if FZX_E1_DRIVE
+        else floor_refusals_run = 0;
+#endif
     }
     first += n;
     if (first >= FZX_SLAVE_ROAD_RESERVE) fail(26, "PRELUDE OVERFLOW", first);
@@ -460,9 +482,9 @@ int main(void) {
 
     vdp1_vram_partitions_get(&partitions);
 #if FZX_E1_DRIVE
-    /* Physics pack to work RAM; the sprite set to the top of the texture partition. */
-    const uint32_t drive_floor = fzx_drive_load(&partitions, (void *)scratch, 0x00300000u - scratch);
-    if (!drive_floor) fail(50, "DRIVE LOAD", fzx_e1_status * 100u + fzx_texture_cd_status.status);
+    /* Physics pack to work RAM (the sprite set follows the track and the banks). */
+    if (!fzx_drive_load((void *)scratch, 0x00300000u - scratch))
+        fail(50, "DRIVE LOAD", fzx_e1_status * 100u + fzx_texture_cd_status.status);
     /* The lens (focal, tan_half) of the race camera at speed, from the reference path. */
     const fzx_engine_cam_t *const lens = &path.cams[(path.ticks >= 3000u ? 3000u : path.ticks) - 1u];
     static fzx_engine_cam_t drive_cam;
@@ -489,13 +511,28 @@ int main(void) {
     if (offset + FZX_ROAD_LOD_TEXTURE_BYTES + FZX_ROAD_STREAM_SHADE_BYTES > partitions.texture_size || !fzx_road_stream_load(road_pixels))
         fail(35, "TRACK LOAD", fzx_road_stream_status);
     offset += FZX_ROAD_LOD_TEXTURE_BYTES + FZX_ROAD_STREAM_SHADE_BYTES;
-#if FZX_E1_DRIVE
-    if (offset > drive_floor) fail(51, "SPRITE VRAM OVERLAP", offset);
-#endif
     fzx_slave_road_init();
     if (fzx_slave_road_status != 1) fail(36, "SLAVE INIT", fzx_slave_road_status);
 #if FZX_VDP1_DBANK
     dbank_init();
+#endif
+#if FZX_E1_DRIVE
+    {
+        /* Sprite set to the cartridge after the track stream; CLUTs and shadow after
+         * the bank stages; the slot pool at the top of the texture partition. The CD
+         * scratch is the 4,096 B block at sat_stub_data_end. */
+#if FZX_VDP1_DBANK
+        const uint32_t clut_used = fzx_dbank_stage_bytes;
+#else
+        const uint32_t clut_used = 0;
+#endif
+        void *const cart_area = dram_cart_area_get();
+        const uintptr_t cart = (uintptr_t)cart_area, cart_limit = cart + dram_cart_size_get();
+        if (!fzx_drive_sprites_load(&partitions, clut_used, (uintptr_t)fzx_road_stream_cart_end + 32u, cart_limit,
+                                    (void *)scratch, 0x0028D000u - 32u - scratch))
+            fail(52, "SPRITE LOAD", fzx_e1_status * 100u + fzx_texture_cd_status.status);
+        if (offset > fzx_drive_texture_floor()) fail(51, "SPRITE VRAM OVERLAP", offset);
+    }
 #endif
     /* Frame rows follow the track workspace in low work RAM, guarded. */
     {

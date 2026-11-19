@@ -5,7 +5,7 @@
 #
 #   make -C saturn/engine SH2ZAM_ROOT=<checkout of the engine pin> [FZX_VDP1_DBANK=0|1]
 #
-# The SH2ZAM pin is saturn/engine/sh2zam.pin (branch claude/e1-train: engine-train plus vehicle-dynamics-1).
+# The SH2ZAM pin is saturn/engine/sh2zam.pin (branch claude/e1-train: engine-train plus vehicle-dynamics-1 and sprite-cache-1).
 # Assets come from ../../generated (owning generators, receipts checked here).
 ifeq ($(strip $(YAUL_INSTALL_ROOT)),)
 $(error Undefined YAUL_INSTALL_ROOT (install root directory))
@@ -72,7 +72,7 @@ SH2ZAM_UNITS := sh2zam.c sh2zam_angles.c sh2zam_batch_sh2.c sh2zam_box2.c sh2zam
     sh2zam_geometry.c sh2zam_m68k.c sh2zam_prepared.c sh2zam_reuse.c sh2zam_rotation_batch.c sh2zam_shade.c \
     sh2zam_spatial.c sh2zam_transform.c sh2zam_trig.c sh2zam_view.c sh2zam_view_center.c \
     sh2zam_view_guard_src.c sh2zam_view_guard_src_center.c sh2zam_view_round.c \
-    sh2zam_view_merge_tier.c sh2zam_shade_fused.c sh2zam_view_rails.c sh2zam_segmesh.c sh2zam_vdp1_banks.c     $(if $(filter 1,$(FZX_E1_DRIVE)),sh2zam_vehicle_dynamics.c sh2zam_unit30.c sh2zam_rotation_sprite.c,)
+    sh2zam_view_merge_tier.c sh2zam_shade_fused.c sh2zam_view_rails.c sh2zam_segmesh.c sh2zam_vdp1_banks.c     $(if $(filter 1,$(FZX_E1_DRIVE)),sh2zam_vehicle_dynamics.c sh2zam_unit30.c sh2zam_rotation_sprite.c sh2zam_sprite_cache.c sh2zam_vlc2.c,)
 
 SH_SRCS := engine_main.c engine_scene.c engine_path.c \
     ../sky_native.c ../skyline_native.c ../planes_native.c ../floor_rbg_native.c ../clouds_vdp2_native.c \

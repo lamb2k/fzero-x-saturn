@@ -62,6 +62,11 @@ static void slave_entry(void){
     const bool ok=fzx_road_stream_native(a.commands,a.capacity,a.view,a.eye,a.plan,a.pa,a.pb,a.pixels,a.shades,&n);
 #endif
     job.ticks=(uint16_t)(cpu_frt_count_get()-t0);
+#ifdef FZX_ENGINE
+    /* Engine line: the job's second part (E1: sprite slot fills), timed by its owner. */
+    extern void fzx_engine_slave_after(void);
+    fzx_engine_slave_after();
+#endif
     job.count=n;job.ok=ok;
     BARRIER(); /* road output, count and result are stored before done */
     job.done=job.seq;

@@ -29,10 +29,19 @@ extern volatile uint32_t fzx_e1_report[16];
 /* 1 loaded; 2 pack load, 3 pack format, 4 sprite load, 5 sprite set, 6 shadow. */
 extern volatile uint32_t fzx_e1_status;
 
-/* Loads the physics pack (CD to work RAM) and the sprite set (CD to the top of
- * the VDP1 texture partition). Returns the lowest texture-partition offset it
- * used, or 0 on failure (fzx_e1_report and the status word say which). */
-uint32_t fzx_drive_load(const vdp1_vram_partitions_t *parts, void *scratch, uint32_t scratch_bytes);
+/* Loads the physics pack (CD to work RAM). False on failure (status word says why). */
+bool fzx_drive_load(void *scratch, uint32_t scratch_bytes);
+/* After the track and the VDP1 banks: the raw sprite set into the cartridge from
+ * cart_free, its CLUTs and the shadow into the CLUT partition after clut_used bytes,
+ * and the sprite slot pool at the top of the texture partition (sprite-cache-1). */
+bool fzx_drive_sprites_load(const vdp1_vram_partitions_t *parts, uint32_t clut_used, uintptr_t cart_free,
+                            uintptr_t cart_limit, void *scratch, uint32_t scratch_bytes);
+/* Texture-partition offset where the slot pool starts (E0 users must end below it). */
+uint32_t fzx_drive_texture_floor(void);
+/* Slave, after the track build: copy queued cells into their slots (1 ms budget). */
+void fzx_drive_slave_fill(void);
+/* VDP1 map and cache counters for captures (engine_drive.c). */
+extern volatile uint32_t fzx_e1_vram[16], fzx_e1_cache[12];
 /* Steps the physics `ticks` times (60 Hz), reading the pad once. */
 void fzx_drive_step(uint32_t ticks);
 uint32_t fzx_drive_tick(void);

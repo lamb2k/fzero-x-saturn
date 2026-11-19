@@ -235,3 +235,83 @@ int fzx_view_clip(const fzx_view_t *v,const int32_t input[][3],unsigned count,
     memcpy(output,buffers[source],count*sizeof(output[0]));
     return (int)count;
 }
+#if FZX_RBG_LEAN
+/* 64/32 division of an edge step; the SH-2 divider when the quotient fits. */
+static int64_t lean_step(int64_t n,int64_t d64) {
+    const int32_t d=(int32_t)d64;
+#if FZX_RBG_FAST
+    return fv_div(n,d);
+#else
+    return n/d;
+#endif
+}
+/* One side of the guard rectangle: axis 0 = x, 1 = y; keep values >= edge when
+ * lower, <= edge otherwise. */
+static unsigned lean_side(const int32_t (*in)[2],unsigned count,int32_t (*out)[2],
+                          unsigned axis,int32_t edge,bool lower) {
+    unsigned written=0;
+    if(!count)return 0;
+    const int32_t *a=in[count-1];
+    bool a_in=lower?a[axis]>=edge:a[axis]<=edge;
+    for(unsigned i=0;i<count;++i) {
+        const int32_t *b=in[i];const bool b_in=lower?b[axis]>=edge:b[axis]<=edge;
+        if(a_in!=b_in) {
+            const unsigned other=axis^1u;int32_t *q=out[written++];
+            q[axis]=edge;
+            q[other]=(int32_t)(a[other]+lean_step(((int64_t)b[other]-a[other])*((int64_t)edge-a[axis]),b[axis]-a[axis]));
+        }
+        if(b_in){out[written][0]=b[0];out[written][1]=b[1];++written;}
+        a=b;a_in=b_in;
+    }
+    return written;
+}
+int fzx_view_project_guarded(const fzx_view_t *v,const int32_t input[4][3],
+                             int32_t guard,int32_t output[10][2]) {
+    if(!v || !input || !output || guard<0 || guard>1024 || v->near_plane<=0 ||
+       v->far_plane<=v->near_plane || v->focal[0]<=0 || v->focal[1]<=0)return -1;
+    int32_t buffers[2][10][3];
+    memcpy(buffers[0],input,4*sizeof(buffers[0][0]));
+    unsigned count=4,source=0;
+    for(unsigned plane=0;plane<2 && count>=3;++plane) {
+        unsigned written=0;
+        const int32_t *previous=buffers[source][count-1];
+        int64_t dp=fzx_view_plane(v,previous,plane);
+        for(unsigned i=0;i<count;++i) {
+            const int32_t *current=buffers[source][i];
+            const int64_t dc=fzx_view_plane(v,current,plane);
+            if((dp<0)!=(dc<0)) {
+                if(written>=10)return -1;
+                int32_t *q=buffers[source^1u][written++];
+                const uint64_t t=fraction32(dp,dc);
+                for(unsigned j=0;j<3;++j) {
+                    const int64_t delta=(int64_t)current[j]-previous[j];
+                    const uint64_t magnitude=(uint64_t)(delta<0?-delta:delta);
+                    const int64_t step=t==UINT64_C(4294967296) ? (int64_t)magnitude :
+                        (int64_t)(((uint64_t)(uint32_t)magnitude*(uint32_t)t)>>32);
+                    q[j]=(int32_t)(previous[j]+(delta<0?-step:step));
+                }
+                if(q[2]<v->near_plane)q[2]=v->near_plane;
+                if(plane==1 && q[2]>v->far_plane)q[2]=v->far_plane;
+            }
+            if(dc>=0) {
+                if(written>=10)return -1;
+                memcpy(buffers[source^1u][written++],current,3*sizeof(int32_t));
+            }
+            previous=current;dp=dc;
+        }
+        count=written;source^=1u;
+    }
+    if(count<3)return 0;
+    int32_t xy[2][10][2];
+    for(unsigned i=0;i<count;++i)if(!fzx_view_project(v,buffers[source][i],xy[0][i]))return -1;
+    const int32_t g=guard*65536;
+    count=lean_side((const int32_t (*)[2])xy[0],count,xy[1],0,(int32_t)v->clip[0]*65536-g,true);
+    count=lean_side((const int32_t (*)[2])xy[1],count,xy[0],0,(int32_t)v->clip[2]*65536+g,false);
+    count=lean_side((const int32_t (*)[2])xy[0],count,xy[1],1,(int32_t)v->clip[1]*65536-g,true);
+    count=lean_side((const int32_t (*)[2])xy[1],count,xy[0],1,(int32_t)v->clip[3]*65536+g,false);
+    if(count<3)return 0;
+    if(count>10)return -1;
+    memcpy(output,xy[0],count*sizeof(output[0]));
+    return (int)count;
+}
+#endif

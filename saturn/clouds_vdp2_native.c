@@ -20,6 +20,22 @@ fzx_clouds_rbg_t fzx_clouds_rbg;
 volatile uint32_t fzx_clouds_status,fzx_clouds_pending,fzx_clouds_commits;
 volatile uint32_t fzx_clouds_degenerate,fzx_clouds_bands,fzx_clouds_sky_line_count;
 static uint16_t sky_lines[224];
+#if FZX_VDP1_DBANK
+#include "sh2zam/vdp1_banks_experimental.h"
+/* FZX_VDP1_DBANK: two banks of the staged tables (bank 1 in VDP1 VRAM, set by
+ * main), queued in build order and uploaded oldest first; see floor_rbg_native.c. */
+static fzx_clouds_rbg_t *clouds_stage[2]={&fzx_clouds_rbg,0};
+static uint16_t *sky_stage[2]={sky_lines,0};
+static unsigned clouds_bank;
+static sh2z_vdp1_queue_t clouds_queue;
+void fzx_clouds_dbank(void *clouds_bank1,void *sky_bank1){clouds_stage[1]=clouds_bank1;sky_stage[1]=sky_bank1;sh2z_vdp1_queue_init(&clouds_queue);}
+void fzx_clouds_dbank_select(unsigned bank){clouds_bank=bank&1u;}
+#define SKY_LINES (sky_stage[clouds_bank])
+#define CLOUDS_STAGE (*clouds_stage[clouds_bank])
+#else
+#define SKY_LINES sky_lines
+#define CLOUDS_STAGE fzx_clouds_rbg
+#endif
 static uint8_t sky_keys[64];
 static unsigned band_count;
 extern volatile uint32_t fzx_input_count;
@@ -176,7 +192,7 @@ static bool line_emit(void *context,const fzx_sky_polygon_t *p) {
         if(y>=0 && y<224) {
             uint16_t c=0x8000;
             for(unsigned k=0;k<3;++k){int32_t v=(rgb[k]+32768)>>16;if(v<0)v=0;if(v>31)v=31;c|=(uint16_t)(v<<(k*5));}
-            sky_lines[y]=c;l->set[y]=1;
+            SKY_LINES[y]=c;l->set[y]=1;
         }
         for(unsigned k=0;k<3;++k)rgb[k]+=step[k];
     }
@@ -196,14 +212,14 @@ bool fzx_clouds_sky_lines(const fzx_view_t *view,const RefBackdrop *source) {
     int last=-1;unsigned set=0;
     for(int y=0;y<224;++y)if(l.set[y]){
         ++set;
-        if(last<0)for(int k=0;k<y;++k)sky_lines[k]=sky_lines[y];
-        else for(int k=last+1;k<y;++k)sky_lines[k]=sky_lines[last];
+        if(last<0)for(int k=0;k<y;++k)SKY_LINES[k]=SKY_LINES[y];
+        else for(int k=last+1;k<y;++k)SKY_LINES[k]=SKY_LINES[last];
         last=y;
     }
-    if(last<0)for(int y=0;y<224;++y)sky_lines[y]=fzx_sky_colors[63];
-    else for(int y=last+1;y<224;++y)sky_lines[y]=sky_lines[last];
+    if(last<0)for(int y=0;y<224;++y)SKY_LINES[y]=fzx_sky_colors[63];
+    else for(int y=last+1;y<224;++y)SKY_LINES[y]=SKY_LINES[last];
     /* Outside the view the screen stays black, as with the VDP1 sky. */
-    for(int y=0;y<224;++y)if(y<view->clip[1] || y>=view->clip[3])sky_lines[y]=0;
+    for(int y=0;y<224;++y)if(y<view->clip[1] || y>=view->clip[3])SKY_LINES[y]=0;
     fzx_clouds_sky_line_count=set;
     return true;
 }
@@ -215,7 +231,7 @@ static bool emit(void *context,const fzx_floor_polygon_t *q) {
     int y=(q->y[0]+q->y[1]+q->y[2]+q->y[3])/4;
     if(y<0)y=0;
     if(y>223)y=223;
-    const uint16_t sky=sky_lines[y];
+    const uint16_t sky=SKY_LINES[y];
     vdp1_cmdt_t *c=&s->commands[s->count++];memset(c,0,sizeof(*c));vdp1_cmdt_polygon_set(c);
     const vdp1_cmdt_draw_mode_t mode={.end_code_disable=1,.trans_pixel_disable=1,.user_clipping_mode=2};
     vdp1_cmdt_draw_mode_set(c,mode);
@@ -235,7 +251,12 @@ static bool emit(void *context,const fzx_floor_polygon_t *q) {
 }
 bool fzx_clouds_native(vdp1_cmdt_t *commands,unsigned capacity,const fzx_view_t *view,
                        const RefBackdrop *source,uint32_t *count) {
+#if FZX_VDP1_DBANK
+    if(!commands || capacity<2 || !view || !source || !count || fzx_clouds_status!=1 ||
+       !clouds_stage[clouds_bank] || !sky_stage[clouds_bank] || !sh2z_vdp1_queue_free(&clouds_queue,clouds_bank))return false;
+#else
     if(!commands || capacity<2 || !view || !source || !count || fzx_clouds_status!=1 || fzx_clouds_pending)return false;
+#endif
     memset(commands,0,sizeof(*commands));vdp1_cmdt_user_clip_coord_set(commands);
     commands->cmd_xa=view->clip[0];commands->cmd_ya=view->clip[1];commands->cmd_xc=view->clip[2]-1;commands->cmd_yc=view->clip[3]-1;
     /* The VDP1 sky used to cover the whole view each frame. Clear the view to
@@ -265,12 +286,15 @@ bool fzx_clouds_native(vdp1_cmdt_t *commands,unsigned capacity,const fzx_view_t 
     /* The plane status words stay live for the capture harness: busy, and the
      * cloud stats in the plane stats block (draws = fade bands). */
     fzx_plane_busy=1;
-    if(!fzx_clouds_rbg_prepare(view,source,&fzx_clouds_rbg,emit,&submit)) {
-        fzx_plane_stats.fault=fzx_clouds_rbg.fault;fzx_clouds_status=3;return false;
+    if(!fzx_clouds_rbg_prepare(view,source,&CLOUDS_STAGE,emit,&submit)) {
+        fzx_plane_stats.fault=CLOUDS_STAGE.fault;fzx_clouds_status=3;return false;
     }
     memset(&fzx_plane_stats,0,sizeof(fzx_plane_stats));
-    fzx_plane_stats.draws=submit.count;fzx_plane_stats.hash=fzx_clouds_rbg.hash;fzx_plane_busy=0;
-    fzx_clouds_degenerate+=fzx_clouds_rbg.degenerate;fzx_clouds_bands=submit.count;
+    fzx_plane_stats.draws=submit.count;fzx_plane_stats.hash=CLOUDS_STAGE.hash;fzx_plane_busy=0;
+    fzx_clouds_degenerate+=CLOUDS_STAGE.degenerate;fzx_clouds_bands=submit.count;
+#if FZX_VDP1_DBANK
+    (void)sh2z_vdp1_queue_push(&clouds_queue,clouds_bank,fzx_input_count?fzx_input_count:1u);
+#endif
     *count=submit.count+1+borders;fzx_clouds_pending=fzx_input_count?fzx_input_count:1;return true;
 }
 uint16_t fzx_clouds_upload_log[FZX_CLOUDS_UPLOAD_LOG];
@@ -286,16 +310,29 @@ void fzx_clouds_upload_record(uint16_t start,uint32_t began_in_blank) {
     ++fzx_clouds_upload_count;
 }
 bool fzx_clouds_present(void) {
+#if FZX_VDP1_DBANK
+    if(!clouds_queue.count) {
+#else
     if(!fzx_clouds_pending) {
+#endif
         /* Not a race frame: after two in a row, hand VDP2 back unchanged. */
         if(applied && fzx_clouds_status==1 && ++idle_presents>=2)restore();
         return false;
     }
     idle_presents=0;
     if(!applied)apply();
+#if FZX_VDP1_DBANK
+    uint32_t bank=0,tick=0;(void)sh2z_vdp1_queue_pop(&clouds_queue,&bank,&tick);(void)tick;
+    const fzx_clouds_rbg_t *stage=clouds_stage[bank];
+    memcpy((void *)CLOUD_RP,&stage->rp,sizeof(stage->rp));
+    memcpy((void *)CLOUD_WINDOW,stage->window,sizeof(stage->window));
+    memcpy((void *)SKY_BACK,sky_stage[bank],sizeof(sky_lines));
+    fzx_clouds_pending=sh2z_vdp1_queue_front(&clouds_queue);++fzx_clouds_commits;
+#else
     memcpy((void *)CLOUD_RP,&fzx_clouds_rbg.rp,sizeof(fzx_clouds_rbg.rp));
     memcpy((void *)CLOUD_WINDOW,fzx_clouds_rbg.window,sizeof(fzx_clouds_rbg.window));
     memcpy((void *)SKY_BACK,sky_lines,sizeof(sky_lines));
     fzx_clouds_pending=0;++fzx_clouds_commits;
+#endif
     return true;
 }

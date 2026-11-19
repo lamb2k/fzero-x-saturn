@@ -41,6 +41,7 @@ void fzx_road_note_tick(void) {
     road_tick_seen=true;
 }
 void fzx_road_restart(void) {road_plan_seen=false;road_tick_seen=false;}
+#ifndef FZX_ENGINE /* the engine line fills this state itself (saturn/engine) */
 bool fzx_road_publish(void) {
     if(!road_tick_seen) return true;
     if(road_plan_seen && planned_frame==fzx_road_frame) return fzx_road_plan_status==1;
@@ -60,6 +61,7 @@ bool fzx_road_publish(void) {
     ++fzx_road_plan_sequence;fzx_road_plan_status=1;
     return true;
 }
+#endif
 static void read_volume_sector(sector_t lba,sector_buffer_t *out) {
     int rc=fzx_road_sector_read((fad_t)(lba+150u),out);
     if(rc) {

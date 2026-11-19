@@ -15,6 +15,10 @@ bool fzx_clouds_vdp2_load(const void *planes_vram);
 /* Per frame: the 224 back-screen sky colours (sampled from the source sky bands
  * at the view's centre column). Needs a published sky. */
 bool fzx_clouds_sky_lines(const fzx_view_t *view,const RefBackdrop *source);
+/* FZX_VDP1_DBANK: bank 1 of the staged tables (cloud parameters and window, sky
+ * lines) and the bank the next prepare uses. */
+void fzx_clouds_dbank(void *clouds_bank1,void *sky_bank1);
+void fzx_clouds_dbank_select(unsigned bank);
 /* Per frame, after fzx_clouds_sky_lines: parameter B, W1 and the fade bands
  * (a user-clip command first, then the bands). */
 bool fzx_clouds_native(vdp1_cmdt_t *commands,unsigned capacity,const fzx_view_t *view,

@@ -16,6 +16,51 @@
 #include "engine_scenes.h"
 #include "engine_closeup.h"
 #include "engine_records.h"
+#ifndef ENG_ROSTER
+#define ENG_ROSTER 0
+#endif
+#if ENG_ROSTER
+#include "engine_roster.h"
+#include "rosterz_identity.h"
+/* The roster LOAD phase's field: the stock families of a full grid (time attack has no
+ * rivals; this measures the E2 field's load). [0] fields, [1] raw FNV of the inflated
+ * check set (family 0 near), [2] its expected FNV, [3] check result (1 equal). */
+volatile uint32_t fzx_scn_roster[8];
+static uint8_t roster_check[60u * 1024u] __attribute__((aligned(4)));
+static void nibble_mirror(uint8_t *row, uint32_t bytes) {
+    for (uint32_t i = 0, j = bytes - 1u; i < j; ++i, --j) {
+        const uint8_t a = row[i], b = row[j];
+        row[i] = (uint8_t)((b << 4) | (b >> 4)); row[j] = (uint8_t)((a << 4) | (a >> 4));
+    }
+    if (bytes & 1u) row[bytes / 2u] = (uint8_t)((row[bytes / 2u] << 4) | (row[bytes / 2u] >> 4));
+}
+/* Inflates every cell of a loaded set back into the RSP1 1.1 layout and returns its FNV. */
+static uint32_t roster_inflate_fnv(uint32_t family, unsigned prof) {
+    const sh2z_rspr_set_t *set = fzx_roster_set(family, prof);
+    if (!set || set->bytes > sizeof(roster_check)) return 0;
+    const uint8_t *src = (const uint8_t *)set;
+    uint32_t header = 0;
+    {   /* The header region (header, cell table, CLUTs) as stored; the rest zero, then the cells. */
+        static const char names[2][4] = { { 'n', 'e', 'a', 'r' }, { 'f', 'a', 'r', 0 } };
+        const char key[8] = { 'c', (char)('0' + family / 10u), (char)('0' + family % 10u), 's', '1', 0, 0, 0 };
+        for (unsigned i = 0; i < FZX_RZ_SETS; ++i)
+            if (!memcmp(fzx_rz_sets[i].key, key, 8) && !memcmp(fzx_rz_sets[i].prof, names[prof & 1u], 4)) header = fzx_rz_sets[i].header_bytes;
+    }
+    for (uint32_t i = 0; i < set->bytes; ++i) roster_check[i] = i < header ? src[i] : 0u;
+    const uint32_t cells = (uint32_t)set->yaw_count * set->pitch_count;
+    const sh2z_rspr_cell_t *ct = sh2z_rspr_cells(set);
+    for (uint32_t c = 0; c < cells; ++c) {
+        uint32_t from; bool flip;
+        if (!fzx_roster_cell_source(family, prof, c, &from, &flip)) return 0;
+        uint8_t *dst = roster_check + ct[c].pixel_offset;
+        if (!fzx_roster_cell_decode(family, prof, from, (volatile uint16_t *)(void *)dst)) return 0;
+        if (flip) for (uint32_t y = 0; y < ct[c].height; ++y) nibble_mirror(dst + y * (ct[c].width / 2u), ct[c].width / 2u);
+    }
+    uint32_t h = 2166136261u;
+    for (uint32_t i = 0; i < set->bytes; ++i) h = (h ^ roster_check[i]) * 16777619u;
+    return h;
+}
+#endif
 #include "engine_drive.h"
 #include "sh2zam/scene_experimental.h"
 #include "sh2zam/vehicle_dynamics_experimental.h"
@@ -546,6 +591,30 @@ static void load_tick(void *u, uint32_t s) {
             return;
         }
         fzx_race_load();
+#if ENG_ROSTER
+        {   /* The roster LOAD phase: the field's near and far sets, compressed, into the
+             * cartridge after the player's sprite set. */
+            static const uint8_t field[30] = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19,
+                                               20, 21, 22, 23, 24, 25, 26, 27, 28, 29 };
+            const uint32_t r0 = video_fields_get();
+            void *const area = dram_cart_area_get();
+            const uintptr_t cart = (uintptr_t)area, limit = cart + dram_cart_size_get();
+            const uintptr_t base = ((uintptr_t)fzx_e1_vram[7] + fzx_e1_vram[8] + 2047u) & ~(uintptr_t)2047u;
+            (void)cart;
+            const uintptr_t scratch = 0x0028C000u; /* the CD scratch the race load uses (sat_stub_data_end) */
+            if (!fzx_roster_select_load(field, 30u, base, limit, (void *)scratch, 4096u)) {
+                fzx_scn_roster[0] = video_fields_get() - r0;
+                fault(70u + fzx_roster_report[0], "ROSTER LOAD");
+            }
+            fzx_scn_roster[0] = video_fields_get() - r0;
+            fzx_scn_roster[1] = roster_inflate_fnv(0, FZX_ROSTER_NEAR);
+            for (unsigned i = 0; i < FZX_RZ_SETS; ++i)
+                if (!memcmp(fzx_rz_sets[i].key, "c00s1", 5) && !memcmp(fzx_rz_sets[i].prof, "near", 4))
+                    fzx_scn_roster[2] = fzx_rz_sets[i].raw_fnv;
+            fzx_scn_roster[3] = fzx_scn_roster[1] && fzx_scn_roster[1] == fzx_scn_roster[2];
+            fzx_scn_stamp(7);
+        }
+#endif
         fzx_race_render_callback(false); /* until RACE enters */
         load_running = false;
         fzx_cd_yield = NULL;

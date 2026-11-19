@@ -189,7 +189,7 @@ void engine_snd_tick(const sh2z_vd_body_t *body, const sh2z_vd_vehicle_t *vehicl
     if (recoil && !prev_recoil) { post(SND_RACE_EV_WALL); ++engine_snd_report[14]; }
     prev_recoil = recoil;
     if (prev_laps >= 0 && body->laps_done != prev_laps && !(body->flags & SH2Z_VD_FINISHED)) {
-        const int32_t lap = body->laps_done + 1;                    /* the lap now being driven */
+        const int32_t lap = body->laps_done;                        /* the lap now being driven (the HUD's count) */
         if (lap == 2) { post(SND_RACE_EV_LAP_TWO); ++engine_snd_report[15]; }
         if (lap == laps) { post(SND_RACE_EV_LAP_FINAL); ++engine_snd_report[15]; }
     }

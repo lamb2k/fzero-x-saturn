@@ -52,8 +52,9 @@ int fzx_track_pick(RefRoadPlan *out, const FzxTrackPickView *v) {
     fzx_track_pick_runs = runs;
     fzx_track_pick_marked = marked;
     if (r == SH2Z_SEGMESH_BAD_ARGS) return 0;
-    if (r == SH2Z_SEGMESH_TOO_MANY) { out->faults = 2; return -2; }
+    /* The source planner publishes the marked count before its group-pool check. */
     out->visible_chunks = marked;
+    if (r == SH2Z_SEGMESH_TOO_MANY) { out->faults = 2; return -2; }
     if (marked == 0u) return -1;
     out->count = runs;
     for (uint32_t i = 0; i < runs; ++i) {

@@ -5,7 +5,9 @@
  * constants. Render-only: nothing here feeds simulation or gameplay state.
  *
  * Once per course the chunk positions become int16 anchors at a power-of-two
- * scale (rebuilt when the chunk storage or sampled positions change). Per frame
+ * scale. The cache is keyed by the ring's storage address, its length and an
+ * FNV-1a of every chunk position's bits, recomputed each frame, so any
+ * same-storage rebuild or edit of any chunk rebuilds the anchors. Per frame
  * the camera's clip matrix becomes four fixed-point rows (x/y/w on one exponent,
  * depth on another, coefficients below 2^14, translations below 2^29) and the
  * source thresholds (far distance, the 30-unit direction step, the group split
@@ -15,7 +17,7 @@
 
 static const SegmentChunk *ref_track_base;
 static s32 ref_track_count, ref_track_shift, ref_track_ready;
-static u32 ref_track_sample[6];
+static u32 ref_track_key;
 u32 ref_track_pick_calls, ref_track_pick_fallbacks, ref_track_pick_builds;
 
 static u32 ref_track_bits(f32 v) { u32 b; memcpy(&b, &v, 4); return b; }
@@ -24,15 +26,19 @@ static s32 ref_track_exp(f32 v) { return (s32)((ref_track_bits(v) >> 23) & 0xff)
 /* Power-of-two float; callers keep E in -126..127. */
 static f32 ref_track_pow2(s32 e) { u32 b = (u32)(e + 127) << 23; f32 v; memcpy(&v, &b, 4); return v; }
 
-static void ref_track_samples(u32 out[6]) {
-    const SegmentChunk *mid = gSegmentChunks + gSegmentChunkCount / 2;
-    const SegmentChunk *end = sLastSegmentChunk - 1;
-    out[0] = ref_track_bits(gSegmentChunks->pos.x); out[1] = ref_track_bits(gSegmentChunks->pos.z);
-    out[2] = ref_track_bits(mid->pos.x); out[3] = ref_track_bits(mid->pos.y);
-    out[4] = ref_track_bits(end->pos.y); out[5] = ref_track_bits(end->pos.z);
+/* FNV-1a over the bits of every chunk position in the current ring. */
+static u32 ref_track_ring_key(void) {
+    const SegmentChunk *c;
+    u32 h = 2166136261u;
+    for (c = gSegmentChunks; c != sLastSegmentChunk; c++) {
+        h = (h ^ ref_track_bits(c->pos.x)) * 16777619u;
+        h = (h ^ ref_track_bits(c->pos.y)) * 16777619u;
+        h = (h ^ ref_track_bits(c->pos.z)) * 16777619u;
+    }
+    return h;
 }
 
-static s32 ref_track_build(void) {
+static s32 ref_track_build(u32 key) {
     const SegmentChunk *c;
     s32 e = -127, i, j;
     f32 scale;
@@ -64,21 +70,17 @@ static s32 ref_track_build(void) {
     }
     ref_track_base = gSegmentChunks;
     ref_track_count = gSegmentChunkCount;
-    ref_track_samples(ref_track_sample);
+    ref_track_key = key;
     ref_track_ready = 1;
     ++ref_track_pick_builds;
     return 1;
 }
 
 static s32 ref_track_current(void) {
-    u32 now[6];
-    s32 i;
-    if (ref_track_ready && ref_track_base == gSegmentChunks && ref_track_count == gSegmentChunkCount) {
-        ref_track_samples(now);
-        for (i = 0; i < 6; i++) if (now[i] != ref_track_sample[i]) break;
-        if (i == 6) return 1;
-    }
-    return ref_track_build();
+    const u32 key = ref_track_ring_key();
+    if (ref_track_ready && ref_track_base == gSegmentChunks && ref_track_count == gSegmentChunkCount &&
+        ref_track_key == key) return 1;
+    return ref_track_build(key);
 }
 
 /* Exponent E for a coefficient group (rows 0..2 of the given columns) so that

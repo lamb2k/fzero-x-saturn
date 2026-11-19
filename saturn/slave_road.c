@@ -62,7 +62,7 @@ void fzx_slave_road_start(const fzx_slave_road_args_t *args){
     cpu_dual_slave_notify();
 }
 
-bool fzx_slave_road_finish(const volatile uint32_t *video_fields,uint32_t *count,uint32_t *ticks){
+bool fzx_slave_road_finish(const volatile uint32_t *video_fields,uint32_t *count){
     const uint32_t seq=job.seq,f0=*video_fields;
     const uint16_t w0=cpu_frt_count_get();
     bool late=false;
@@ -81,7 +81,7 @@ bool fzx_slave_road_finish(const volatile uint32_t *video_fields,uint32_t *count
         const uint32_t u=stack_unused();
         if(u<fzx_slave_road_stack_unused)fzx_slave_road_stack_unused=u;
     }
-    *count=job.count;*ticks=busy;
+    *count=job.count;
     if(!job.ok)fzx_slave_road_status=4;
     return job.ok!=0;
 }

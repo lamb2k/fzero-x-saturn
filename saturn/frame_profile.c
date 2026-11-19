@@ -194,24 +194,3 @@ void fzx_fp_scene_end(unsigned subsystem,uint32_t commands) {
     if(commands>s[6])s[6]=commands;
     if(elapsed>s[7])s[7]=elapsed;
 }
-#if FZX_SLAVE_ROAD
-void fzx_fp_scene_add(unsigned subsystem,uint32_t elapsed,uint32_t commands) {
-    if(!current || subsystem>=7)return;
-#if FZX_SOURCE_ROAD_STREAM
-    if(subsystem==4){
-#if FZX_ROAD_STREAM_PHASES
-        phase_store();
-#endif
-        road_row_t *r=road_rows+(current-rows);
-        r->ticks+=elapsed;r->commands+=commands;
-    }
-#endif
-    volatile uint32_t *s=fzx_frame_subsystems[subsystem];
-    if(!s[0] || commands<s[5])s[5]=commands;
-    ++s[0];
-    uint32_t previous=s[1];s[1]+=elapsed;if(s[1]<previous)++s[2];
-    previous=s[3];s[3]+=commands;if(s[3]<previous)++s[4];
-    if(commands>s[6])s[6]=commands;
-    if(elapsed>s[7])s[7]=elapsed;
-}
-#endif

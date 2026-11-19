@@ -798,8 +798,8 @@ commands_build(const fzx_frame_t *frame)
         memset(road_jump,0,sizeof(*road_jump));
         vdp1_cmdt_jump_skip_assign(road_jump,COMMAND_FIRST_POLYGON+FZX_SLAVE_ROAD_RESERVE);
         first=FZX_SLAVE_ROAD_RESERVE;
-        uint32_t slave_ticks=0;
-        if(!fzx_slave_road_finish(&video_fields,&road_count,&slave_ticks)) {
+        /* Profiler slot 4 records the road's cost to the master: the jump and the wait. */
+        if(!fzx_slave_road_finish(&video_fields,&road_count)) {
             dbgio_printf("SOURCE C3 ROAD STREAM FAILED %lu/%lu\n",(unsigned long)fzx_road_stream_stats.fault,
                 (unsigned long)fzx_slave_road_status);
 #elif FZX_SOURCE_ROAD_STREAM
@@ -820,9 +820,7 @@ commands_build(const fzx_frame_t *frame)
         fzx_road_profile_outer[0]=(uint16_t)(profile_end.ticks-profile_start.ticks);
         fzx_road_profile_outer[1]=profile_end.fields-profile_start.fields;
 #endif
-#if FZX_FRAME_PROFILE && FZX_SLAVE_ROAD
-        fzx_fp_scene_add(4,slave_ticks,road_count);
-#elif FZX_FRAME_PROFILE
+#if FZX_FRAME_PROFILE
         fzx_fp_scene_end(4,road_count);
 #endif
         #if FZX_SOURCE_ROAD_STREAM

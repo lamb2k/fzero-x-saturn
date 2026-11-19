@@ -26,7 +26,8 @@ extern volatile uint32_t fzx_slave_road_stack_unused,fzx_slave_road_status;
 void fzx_slave_road_init(void);
 /* Master: hand this frame's road to the slave (VDP1 must be idle). */
 void fzx_slave_road_start(const fzx_slave_road_args_t *args);
-/* Master: bounded wait; returns the slave's result and road count, and the
- * slave's FRT ticks for the profiler. video_fields is the master's counter. */
-bool fzx_slave_road_finish(const volatile uint32_t *video_fields,uint32_t *count,uint32_t *ticks);
+/* Master: bounded wait; returns the slave's result and road count. The
+ * slave's own road ticks go to fzx_slave_road_busy_*. video_fields is the
+ * master's field counter. */
+bool fzx_slave_road_finish(const volatile uint32_t *video_fields,uint32_t *count);
 #endif

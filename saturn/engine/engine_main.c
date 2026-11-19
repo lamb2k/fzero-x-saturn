@@ -525,6 +525,9 @@ static void before_master(void) {
 }
 
 /* The view, then the slave's job: pick the visible track and build it at a fixed slot. */
+#ifndef E0_QUEUE_STRESS
+#define E0_QUEUE_STRESS 0
+#endif
 static void kick(const fzx_engine_cam_t *cam, uint32_t tick) {
     vdp1_cmdt_t *const commands = commands_buf;
     const fzx_engine_consts_t *k = &path.consts;
@@ -542,7 +545,11 @@ static void kick(const fzx_engine_cam_t *cam, uint32_t tick) {
 #else
     job.shades = road_shades[0];
 #endif
+#if E0_QUEUE_STRESS
+    (void)job; /* control: no track, so every frame fits one field */
+#else
     fzx_slave_road_start(&job);
+#endif
 }
 
 static void build(row_t *row, const fzx_engine_cam_t *cam, uint32_t tick, uint16_t kicked) {
@@ -550,6 +557,16 @@ static void build(row_t *row, const fzx_engine_cam_t *cam, uint32_t tick, uint16
     const fzx_engine_consts_t *k = &path.consts;
     uint32_t first = 0, n = 0, road_count = 0;
     const uint16_t t0 = cpu_frt_count_get();
+#if E0_QUEUE_STRESS
+    {
+        /* Control: a pseudo-random wait (0..1 field) so the queue pushes land at every
+         * phase of the field, including the VBlank-In present. */
+        static uint32_t seed = 1u;
+        seed = seed * 1664525u + 1013904223u;
+        const uint16_t w = (uint16_t)((seed >> 16) % (field_frt ? field_frt : 14000u)), s0 = cpu_frt_count_get();
+        while ((uint16_t)(cpu_frt_count_get() - s0) < w) {}
+    }
+#endif
 
     if (!fzx_engine_backdrop(&fzx_source_backdrop, cam, k, tick)) fail(20, "BACKDROP", tick);
     if (!fzx_engine_skyline(&fzx_source_skyline, cam)) fail(21, "SKYLINE", tick);
@@ -572,8 +589,12 @@ static void build(row_t *row, const fzx_engine_cam_t *cam, uint32_t tick, uint16
     row->master_ticks = (uint16_t)(cpu_frt_count_get() - t0);
 
     const uint16_t t1 = cpu_frt_count_get();
+#if E0_QUEUE_STRESS
+    road_count = 0;
+#else
     if (!fzx_slave_road_finish(&video_fields, &road_count))
         fail(27, "TRACK", fzx_road_stream_stats.fault * 100u + fzx_slave_road_status);
+#endif
     row->wait_road_ticks = (uint16_t)(cpu_frt_count_get() - t1);
 #if FZX_ROAD_STREAM_PHASES
     for (unsigned i = 0; i < FZX_RSPC_COUNTERS; ++i)

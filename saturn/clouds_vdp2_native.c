@@ -28,6 +28,42 @@ static fzx_clouds_rbg_t *clouds_stage[2]={&fzx_clouds_rbg,0};
 static uint16_t *sky_stage[2]={sky_lines,0};
 static unsigned clouds_bank;
 static sh2z_vdp1_queue_t clouds_queue;
+#if FZX_VDP1_DBANK
+/* The VBlank-In present pops this queue inside the interrupt while the build
+ * pushes from the main loop. sh2z_vdp1_queue_push is a read-modify-write of the
+ * count and both slots, so a pop landing inside it loses an update: the count
+ * drifts from the entries and a later build finds its bank "queued" (E1 fault 25
+ * status 1 at tick 6095; E2's status 23). The push runs with interrupts masked.
+ * FZX_DBANK_QUEUE_ATOMIC=0 is the control. */
+#ifndef FZX_DBANK_QUEUE_ATOMIC
+#define FZX_DBANK_QUEUE_ATOMIC 1
+#endif
+/* FZX_DBANK_QUEUE_WIDEN=N (control only): the same push, with N spins between
+ * reading the count and storing it, so the race window is wide enough to hit in
+ * seconds instead of once a race. */
+#ifndef FZX_DBANK_QUEUE_WIDEN
+#define FZX_DBANK_QUEUE_WIDEN 0
+#endif
+static bool queue_push(sh2z_vdp1_queue_t *q,uint32_t bank,uint32_t tag) {
+#if FZX_DBANK_QUEUE_ATOMIC
+    const uint8_t mask=cpu_intc_mask_get();cpu_intc_mask_set(15);
+#endif
+#if FZX_DBANK_QUEUE_WIDEN
+    bool ok=false;
+    if(tag && sh2z_vdp1_queue_free(q,bank)) {
+        const uint32_t c=q->count;
+        for(volatile uint32_t spin=FZX_DBANK_QUEUE_WIDEN;spin;--spin){}
+        q->bank[c]=bank;q->tag[c]=tag;q->count=c+1u;ok=true;
+    }
+#else
+    const bool ok=sh2z_vdp1_queue_push(q,bank,tag);
+#endif
+#if FZX_DBANK_QUEUE_ATOMIC
+    cpu_intc_mask_set(mask);
+#endif
+    return ok;
+}
+#endif
 void fzx_clouds_dbank(void *clouds_bank1,void *sky_bank1){clouds_stage[1]=clouds_bank1;sky_stage[1]=sky_bank1;sh2z_vdp1_queue_init(&clouds_queue);}
 void fzx_clouds_dbank_select(unsigned bank){clouds_bank=bank&1u;}
 #define SKY_LINES (sky_stage[clouds_bank])
@@ -293,7 +329,7 @@ bool fzx_clouds_native(vdp1_cmdt_t *commands,unsigned capacity,const fzx_view_t 
     fzx_plane_stats.draws=submit.count;fzx_plane_stats.hash=CLOUDS_STAGE.hash;fzx_plane_busy=0;
     fzx_clouds_degenerate+=CLOUDS_STAGE.degenerate;fzx_clouds_bands=submit.count;
 #if FZX_VDP1_DBANK
-    (void)sh2z_vdp1_queue_push(&clouds_queue,clouds_bank,fzx_input_count?fzx_input_count:1u);
+    (void)queue_push(&clouds_queue,clouds_bank,fzx_input_count?fzx_input_count:1u);
 #endif
     *count=submit.count+1+borders;fzx_clouds_pending=fzx_input_count?fzx_input_count:1;return true;
 }

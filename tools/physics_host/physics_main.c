@@ -12,6 +12,8 @@
  * --from T starts at tick T + 1 from a pack baked with fzx-ref --bake-at T (state
  * resync); script ticks up to T are skipped but set the button edge state.
  * --save-at T --save PACK writes the native state after tick T as a pack (state restore check).
+ * --checkpoints K prints "chk N HASH" after every K-th step: FNV-1a 64 over the state alone, in
+ * big-endian words, as the engine image (saturn/engine/engine_drive.c) records it.
  * --boost-reserve R: the C-059 energy-aware driver, as in the reference driver.
  * --mutate NAME plants one model mutation for the controls: grip+5%, turn+2%, damp0.9968,
  * wall1.6, boost99, zones-off, stick+1 (a one-unit stick offset on non-zero input).
@@ -99,7 +101,7 @@ int main(int argc, char** argv) {
     static FzxPhysCourse course;
     sh2z_vd_rules_t rules = fzx_phys_rules;
     const char* mutate = NULL;
-    int stick_offset = 0, from = -1, save_at = -1;
+    int stick_offset = 0, from = -1, save_at = -1, checkpoints = 0;
     int reserve_tenths = 0;
     const char* save_path = NULL;
     static uint8_t image[1 << 20];
@@ -125,6 +127,7 @@ int main(int argc, char** argv) {
         else if (strcmp(argv[i], "--boost-reserve") == 0) reserve_tenths = (int) (atof(argv[i + 1]) * 10.0 + 0.5);
         else if (strcmp(argv[i], "--save-at") == 0) save_at = atoi(argv[i + 1]);
         else if (strcmp(argv[i], "--save") == 0) save_path = argv[i + 1];
+        else if (strcmp(argv[i], "--checkpoints") == 0) checkpoints = atoi(argv[i + 1]);
         else die("unknown option");
     }
     if (pack == NULL || inputs == NULL) die("usage: fzx-phys --pack PACK --inputs SCRIPT [--out TRACE]");
@@ -205,6 +208,21 @@ int main(int argc, char** argv) {
                                             (unsigned char) (w[n] >> 8), (unsigned char) w[n] };
                     mix(be, 4);
                 }
+            }
+            if (checkpoints > 0 && (tick + 1) % checkpoints == 0) {
+                /* The state alone after tick+1 steps, as the engine image records it (E1 drive). */
+                uint64_t keep = hash;
+                const uint32_t* w = (const uint32_t*) (const void*) &b;
+                size_t n;
+                hash = 0xCBF29CE484222325ull;
+                for (n = 0; n < sizeof(b) / 4; n++) {
+                    unsigned char be[4] = { (unsigned char) (w[n] >> 24), (unsigned char) (w[n] >> 16),
+                                            (unsigned char) (w[n] >> 8), (unsigned char) w[n] };
+                    mix(be, 4);
+                }
+                printf("chk %d %016llx
+", tick + 1, (unsigned long long) hash);
+                hash = keep;
             }
             if (dump != NULL)
                 fprintf(dump, "%u %u %u %d %d %016llx\n", in.held, in.pressed, in.released, in.stick_x, in.stick_y,

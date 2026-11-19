@@ -1,8 +1,12 @@
-/* Engine line, milestone E0 (docs/ENGINE_PLAN.md): track flythrough.
+/* Engine line, milestones E0 and E1 (docs/ENGINE_PLAN.md): track flythrough,
+ * then the drive slice.
  *
  * A separate Saturn image with its own main loop. It links no original game
- * code. The camera rides a baked path (ENGPATH.PAK); the engine derives the
- * view, the backdrop, the skyline and the track pick from it in fixed point.
+ * code. E0: the camera rides a baked path (ENGPATH.PAK). E1 (FZX_E1_DRIVE=1):
+ * native physics moves the player, the chase camera follows it, the player is a
+ * rotation sprite and a basic HUD shows speed, lap and time (engine_drive.c).
+ * The engine derives the view, the backdrop, the skyline and the track pick
+ * from the camera in fixed point.
  * VDP2 draws sky, floor and clouds; the slave SH-2 picks and builds the track;
  * VDP1 command and shade banks alternate when FZX_VDP1_DBANK is 1.
  *
@@ -25,6 +29,12 @@
 #include "texture_cd.h"
 #include "sh2zam/segmesh_experimental.h"
 #include "fzx_road_stream_phase.h"
+#ifndef FZX_E1_DRIVE
+#define FZX_E1_DRIVE 0
+#endif
+#if FZX_E1_DRIVE
+#include "engine_drive.h"
+#endif
 #if FZX_ROAD_STREAM_PHASES
 /* Diagnostic builds only: the track build's phase totals (slave timer units). */
 fzx_rsp_state_t fzx_rsp;
@@ -49,10 +59,12 @@ enum {
     WIDTH = 320, HEIGHT = 224,
     CMD_SYSTEM_CLIP = 0, CMD_LOCAL = 1, CMD_FIRST = 2,
     SCENE_CAPACITY = FZX_SLAVE_ROAD_RESERVE + FZX_ROAD_STREAM_MAX_DRAWS + 8u,
-    CMD_CAPACITY = SCENE_CAPACITY + 3u,
+    /* E1: user clip, shadow and sprite for the player after the track. */
+    DRIVE_SLOTS = FZX_E1_DRIVE ? 3u : 0u,
+    CMD_CAPACITY = SCENE_CAPACITY + 3u + DRIVE_SLOTS,
     PATH_BASE = 0x00200000u, PATH_CAPACITY = 0x0008C000u, /* Makefile: sat_stub_data_end follows */
     ROW_MAGIC = 0x45305246u, /* "E0RF" */
-    ROW_WORDS = 9u
+    ROW_WORDS = 9u + (FZX_E1_DRIVE ? 2u : 0u)
 };
 _Static_assert(FZX_ENGINE_PATH_BYTES + 64u <= PATH_CAPACITY, "path pack exceeds its low-RAM reservation");
 _Static_assert(CMD_CAPACITY <= VDP1_VRAM_DEFAULT_CMDT_COUNT, "commands exceed the VDP1 command partition");
@@ -93,6 +105,12 @@ typedef struct {
     uint16_t pick_ticks, flags;
     uint16_t draw_ticks; /* list submit to VDP1's end-of-draw interrupt */
     uint16_t submit_frt;
+#if FZX_E1_DRIVE
+    uint16_t phys_ticks;   /* master FRT units: physics steps of this frame */
+    uint16_t sprite_ticks; /* master FRT units: player sprite pose and emit */
+    uint16_t steps;        /* physics ticks stepped for this frame */
+    uint16_t hud_ticks;    /* master FRT units: HUD text */
+#endif
 } row_t;
 _Static_assert(sizeof(row_t) == ROW_WORDS * 4u, "frame row layout");
 static row_t *rows;
@@ -159,6 +177,9 @@ static void vblank_out(void *work) {
     field_frt = (uint16_t)(now - vblank_frt);
     vblank_frt = now;
     ++video_fields;
+#if FZX_E1_DRIVE
+    smpc_peripheral_intback_issue();
+#endif
 }
 
 void user_init(void) {
@@ -374,7 +395,14 @@ static void build(row_t *row, const fzx_engine_cam_t *cam, uint32_t tick, uint16
         fzx_e0_rsp_counts[i] += ((volatile uint16_t *)((uintptr_t)fzx_rsp.counts | CPU_CACHE_THROUGH))[i];
 #endif
 
-    const uint32_t draws = FZX_SLAVE_ROAD_RESERVE + road_count;
+    uint32_t draws = FZX_SLAVE_ROAD_RESERVE + road_count;
+#if FZX_E1_DRIVE
+    {
+        const uint16_t s0 = cpu_frt_count_get();
+        draws += fzx_drive_sprites(&commands[CMD_FIRST + draws], DRIVE_SLOTS, &fzx_native_view, cam);
+        row->sprite_ticks = (uint16_t)(cpu_frt_count_get() - s0);
+    }
+#endif
     vdp1_cmdt_t *end = &commands[CMD_FIRST + draws];
     memset(end, 0, sizeof(*end));
     vdp1_cmdt_end_set(end);
@@ -410,6 +438,14 @@ int main(void) {
         fail(18, "PATH PACK", 0);
 
     vdp1_vram_partitions_get(&partitions);
+#if FZX_E1_DRIVE
+    /* Physics pack to work RAM; the sprite set to the top of the texture partition. */
+    const uint32_t drive_floor = fzx_drive_load(&partitions, (void *)scratch, 0x00300000u - scratch);
+    if (!drive_floor) fail(50, "DRIVE LOAD", fzx_e1_status * 100u + fzx_texture_cd_status.status);
+    /* The lens (focal, tan_half) of the race camera at speed, from the reference path. */
+    const fzx_engine_cam_t *const lens = &path.cams[(path.ticks >= 3000u ? 3000u : path.ticks) - 1u];
+    static fzx_engine_cam_t drive_cam;
+#endif
     uint32_t offset = FZX_SKY_VRAM_BYTES;
     skyline_vram = (void *)((uintptr_t)partitions.texture_base + offset);
     if (offset + FZX_SKYLINE_VRAM_BYTES > partitions.texture_size || !fzx_skyline_load(skyline_vram)) fail(30, "SKYLINE LOAD", 0);
@@ -432,6 +468,9 @@ int main(void) {
     if (offset + FZX_ROAD_LOD_TEXTURE_BYTES + FZX_ROAD_STREAM_SHADE_BYTES > partitions.texture_size || !fzx_road_stream_load(road_pixels))
         fail(35, "TRACK LOAD", fzx_road_stream_status);
     offset += FZX_ROAD_LOD_TEXTURE_BYTES + FZX_ROAD_STREAM_SHADE_BYTES;
+#if FZX_E1_DRIVE
+    if (offset > drive_floor) fail(51, "SPRITE VRAM OVERLAP", offset);
+#endif
     fzx_slave_road_init();
     if (fzx_slave_road_status != 1) fail(36, "SLAVE INIT", fzx_slave_road_status);
 #if FZX_VDP1_DBANK
@@ -478,23 +517,43 @@ int main(void) {
         uint32_t advance = remainder / hz;
         remainder -= advance * hz;
         if (!tick) advance = 1;
+#if FZX_E1_DRIVE
+        /* Physics at 60 Hz real time (at most 4 ticks a frame); a debugger hold
+         * freezes it once it reaches the held tick. */
+        const uint32_t hold = HOLD_TICK;
+        if (advance > 4u) advance = 4u;
+        if (hold && fzx_drive_tick() + advance > hold) advance = fzx_drive_tick() < hold ? hold - fzx_drive_tick() : 0u;
+        const uint16_t p0 = cpu_frt_count_get();
+        fzx_drive_step(advance);
+        const uint16_t phys = (uint16_t)(cpu_frt_count_get() - p0);
+        tick = fzx_drive_tick() ? fzx_drive_tick() : 1u;
+        if (fzx_e1_driver && fzx_e1_report[5]) { fzx_e0_done = 1; fzx_e0_status = 2; }
+        const uint32_t shown = tick;
+        fzx_drive_camera(&drive_cam, lens);
+        const fzx_engine_cam_t *const cam = &drive_cam;
+#else
         tick += advance;
         if (tick >= path.ticks) { tick = path.ticks; fzx_e0_done = 1; fzx_e0_status = 2; }
         const uint32_t hold = HOLD_TICK;
         const uint32_t shown = hold && hold <= path.ticks ? hold : tick;
+        const fzx_engine_cam_t *const cam = &path.cams[shown - 1u];
+#endif
         fzx_input_count = shown;
 
         row_t scratch_row, *row = row_index < row_capacity && !fzx_e0_done ? &rows[row_index] : &scratch_row;
         memset(row, 0, sizeof(*row));
         row->tick = shown; row->build_field = field;
+#if FZX_E1_DRIVE
+        row->phys_ticks = phys; row->steps = (uint16_t)advance;
+#endif
         const uint16_t w0 = cpu_frt_count_get();
         before_slave();
         const uint16_t kicked = cpu_frt_count_get();
-        kick(&path.cams[shown - 1u], shown);
+        kick(cam, shown);
         const uint16_t w1 = cpu_frt_count_get();
         before_master();
         row->wait_prev_ticks = (uint16_t)((uint16_t)(kicked - w0) + (uint16_t)(cpu_frt_count_get() - w1));
-        build(row, &path.cams[shown - 1u], shown, kicked);
+        build(row, cam, shown, kicked);
 #if FZX_VDP1_DBANK
         {
             /* The previous frame must be drawn and swapped before this one is sent. */
@@ -508,6 +567,13 @@ int main(void) {
         fzx_e0_report[11] = fzx_slave_road_busy_sum;
         if (row != &scratch_row) { pending_row = row_index + 1u; ++row_index; fzx_e0_report[1] = row_index; }
         else pending_row = 0;
+#if FZX_E1_DRIVE
+        {
+            const uint16_t h0 = cpu_frt_count_get();
+            fzx_drive_hud();
+            row->hud_ticks = (uint16_t)(cpu_frt_count_get() - h0);
+        }
+#endif
         row->submit_frt = cpu_frt_count_get();
         vdp1_sync_cmdt_list_put(&command_list, 0);
         vdp1_sync_render();

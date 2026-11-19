@@ -137,6 +137,34 @@ static bool projected_band(const fzx_view_t *v,const int32_t in[4][3],int32_t xy
 #else
 #define BAND_PROJECTED projected
 #endif
+#if FZX_RBG_LEAN && FZX_RBG_SHARE
+/* FZX_RBG_SHARE (exact): adjacent fog bands share their boundary lines (band b's
+ * high fraction is band b+1's low one). Each boundary's two points are built with
+ * the same formula as the per-band corners, tested against the near and far planes
+ * as fzx_view_project_guarded tests them, and projected once. A band whose four
+ * corners are all inside goes straight to the 2D clip; any other band takes the
+ * unchanged per-band path, so the output is identical. */
+typedef struct { int32_t fraction; uint8_t half, ok; int32_t xy[2][2]; } band_edge_t;
+static const band_edge_t *band_edge(band_edge_t *cache, unsigned *n, const fzx_view_t *view,
+                                    const int32_t positions[8][3], unsigned half, int32_t fraction, unsigned inner_base) {
+    for(unsigned k=0;k<*n;++k)if(cache[k].half==half && cache[k].fraction==fraction)return &cache[k];
+    band_edge_t *e=&cache[(*n)++];e->half=(uint8_t)half;e->fraction=fraction;e->ok=1;
+    for(unsigned side=0;side<2;++side) {
+        const unsigned in_vertex=half?4+side:inner_base+side,edge=half?6+side:side;
+        int32_t p[3];
+        for(unsigned j=0;j<3;++j)p[j]=positions[in_vertex][j]+(int32_t)(((int64_t)positions[edge][j]-positions[in_vertex][j])*fraction/65536);
+        if(fzx_view_plane(view,p,0)<0 || fzx_view_plane(view,p,1)<0 || !fzx_view_project(view,p,e->xy[side]))e->ok=0;
+    }
+    return e;
+}
+static bool band_shared(const fzx_view_t *view, const band_edge_t *lo, const band_edge_t *hi, int32_t xy[10][2], unsigned *count) {
+    if(!lo->ok || !hi->ok)return false;
+    const int32_t quad[4][2]={{lo->xy[0][0],lo->xy[0][1]},{lo->xy[1][0],lo->xy[1][1]},{hi->xy[1][0],hi->xy[1][1]},{hi->xy[0][0],hi->xy[0][1]}};
+    const int n=fzx_view_guard_projected(view,quad,0,xy);
+    if(n<0)return false;
+    *count=(unsigned)n;return true;
+}
+#endif
 static void window(const fzx_view_t *v,const int32_t xy[10][2],unsigned count,fzx_floor_rbg_t *out) {
     for(int y=0;y<224;++y) {
         out->window[y][0]=640;out->window[y][1]=0;
@@ -209,6 +237,9 @@ bool fzx_floor_rbg_prepare(const fzx_view_t *view,const RefBackdrop *source,
     if(!mapping(view,source->vertices,(const int32_t (*)[3])positions,out))return false;
     FZX_SCP(BANDS);
     if(!polygon((const int32_t (*)[2])xy,count,0,out,emit,context))return false;
+#if FZX_RBG_LEAN && FZX_RBG_SHARE
+    band_edge_t edges[16];unsigned edge_count=0;
+#endif
     for(unsigned half=0;half<2;++half)for(unsigned band=1;band<8;++band) {
         /* Thresholds are halfway between the same eight source fog levels as
          * the native tile atlas. Geometry stays on the authored two halves. */
@@ -219,7 +250,15 @@ bool fzx_floor_rbg_prepare(const fzx_view_t *view,const RefBackdrop *source,
             const unsigned inner=half?4+sides[i]:2+sides[i],edge=half?6+sides[i]:sides[i];
             outer[i][j]=positions[inner][j]+(int32_t)(((int64_t)positions[edge][j]-positions[inner][j])*fractions[i]/65536);
         }
+#if FZX_RBG_LEAN && FZX_RBG_SHARE
+        {
+            const band_edge_t *lo=band_edge(edges,&edge_count,view,(const int32_t (*)[3])positions,half,low,2);
+            const band_edge_t *hi=band_edge(edges,&edge_count,view,(const int32_t (*)[3])positions,half,high,2);
+            if(!band_shared(view,lo,hi,xy,&count) && !BAND_PROJECTED(view,(const int32_t (*)[3])outer,xy,&count))return fail(out,2);
+        }
+#else
         if(!BAND_PROJECTED(view,(const int32_t (*)[3])outer,xy,&count))return fail(out,2);
+#endif
         if(!polygon((const int32_t (*)[2])xy,count,band,out,emit,context))return false;
     }
     FZX_SCP(HASH);

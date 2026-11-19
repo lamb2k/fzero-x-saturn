@@ -195,6 +195,27 @@ static inline bool keep_command(draw_t *d,bool *fault){
 #define FZX_RS_BUDGET_FLAGS 0
 #endif
 static bool fail(draw_t *d,unsigned fault){d->stats->fault=fault;return false;}
+/* FZX_ROAD_STREAM_GUARD_MARGIN (default 0: the fixed +/-900 band). N > 0: a
+ * piece whose corners are not all within the view's clip rectangle grown by
+ * N pixels is clipped to that band on the CPU. VDP1 walks every pixel of a
+ * distorted sprite, clipped or not, so a near piece with corners hundreds of
+ * pixels off screen costs many times a full-screen fill; the band bounds that
+ * work. Texture spans of clipped pieces are approximate either way. */
+#ifndef FZX_ROAD_STREAM_GUARD_MARGIN
+#define FZX_ROAD_STREAM_GUARD_MARGIN 0
+#endif
+#if FZX_ROAD_STREAM_GUARD_MARGIN
+static int16_t rs_guard[4]; /* set per frame from the view's clip rectangle */
+#define RS_GX0 rs_guard[0]
+#define RS_GY0 rs_guard[1]
+#define RS_GX1 rs_guard[2]
+#define RS_GY1 rs_guard[3]
+#else
+#define RS_GX0 -900
+#define RS_GY0 -900
+#define RS_GX1 900
+#define RS_GY1 900
+#endif
 /* Inputs to area are clipped to +/-900, bounding the 16-corner sum in int32. */
 static int32_t area(const sh2z_view_vertex_t *const *v,unsigned count){
     int32_t sum=0;for(unsigned i=0;i<count;++i){unsigned j=i+1<count?i+1:0;
@@ -208,7 +229,7 @@ static unsigned classify(const vref_t v[4],bool *safe){
      * polygon: the first clipped corner anchors the VDP1 texture fan. */
     unsigned all=63;*safe=true;
     for(unsigned i=0;i<4;++i){all&=v[i]->outcode;
-        if((v[i]->outcode&SH2Z_OUT_NEAR)||v[i]->sx< -900||v[i]->sx>900||v[i]->sy< -900||v[i]->sy>900)*safe=false;}
+        if((v[i]->outcode&SH2Z_OUT_NEAR)||v[i]->sx< RS_GX0||v[i]->sx>RS_GX1||v[i]->sy< RS_GY0||v[i]->sy>RS_GY1)*safe=false;}
     return all;
 }
 /* Corners as pointers: the unclipped quad itself, or the guard clip output.
@@ -243,7 +264,7 @@ static bool piece(draw_t *d,const vref_t v[4],unsigned quad,unsigned piece_id,
     FZX_RSP(QPIECE);FZX_RSP_COUNT(PIECES,1);
     if(classify(v,&safe)){++d->stats->culled;return true;}
     int n=4;
-    if(!safe){const int16_t guard[4]={-900,-900,900,900};
+    if(!safe){const int16_t guard[4]={RS_GX0,RS_GY0,RS_GX1,RS_GY1};
         FZX_RSP(CLIP);FZX_RSP_COUNT(PIECE_CLIPS,1);clip_input(d->hot,v);
         n=sh2z_view_clip_guard_src_center_divu(d->hot->clip_out,&d->view,guard,d->hot->clip_in,4,0,10);
         FZX_RSP(QPIECE);if(n>0)FZX_RSP_COUNT(CLIP_CORNERS,n);
@@ -547,6 +568,13 @@ static bool draw_any(fzx_road_stream_draw_work_t *w,const sh2z_view_center_t *vi
 #if FZX_ROAD_STREAM_BUDGET
     if(over)*over=0;
     if(dropped)*dropped=0;
+#endif
+#if FZX_ROAD_STREAM_GUARD_MARGIN
+    {   /* The band never exceeds the +/-900 range the area sum is bounded for. */
+        const int32_t m=FZX_ROAD_STREAM_GUARD_MARGIN;
+        const int32_t g[4]={view->view.clip[0]-m,view->view.clip[1]-m,view->view.clip[2]+m,view->view.clip[3]+m};
+        for(unsigned i=0;i<4;++i)rs_guard[i]=(int16_t)(g[i]<-900?-900:g[i]>900?900:g[i]);
+    }
 #endif
     ramp_prepare(w,plan);
     if(!w->ramp_valid)return false;

@@ -24,6 +24,15 @@
 #include "slave_road.h"
 #include "texture_cd.h"
 #include "sh2zam/segmesh_experimental.h"
+#include "fzx_road_stream_phase.h"
+#if FZX_ROAD_STREAM_PHASES
+/* Diagnostic builds only: the track build's phase totals (slave timer units). */
+fzx_rsp_state_t fzx_rsp;
+volatile uint32_t fzx_scp_road[FZX_RSP_PHASES], fzx_scp_road_calls;
+#include "fzx_scene_phase.h"
+/* and the master's floor and cloud table phases (master timer units). */
+volatile uint32_t fzx_scp_ticks[FZX_SCP_LAYERS][FZX_SCP_PHASES], fzx_scp_calls[FZX_SCP_LAYERS];
+#endif
 #ifndef FZX_VDP1_DBANK
 #define FZX_VDP1_DBANK 0
 #endif
@@ -223,6 +232,9 @@ bool fzx_engine_slave_pick(void) {
         g->average_depth = (float)pick_runs[i].average / (float)(1u << pv.depth_shift);
     }
     fzx_e0_pick[4] = (uint16_t)(cpu_frt_count_get() - t0);
+#if FZX_ROAD_STREAM_PHASES
+    fzx_rsp_begin();
+#endif
     return true;
 }
 
@@ -383,12 +395,14 @@ int main(void) {
     skyline_vram = (void *)((uintptr_t)partitions.texture_base + offset);
     if (offset + FZX_SKYLINE_VRAM_BYTES > partitions.texture_size || !fzx_skyline_load(skyline_vram)) fail(30, "SKYLINE LOAD", 0);
     offset += FZX_SKYLINE_VRAM_BYTES;
+    /* The cloud plane bank is only the VDP2 cloud load's source: it is staged
+     * where the track textures go next, and the track overwrites it. */
     planes_vram = (void *)((uintptr_t)partitions.texture_base + offset);
     if (offset + FZX_PLANE_RESIDENT_BYTES + FZX_PLANE_SHADE_BYTES > partitions.texture_size || !fzx_planes_load(planes_vram))
         fail(31, "CLOUD TEXTURE LOAD", fzx_plane_status);
-    offset += FZX_PLANE_RESIDENT_BYTES + FZX_PLANE_SHADE_BYTES;
     if (!fzx_floor_load()) fail(32, "FLOOR LOAD", fzx_floor_status);
     if (!fzx_clouds_vdp2_load(planes_vram)) fail(33, "CLOUDS LOAD", fzx_clouds_status);
+    planes_vram = NULL;
     commands_init();
     dbgio_printf("\x1b[H\x1b[2J LOADING TRACK...\n");
     dbgio_flush(); vdp2_sync(); vdp2_sync_wait();
@@ -424,6 +438,8 @@ int main(void) {
         fzx_e0_draw_end_next = (void (*)(void))scu_ic_ihr_get(SCU_IC_INTERRUPT_SPRITE_END);
         if (!fzx_e0_draw_end_next) fail(38, "NO END-OF-DRAW HANDLER", 0);
         scu_ic_ihr_set(SCU_IC_INTERRUPT_SPRITE_END, fzx_e0_draw_end);
+        /* Yaul leaves the end-of-draw interrupt masked; unmask it for the stamp. */
+        scu_ic_mask_chg(SCU_IC_MASK_ALL & ~SCU_IC_MASK_SPRITE_END, SCU_IC_MASK_NONE);
         cpu_intc_mask_set(mask);
     }
     dbgio_printf("\x1b[H\x1b[2J");

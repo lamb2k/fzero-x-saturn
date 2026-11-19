@@ -65,6 +65,12 @@
 #if ENG_CDDA
 #include "engine_cdda.h"
 #endif
+#ifndef ENG_SND
+#define ENG_SND 0
+#endif
+#if ENG_SND
+#include "engine_snd.h"
+#endif
 #if FZX_ROAD_STREAM_PHASES
 /* Diagnostic builds only: the track build's phase totals (slave timer units). */
 fzx_rsp_state_t fzx_rsp;
@@ -129,6 +135,9 @@ volatile uint32_t fzx_input_count; /* the presented logic tick, read by the reus
 fzx_view_t fzx_native_view;
 
 /* Status for captures. 1 running, 2 path done; faults are 16 and above. */
+#if ENG_SND && ENG_SND_FADETEST
+static uint32_t fzx_e0_snd_left;
+#endif
 volatile uint32_t fzx_e0_status, fzx_e0_done, fzx_e0_fault;
 /* [0] magic, [1] rows written, [2] row capacity, [3] rows base, [4] fields at
  * start, [5] frames built, [6] fields per second, [7] VDP1 texture bytes used,
@@ -395,6 +404,9 @@ void user_init(void) {
         VDP1_VRAM_DEFAULT_GOURAUD_COUNT, VDP1_VRAM_DEFAULT_CLUT_COUNT);
 #if ENG_CDDA
     engine_cdda_power(); /* before peripheral polling: SMPC sound commands must not meet an INTBACK */
+#endif
+#if ENG_SND
+    engine_snd_power(); /* before peripheral polling: SMPC sound commands must not meet an INTBACK */
 #endif
     smpc_peripheral_init();
     vdp2_tvmd_display_res_set(VDP2_TVMD_INTERLACE_NONE, VDP2_TVMD_HORZ_NORMAL_A, VDP2_TVMD_VERT_224);
@@ -776,6 +788,9 @@ static void field_stage(const fzx_engine_cam_t *cam) {
     const uint16_t v0 = cpu_frt_count_get();
     PROF_MARK(vp);
     const unsigned ncars = fzx_field_cars(field_cars, fzx_drive_body());
+#if ENG_SND
+    engine_snd_cars(fzx_drive_body(), field_cars, ncars);
+#endif
     PROF(5, vp);
     for (unsigned i = 0; i < FZX_FIELD_K_MAX; ++i) { car_stage_n[i] = 0; car_stage_p[i] = car_stage[i]; }
     for (unsigned i = 0; i < ncars; ++i) {
@@ -904,6 +919,9 @@ static void build(row_t *row, const fzx_engine_cam_t *cam, uint32_t tick, uint16
     uint16_t car_stage_n[FZX_FIELD_K_MAX];
     const uint16_t v0 = cpu_frt_count_get();
     const unsigned ncars = fzx_field_cars(field_cars, fzx_drive_body());
+#if ENG_SND
+    engine_snd_cars(fzx_drive_body(), field_cars, ncars);
+#endif
     for (unsigned i = 0; i < FZX_FIELD_K_MAX; ++i) { car_stage_n[i] = 0; car_stage_p[i] = car_stage[i]; }
     for (unsigned i = 0; i < ncars; ++i) {
         const fzx_field_car_t *c = &field_cars[i];
@@ -1030,6 +1048,10 @@ int main(void) {
         fail(17, "PATH LOAD", fzx_texture_cd_status.status);
     if (!fzx_engine_path_open(&path, (const void *)PATH_BASE, FZX_ENGINE_PATH_BYTES, FZX_ENGINE_PATH_HASH))
         fail(18, "PATH PACK", 0);
+#if ENG_SND
+    /* The race clips straight into sound RAM while the disc is free (no music yet). */
+    if (!engine_snd_load((void *)scratch, 0x00300000u - scratch)) fail(60, "SOUND LOAD", fzx_texture_cd_status.status);
+#endif
 
     vdp1_vram_partitions_get(&partitions);
 #if FZX_E1_DRIVE
@@ -1141,6 +1163,9 @@ int main(void) {
      * recorded in engine_cdda_stats for the capture; the image runs on without music. */
     (void)engine_cdda_start(ENG_CDDA_MUSIC, ENG_CDDA_LOOPTEST);
 #endif
+#if ENG_SND
+    engine_snd_start(1u); /* after the last disc read: course music and the race's sound epoch */
+#endif
     fzx_e0_status = 1;
     for (;;) {
         const uint16_t loop_start = cpu_frt_count_get();
@@ -1165,6 +1190,12 @@ int main(void) {
         fzx_field_sim_ticks = 0;
 #endif
         fzx_drive_step(advance);
+#if ENG_SND
+        engine_snd_frame();
+#if ENG_SND_FADETEST
+        if (fzx_drive_tick() >= ENG_SND_FADETEST && !fzx_e0_snd_left) { fzx_e0_snd_left = 1; engine_snd_leave(60u); }
+#endif
+#endif
         const uint16_t phys = (uint16_t)(cpu_frt_count_get() - p0);
         tick = fzx_drive_tick() ? fzx_drive_tick() : 1u;
         if (fzx_e1_driver && fzx_e1_report[5]) { fzx_e0_done = 1; fzx_e0_status = 2; }

@@ -671,6 +671,18 @@ FZX_SKY_SRCS += slave_road.c
 else ifneq ($(FZX_SLAVE_ROAD),0)
 $(error FZX_SLAVE_ROAD must be 0 or 1)
 endif
+# FZX_SIMPIPE_PROFILE=1 (default 0, diagnostic only): sim-pipeline checkpoint 1
+# measurements. Per-phase master stack depths, tick-batch histogram and per-tick
+# RefState/input chains (generated/SIM-PIPELINE-PLAN.md, section 7).
+FZX_SIMPIPE_PROFILE ?= 0
+ifeq ($(FZX_SIMPIPE_PROFILE),1)
+ifneq ($(FZX_SIM):$(FZX_SOURCE_SKY),orig:1)
+$(error FZX_SIMPIPE_PROFILE requires FZX_SIM=orig and FZX_SOURCE_SKY=1)
+endif
+SH_CFLAGS += -DFZX_SIMPIPE_PROFILE=1
+else ifneq ($(FZX_SIMPIPE_PROFILE),0)
+$(error FZX_SIMPIPE_PROFILE must be 0 or 1)
+endif
 # FZX_ROAD_LOD=1 (default 0): simplified far road. Every frame uses the
 # budget guard's coarse tiering (strip-length tiers), not only frames over
 # the budget. Approximation: far road texture periods merge sooner.

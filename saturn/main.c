@@ -443,6 +443,68 @@ orig_tick(void)
     logged_tick(n64, sx, sy);
 }
 
+
+#ifndef FZX_SIMPIPE_PROFILE
+#define FZX_SIMPIPE_PROFILE 0
+#endif
+#if FZX_SIMPIPE_PROFILE
+#if !(FZX_SIM == FZX_SIM_ORIG && FZX_SOURCE_SKY)
+#error FZX_SIMPIPE_PROFILE needs the original simulation and the source sky stack paint
+#endif
+/* Sim-pipeline checkpoint 1 measurements (generated/SIM-PIPELINE-PLAN.md, section 7).
+ * Diagnostic only, default 0. Each main-loop phase repaints the stack below it and
+ * scans after it; depths are bytes below the main-loop stack pointer.
+ * fzx_simpipe_prof: 0 magic 'SPPF', 1 loops, 2 largest tick batch, 3 tick-batch depth,
+ * 4 publication depth, 5 scene depth, 6 tail depth (HUD, syncs, submit), 7 main-loop SP,
+ * 8 paint low bound, 9 low-bound overruns (pattern gone at the bound), 10 ticks hashed,
+ * 11 RefState chain, 12 input chain, 13 restarts, 14 ticks in the deepest batch.
+ * fzx_simpipe_k: batches by tick count (index 7 = 7 or more).
+ * fzx_simpipe_chain: {ticks hashed, RefState chain, input chain} every 64 ticks. */
+extern volatile uint32_t fzx_sky_stack_start;
+volatile uint32_t fzx_simpipe_prof[16];
+volatile uint32_t fzx_simpipe_k[8];
+volatile uint32_t fzx_simpipe_chain[128][3];
+static uint32_t
+simpipe_fnv(uint32_t h, const volatile void *data, unsigned bytes)
+{
+    const volatile uint8_t *b = data;
+    while (bytes--) { h ^= *b++; h *= 16777619u; }
+    return h;
+}
+static void __attribute__((noinline))
+simpipe_paint(void)
+{
+    uintptr_t sp;
+    __asm__ volatile("mov r15,%0" : "=r"(sp));
+    const uintptr_t lo = fzx_sky_stack_start, hi = (sp - 64u) & ~(uintptr_t)3u;
+    for (volatile uint32_t *p = (volatile uint32_t *)lo; (uintptr_t)p < hi; ++p) *p = 0xa55aa55au;
+}
+static void __attribute__((noinline))
+simpipe_depth(unsigned slot)
+{
+    const uintptr_t lo = fzx_sky_stack_start, top = fzx_simpipe_prof[7];
+    uintptr_t a = lo;
+    if (*(volatile uint32_t *)lo != 0xa55aa55au) ++fzx_simpipe_prof[9];
+    while (a < top && *(volatile uint32_t *)a == 0xa55aa55au) a += 4;
+    const uint32_t depth = (uint32_t)(top - a);
+    if (depth > fzx_simpipe_prof[slot]) fzx_simpipe_prof[slot] = depth;
+}
+static void __attribute__((noinline))
+simpipe_hash_tick(void)
+{
+    RefState state;
+    ref_state(&state);
+    const uint32_t n = fzx_input_count;
+    fzx_simpipe_prof[11] = simpipe_fnv(fzx_simpipe_prof[10] ? fzx_simpipe_prof[11] : 2166136261u, &state, sizeof(state));
+    fzx_simpipe_prof[12] = simpipe_fnv(fzx_simpipe_prof[10] ? fzx_simpipe_prof[12] : 2166136261u,
+                                       n && n <= INPUT_LOG_TICKS ? &fzx_input_log[n - 1] : &n, 4);
+    const uint32_t hashed = ++fzx_simpipe_prof[10];
+    if (!(hashed & 63u) && (hashed >> 6) <= 128u) {
+        volatile uint32_t *row = fzx_simpipe_chain[(hashed >> 6) - 1u];
+        row[0] = hashed; row[1] = fzx_simpipe_prof[11]; row[2] = fzx_simpipe_prof[12];
+    }
+}
+#endif
 /* Game units to Q16.16 at the course's 1/16 scale, and unit floats to Q16.16. */
 static sh2z_vec3_t
 pose_vec(const float *v, float scale)
@@ -1179,6 +1241,15 @@ main(void)
     uint32_t warmup = 2; /* the first loops still carry the course load */
 
     while (true) {
+#if FZX_SIMPIPE_PROFILE
+        {
+            uintptr_t sp;
+            __asm__ volatile("mov r15,%0" : "=r"(sp));
+            if (fzx_simpipe_prof[1]) simpipe_depth(6); /* the previous loop's tail */
+            fzx_simpipe_prof[0] = 0x53505046u; fzx_simpipe_prof[7] = sp;
+            fzx_simpipe_prof[8] = fzx_sky_stack_start; ++fzx_simpipe_prof[1];
+        }
+#endif
 #if FZX_FRAME_PROFILE
         fzx_fp_begin(fzx_input_count);
 #endif
@@ -1206,6 +1277,10 @@ main(void)
         fzx_fp_mark(1);
 #endif
         const uint16_t sim_start = cpu_frt_count_get();
+#if FZX_SIMPIPE_PROFILE
+        uint32_t simpipe_ticks = 0, simpipe_before = fzx_simpipe_prof[3];
+        simpipe_paint();
+#endif
         while (tick_remainder >= fields_per_second) {
 #if FZX_SIM == FZX_SIM_ORIG
             if (pending_reset != 0 || fzx_debug_restart != 0) {
@@ -1219,13 +1294,26 @@ main(void)
                 fzx_fp_restart();
 #endif
             }
+#if FZX_SIMPIPE_PROFILE
+            const uint32_t simpipe_n = fzx_input_count;
+#endif
             orig_tick();
+#if FZX_SIMPIPE_PROFILE
+            if (fzx_input_count != simpipe_n) { ++simpipe_ticks; simpipe_hash_tick(); }
+            if (simpipe_n == 0 && fzx_input_count == 1 && fzx_simpipe_prof[10] > 1) ++fzx_simpipe_prof[13];
+#endif
 #else
             fzx_step((buttons & ~FZX_RESET) | pending_reset);
 #endif
             pending_reset = 0;
             tick_remainder -= fields_per_second;
         }
+#if FZX_SIMPIPE_PROFILE
+        simpipe_depth(3);
+        if (fzx_simpipe_prof[3] != simpipe_before) fzx_simpipe_prof[14] = simpipe_ticks;
+        if (simpipe_ticks > fzx_simpipe_prof[2]) fzx_simpipe_prof[2] = simpipe_ticks;
+        ++fzx_simpipe_k[simpipe_ticks < 7u ? simpipe_ticks : 7u];
+#endif
 
 #if FZX_FRAME_PROFILE
         fzx_fp_mark(2);
@@ -1234,7 +1322,14 @@ main(void)
         fzx_timing.sim = (uint16_t)(publish_start - sim_start);
         if (fzx_timing.sim > fzx_timing.sim_max) fzx_timing.sim_max = fzx_timing.sim;
 #if FZX_SIM == FZX_SIM_ORIG
+#if FZX_SIMPIPE_PROFILE
+        simpipe_paint();
+#endif
         orig_publish();
+#endif
+#if FZX_SIMPIPE_PROFILE
+        simpipe_depth(4);
+        simpipe_paint();
 #endif
 #if FZX_FRAME_PROFILE
         fzx_fp_mark(3);
@@ -1254,6 +1349,10 @@ main(void)
         }
 #endif
         commands_build(frame);
+#if FZX_SIMPIPE_PROFILE
+        simpipe_depth(5);
+        simpipe_paint();
+#endif
         fzx_timing.render = (uint16_t)(cpu_frt_count_get() - render_start);
         const uint32_t field_counts = fzx_timing.field ? fzx_timing.field : 1u;
 

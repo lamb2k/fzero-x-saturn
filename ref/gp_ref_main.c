@@ -122,7 +122,8 @@ int main(int argc, char** argv) {
     fprintf(o, "],\n \"racers\": [\n");
     for (int i = 0; i < MAXR; ++i) {
         fprintf(o, "  {\"id\": %d, \"character\": %d, \"grid\": %d, \"grid_dist\": %.2f, \"grid_lateral\": %.2f, \"target_lap_ms\": %d, \"max_energy\": %.2f,"
-                   " \"lap_end_ticks\": [%d,%d,%d], \"finish_tick\": %d, \"final_pos\": %d, \"retire_tick\": %d, \"mean_speed\": %.3f}%s\n",
+                   " \"lap_end_ticks\": [%d,%d,%d], \"finish_tick\": %d, \"final_pos\": %d, \"retire_tick\": %d, \"mean_speed\": %.3f,"
+                   " \"last_dist\": %.1f, \"last_energy\": %.1f, \"last_flags\": \"%08x\", \"top_speed\": %.2f}%s\n",
                 i, character[i], grid_pos[i], grid_dist[i], grid_lat[i], target_ms[i], max_energy[i], lap_end[i][0], lap_end[i][1], lap_end[i][2],
                 finish_tick[i], finish_tick[i] >= 0 ? final_pos[i] : -1, retire_tick[i], speed_n[i] ? speed_sum[i] / speed_n[i] : 0.0,
                 last_dist[i], last_energy[i], (unsigned)last_flags[i], top_speed[i], i + 1 < MAXR ? "," : "");

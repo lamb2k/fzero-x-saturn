@@ -14,6 +14,11 @@
  * --save-at T --save PACK writes the native state after tick T as a pack (state restore check).
  * --checkpoints K prints "chk N HASH" after every K-th step: FNV-1a 64 over the state alone, in
  * big-endian words, as the engine image (saturn/engine/engine_drive.c) records it.
+ * --stick-hysteresis H (C-060): the driver keeps its last integer stick while the clamped
+ * continuous demand (steer x 63, stick units) is within H of it (inclusive); outside the
+ * band it emits the usual rounded, clamped stick. The first driven tick quantises as
+ * before. --driver-prev N seeds that last stick (the driver snapshot of a resync run);
+ * with --bake-at the reference writes it to BAKE.driver.
  * --boost-reserve R: the C-059 energy-aware driver, as in the reference driver.
  * --mutate NAME plants one model mutation for the controls: grip+5%, turn+2%, damp0.9968,
  * wall1.6, boost99, zones-off, stick+1 (a one-unit stick offset on non-zero input).
@@ -103,6 +108,8 @@ int main(int argc, char** argv) {
     const char* mutate = NULL;
     int stick_offset = 0, from = -1, save_at = -1, checkpoints = 0;
     int reserve_tenths = 0;
+    float stick_hyst = -1.0f;
+    int have_prev = 0, prev_sx = 0;
     const char* save_path = NULL;
     static uint8_t image[1 << 20];
     sh2z_vd_body_t b;
@@ -125,6 +132,8 @@ int main(int argc, char** argv) {
         else if (strcmp(argv[i], "--mutate") == 0) mutate = argv[i + 1];
         else if (strcmp(argv[i], "--from") == 0) from = atoi(argv[i + 1]);
         else if (strcmp(argv[i], "--boost-reserve") == 0) reserve_tenths = (int) (atof(argv[i + 1]) * 10.0 + 0.5);
+        else if (strcmp(argv[i], "--stick-hysteresis") == 0) stick_hyst = (float) atof(argv[i + 1]);
+        else if (strcmp(argv[i], "--driver-prev") == 0) { prev_sx = atoi(argv[i + 1]); have_prev = 1; }
         else if (strcmp(argv[i], "--save-at") == 0) save_at = atoi(argv[i + 1]);
         else if (strcmp(argv[i], "--save") == 0) save_path = argv[i + 1];
         else if (strcmp(argv[i], "--checkpoints") == 0) checkpoints = atoi(argv[i + 1]);
@@ -184,6 +193,18 @@ int main(int argc, char** argv) {
                 if (steer > 1.0f) steer = 1.0f;
                 if (steer < -1.0f) steer = -1.0f;
                 sx = (signed char) (steer >= 0.0f ? (int) (steer * 63.0f + 0.5f) : -(int) (-steer * 63.0f + 0.5f));
+                {
+                    /* C-060 hysteresis on the emitted integer stick. */
+                    const float demand = steer * 63.0f;
+                    const signed char q = sx;
+                    if (stick_hyst >= 0.0f) {
+                        float gap = demand - (float) prev_sx;
+                        if (gap < 0.0f) gap = -gap;
+                        sx = (have_prev && gap <= stick_hyst) ? (signed char) prev_sx : q;
+                        prev_sx = sx;
+                        have_prev = 1;
+                    }
+                }
                 if (driver_boost > 0 && tick % driver_boost == 0 &&
                     (reserve_tenths <= 0 || 10 * (int64_t) b.energy >= (int64_t) reserve_tenths * course.vehicle.max_energy))
                     button |= 0x4000;

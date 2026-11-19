@@ -23,6 +23,11 @@
  * there): local only, since it is derived from the course record and the ROM.
  * --boost-reserve R (C-059): the driver's scheduled B only when the previous tick's energy
  * is at least R of the maximum (10 x energy >= 10R x max; R = 0.3 is the candidate).
+ * --stick-hysteresis H (C-060): the driver keeps its last integer stick while the clamped
+ * continuous demand (steer x 63, stick units) is within H of it (inclusive); outside the
+ * band it emits the usual rounded, clamped stick. The first driven tick quantises as
+ * before. --driver-prev N seeds that last stick (the driver snapshot of a resync run);
+ * with --bake-at the reference writes it to BAKE.driver.
  * --machine re-initialises racer 0 as stock machine CHARACTER (0-29) at ENGINE (0-1).
  * --line writes the shared course-line stations (ref/course_line.h): a header line
  * "course-line-1 length_q12 count hash" and one "dist_q12 segment t_q16 t" per station.
@@ -111,6 +116,8 @@ int main(int argc, char** argv) {
     const char *course = NULL, *inputs = NULL, *rom = NULL, *out_path = NULL, *driver = NULL, *selection = NULL, *bake = NULL, *line = NULL, *machine = NULL;
     int bake_at = -1;
     int reserve_tenths = 0;
+    float stick_hyst = -1.0f;
+    int have_prev = 0, prev_sx = 0;
     static Step steps[32768];
     static unsigned char record[REF_COURSE_RECORD_SIZE];
     int nsteps, i, tick = 0, zones = 1, driver_boost = 0, driver_start = 0;
@@ -132,6 +139,8 @@ int main(int argc, char** argv) {
         else if (strcmp(argv[i], "--machine") == 0) machine = argv[i + 1];
         else if (strcmp(argv[i], "--bake-at") == 0) bake_at = atoi(argv[i + 1]);
         else if (strcmp(argv[i], "--boost-reserve") == 0) reserve_tenths = (int) (atof(argv[i + 1]) * 10.0 + 0.5);
+        else if (strcmp(argv[i], "--stick-hysteresis") == 0) stick_hyst = (float) atof(argv[i + 1]);
+        else if (strcmp(argv[i], "--driver-prev") == 0) { prev_sx = atoi(argv[i + 1]); have_prev = 1; }
         else die("unknown option");
     }
     if (course == NULL || inputs == NULL) die("usage: fzx-ref --course RECORD --inputs SCRIPT [--rom ROM] [--out TRACE]");
@@ -217,6 +226,18 @@ int main(int argc, char** argv) {
                     if (steer > 1.0f) steer = 1.0f;
                     if (steer < -1.0f) steer = -1.0f;
                     sx = (signed char) (steer >= 0.0f ? (int) (steer * 63.0f + 0.5f) : -(int) (-steer * 63.0f + 0.5f));
+                    {
+                        /* C-060 hysteresis on the emitted integer stick. */
+                        const float demand = steer * 63.0f;
+                        const signed char q = sx;
+                        if (stick_hyst >= 0.0f) {
+                            float gap = demand - (float) prev_sx;
+                            if (gap < 0.0f) gap = -gap;
+                            sx = (have_prev && gap <= stick_hyst) ? (signed char) prev_sx : q;
+                            prev_sx = sx;
+                            have_prev = 1;
+                        }
+                    }
                     /* C-059 energy-aware driver: a scheduled B only when the previous tick's
                      * energy is at least boost_reserve of the maximum. */
                     if (driver_boost > 0 && tick % driver_boost == 0 &&
@@ -250,6 +271,14 @@ int main(int argc, char** argv) {
                 ref_handling_bake(bake_emit);
                 bake_emit("input", button, 0, NULL, 0);
                 fclose(bake_out);
+                if (stick_hyst >= 0.0f) {
+                    char side[1024];
+                    FILE* d;
+                    snprintf(side, sizeof(side), "%s.driver", bake);
+                    if ((d = fopen(side, "w")) == NULL) die("cannot write the driver snapshot");
+                    fprintf(d, "driver_prev_stick %d %d\n", have_prev, prev_sx);
+                    fclose(d);
+                }
             }
             tick++;
         }

@@ -345,7 +345,8 @@ static int lean_clip(draw_t *d,const vref_t v[4],const int16_t guard[4]){
     sh2z_view_vertex_t buf[2][12];unsigned n=4;bool near=false;
     for(unsigned i=0;i<4;++i){buf[0][i]=*v[i];if(v[i]->outcode&SH2Z_OUT_NEAR)near=true;}
     if(near){n=sh2z_view_clip_near_center_divu(buf[0],&d->view,buf[0]);if(n<3)return 0;}
-    for(unsigned i=0;i<n;++i)if(buf[0][i].sx< -4096||buf[0][i].sx>4096||buf[0][i].sy< -4096||buf[0][i].sy>4096)return -1;
+    /* Phases builds count fallbacks to the exact clip as STEPPED. */
+    for(unsigned i=0;i<n;++i)if(buf[0][i].sx< -4096||buf[0][i].sx>4096||buf[0][i].sy< -4096||buf[0][i].sy>4096){FZX_RSP_COUNT(STEPPED,1);return -1;}
     n=lean_side(buf[0],n,buf[1],0,guard[0],true);
     n=lean_side(buf[1],n,buf[0],0,guard[2],false);
     n=lean_side(buf[0],n,buf[1],1,guard[1],true);

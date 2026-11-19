@@ -161,8 +161,33 @@ __asm__(
     "3:  .long _fzx_e0_draw_end_next\n"
     ".text\n");
 
+#ifndef E0_HW_COUNTER
+#define E0_HW_COUNTER 0
+#endif
+#if E0_HW_COUNTER
+/* E0_HW_COUNTER (default 0; the owner's hardware disc only): count every newly
+ * presented frame and the field gap since the previous one, from the first
+ * flythrough frame, for an on-screen readout a TV can show. gaps[k]: gaps of
+ * k+1 fields, gaps[3]: four or more. */
+volatile uint32_t fzx_hw_frames, fzx_hw_first_field, fzx_hw_last_field, fzx_hw_worst, fzx_hw_over2, fzx_hw_gaps[4];
+static void hw_count(void) {
+    const uint32_t now = video_fields;
+    if (fzx_hw_frames) {
+        const uint32_t gap = now - fzx_hw_last_field;
+        if (gap > fzx_hw_worst) fzx_hw_worst = gap;
+        if (gap > 2u) ++fzx_hw_over2;
+        if (gap) ++fzx_hw_gaps[gap > 4u ? 3u : gap - 1u];
+    } else fzx_hw_first_field = now;
+    fzx_hw_last_field = now;
+    ++fzx_hw_frames;
+}
+#endif
+
 /* The floor's render-end callback calls this when a frame has been drawn. */
 void fzx_fp_present(void) {
+#if E0_HW_COUNTER
+    hw_count();
+#endif
     const uint32_t i = pending_row;
     if (i && i <= row_capacity && !rows[i - 1u].present_field) {
         rows[i - 1u].present_field = video_fields;
@@ -507,6 +532,9 @@ int main(void) {
     fzx_e0_report[7] = offset;
 
     uint32_t tick = 0, remainder = 0, previous = video_fields, row_index = 0;
+#if E0_HW_COUNTER
+    uint32_t hw_loops = 0, hw_next = 0, hw_mark_frames = 0;
+#endif
     fzx_e0_report[4] = previous;
     fzx_e0_status = 1;
     for (;;) {
@@ -519,7 +547,12 @@ int main(void) {
         remainder -= advance * hz;
         if (!tick) advance = 1;
         tick += advance;
+#if E0_HW_COUNTER
+        /* The hardware disc loops the flythrough for the soak. */
+        if (tick >= path.ticks) { tick = 1; ++hw_loops; }
+#else
         if (tick >= path.ticks) { tick = path.ticks; fzx_e0_done = 1; fzx_e0_status = 2; }
+#endif
         const uint32_t hold = HOLD_TICK;
         const uint32_t shown = hold && hold <= path.ticks ? hold : tick;
         fzx_input_count = shown;
@@ -551,6 +584,27 @@ int main(void) {
 #endif
         if (row != &scratch_row) { pending_row = row_index + 1u; ++row_index; fzx_e0_report[1] = row_index; }
         else pending_row = 0;
+#if E0_HW_COUNTER
+        {   /* Once a second (60 fields): the readout, top left, for a TV. */
+            const uint32_t frames = fzx_hw_frames, last = fzx_hw_last_field;
+            if (frames > 1u && field >= hw_next) {
+                const uint32_t fields = last - fzx_hw_first_field, secs = (field - fzx_hw_first_field) / 60u;
+                const uint32_t mean10 = fields ? (frames - 1u) * 600u / fields : 0u;
+                dbgio_printf("\x1b[H E0 HW  %02lu:%02lu  LOOP %lu\n"
+                             " FRAMES %lu  FIELDS %lu\n"
+                             " FPS %lu  MEAN %lu.%lu\n"
+                             " WORST %luF  OVER2 %lu\n"
+                             " GAPS 1F %lu 2F %lu 3F %lu 4F+ %lu  \n",
+                             (unsigned long)(secs / 60u), (unsigned long)(secs % 60u), (unsigned long)hw_loops,
+                             (unsigned long)frames, (unsigned long)fields,
+                             (unsigned long)(frames - hw_mark_frames), (unsigned long)(mean10 / 10u), (unsigned long)(mean10 % 10u),
+                             (unsigned long)fzx_hw_worst, (unsigned long)fzx_hw_over2,
+                             (unsigned long)fzx_hw_gaps[0], (unsigned long)fzx_hw_gaps[1], (unsigned long)fzx_hw_gaps[2], (unsigned long)fzx_hw_gaps[3]);
+                dbgio_flush();
+                hw_mark_frames = frames; hw_next = (hw_next ? hw_next : field) + 60u;
+            }
+        }
+#endif
         row->submit_frt = cpu_frt_count_get();
         vdp1_sync_cmdt_list_put(&command_list, 0);
         vdp1_sync_render();

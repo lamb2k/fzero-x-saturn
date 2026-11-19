@@ -54,16 +54,19 @@ static bool emit(void *context,const fzx_machine_quad_t *q){
 /* Sim-pipeline checkpoint 2: orig_publish takes the machine snapshot (after
  * camera 0's flush, before any scene reader); the draw uses it. 1 valid, -1
  * the source refused (the draw then fails as before), 0 none this frame. */
+#if FZX_SIMPIPE_DBUF
+/* Global so the sim-pipeline part table can name it (checkpoint 3). */
+int fzx_machine_published;
+#define machine_published fzx_machine_published
+#else
 static int machine_published;
+#endif
 bool fzx_machine_publish(void){
     machine_published=0;
     if(fzx_machine_status!=1)return false;
     machine_published=ref_machine(&fzx_source_machine,fzx_machine_pack_fog(&pack))?1:-1;
     return true;
 }
-#endif
-#if FZX_MACHINE_PUBLISH && FZX_SIMPIPE_DBUF
-int *const fzx_machine_published_ref=&machine_published;
 #endif
 bool fzx_machine_native(vdp1_cmdt_t *commands,unsigned capacity,const fzx_view_t *view,void *pixels,void *shades,uint32_t *count){
     if(!commands||capacity<2||!view||!pixels||!shades||!count||fzx_machine_status!=1)return false;

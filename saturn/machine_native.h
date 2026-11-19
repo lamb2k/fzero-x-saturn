@@ -11,5 +11,5 @@ bool fzx_machine_native(vdp1_cmdt_t *,unsigned,const fzx_view_t *,void *,void *,
 /* FZX_MACHINE_PUBLISH=1: publication takes the machine snapshot the next draw uses. */
 bool fzx_machine_publish(void);
 /* FZX_SIMPIPE_DBUF: the published-snapshot flag travels with the slot. */
-extern int *const fzx_machine_published_ref;
+extern int fzx_machine_published;
 #endif

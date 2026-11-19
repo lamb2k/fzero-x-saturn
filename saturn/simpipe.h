@@ -33,14 +33,12 @@ typedef struct {
 /* Control block at the start of the area. report: magic 'SPDB', version, area
  * base, slot0, slot1, job, area end, slot bytes, job bytes, parts, payload
  * bytes per slot, guard trips, sequence mismatches, copy-outs, copy-ins, stale
- * copy-ins (control only), status (1 ready, 2 carve failed, 3 guard, 4 slot). */
+ * copy-ins (control only), status (1 ready, 2 carve failed, 3 guard, 4 slot).
+ * dynamic: parts whose address is known only at run time (countdown scene). */
 typedef struct {
     uint32_t report[17];
-    uint32_t sequence, generation, parts;
-    fzx_simpipe_slot_t *slot[2];
-    fzx_simpipe_job_t *job;
-    volatile uint32_t *guard[4];
-    fzx_simpipe_part_t part[FZX_SIMPIPE_MAX_PARTS];
+    uint32_t sequence, generation;
+    fzx_simpipe_part_t dynamic[2];
 } fzx_simpipe_area_t;
 
 extern fzx_simpipe_area_t *fzx_simpipe_area;

@@ -747,68 +747,82 @@ orig_publish(void)
 #endif
 #if FZX_SIMPIPE_DBUF
 /* Sim-pipeline checkpoint 3 (C-035): serial double buffering. Every draw-facing
- * publication output (the part table) is copied into slot (sequence & 1) after
- * orig_publish and restored from it before the scene draws. Control data, the
- * table, the slots and the job live in low work RAM; only fzx_simpipe_area and
- * this code are in high work RAM. FZX_SIMPIPE_DBUF_STALE (negative control
- * only) restores the previous publication's slot instead. */
+ * publication output (the part tables) is copied into slot (sequence & 1) after
+ * orig_publish and restored from it before the scene draws. The control block,
+ * slots and job live in low work RAM, carved before the frame profile; high
+ * work RAM holds only fzx_simpipe_area, the const tables and this code, since
+ * each byte there comes out of the master stack (C-036). The slot layout is a
+ * compile-time constant. FZX_SIMPIPE_DBUF_STALE (negative control only)
+ * restores the previous publication's slot instead. */
 fzx_simpipe_area_t *fzx_simpipe_area;
-static const fzx_simpipe_part_t simpipe_main_parts[] = {
+static const fzx_simpipe_part_t simpipe_parts[] = {
     { &orig_pose, sizeof(orig_pose) }, { &fzx_source_camera, sizeof(fzx_source_camera) },
     { &fzx_native_view, sizeof(fzx_native_view) }, { &fzx_source_machine, sizeof(fzx_source_machine) },
     { &fzx_source_countdown, sizeof(fzx_source_countdown) }, { &fzx_source_skyline, sizeof(fzx_source_skyline) },
     { &fzx_source_backdrop, sizeof(fzx_source_backdrop) }, { &fzx_source_road_plan, sizeof(fzx_source_road_plan) },
     { &hud_clock, sizeof(hud_clock) }, { (void *)&fzx_camera_status, 4 }, { (void *)&fzx_sky_status, 4 },
     { (void *)&fzx_skyline_status, 4 }, { (void *)&fzx_road_plan_status, 4 }, { (void *)&fzx_road_plan_sequence, 4 },
+    { &fzx_machine_published, sizeof(fzx_machine_published) },
 };
+#define SIMPIPE_A4(n) (((n) + 3u) & ~3u)
+/* Per-slot payload: every part 4-byte aligned. Core: pose, two flags, ring, view, flag. */
+#define SIMPIPE_PAYLOAD (SIMPIPE_A4(sizeof(orig_pose)) + SIMPIPE_A4(sizeof(fzx_source_camera)) + \
+    SIMPIPE_A4(sizeof(fzx_native_view)) + SIMPIPE_A4(sizeof(fzx_source_machine)) + \
+    SIMPIPE_A4(sizeof(fzx_source_countdown)) + SIMPIPE_A4(sizeof(fzx_source_skyline)) + \
+    SIMPIPE_A4(sizeof(fzx_source_backdrop)) + SIMPIPE_A4(sizeof(fzx_source_road_plan)) + \
+    SIMPIPE_A4(sizeof(hud_clock)) + 5u * 4u + SIMPIPE_A4(sizeof(fzx_machine_published)) + \
+    SIMPIPE_A4(sizeof(fzx_pose_t)) + 4u + 4u + 4u + SIMPIPE_A4(sizeof(fzx_view_t)) + 4u + \
+    SIMPIPE_A4(sizeof(fzx_countdown_phase_t)) + 4u)
+#define SIMPIPE_AREA_BYTES ((sizeof(fzx_simpipe_area_t) + 31u) & ~31u)
+#define SIMPIPE_SLOT_BYTES ((sizeof(fzx_simpipe_slot_t) + SIMPIPE_PAYLOAD + 31u) & ~31u)
+#define SIMPIPE_JOB_BYTES ((sizeof(fzx_simpipe_job_t) + 31u) & ~31u)
+/* Area layout: control | guard | slot 0 | guard | slot 1 | guard | job | guard. */
+#define SIMPIPE_GUARD_AT(c, g) ((volatile uint32_t *)((uintptr_t)(c) + SIMPIPE_AREA_BYTES + \
+    (g) * (32u + SIMPIPE_SLOT_BYTES)))
+#define SIMPIPE_SLOT(c, i) ((fzx_simpipe_slot_t *)((uintptr_t)SIMPIPE_GUARD_AT(c, i) + 32u))
+#define SIMPIPE_JOB(c) ((fzx_simpipe_job_t *)((uintptr_t)SIMPIPE_GUARD_AT(c, 2) + 32u))
+#define SIMPIPE_LAST_GUARD(c) ((volatile uint32_t *)((uintptr_t)SIMPIPE_JOB(c) + SIMPIPE_JOB_BYTES))
+#define SIMPIPE_END(c) ((uintptr_t)SIMPIPE_LAST_GUARD(c) + 32u)
 static void __attribute__((noinline, noreturn))
 simpipe_stop(uint32_t status)
 {
     fzx_simpipe_area->report[16] = status;
     for (;;) {}
 }
-/* Control block, two guarded slots and the guarded job from LOW_END up;
- * returns the new low end for the frame profile. */
+static volatile uint32_t *
+simpipe_guard(const fzx_simpipe_area_t *c, unsigned g)
+{
+    return g < 3u ? SIMPIPE_GUARD_AT(c, g) : SIMPIPE_LAST_GUARD(c);
+}
+/* The area from LOW_END up; returns the new low end for the frame profile. */
 static uint32_t __attribute__((noinline))
 simpipe_carve(uint32_t low_end)
 {
-    uintptr_t a = (low_end + 31u) & ~(uintptr_t)31u;
-    fzx_simpipe_area_t *c = (fzx_simpipe_area_t *)a;
-    a += (sizeof(*c) + 31u) & ~(uintptr_t)31u;
-    if (a > 0x00300000u) for (;;) {}
-    memset(c, 0, sizeof(*c));
+    fzx_simpipe_area_t *c = (fzx_simpipe_area_t *)((low_end + 31u) & ~(uintptr_t)31u);
+    const uintptr_t end = SIMPIPE_END(c);
+    if (end > 0x00300000u) for (;;) {}
+    memset(c, 0, end - (uintptr_t)c);
     fzx_simpipe_area = c;
-    uint32_t n = sizeof(simpipe_main_parts) / sizeof(simpipe_main_parts[0]);
-    memcpy(c->part, simpipe_main_parts, sizeof(simpipe_main_parts));
-    for (unsigned i = 0; i < FZX_CORE_PUBLICATION_PARTS; ++i, ++n) {
-        c->part[n].address = fzx_core_publication_parts[i].address;
-        c->part[n].bytes = fzx_core_publication_parts[i].bytes;
+    if (!fzx_countdown_publication_parts(&c->dynamic[0].address, &c->dynamic[0].bytes,
+                                         &c->dynamic[1].address, &c->dynamic[1].bytes)) simpipe_stop(2);
+    for (unsigned g = 0; g < 4u; ++g) for (unsigned w = 0; w < 8u; ++w) simpipe_guard(c, g)[w] = FZX_SIMPIPE_GUARD;
+    SIMPIPE_JOB(c)->magic = FZX_SIMPIPE_JOB_MAGIC;
+    c->report[0] = FZX_SIMPIPE_AREA_MAGIC; c->report[1] = 3; c->report[2] = (uint32_t)c;
+    c->report[3] = (uint32_t)SIMPIPE_SLOT(c, 0); c->report[4] = (uint32_t)SIMPIPE_SLOT(c, 1);
+    c->report[5] = (uint32_t)SIMPIPE_JOB(c); c->report[6] = end; c->report[7] = SIMPIPE_SLOT_BYTES;
+    c->report[8] = SIMPIPE_JOB_BYTES; c->report[9] = sizeof(simpipe_parts) / sizeof(simpipe_parts[0]) +
+        FZX_CORE_PUBLICATION_PARTS + 2u;
+    c->report[10] = SIMPIPE_PAYLOAD; c->report[16] = 1;
+    return (uint32_t)end;
+}
+static uint8_t *
+simpipe_parts_copy(const fzx_simpipe_part_t *p, unsigned n, uint8_t *data, bool out)
+{
+    for (; n; --n, ++p) {
+        if (out) memcpy(data, p->address, p->bytes); else memcpy(p->address, data, p->bytes);
+        data += SIMPIPE_A4(p->bytes);
     }
-    c->part[n].address = fzx_machine_published_ref; c->part[n++].bytes = sizeof(int);
-    if (!fzx_countdown_publication_parts(&c->part[n].address, &c->part[n].bytes,
-                                         &c->part[n + 1].address, &c->part[n + 1].bytes)) simpipe_stop(2);
-    n += 2;
-    c->parts = n;
-    uint32_t payload = 0;
-    for (unsigned i = 0; i < n; ++i) payload += (c->part[i].bytes + 3u) & ~3u;
-    const uint32_t slot_bytes = (sizeof(fzx_simpipe_slot_t) + payload + 31u) & ~31u;
-    const uint32_t job_bytes = (sizeof(fzx_simpipe_job_t) + 31u) & ~31u;
-    for (unsigned i = 0; i < 2; ++i) {
-        c->guard[i] = (volatile uint32_t *)a; a += 32u;
-        c->slot[i] = (fzx_simpipe_slot_t *)a; a += slot_bytes;
-    }
-    c->guard[2] = (volatile uint32_t *)a; a += 32u;
-    c->job = (fzx_simpipe_job_t *)a; a += job_bytes;
-    c->guard[3] = (volatile uint32_t *)a; a += 32u;
-    if (a > 0x00300000u) simpipe_stop(2);
-    memset((void *)c->guard[0], 0, a - (uintptr_t)c->guard[0]);
-    for (unsigned g = 0; g < 4; ++g) for (unsigned w = 0; w < 8; ++w) c->guard[g][w] = FZX_SIMPIPE_GUARD;
-    c->job->magic = FZX_SIMPIPE_JOB_MAGIC;
-    c->report[0] = FZX_SIMPIPE_AREA_MAGIC; c->report[1] = 2; c->report[2] = (uint32_t)c;
-    c->report[3] = (uint32_t)c->slot[0]; c->report[4] = (uint32_t)c->slot[1]; c->report[5] = (uint32_t)c->job;
-    c->report[6] = a; c->report[7] = slot_bytes; c->report[8] = job_bytes; c->report[9] = n;
-    c->report[10] = payload; c->report[16] = 1;
-    return (uint32_t)a;
+    return data;
 }
 /* OUT: the publication globals into the next slot. Otherwise the latest slot
  * (or, as the stale control, the one before it) back into the globals. */
@@ -816,12 +830,12 @@ static void __attribute__((noinline))
 simpipe_copy(bool out)
 {
     fzx_simpipe_area_t *c = fzx_simpipe_area;
-    for (unsigned g = 0; g < 4; ++g) for (unsigned w = 0; w < 8; ++w)
-        if (c->guard[g][w] != FZX_SIMPIPE_GUARD) { ++c->report[11]; simpipe_stop(3); }
-    if (c->job->magic != FZX_SIMPIPE_JOB_MAGIC) { ++c->report[11]; simpipe_stop(3); }
+    for (unsigned g = 0; g < 4u; ++g) for (unsigned w = 0; w < 8u; ++w)
+        if (simpipe_guard(c, g)[w] != FZX_SIMPIPE_GUARD) { ++c->report[11]; simpipe_stop(3); }
+    if (SIMPIPE_JOB(c)->magic != FZX_SIMPIPE_JOB_MAGIC) { ++c->report[11]; simpipe_stop(3); }
     fzx_simpipe_slot_t *s;
     if (out) {
-        s = c->slot[c->sequence & 1u];
+        s = SIMPIPE_SLOT(c, c->sequence & 1u);
         s->magic = FZX_SIMPIPE_SLOT_MAGIC; s->generation = c->generation;
         s->sequence = ++c->sequence; s->ticks = fzx_input_count;
         ++c->report[13];
@@ -830,7 +844,7 @@ simpipe_copy(bool out)
 #if FZX_SIMPIPE_DBUF_STALE
         if (want > 1u) { --want; ++c->report[15]; }
 #endif
-        s = c->slot[(want - 1u) & 1u];
+        s = SIMPIPE_SLOT(c, (want - 1u) & 1u);
         if (!want || s->magic != FZX_SIMPIPE_SLOT_MAGIC || s->sequence != want
 #if !FZX_SIMPIPE_DBUF_STALE
             || s->generation != c->generation
@@ -838,12 +852,11 @@ simpipe_copy(bool out)
             ) { ++c->report[12]; simpipe_stop(4); }
         ++c->report[14];
     }
-    uint8_t *data = (uint8_t *)(s + 1);
-    for (unsigned i = 0; i < c->parts; ++i) {
-        const fzx_simpipe_part_t *p = &c->part[i];
-        if (out) memcpy(data, p->address, p->bytes); else memcpy(p->address, data, p->bytes);
-        data += (p->bytes + 3u) & ~3u;
-    }
+    uint8_t *data = simpipe_parts_copy(simpipe_parts, sizeof(simpipe_parts) / sizeof(simpipe_parts[0]),
+                                       (uint8_t *)(s + 1), out);
+    data = simpipe_parts_copy((const fzx_simpipe_part_t *)fzx_core_publication_parts, FZX_CORE_PUBLICATION_PARTS,
+                              data, out);
+    simpipe_parts_copy(c->dynamic, 2u, data, out);
 }
 #endif
 

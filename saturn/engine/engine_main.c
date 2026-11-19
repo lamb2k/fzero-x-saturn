@@ -38,6 +38,19 @@
 #ifndef E1_CLOSEUP
 #define E1_CLOSEUP 0
 #endif
+#ifndef ENG_SCENES
+#define ENG_SCENES 0
+#endif
+#if ENG_SCENES
+#include "engine_scenes.h"
+/* Load step stamps (fields) for the scenes lane's load-time table. */
+#define SCN_STAMP(i) (fzx_scn_load_fields[(i)] = video_fields)
+#define SCN_ONCE(stmt) do { if (!scn_once) { stmt; } } while (0)
+static bool scn_once;
+#else
+#define SCN_STAMP(i) ((void)0)
+#define SCN_ONCE(stmt) stmt
+#endif
 #ifndef E1_CLOSEUP_EARLY
 #define E1_CLOSEUP_EARLY 0
 #endif
@@ -331,6 +344,9 @@ static void vblank_out(void *work) {
     ++video_fields;
 #if FZX_E1_DRIVE
     smpc_peripheral_intback_issue();
+#endif
+#if ENG_SCENES
+    if (fzx_scn_vblank_hook) fzx_scn_vblank_hook();
 #endif
     MAC_RESTORE();
 }
@@ -705,6 +721,21 @@ int main(void) {
     dbgio_dev_font_load();
     fzx_e0_report[0] = ROW_MAGIC; /* the image is running: captures wait for this before reading status */
     fzx_sky_stack_paint(); /* master stack watermark, read by captures */
+#if ENG_SCENES
+    fzx_scn_main(); /* never returns: the boot-to-reset loop (engine_scenes.c) */
+}
+
+uint32_t video_fields_get(void) { return video_fields; }
+
+static fzx_engine_cam_t drive_cam;
+static const fzx_engine_cam_t *scn_lens;
+static uint32_t scn_hz;
+static uint32_t tick, remainder, previous, row_index;
+
+/* The race load: the plain image's start-up, shared text. Faults stop the image as before. */
+void fzx_race_load(void) {
+    SCN_STAMP(0);
+#endif
 
     /* The path pack: CD to low work RAM, then validated in place. */
     const uintptr_t scratch = ((uintptr_t)sat_stub_data_end + 31u) & ~(uintptr_t)31u;
@@ -723,8 +754,11 @@ int main(void) {
         fail(50, "DRIVE LOAD", fzx_e1_status * 100u + fzx_texture_cd_status.status);
     /* The lens (focal, tan_half) of the race camera at speed, from the reference path. */
     const fzx_engine_cam_t *const lens = &path.cams[(path.ticks >= 3000u ? 3000u : path.ticks) - 1u];
+#if !ENG_SCENES
     static fzx_engine_cam_t drive_cam;
 #endif
+#endif
+    SCN_STAMP(1);
     uint32_t offset = FZX_SKY_VRAM_BYTES;
     skyline_vram = (void *)((uintptr_t)partitions.texture_base + offset);
     if (offset + FZX_SKYLINE_VRAM_BYTES > partitions.texture_size || !fzx_skyline_load(skyline_vram)) fail(30, "SKYLINE LOAD", 0);
@@ -739,8 +773,11 @@ int main(void) {
     if (!fzx_clouds_vdp2_load(planes_vram)) fail(33, "CLOUDS LOAD", fzx_clouds_status);
     planes_vram = NULL;
     commands_init();
+    SCN_STAMP(2);
+#if !ENG_SCENES
     dbgio_printf("\x1b[H\x1b[2J LOADING TRACK...\n");
     dbgio_flush(); vdp2_sync(); vdp2_sync_wait();
+#endif
     if (!fzx_road_load(fzx_course_record, sizeof(fzx_course_record)))
         fail(34, fzx_road_load_status.status == 2 ? "4 MB RAM CARTRIDGE REQUIRED" : "TRACK PACK LOAD", fzx_road_load_status.status);
     road_pixels = (void *)((uintptr_t)partitions.texture_base + offset);
@@ -748,10 +785,11 @@ int main(void) {
     if (offset + FZX_ROAD_LOD_TEXTURE_BYTES + FZX_ROAD_STREAM_SHADE_BYTES > partitions.texture_size || !fzx_road_stream_load(road_pixels))
         fail(35, "TRACK LOAD", fzx_road_stream_status);
     offset += FZX_ROAD_LOD_TEXTURE_BYTES + FZX_ROAD_STREAM_SHADE_BYTES;
-    fzx_slave_road_init();
+    SCN_STAMP(3);
+    SCN_ONCE(fzx_slave_road_init());
     if (fzx_slave_road_status != 1) fail(36, "SLAVE INIT", fzx_slave_road_status);
 #if FZX_VDP1_DBANK
-    dbank_init();
+    SCN_ONCE(dbank_init());
 #endif
 #if FZX_E1_DRIVE
     {
@@ -768,12 +806,19 @@ int main(void) {
         if (!fzx_drive_sprites_load(&partitions, clut_used, (uintptr_t)fzx_road_stream_cart_end + 32u, cart_limit,
                                     (void *)scratch, 0x0028D000u - 32u - scratch))
             fail(52, "SPRITE LOAD", fzx_e1_status * 100u + fzx_texture_cd_status.status);
+        SCN_STAMP(4);
 #if E1_CLOSEUP == 1
         /* Arm A: the vehicle's texels and two shade tables just below the slot pool. */
+#if ENG_SCENES
+        const uint32_t closeup_floor = fzx_closeup_load_family(&partitions, fzx_drive_texture_floor(), (void *)scratch,
+                                                               0x0028D000u - 32u - scratch, fzx_scn_player_family());
+#else
         const uint32_t closeup_floor = fzx_closeup_load(&partitions, fzx_drive_texture_floor(), (void *)scratch,
                                                         0x0028D000u - 32u - scratch);
+#endif
         if (!closeup_floor) fail(53, "VEHICLE LOAD", fzx_ab_report[0] * 100u + fzx_texture_cd_status.status);
         if (offset > closeup_floor) fail(51, "SPRITE VRAM OVERLAP", offset);
+        SCN_STAMP(5);
 #endif
         if (offset > fzx_drive_texture_floor()) fail(51, "SPRITE VRAM OVERLAP", offset);
     }
@@ -792,6 +837,9 @@ int main(void) {
     const uint32_t hz = fzx_e0_report[6];
     cpu_frt_init(CPU_FRT_CLOCK_DIV_32);
     /* Chain the end-of-draw stamp ahead of Yaul's handler. */
+#if ENG_SCENES
+    if (!scn_once)
+#endif
     {
         const uint32_t mask = cpu_intc_mask_get();
         cpu_intc_mask_set(15);
@@ -811,6 +859,24 @@ int main(void) {
     memcpy((void *)fzx_e0_vdp2_regs, vdp2_regs_get(), sizeof(fzx_e0_vdp2_regs));
     for (unsigned i = 0; i < 0x800u; ++i) fzx_e0_cram[i] = ((const volatile uint16_t *)VDP2_CRAM(0))[i];
 #endif
+#if ENG_SCENES
+    scn_hz = hz; scn_lens = lens; scn_once = true;
+    SCN_STAMP(6);
+}
+
+/* Race-local state to its start: the loop counters and the status words. */
+void fzx_race_begin(void) {
+    tick = 0; remainder = 0; previous = video_fields; row_index = 0; pending_row = 0;
+    fzx_e0_report[1] = 0; fzx_e0_report[4] = previous;
+    fzx_e0_done = 0; fzx_e0_status = 1;
+}
+
+/* One presented frame of the race (the plain image's loop body, shared text). */
+bool fzx_race_frame(void) {
+    const uint32_t hz = scn_hz;
+    const fzx_engine_cam_t *const lens = scn_lens;
+    {
+#else
     uint32_t tick = 0, remainder = 0, previous = video_fields, row_index = 0;
 #if E0_HW_COUNTER
     uint32_t hw_loops = 0, hw_next = 0, hw_mark_frames = 0;
@@ -818,6 +884,7 @@ int main(void) {
     fzx_e0_report[4] = previous;
     fzx_e0_status = 1;
     for (;;) {
+#endif
         const uint16_t loop_start = cpu_frt_count_get();
         const uint32_t field = video_fields;
         /* Real time: the path advances one tick per 1/60 s, whatever the frame takes. */
@@ -928,4 +995,7 @@ int main(void) {
         fzx_e0_report[12] = field_frt;
         (void)loop_start;
     }
+#if ENG_SCENES
+    return true;
+#endif
 }

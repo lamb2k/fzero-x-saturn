@@ -330,6 +330,35 @@ bool fzx_drive_sprites_load(const vdp1_vram_partitions_t *parts, uint32_t clut_u
 
 uint32_t fzx_drive_texture_floor(void) { return fzx_e1_vram[14]; }
 
+#ifndef ENG_SCENES
+#define ENG_SCENES 0
+#endif
+#if ENG_SCENES
+/* Scenes image: race-local state back to the start of a race, with the packs, the
+ * sprite set and the slot pool layout kept (a retry). The slot pool is emptied so
+ * a retry fills it exactly as the first race did. */
+void fzx_drive_reset(void) {
+    body = course.start; prev_n64 = 0; ticks = 0;
+    memset(&pad_state, 0, sizeof(pad_state));
+    memset((void *)fzx_e1_checkpoints, 0, sizeof(fzx_e1_checkpoints));
+    memset((void *)fzx_e1_report, 0, sizeof(fzx_e1_report));
+    fzx_e1_report[9] = 1; fzx_e1_report[12] = FZX_PHYSICS_PACK_BYTES;
+    if (fzx_e1_status == 1) {
+        sh2z_scache_t *const c = CT(&pool);
+        const uint32_t n = c->count;
+        for (uint32_t i = 0; i < n; ++i) {
+            sh2z_scache_slot_t *const slot = CT(&pool_slots[i]);
+            slot->key = SH2Z_SCACHE_NO_KEY; slot->last_use = 0; slot->state = SH2Z_SCACHE_FREE;
+        }
+        (void)sh2z_scache_init(c, CT(&pool_slots[0]), n, 2u);
+    }
+    fill_count = 0; fill_done = 0;
+    drawn_slot = UINT32_MAX; drawn_cell = 0;
+    memset((void *)fzx_e1_cache, 0, sizeof(fzx_e1_cache));
+}
+const sh2z_vd_body_t *fzx_drive_state(void) { return &body; }
+#endif
+
 /* Slave, right after the track build: copy queued cells into their slots. */
 void fzx_drive_slave_fill(void) {
     if (fzx_e1_status != 1) return;

@@ -3,9 +3,25 @@
 #include <stddef.h>
 #include "engine_closeup.h"
 #include "fzx_vehicle.h"
+#include "texture_cd.h"
+#ifndef ENG_SCENES
+#define ENG_SCENES 0
+#endif
+#if ENG_SCENES
+/* Scenes image: one pack per machine family (MACH3D<ff>.PAK, tools/mach3d_packs.py of
+ * the 3D-N lane; mach3d_identity.h is indexed by family, pack_bytes 0 = no pack). The
+ * work RAM and VDP1 region take the largest pack the image may load. */
+#include "mach3d_identity.h"
+#define PACK_MAX 40960u
+#define TEXEL_MAX 20480u
+#define SHADE_MAX 2048u
+#else
 #include "machine_rebake_identity.h"
 #include "closeup_identity.h"
-#include "texture_cd.h"
+#define PACK_MAX FZX_CLOSEUP_PACK_BYTES
+#define TEXEL_MAX FZX_MACHINE_REBAKE_TEXTURE_BYTES
+#define SHADE_MAX (FZX_MACHINE_REBAKE_PALETTE_BYTES + FZX_MACHINE_REBAKE_GOURAUD_BYTES)
+#endif
 #include "sh2zam/vehicle_dynamics_experimental.h"
 
 /* engine_drive.c: the player's physics body (E1_CLOSEUP=1 only). */
@@ -15,18 +31,28 @@ volatile uint32_t fzx_ab_report[16];
 fzx_vehicle_stats_t fzx_ab_vehicle_stats;
 
 #define ALIGN32(x) (((x) + 31u) & ~31u)
+/* The VDP1 region is sized for the largest pack the image can load. */
 enum {
-    TEXEL_BYTES = ALIGN32(FZX_MACHINE_REBAKE_TEXTURE_BYTES),
-    SHADE_BYTES = ALIGN32(FZX_MACHINE_REBAKE_PALETTE_BYTES + FZX_MACHINE_REBAKE_GOURAUD_BYTES),
+    TEXEL_BYTES = ALIGN32(TEXEL_MAX),
+    SHADE_BYTES = ALIGN32(SHADE_MAX),
     REGION_BYTES = TEXEL_BYTES + 2u * SHADE_BYTES
 };
 
+#if !ENG_SCENES
 _Static_assert(FZX_CLOSEUP_META_BYTES == FZX_MACHINE_REBAKE_METADATA_BYTES &&
                FZX_CLOSEUP_TEXEL_BYTES == FZX_MACHINE_REBAKE_TEXTURE_BYTES &&
                FZX_CLOSEUP_PACK_BYTES == FZX_CLOSEUP_META_BYTES + FZX_CLOSEUP_TEXEL_BYTES &&
                (FZX_MACHINE_REBAKE_METADATA_BYTES & 3u) == 0u, "MACHAB.PAK is MACHRLD.PAK then MACHRTX.PAK");
+#endif
+/* The pack loaded: file, sizes, checks and body colour. */
+typedef struct {
+    const char *file;
+    uint32_t pack_bytes, pack_hash, meta_bytes, meta_hash, texel_bytes, palette_bytes, gouraud_bytes;
+    uint8_t body[3];
+} pack_id_t;
+static pack_id_t loaded;
 /* The whole CD pack; the metadata stays here, the texel half is copied to VRAM at load. */
-static uint32_t meta[FZX_CLOSEUP_PACK_BYTES / 4u] __attribute__((aligned(32)));
+static uint32_t meta[PACK_MAX / 4u] __attribute__((aligned(32)));
 static fzx_vehicle_pack_t pack;
 static fzx_vehicle_work_t work __attribute__((aligned(32)));
 static fzx_vehicle_native_tables_t tables[2] __attribute__((aligned(32))); /* one per VDP1 bank */
@@ -53,8 +79,12 @@ static float fixed_to_float(int32_t v, unsigned shift) {
     return r.f;
 }
 
-uint32_t fzx_closeup_load(const vdp1_vram_partitions_t *parts, uint32_t ceiling, void *scratch, uint32_t scratch_bytes) {
+static uint32_t load_pack(const pack_id_t *id, const vdp1_vram_partitions_t *parts, uint32_t ceiling, void *scratch,
+                          uint32_t scratch_bytes) {
     fzx_ab_report[0] = 0;
+    if (id->pack_bytes > sizeof(meta) || id->meta_bytes + id->texel_bytes != id->pack_bytes || (id->meta_bytes & 3u) ||
+        id->texel_bytes > TEXEL_BYTES || id->palette_bytes + id->gouraud_bytes > SHADE_BYTES) { fzx_ab_report[0] = 3; return 0; }
+    loaded = *id;
     if (ceiling < REGION_BYTES) { fzx_ab_report[0] = 5; return 0; }
     const uint32_t floor = (ceiling - REGION_BYTES) & ~31u;
     const uintptr_t base = (uintptr_t)parts->texture_base;
@@ -62,16 +92,16 @@ uint32_t fzx_closeup_load(const vdp1_vram_partitions_t *parts, uint32_t ceiling,
     pixels = (uint8_t *)(base + floor);
     shades[0] = pixels + TEXEL_BYTES;
     shades[1] = shades[0] + SHADE_BYTES;
-    /* One CD file (MACHAB.PAK: metadata, then texels) to work RAM; the texels then to VRAM. */
-    if (!fzx_texture_cd_load("MACHAB.PAK", FZX_CLOSEUP_PACK_BYTES, FZX_CLOSEUP_PACK_HASH, meta,
+    /* One CD file (metadata, then texels) to work RAM; the texels then to VRAM. */
+    if (!fzx_texture_cd_load(id->file, id->pack_bytes, id->pack_hash, meta,
                              scratch, scratch_bytes)) { fzx_ab_report[0] = 2; return 0; }
-    if (!fzx_vehicle_pack_open(&pack, meta, FZX_MACHINE_REBAKE_METADATA_BYTES, FZX_MACHINE_REBAKE_TEXTURE_BYTES,
-                               FZX_MACHINE_REBAKE_METADATA_HASH, false)) { fzx_ab_report[0] = 3; return 0; }
+    if (!fzx_vehicle_pack_open(&pack, meta, id->meta_bytes, id->texel_bytes, id->meta_hash, false))
+        { fzx_ab_report[0] = 3; return 0; }
     {
-        const uint32_t *src = meta + FZX_MACHINE_REBAKE_METADATA_BYTES / 4u;
+        const uint32_t *src = meta + id->meta_bytes / 4u;
         volatile uint32_t *dst = (volatile uint32_t *)(void *)pixels;
-        for (uint32_t i = 0; i < FZX_MACHINE_REBAKE_TEXTURE_BYTES / 4u; ++i) dst[i] = src[i];
-        for (uint32_t i = 0; i < FZX_MACHINE_REBAKE_TEXTURE_BYTES / 4u; ++i)
+        for (uint32_t i = 0; i < id->texel_bytes / 4u; ++i) dst[i] = src[i];
+        for (uint32_t i = 0; i < id->texel_bytes / 4u; ++i)
             if (dst[i] != src[i]) { fzx_ab_report[0] = 4; return 0; }
     }
     memset(shades[0], 0, 2u * SHADE_BYTES);
@@ -98,7 +128,7 @@ uint32_t fzx_closeup_load(const vdp1_vram_partitions_t *parts, uint32_t ceiling,
         state.ambient[i] = 100u; state.light_rgb[i] = 255u; state.light_dir[i] = 69;
         state.fog[i] = pack.data[51u + i];
     }
-    state.body[0] = FZX_CLOSEUP_BODY_R; state.body[1] = FZX_CLOSEUP_BODY_G; state.body[2] = FZX_CLOSEUP_BODY_B;
+    state.body[0] = id->body[0]; state.body[1] = id->body[1]; state.body[2] = id->body[2];
     state.source_lod = 1; state.normal_body_visible = 1;
     fzx_ab_report[9] = (uint32_t)((uintptr_t)pixels & 0x7ffffu);
     fzx_ab_report[10] = (uint32_t)((uintptr_t)shades[0] & 0x7ffffu);
@@ -107,6 +137,39 @@ uint32_t fzx_closeup_load(const vdp1_vram_partitions_t *parts, uint32_t ceiling,
     fzx_ab_report[0] = 1;
     return floor;
 }
+
+#if ENG_SCENES
+bool fzx_closeup_has_family(uint32_t family) {
+    return family < FZX_MACH3D_FAMILIES && fzx_mach3d_identity[family].present && fzx_mach3d_identity[family].pack_bytes;
+}
+
+uint32_t fzx_closeup_load_family(const vdp1_vram_partitions_t *parts, uint32_t ceiling, void *scratch, uint32_t scratch_bytes,
+                                 uint32_t family) {
+    static char file[13] = "MACH3D00.PAK";
+    if (!fzx_closeup_has_family(family)) { fzx_ab_report[0] = 6; return 0; } /* no pack for this family */
+    const fzx_mach3d_identity_t *e = &fzx_mach3d_identity[family];
+    file[6] = (char)('0' + family / 10u); file[7] = (char)('0' + family % 10u);
+    const pack_id_t id = { file, e->pack_bytes, e->pack_fnv, e->metadata_bytes, e->metadata_fnv, e->texel_bytes,
+                           e->palette_bytes, e->gouraud_bytes, { e->body[0], e->body[1], e->body[2] } };
+    return load_pack(&id, parts, ceiling, scratch, scratch_bytes);
+}
+
+void fzx_closeup_reset(void) {
+    if (fzx_ab_report[0] != 1) return;
+    memset(shades[0], 0, 2u * SHADE_BYTES);
+    memset(&work, 0, sizeof(work));
+    memset(tables, 0, sizeof(tables));
+    for (unsigned i = 1; i < 16u; ++i) if (i < 9u || i > 12u) fzx_ab_report[i] = 0;
+}
+#else
+uint32_t fzx_closeup_load(const vdp1_vram_partitions_t *parts, uint32_t ceiling, void *scratch, uint32_t scratch_bytes) {
+    static const pack_id_t id = { "MACHAB.PAK", FZX_CLOSEUP_PACK_BYTES, FZX_CLOSEUP_PACK_HASH, FZX_MACHINE_REBAKE_METADATA_BYTES,
+                                  FZX_MACHINE_REBAKE_METADATA_HASH, FZX_MACHINE_REBAKE_TEXTURE_BYTES,
+                                  FZX_MACHINE_REBAKE_PALETTE_BYTES, FZX_MACHINE_REBAKE_GOURAUD_BYTES,
+                                  { FZX_CLOSEUP_BODY_R, FZX_CLOSEUP_BODY_G, FZX_CLOSEUP_BODY_B } };
+    return load_pack(&id, parts, ceiling, scratch, scratch_bytes);
+}
+#endif
 
 unsigned fzx_closeup_draw(vdp1_cmdt_t *commands, unsigned capacity, const fzx_view_t *view,
                           const fzx_engine_cam_t *cam, uint32_t bank) {
@@ -125,7 +188,7 @@ unsigned fzx_closeup_draw(vdp1_cmdt_t *commands, unsigned capacity, const fzx_vi
     work.tables = &tables[bank];
     const fzx_vehicle_target_t target = {
         .commands = (uint32_t (*)[8])(void *)commands, .capacity = capacity, .pixels = pixels, .shades = shades[bank],
-        .palette_bytes = FZX_MACHINE_REBAKE_PALETTE_BYTES, .gouraud_bytes = FZX_MACHINE_REBAKE_GOURAUD_BYTES,
+        .palette_bytes = loaded.palette_bytes, .gouraud_bytes = loaded.gouraud_bytes,
         .texture_ctrl = texture_ctrl, .texture_pmod = texture_pmod, .solid_ctrl = solid_ctrl, .solid_pmod = solid_pmod};
     uint32_t drawn = 0;
     const bool ok = fzx_vehicle_draw_native(&pack, view, &camera, &state, &work, &target, &drawn, &fzx_ab_vehicle_stats);

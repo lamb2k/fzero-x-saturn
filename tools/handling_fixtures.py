@@ -36,7 +36,9 @@ from import_course import FEATURES, course_checksum  # noqa: E402
 
 RECORD_SIZE = 0x7E0
 WALLED = 0x40
+SIDE_ZONES = 0x8000000  # surface zones bound by side offset, as on every retail road segment
 INTRO = 460            # ticks before the race starts
+BOOST_TURN = 4100      # corridor tick after boost unlocks, on the straight
 KMH = 21.6
 FEATURE_OFFSETS = {"pit": 0x5A0, "dash": 0x5E0, "dirt": 0x620, "ice": 0x660, "jump": 0x6A0, "landmine": 0x6E0,
                    "gate": 0x720, "building": 0x760, "sign": 0x7A0}
@@ -47,14 +49,18 @@ F_DAMAGE, F_RETIRED, F_CAN_BOOST, F_JUMP, F_DASH, F_FINISHED, F_AIRBORNE, F_CRAS
 F_GRIP = 1 << 29
 
 
-def course_record(points, features=None, name=b"E1 HANDLING") -> bytes:
-    """points: (x, y, z, radius_left, radius_right, bank_degrees). One segment gets another road type."""
+def course_record(points, features=None, name=b"E1 HANDLING", side_zones=False) -> bytes:
+    """points: (x, y, z, radius_left, radius_right, bank_degrees). One segment gets another road type.
+    side_zones sets the retail roads' flag that bounds surface zones by side offset; without it the
+    original tests zones against two edge vectors, which the authored zone data leaves parallel to
+    the road, so membership would hang on float rounding."""
+    info = WALLED | (SIDE_ZONES if side_zones else 0)
     buf = bytearray(RECORD_SIZE)
     struct.pack_into(">Bbbb", buf, 0, 0, len(points), 0, 0)
     buf[9:9 + len(name)] = name
     odd = len(points) - 3
     for i, (x, y, z, left, right, bank) in enumerate(points):
-        struct.pack_into(">fffhhI", buf, 0x20 + i * 20, x, y, z, left, right, WALLED | (1 if i == odd else 0))
+        struct.pack_into(">fffhhI", buf, 0x20 + i * 20, x, y, z, left, right, info | (1 if i == odd else 0))
         struct.pack_into(">h", buf, 0x520 + i * 2, bank)
     for offset in range(0x5A0, RECORD_SIZE, 0x40):
         buf[offset:offset + 64] = b"\xff" * 64
@@ -64,7 +70,7 @@ def course_record(points, features=None, name=b"E1 HANDLING") -> bytes:
     # The original checksum, computed directly: the importer's bounds are the old renderer's,
     # and the skid pad is deliberately wider than any road the game ships.
     parsed = [{"position": (x, y, z), "radius_left": left, "radius_right": right, "bank_degrees": bank,
-               "track_segment_info": WALLED | (1 if i == odd else 0)}
+               "track_segment_info": info | (1 if i == odd else 0)}
               for i, (x, y, z, left, right, bank) in enumerate(points)]
     listed = {key: [(features or {}).get(key, {}).get(i, -1) for i in range(len(points))] for key in FEATURES}
     struct.pack_into(">I", buf, 4, course_checksum(parsed, listed))
@@ -88,7 +94,7 @@ def corridor_course() -> bytes:
     pts += [(-half - r * math.cos(a), 0.0, -r * math.sin(a)) for a in (-math.pi / 4, 0.0, math.pi / 4)]
     pts = pts[1:] + pts[:1]  # the grid sits just before point 0: keep it on the straight
     feats = {"dash": {1: 0}, "pit": {2: 0}, "dirt": {3: 3}, "jump": {5: 0}}
-    return course_record([(x, y, z, 300, 300, 0) for x, y, z in pts], feats, name=b"E1 CORRIDOR")
+    return course_record([(x, y, z, 300, 300, 0) for x, y, z in pts], feats, name=b"E1 CORRIDOR", side_zones=True)
 
 
 def script(lines) -> str:
@@ -123,6 +129,13 @@ def fixtures():
                                 INTRO + 60, "pit", "0.004,2.5,0,%d,-250" % (INTRO + 100))
     # Two laps under the test driver, B pressed every 400 ticks: the boost unlocks on lap 2.
     fx["C03_lap_boost"] = ("corridor", [(INTRO, "-", 0), (7600, "A", 0)], INTRO, "boost", "0.004,2.5,400")
+    # Boosted grip turn (C-056): the test driver holds the line until boost unlocks, then two
+    # boosts back to back and, near 47 units a tick, full right lock with A held. Only above about
+    # 44 does the side speed a grip turn adds each tick exceed the grip limit.
+    fx["P10_boost_turn"] = ("corridor", [(INTRO, "-", 0), (BOOST_TURN - INTRO, "A", 0), (1, "A+B", 0),
+                                         (99, "A", 0), (1, "A+B", 0), (39, "A", 0), (40, "A", 64),
+                                         (60, "A", 0)], BOOST_TURN + 140,
+                            "boost_turn", "0.004,2.5,0,0,0,%d" % (BOOST_TURN + 140))
     return fx
 
 
@@ -257,6 +270,22 @@ def analyse(kind, rows, action):
             m["leave_angle_deg"] = abs(math.degrees(math.asin(max(-1.0, min(1.0, after["heading_side"])))))
             m["energy_lost_total"] = before["energy"] - rows[-1]["energy"]
             m["retired"] = bool(rows[-1]["flags"] & (F_RETIRED | F_CRASHED))
+            # Direct response: velocity along the wall normal (into the wall positive) on the
+            # tick before the response and on the response tick.
+            side = -1.0 if before["lateral"] < 0 else 1.0
+            m["normal_speed_before"] = side * before.get("v_lateral", 0.0)
+            m["normal_speed_after"] = side * rows[hit].get("v_lateral", 0.0)
+            m["restitution"] = (-m["normal_speed_after"] / m["normal_speed_before"]
+                                if m["normal_speed_before"] else None)
+    elif kind == "boost_turn":
+        window = rows[action:action + 15]
+        m["speed_before"] = at(-1)["speed"]
+        m["boosting"] = bool(at(-1)["boost"])
+        m["grip_share_15"] = sum(1 for r in window if r["flags"] & F_GRIP) / len(window)
+        m["side_speed_peak_15"] = max(abs(r["v_side"]) for r in window)
+        m["yaw_rate_15_deg_per_tick"] = sum(unwrap(yaw(rows[i + 1]) - yaw(rows[i]))
+                                            for i in range(action, action + 15)) / 15
+        m["speed_ratio_15"] = rows[action + 15]["speed"] / m["speed_before"]
     elif kind == "features":
         def span(test):
             ticks = [i for i in range(action, len(rows)) if test(rows[i])]

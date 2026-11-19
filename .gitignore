@@ -31,3 +31,5 @@ baserom*
 /saturn/build-orig-hud/
 /saturn/build-orig-camera/
 /saturn/build-orig-road/
+/tools/physics_host/build/
+/tools/physics_sh2/build/

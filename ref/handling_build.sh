@@ -12,10 +12,10 @@ TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 sed -e "s|^ROOT=.*|ROOT=$ROOT|" \
     -e 's|^OUT=$ROOT/ref/build/${CC}${OPT}$|OUT=$ROOT/ref/build/${CC}${OPT}-handling|' \
-    -e 's|^BRIDGES="bridge hooks"$|BRIDGES="bridge hooks handling_probe"|' \
+    -e 's|^BRIDGES="bridge hooks"$|BRIDGES="bridge hooks handling_probe course_line"|' \
     -e 's|^DRIVER=main$|DRIVER=handling_main|' \
     "$ROOT/ref/build.sh" > "$TMP/build.sh"
-for want in "ROOT=$ROOT" 'OUT=$ROOT/ref/build/${CC}${OPT}-handling' 'BRIDGES="bridge hooks handling_probe"' 'DRIVER=handling_main'; do
+for want in "ROOT=$ROOT" 'OUT=$ROOT/ref/build/${CC}${OPT}-handling' 'BRIDGES="bridge hooks handling_probe course_line"' 'DRIVER=handling_main'; do
     grep -qxF "$want" "$TMP/build.sh" || { echo "handling_build: ref/build.sh changed; cannot place: $want" >&2; exit 1; }
 done
 bash "$TMP/build.sh" "$CC" "$OPT"

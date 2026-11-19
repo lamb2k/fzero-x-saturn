@@ -151,7 +151,7 @@ SH_SRCS := engine_main.c engine_scene.c engine_path.c \
     $(G)/course_record.c \
     $(if $(filter 1,$(FZX_E1_DRIVE)),engine_drive.c ../physics_native.c,) \
     $(if $(filter 1,$(E1_CLOSEUP)),engine_closeup.c ../../src/fzx_vehicle.c ../../src/fzx_vehicle_draw.c,) \
-    $(if $(filter 1,$(ENG_SCENES)),engine_scenes.c,) \
+    $(if $(filter 1,$(ENG_SCENES)),engine_scenes.c engine_records.c,) \
     $(addprefix $(SH2ZAM_ROOT)/saturn/src/,$(sort $(SH2ZAM_UNITS)))
 
 SH_CFLAGS += -DFZX_ENGINE=1 -DFZX_FRAME_PROFILE=1 -DFZX_VDP1_DBANK=$(FZX_VDP1_DBANK) \

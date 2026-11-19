@@ -109,6 +109,21 @@ bool fzx_machine_load(void *vram){
     fzx_machine_status=1;return true;
 }
 
+#ifndef FZX_MACHINE_PUBLISH
+#define FZX_MACHINE_PUBLISH 0
+#endif
+#if FZX_MACHINE_PUBLISH
+/* Sim-pipeline checkpoint 2: orig_publish takes the machine snapshot (after
+ * camera 0's flush, before any scene reader); the draw uses it. 1 valid, -1
+ * the source refused (the draw then fails as before), 0 none this frame. */
+static int machine_published;
+bool fzx_machine_publish(void){
+    machine_published=0;
+    if(fzx_machine_status!=1)return false;
+    machine_published=ref_machine(&fzx_source_machine,pack.data+51)?1:-1;
+    return true;
+}
+#endif
 typedef struct {vdp1_cmdt_t *commands;uintptr_t pixels,shades;unsigned count;vdp1_cmdt_t texture,solid;} submit_t;
 #if !FZX_VEHICLE_NATIVE
 static bool emit(void *context,const fzx_vehicle_quad_t *q){
@@ -134,7 +149,12 @@ static bool emit(void *context,const fzx_vehicle_quad_t *q){
 bool fzx_machine_native(vdp1_cmdt_t *commands,unsigned capacity,const fzx_view_t *view,void *pixels,void *shades,uint32_t *count){
     if(!commands||capacity<2||!view||!pixels||!shades||!count||fzx_machine_status!=1)return false;
     const uint16_t start=cpu_frt_count_get();fzx_machine_busy=1;NATIVE_MARK(0,start);
-    if(!ref_machine(&fzx_source_machine,pack.data+51)){fzx_machine_status=4;fzx_machine_busy=0;return false;}
+#if FZX_MACHINE_PUBLISH
+    const bool source_ok=machine_published==1;machine_published=0;
+#else
+    const bool source_ok=ref_machine(&fzx_source_machine,pack.data+51);
+#endif
+    if(!source_ok){fzx_machine_status=4;fzx_machine_busy=0;return false;}
     NATIVE_MARK(1,cpu_frt_count_get());
     memset(commands,0,sizeof(*commands));vdp1_cmdt_user_clip_coord_set(commands);
     commands->cmd_xa=view->clip[0];commands->cmd_ya=view->clip[1];commands->cmd_xc=view->clip[2]-1;commands->cmd_yc=view->clip[3]-1;

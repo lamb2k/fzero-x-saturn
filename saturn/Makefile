@@ -683,6 +683,18 @@ SH_CFLAGS += -DFZX_SIMPIPE_PROFILE=1
 else ifneq ($(FZX_SIMPIPE_PROFILE),0)
 $(error FZX_SIMPIPE_PROFILE must be 0 or 1)
 endif
+# FZX_MACHINE_PUBLISH=1 (default 0): sim-pipeline checkpoint 2. The machine's
+# ref_machine snapshot moves from the draw into orig_publish, same CPU, same
+# state and camera flush order; the draw reads the published snapshot.
+FZX_MACHINE_PUBLISH ?= 0
+ifeq ($(FZX_MACHINE_PUBLISH),1)
+ifneq ($(FZX_SIM):$(FZX_SOURCE_MACHINE),orig:1)
+$(error FZX_MACHINE_PUBLISH requires FZX_SIM=orig and FZX_SOURCE_MACHINE=1)
+endif
+SH_CFLAGS += -DFZX_MACHINE_PUBLISH=1
+else ifneq ($(FZX_MACHINE_PUBLISH),0)
+$(error FZX_MACHINE_PUBLISH must be 0 or 1)
+endif
 # FZX_ROAD_LOD=1 (default 0): simplified far road. Every frame uses the
 # budget guard's coarse tiering (strip-length tiers), not only frames over
 # the budget. Approximation: far road texture periods merge sooner.

@@ -8,4 +8,6 @@ extern RefMachine fzx_source_machine;
 extern fzx_machine_stats_t fzx_machine_stats;
 bool fzx_machine_load(void *);
 bool fzx_machine_native(vdp1_cmdt_t *,unsigned,const fzx_view_t *,void *,void *,uint32_t *);
+/* FZX_MACHINE_PUBLISH=1: publication takes the machine snapshot the next draw uses. */
+bool fzx_machine_publish(void);
 #endif

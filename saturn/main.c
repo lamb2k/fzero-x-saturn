@@ -707,6 +707,11 @@ orig_publish(void)
         pub_add(9,(uint16_t)(cpu_frt_count_get()-probe_start));
     }
 #endif
+#if FZX_SOURCE_MACHINE && FZX_MACHINE_PUBLISH
+    /* Sim-pipeline checkpoint 2: the machine snapshot is publication output,
+     * taken after camera 0's flush and every other publication reader. */
+    fzx_machine_publish();
+#endif
     if(fzx_camera_status!=3)fzx_camera_status=1;
     PUB_END();
 #endif

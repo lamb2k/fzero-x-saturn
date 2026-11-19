@@ -1,6 +1,7 @@
 #include "fzx_road_stream_draw.h"
 #include "fzx_road_stream_phase.h"
 #include "sh2zam/cdiv_experimental.h"
+#include "sh2zam/divu_experimental.h"
 #include <limits.h>
 #include <stddef.h>
 #include <string.h>
@@ -15,6 +16,9 @@
 #define FZX_RS_PACKET_PATH 1
 #endif
 #define FZX_RS_COLD __attribute__((cold))
+#ifndef FZX_ROAD_STREAM_FOG_EARLY
+#define FZX_ROAD_STREAM_FOG_EARLY 0
+#endif
 #ifndef FZX_ROAD_STREAM_CLUSTER_AUDIT
 #define FZX_ROAD_STREAM_CLUSTER_AUDIT 0
 #endif
@@ -230,6 +234,14 @@ typedef struct {
 #if FZX_ROAD_STREAM_PHASES
     unsigned alive; /* diagnostic: the last quad reached piece construction */
 #endif
+#if FZX_ROAD_STREAM_FOG_EARLY
+    /* Pieces with every corner nearer than the first fog threshold (fade 0):
+     * one shading result per strip's base image (slot 63: solid pieces), this frame. */
+    int32_t fog0;
+    uint16_t fog0_word[64];
+    int8_t fog0_variant[64];
+    uint8_t fog0_valid[64];
+#endif
 #if FZX_ROAD_STREAM_CLUSTERS
     sh2z_segmesh_cull_t cull;  /* segmesh-2 state for this view */
     uint32_t live;             /* the current chunk's classes that may draw */
@@ -320,13 +332,14 @@ static void clip_input(fzx_road_stream_hot_t *h,const vref_t v[4]){
  * rectangle in 2D on the projected corners, instead of the six-plane 3D guard
  * clip. New 2D crossings take z linearly along the screen edge (it only picks
  * the fog). Returns the corner count in hot->clip_out, or -1 to ask for the
- * exact clip (a corner too far off screen for the 2D step). */
+ * exact clip (a corner saturated at the int16 screen limit). */
 static void lean_cross(sh2z_view_vertex_t *q,const sh2z_view_vertex_t *a,const sh2z_view_vertex_t *b,
     unsigned axis,int32_t edge){
     const int32_t a0=axis?a->sy:a->sx,b0=axis?b->sy:b->sx,a1=axis?a->sx:a->sy,b1=axis?b->sx:b->sy;
     const int32_t num=edge-a0,den=b0-a0;
-    const int32_t other=a1+(int32_t)(((int64_t)(b1-a1)*num)/den);
-    const int32_t z=a->z+(int32_t)(((int64_t)b->z-a->z)*num/den);
+    /* The SH-2 divider (SH2ZAM divu): both quotients fit int32. */
+    const int32_t other=a1+sh2z_divu_div64((int64_t)(b1-a1)*num,den,NULL);
+    const int32_t z=a->z+sh2z_divu_div64(((int64_t)b->z-a->z)*num,den,NULL);
     q->x=0;q->y=0;q->z=z;q->outcode=0;q->reserved[0]=q->reserved[1]=q->reserved[2]=0;
     if(axis){q->sy=(int16_t)edge;q->sx=(int16_t)other;}else{q->sx=(int16_t)edge;q->sy=(int16_t)other;}
 }
@@ -346,14 +359,23 @@ static int lean_clip(draw_t *d,const vref_t v[4],const int16_t guard[4]){
     for(unsigned i=0;i<4;++i){buf[0][i]=*v[i];if(v[i]->outcode&SH2Z_OUT_NEAR)near=true;}
     if(near){n=sh2z_view_clip_near_center_divu(buf[0],&d->view,buf[0]);if(n<3)return 0;}
     /* Phases builds count fallbacks to the exact clip as STEPPED. */
-    for(unsigned i=0;i<n;++i)if(buf[0][i].sx< -4096||buf[0][i].sx>4096||buf[0][i].sy< -4096||buf[0][i].sy>4096){FZX_RSP_COUNT(STEPPED,1);return -1;}
-    n=lean_side(buf[0],n,buf[1],0,guard[0],true);
-    n=lean_side(buf[1],n,buf[0],0,guard[2],false);
-    n=lean_side(buf[0],n,buf[1],1,guard[1],true);
-    n=lean_side(buf[1],n,buf[0],1,guard[3],false);
+    for(unsigned i=0;i<n;++i)if(buf[0][i].sx<= -32767||buf[0][i].sx>=32767||buf[0][i].sy<= -32767||buf[0][i].sy>=32767){FZX_RSP_COUNT(STEPPED,1);return -1;}
+    /* Only the sides the corners' bounding box crosses are clipped. */
+    int32_t x0=buf[0][0].sx,x1=x0,y0=buf[0][0].sy,y1=y0;
+    for(unsigned i=1;i<n;++i){const int32_t x=buf[0][i].sx,y=buf[0][i].sy;
+        if(x<x0)x0=x;
+        if(x>x1)x1=x;
+        if(y<y0)y0=y;
+        if(y>y1)y1=y;}
+    if(x1<guard[0]||x0>guard[2]||y1<guard[1]||y0>guard[3])return 0;
+    unsigned cur=0;
+    if(x0<guard[0]){n=lean_side(buf[cur],n,buf[cur^1u],0,guard[0],true);cur^=1u;}
+    if(x1>guard[2]){n=lean_side(buf[cur],n,buf[cur^1u],0,guard[2],false);cur^=1u;}
+    if(y0<guard[1]){n=lean_side(buf[cur],n,buf[cur^1u],1,guard[1],true);cur^=1u;}
+    if(y1>guard[3]){n=lean_side(buf[cur],n,buf[cur^1u],1,guard[3],false);cur^=1u;}
     if(n<3)return 0;
     if(n>SH2Z_VIEW_GUARD_MAX_OUT)return -1;
-    for(unsigned i=0;i<n;++i)d->hot->clip_out[i].v=buf[0][i];
+    for(unsigned i=0;i<n;++i)d->hot->clip_out[i].v=buf[cur][i];
     return (int)n;
 }
 #endif
@@ -400,6 +422,26 @@ static bool piece(draw_t *d,const vref_t v[4],unsigned quad,unsigned piece_id,
      * return is the colour variant ([mean fade >= 64] + [mean fade >= 192]). */
     int variant;
     if(solid&&!w->mix_valid&&!mix_prepare(w))return fail(d,FZX_RS_INVALID);
+#if FZX_ROAD_STREAM_FOG_EARLY
+    /* FZX_ROAD_STREAM_FOG_EARLY (default 0): when every corner's fade is 0
+     * (z below the first fog threshold), each corner gets the same word and
+     * the variant is the ramp's for an all-zero batch whatever the count, so
+     * the first such piece of an image computes it with one corner and the
+     * rest reuse it: the same bytes as the full call. */
+    /* Textured pieces use base image strip*5 (one per strip). */
+    const unsigned slot=solid?63u:base_image%5u?64u:base_image/5u;bool early=false;
+    if(w->fogp_ok&&slot<64u){early=true;
+        for(unsigned i=0;i<count;++i)if(corners[i]->z>=d->fog0){early=false;break;}}
+    if(early){
+        if(!d->fog0_valid[slot]){
+            const int v=sh2z_shade_fog_gouraud_refs(&d->fog0_word[slot],(const void *const *)corners,
+                offsetof(sh2z_view_vertex_t,z),1,&w->fogp,solid?&w->ramp_mix:&w->ramp_offset,w->images[base_image].mean);
+            if(v<0)return fail(d,FZX_RS_INVALID);
+            d->fog0_variant[slot]=(int8_t)v;d->fog0_valid[slot]=1;}
+        for(unsigned i=0;i<count;++i)shades[i]=d->fog0_word[slot];
+        variant=d->fog0_variant[slot];
+    } else
+#endif
     if(w->fogp_ok)variant=sh2z_shade_fog_gouraud_refs(shades,(const void *const *)corners,
         offsetof(sh2z_view_vertex_t,z),count,&w->fogp,solid?&w->ramp_mix:&w->ramp_offset,
         w->images[base_image].mean);
@@ -773,6 +815,9 @@ static bool draw_any(fzx_road_stream_draw_work_t *w,const sh2z_view_center_t *vi
     ramp_prepare(w,plan);
     if(!w->ramp_valid)return false;
     if(!sh2z_view_rails_prepare(&d.rails,&d.view))return false;
+#if FZX_ROAD_STREAM_FOG_EARLY
+    memset(d.fog0_valid,0,sizeof(d.fog0_valid));
+#endif
 #if FZX_ROAD_STREAM_CLUSTERS
     d.live=UINT32_MAX;
     if(w->clusters&&!sh2z_segmesh_cull_prepare(&d.cull,&d.view,2))return false;
@@ -781,6 +826,10 @@ static bool draw_any(fzx_road_stream_draw_work_t *w,const sh2z_view_center_t *vi
         FZX_RSP(FOG);
         fog_prepare(w,&d.view.view,plan,pa,pb,stats);
         if(!w->fog_valid)return fail(&d,FZX_RS_INVALID);
+#if FZX_ROAD_STREAM_FOG_EARLY
+        /* fade(z) = 0 exactly when max(z,0) < depth[1]. */
+        d.fog0=w->fog.depth[1]>(uint32_t)INT32_MAX?INT32_MAX:(int32_t)w->fog.depth[1];
+#endif
         if(!native_frame(&d))return false;
         FZX_RSP(REPORT);
 #if FZX_ROAD_STREAM_BUDGET

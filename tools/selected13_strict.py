@@ -100,13 +100,16 @@ def judge(base, cand, mode):
                 reasons.append(side + ' hold metadata missing')
                 metas.append(None)
                 continue
+            # Unparseable or non-object metadata is unusable input, not a verdict; a well-formed record
+            # whose target, checks or guards are wrong stays a FAIL below.
             try:
-                metas.append(json.loads(p.read_text()))
-            except ValueError:
-                reasons.append(side + ' hold metadata is not JSON')
-                metas.append(None)
-                continue
-            reasons += side_problems(side, h, metas[-1])
+                meta = json.loads(p.read_text())
+            except ValueError as e:
+                raise Unusable('%s hold-%d.json is not valid JSON (%s)' % (side, h, e))
+            if not isinstance(meta, dict):
+                raise Unusable('%s hold-%d.json is not a JSON object (%s)' % (side, h, type(meta).__name__))
+            metas.append(meta)
+            reasons += side_problems(side, h, meta)
         if None not in metas and not reasons:
             if [x['name'] for x in metas[0]['guards']] != [x['name'] for x in metas[1]['guards']]:
                 reasons.append('guard sets differ')
@@ -187,7 +190,9 @@ def main(argv):
     try:
         for d in (base, cand):
             r = json.loads((d / 'receipt.json').read_text())
-            if not isinstance(r, dict) or r.get('holds') != HOLDS:
+            holds = r.get('holds') if isinstance(r, dict) else None
+            # Literal ints only: JSON true would otherwise compare equal to hold 1.
+            if not isinstance(holds, list) or not all(type(x) is int for x in holds) or holds != HOLDS:
                 raise Unusable('%s does not hold the 13 selected inputs' % d)
         ok, rows = judge(base, cand, mode)
         controls = []

@@ -178,5 +178,40 @@ class Selected13StrictRegressions(CheckerCase):
             self.assertEqual((code, verdict), (2, 'UNUSABLE'))
 
 
+class Selected13StrictInputValidation(CheckerCase):
+    """C-029: malformed input is UNUSABLE (exit 2, JSON), not a verdict."""
+    def test_receipt_true_for_hold_one_is_unusable(self):
+        with tempfile.TemporaryDirectory() as t:
+            base, cand = self.pair(t)
+            p = cand / 'receipt.json'
+            r = json.loads(p.read_text()); r['holds'][0] = True; p.write_text(json.dumps(r))
+            self.assertEqual(self.run_tool(base, cand)[:2], (2, 'UNUSABLE'))
+
+    def test_metadata_list_is_unusable(self):
+        with tempfile.TemporaryDirectory() as t:
+            base, cand = self.pair(t)
+            (cand / 'snapshots/hold-300.json').write_text('[]')
+            code, verdict, _ = self.run_tool(base, cand)
+            self.assertEqual((code, verdict), (2, 'UNUSABLE'))
+            reason = json.loads((base.parent / 'out.json').read_text())['reason']
+            self.assertIn('candidate', reason); self.assertIn('hold-300', reason)
+
+    def test_metadata_invalid_json_is_unusable(self):
+        with tempfile.TemporaryDirectory() as t:
+            base, cand = self.pair(t)
+            (base / 'snapshots/hold-300.json').write_text('{"target": 300,')
+            code, verdict, _ = self.run_tool(base, cand)
+            self.assertEqual((code, verdict), (2, 'UNUSABLE'))
+            reason = json.loads((base.parent / 'out.json').read_text())['reason']
+            self.assertIn('base', reason); self.assertIn('hold-300', reason)
+
+    def test_well_formed_record_with_failing_guard_stays_fail(self):
+        with tempfile.TemporaryDirectory() as t:
+            base, cand = self.pair(t)
+            p = cand / 'snapshots/hold-300.json'
+            m = json.loads(p.read_text()); m['guards'][0]['pass'] = False; p.write_text(json.dumps(m))
+            self.assertEqual(self.run_tool(base, cand)[:2], (1, 'FAIL'))
+
+
 if __name__ == '__main__':
     unittest.main()

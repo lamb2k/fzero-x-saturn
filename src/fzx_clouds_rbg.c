@@ -2,6 +2,9 @@
 #include <limits.h>
 #include <string.h>
 #include "fzx_scene_phase.h"
+#ifndef FZX_RBG_DIV
+#define FZX_RBG_DIV 0
+#endif
 #ifndef FZX_RBG_LEAN
 #define FZX_RBG_LEAN 0
 #endif
@@ -104,6 +107,87 @@ static bool mapping(const fzx_view_t *view,const RefBackdropVertex *source,
     }
     return true;
 }
+#if FZX_RBG_DIV
+/* FZX_RBG_DIV (default 0): the same mapping with power-of-two divisions as
+ * truncating shifts, 64/32 quotients on the SH-2 divider (divide()), a range
+ * check as a product and one division per q24: the same results. */
+static int64_t div_p2(int64_t n,unsigned k){return n<0?-(int64_t)((uint64_t)-n>>k):(int64_t)((uint64_t)n>>k);}
+static int64_t round_p2(int64_t n,unsigned k){const int64_t h=(int64_t)1<<k>>1;return n<0?-(int64_t)((uint64_t)(-n+h)>>k):(int64_t)((uint64_t)(n+h)>>k);}
+static int64_t q24_one(int64_t n,int64_t d){const int64_t q=n/d;return q*16777216+((n-q*d)*16777216)/d;}
+static bool mapping_div(const fzx_view_t *view,const RefBackdropVertex *source,
+                    const int32_t positions[8][3],fzx_clouds_rbg_t *out) {
+    int32_t coarse[3][3];int64_t cofactor[3][3],largest=0;
+    for(unsigned i=0;i<3;++i)for(unsigned j=0;j<3;++j)coarse[i][j]=positions[i][j]/256;
+    for(unsigned i=0;i<3;++i) {
+        cross(coarse[(i+1)%3],coarse[(i+2)%3],cofactor[i]);
+        for(unsigned j=0;j<3;++j)if(magnitude(cofactor[i][j])>largest)largest=magnitude(cofactor[i][j]);
+    }
+    if(!largest)return fail(out,2);
+    unsigned shift=0;
+    while((largest>>shift)>4194304)++shift;
+    int64_t rows[3][3]={{0}},raw[3][3],h[3][3];
+    for(unsigned i=0;i<3;++i)for(unsigned j=0;j<3;++j) {
+        const int64_t c=div_p2(cofactor[i][j],shift);
+        rows[0][j]+=(int64_t)source[i].uv[0]*c;
+        rows[1][j]+=(int64_t)source[i].uv[1]*c;
+        rows[2][j]+=c;
+    }
+    const int64_t rx=divide(INT64_C(68719476736),view->focal[0]),ry=-divide(INT64_C(68719476736),view->focal[1]);
+    const int64_t x0=divide(-(int64_t)view->center[0]*1048576,view->focal[0]);
+    const int64_t y0=divide((int64_t)view->center[1]*1048576,view->focal[1]);
+    if(magnitude(rx)>65536 || magnitude(ry)>65536 || magnitude(x0)>4194304 || magnitude(y0)>4194304)return fail(out,2);
+    for(unsigned i=0;i<3;++i) {
+        raw[i][0]=rows[i][0]*rx;raw[i][1]=rows[i][1]*ry;
+        raw[i][2]=rows[i][0]*x0+rows[i][1]*y0+rows[i][2]*1048576;
+        if(i<2)for(unsigned j=0;j<3;++j)raw[i][j]=div_p2(raw[i][j],5);
+    }
+    int64_t extent=0;
+    for(unsigned y=0;y<2;++y)for(unsigned x=0;x<2;++x) {
+        const int64_t d=magnitude(raw[2][0]*(x?319:0)+raw[2][1]*(y?223:0)+raw[2][2]);
+        if(d>extent)extent=d;
+    }
+    if(!extent)return fail(out,2);
+    shift=0;
+    while((extent>>shift)>INT64_C(137438953472))++shift;
+    extent>>=shift;
+    for(unsigned i=0;i<3;++i)for(unsigned j=0;j<3;++j) {
+        const int64_t n=div_p2(raw[i][j],shift);
+        if(magnitude(n)>=INT64_C(16777217)*extent)return fail(out,2);
+        h[i][j]=q24_one(n,extent);
+    }
+    for(unsigned axis=0;axis<2;++axis) {
+        int64_t numerator=0,denominator=0;
+        for(unsigned y=0;y<2;++y)for(unsigned x=0;x<2;++x) {
+            const int64_t d=div_p2(h[2][0]*(x?319:0)+h[2][1]*(y?223:0)+h[2][2],8);
+            const int64_t n=div_p2(h[axis][0]*(x?319:0)+h[axis][1]*(y?223:0)+h[axis][2],8);
+            if(magnitude(n)>INT64_C(268435456))return fail(out,2);
+            numerator+=n*d;denominator+=d*d;
+        }
+        if(!denominator)return fail(out,2);
+        const int32_t period=axis?32:64;
+        const int64_t offset=rounded(numerator,denominator*period)*period;
+        for(unsigned j=0;j<3;++j)h[axis][j]-=offset*h[2][j];
+        const int64_t values[3]={h[axis][0],h[axis][1],
+            div_p2(h[axis][2]+160*h[axis][0]+112*h[axis][1],10)};
+        for(unsigned j=0;j<3;++j) {
+            const int64_t word=round_p2(values[j],12)*64;
+            if(word<-524288 || word>=524288)return fail(out,3);
+            out->rp.matrix[axis*3+j]=(int32_t)word;
+        }
+        out->rp.move[axis]=0;
+    }
+    out->rp.start[0]=-160*65536;out->rp.start[1]=-112*65536;out->rp.start[2]=1024*65536;
+    out->rp.line[1]=out->rp.dot[0]=65536;out->rp.scale[0]=out->rp.scale[1]=65536;
+    const int64_t ka[3]={round_p2(h[2][2],1)*64+INT64_C(1073741824),round_p2(h[2][1],1)*64,round_p2(h[2][0],1)*64};
+    if(ka[0]<0 || ka[0]>UINT32_MAX || magnitude(ka[1])>=33554432 || magnitude(ka[2])>=33554432)return fail(out,3);
+    out->rp.coefficient_start=(uint32_t)ka[0];out->rp.coefficient_line=(int32_t)ka[1];out->rp.coefficient_dot=(int32_t)ka[2];
+    for(unsigned y=0;y<2;++y)for(unsigned x=0;x<2;++x) {
+        const int64_t k=ka[0]+ka[1]*(y?223:0)+ka[2]*(x?319:0);
+        if(k<0 || k>=INT64_C(2147483648))return fail(out,3);
+    }
+    return true;
+}
+#endif
 static bool projected(const fzx_view_t *v,const int32_t in[4][3],int32_t xy[10][2],unsigned *count) {
     int32_t clipped[10][3];const int n=fzx_view_clip(v,in,4,clipped);
     if(n<0)return false;
@@ -228,7 +312,11 @@ bool fzx_clouds_rbg_prepare(const fzx_view_t *view,const RefBackdrop *source,
     if(!projected(view,(const int32_t (*)[3])outer,xy,&count))return fail(out,2);
     if(count<3){FZX_SCP_END();return true;}
     FZX_SCP(MAPPING);
+#if FZX_RBG_DIV
+    if(!mapping_div(view,c,(const int32_t (*)[3])positions,out))return false;
+#else
     if(!mapping(view,c,(const int32_t (*)[3])positions,out))return false;
+#endif
     FZX_SCP(WINDOW);
 #if FZX_RBG_FAST
     fzx_rbg_window(view,(const int32_t (*)[2])xy,count,out->window,&out->visible_lines);

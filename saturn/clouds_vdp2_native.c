@@ -3,6 +3,9 @@
 #include "planes_native.h"
 #include "sky_colors.h"
 #include <string.h>
+#ifndef FZX_CLOUDS_HALF
+#define FZX_CLOUDS_HALF 0
+#endif
 
 /* VDP2 layout (see generated/C5-CLOUDS-VDP2-PLAN.md). The floor owns A0 0..0xfff,
  * A1 0..0x5f (RP A) and 0x4000..0x7fff (map), all of B0 (coefficients) and the
@@ -247,6 +250,22 @@ bool fzx_clouds_native(vdp1_cmdt_t *commands,unsigned capacity,const fzx_view_t 
         c->cmd_xc=sides[i][1];c->cmd_yc=223;c->cmd_xd=sides[i][0];c->cmd_yd=223;
     }
     submit_t submit={commands+1+borders,capacity-1-borders,0};band_count=0;
+#if FZX_CLOUDS_HALF
+    /* FZX_CLOUDS_HALF (default 0; approximation): the cloud tables and band
+     * polygons are computed on alternate frames; between, the last ones are
+     * reused (tables copied into this frame's bank, polygons re-emitted). */
+    static fzx_clouds_rbg_t half_tables;static vdp1_cmdt_t half_commands[BAND_MAX];
+    static unsigned half_count,half_flip;static bool half_valid;
+    if(half_valid&&(half_flip^=1u)&&half_count<=submit.capacity){
+        memcpy(&CLOUDS_STAGE,&half_tables,sizeof(half_tables));
+        memcpy(submit.commands,half_commands,half_count*sizeof(vdp1_cmdt_t));
+        fzx_clouds_bands=half_count;
+#if FZX_VDP1_DBANK
+        (void)queue_push(&clouds_queue,clouds_bank,fzx_input_count?fzx_input_count:1u);
+#endif
+        *count=half_count+1+borders;fzx_clouds_pending=fzx_input_count?fzx_input_count:1;return true;
+    }
+#endif
     /* The plane status words stay live for the capture harness: busy, and the
      * cloud stats in the plane stats block (draws = fade bands). */
     fzx_plane_busy=1;
@@ -256,6 +275,11 @@ bool fzx_clouds_native(vdp1_cmdt_t *commands,unsigned capacity,const fzx_view_t 
     memset(&fzx_plane_stats,0,sizeof(fzx_plane_stats));
     fzx_plane_stats.draws=submit.count;fzx_plane_stats.hash=CLOUDS_STAGE.hash;fzx_plane_busy=0;
     fzx_clouds_degenerate+=CLOUDS_STAGE.degenerate;fzx_clouds_bands=submit.count;
+#if FZX_CLOUDS_HALF
+    if(submit.count<=BAND_MAX){memcpy(&half_tables,&CLOUDS_STAGE,sizeof(half_tables));
+        memcpy(half_commands,submit.commands,submit.count*sizeof(vdp1_cmdt_t));half_count=submit.count;half_valid=true;}
+    else half_valid=false;
+#endif
 #if FZX_VDP1_DBANK
     (void)queue_push(&clouds_queue,clouds_bank,fzx_input_count?fzx_input_count:1u);
 #endif

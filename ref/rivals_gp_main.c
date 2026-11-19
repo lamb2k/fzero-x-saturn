@@ -27,7 +27,8 @@ static uint16_t be16(const unsigned char* p) { return (uint16_t)((p[0] << 8) | p
 #define U(x) ((int32_t)((x) * 256))   /* whole units to Q8 */
 
 int main(int argc, char** argv) {
-    const char *pack = 0, *config = 0, *report = 0, *trace = 0, *control = "none";
+    const char *pack = 0, *config = 0, *report = 0, *trace = 0, *control = "none", *tune = 0;
+    int32_t tune_accel = 40, tune_grip = U(3), tune_lane = 30;
     long length = 0; unsigned seed = 1; int max_ticks = 14000, start_tick = 420, lod = 1, hash_every = 0;
     for (int i = 1; i + 1 < argc; i += 2) {
         if (!strcmp(argv[i], "--pack")) pack = argv[i + 1];
@@ -41,6 +42,7 @@ int main(int argc, char** argv) {
         else if (!strcmp(argv[i], "--lod")) lod = atoi(argv[i + 1]);
         else if (!strcmp(argv[i], "--hash-every")) hash_every = atoi(argv[i + 1]);
         else if (!strcmp(argv[i], "--control")) control = argv[i + 1];
+        else if (!strcmp(argv[i], "--tune")) tune = argv[i + 1];
         else die("unknown argument");
     }
     if (!pack || !config || !report || length <= 0) die("usage: see rivals_gp_main.c");
@@ -77,6 +79,22 @@ int main(int argc, char** argv) {
     P.cruise = U(40);
     P.lod_near[0] = lod ? U(3000) : INT32_MAX; P.lod_near[1] = lod ? U(8000) : INT32_MAX; P.lod_near[2] = lod ? U(16000) : INT32_MAX;
     P.boost_ticks = 90; P.laps = 3; P.boost_from_lap = 1;
+    /* Tuning overrides for HOST experiments only: --tune "name=value,..." (integers, the field's own units). */
+    if (tune) {
+        char tb[1024]; strncpy(tb, tune, sizeof tb - 1); tb[sizeof tb - 1] = 0;
+        for (char* tok = strtok(tb, ","); tok; tok = strtok(NULL, ",")) {
+            char* eq = strchr(tok, '='); if (!eq) die("--tune name=value"); *eq = 0; const int32_t val = (int32_t)atol(eq + 1);
+            #define T(n) if (!strcmp(tok, #n)) { P.n = val; continue; }
+            T(pace_gain) T(pace_max) T(chase_gain) T(steer_gain) T(avoid_long) T(avoid_lat) T(avoid_offset) T(pass_hold) T(contact_long) T(contact_lat)
+            T(bump_keep) T(hit_energy) T(side_energy) T(attack_energy) T(wall_energy) T(wall_keep) T(boost_speed) T(boost_energy) T(boost_behind) T(cruise)
+            #undef T
+            if (!strcmp(tok, "boost_ticks")) { P.boost_ticks = (int16_t)val; continue; }
+            if (!strcmp(tok, "accel")) { tune_accel = val; continue; }
+            if (!strcmp(tok, "grip")) { tune_grip = val; continue; }
+            if (!strcmp(tok, "lane")) { tune_lane = val; continue; }
+            die("unknown tuning name");
+        }
+    }
     if (!strcmp(control, "no-avoid")) { P.avoid_long = 0; }
     if (!strcmp(control, "no-contact")) { P.contact_long = 0; }
 
@@ -96,12 +114,12 @@ int main(int argc, char** argv) {
         sh2z_field_grid_slot(&L, (uint32_t)(g - 1), U(146), U(100), U(50), 4, &v->t);   /* the source grid: 146 back, 100 per place, 4 columns of 100 */
         grid[id] = g; target_ms[id] = ms;
         v->max_energy = v->energy = (int32_t)(maxe * 256);
-        v->accel = 40; v->brake = 96; v->top_speed = U(60); v->grip = U(3);
+        v->accel = tune_accel; v->brake = 96; v->top_speed = U(60); v->grip = tune_grip;
         v->armor = (uint16_t)(256 * 178 / (maxe > 1 ? maxe : 178));   /* lighter bodies take more damage */
         v->flags = 0;
         const int lap_ticks = (ms > 0 ? ms : 36000) * 60 / 1000;
         b->pace = (int32_t)(length / lap_ticks);
-        b->lane = (int32_t)((int)(RND() % 61) - 30) * 256;
+        b->lane = (int32_t)((int)(RND() % (uint32_t)(2 * tune_lane + 1)) - tune_lane) * 256;
         b->chase = (int16_t)(chase == 255 ? -1 : chase);
         b->chase_lead = (int16_t)(chase == 0 ? (int)(RND() % 400) - 10 : 30);   /* the source's offset ranges */
         b->aggression = (uint8_t)aggr;

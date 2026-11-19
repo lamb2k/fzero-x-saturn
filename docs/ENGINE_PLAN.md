@@ -86,6 +86,8 @@ Hardware: the owner runs each milestone's disc on a Saturn with the sheet in
 [HARDWARE_TEST.md](HARDWARE_TEST.md). E0 is the first run. Until then every
 timing is modelled, and the floor is not claimed.
 
+E0 status (2026-11-19, Ymir, MODELLED; hardware pending): default image on the 3-lap route at 40.8 fps with 0 intervals over two fields. Owner look decisions: road LOD shift 2 ("go with shift 2"); stable chunk cap 26 ("Yes stable cap 26 should be the default", replacing "cap 32"). With the stable cap the slave p99 is 21.8 ms (33 rows over 22 ms), inside the 22 ms margin target; chunk pops over 3 laps 896 against 2,932 at the old cap 32. Open: the hardware run and the full-scene HOST = SH-2 equality (C-061 item 3).
+
 Already built and reused by E0 to E2: VDP2 clouds and floor preparation,
 the slave job channel, the segment-mesh picker, rotation sprites, the line
 follower, the double-bank manager, the low-RAM helpers.
@@ -122,3 +124,32 @@ Checked per lane merge by the lane itself, and audited per milestone:
   engine reuses the code.
 - Review rounds on diagnostic tools before they are used. Tools carry their
   own failing controls and are audited at the milestone.
+
+## 7. Lessons carried in from the MvC and AvP Saturn ports (2026-11-19)
+
+Sources: `E:\MvC\mvcsaturn\docs\notes\CAPREF.md` (a study of Capcom's own Saturn MvC), `AVP-REFERENCE.md` and MvC `docs/STATUS.md`.
+
+1. **Emulator margin.**
+   - On the AvP project the console measured about 36% worse than the emulator model.
+   - Until our own hardware run, an engine slice counts as holding the floor only if it fits about 22 ms per presented frame in the emulator (33.3 ms / 1.5) and keeps the two-field rule.
+   - A hardware run replaces this margin with real numbers.
+2. **Sprite art stays compressed on the cartridge and is decoded straight into VDP1 VRAM,** one picture before it is shown, with no staging copy.
+   - That is how Capcom's MvC handles fighter art: about 0.56 of raw size, and at most about 5.5 KB of new tiles in one vblank.
+   - It applies to the racer atlases, currently 1.7 MB raw on the cartridge.
+3. **A fixed pool of VDP1 slots, least recently used first,** with live-frame protection.
+   - Nothing on screen or in the list being drawn is evicted.
+   - The slave decodes into free slots ahead of need.
+4. **Flip with the VDP1 command, not a mirrored copy,** wherever the art is symmetric. Bake both sides only where a decal or detail breaks symmetry.
+5. **Change flags on everything uploaded per frame.**
+   - This covers palettes, VDP2 coefficient and band tables, and window tables.
+   - Upload only what changed. MvC's palette dirty marks cut its hand-off vblank by more than half.
+6. **Cartridge code runs slow in Yaba,** so judge cartridge-resident hot code on Ymir or hardware. Keep hot code in high work RAM.
+7. **VDP1 and tile writes by DMA** wait for a console timing, as on MvC. CPU copy stays the default.
+
+**Measured for the racers (2026-11-19, SH2ZAM PR #42 `sprite-cache-1`; HOST plus an SH-2 cycle model):**
+- **Decode cost:** decoding a compressed cell during the race costs about 1.9 ms per near cell. That is too slow for misses.
+- **So the racers:** keep the art compressed on disc (cell4z, about 0.4 of raw), decompress it into the cartridge at race load, and fill a shared 89.6 KB VDP1 slot pool by CPU copy on the slave. That replaces 254 to 310 KB of resident sets.
+- **Synthetic 30-racer race:** a miss on 4.4% of draws, and 0.2% of draws show the previous cell for one frame.
+- **The point:** MvC decodes during play because its art arrives in small tiles. Ours doesn't.
+
+SH2ZAM already has the MvC kernels for this, ready to reuse: `vlc-1`/`vlc-2` (bit reader and decode) and `memo-1` (block memo and sync).

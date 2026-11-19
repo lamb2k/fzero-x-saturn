@@ -5,6 +5,11 @@
 #include "road_native.h"
 #include "fzx_road_stream_phase.h"
 #include <string.h>
+#if FZX_ROAD_STREAM_CLUSTERS
+#include "road_cluster_identity.h"
+/* Baked cluster bounds (ROADCL.PAK), admitted in place in low work RAM. */
+static fzx_road_stream_clusters_t clusters;
+#endif
 
 extern unsigned char sat_stub_data_end[];
 extern volatile uint32_t fzx_input_log[];
@@ -58,8 +63,34 @@ static void *reserve(uintptr_t *at,uint32_t count,uint32_t size){
     if(p<0x00200000u||p>0x002fffc0u||!size||count>(0x002fffc0u-p)/size)return NULL;
     *at=p+count*size;return (void *)p;
 }
+#ifndef FZX_ROAD_STREAM_WORK_HIGH
+#define FZX_ROAD_STREAM_WORK_HIGH 0
+#endif
+#if FZX_ROAD_STREAM_WORK_HIGH
+/* FZX_ROAD_STREAM_WORK_HIGH (default 0): the work record and the tables the
+ * per-frame build reads for every quad (projected vertices, native positions,
+ * quad records, spans, chunks) in high work RAM (SDRAM, .bss) instead of low
+ * work RAM (DRAM). Guard words bracket the arena. */
+enum {HIGH_BYTES=98304};
+static uint32_t road_high[(HIGH_BYTES+64u)/4u] __attribute__((aligned(32)));
+volatile uint32_t fzx_road_stream_high_used;
+static uintptr_t high_at;
+static void *reserve_high(uint32_t count,uint32_t size){
+    const uintptr_t base=(uintptr_t)road_high+32u,end=base+HIGH_BYTES,p=aligned(high_at?high_at:base);
+    if(!size||p>end||count>(end-p)/size)return NULL;
+    high_at=p+count*size;fzx_road_stream_high_used=(uint32_t)(high_at-base);return (void *)p;
+}
+static bool high_guards(void){
+    for(unsigned i=0;i<8;++i)if(road_high[i]!=GUARD||road_high[(HIGH_BYTES+32u)/4u+i]!=GUARD)return false;
+    return true;
+}
+#define RESERVE_HOT(at,count,size) reserve_high(count,size)
+#else
+#define RESERVE_HOT(at,count,size) reserve(at,count,size)
+#define high_guards() true
+#endif
 bool fzx_road_stream_guards(void){
-    if(!work||fzx_road_stream_low_start<0x00200020u||fzx_road_stream_low_end>0x002fffe0u)return false;
+    if(!work||fzx_road_stream_low_start<0x00200020u||fzx_road_stream_low_end>0x002fffe0u||!high_guards())return false;
     const volatile uint32_t *a=(const volatile uint32_t *)(uintptr_t)fzx_road_stream_low_start;
     const volatile uint32_t *b=(const volatile uint32_t *)(uintptr_t)fzx_road_stream_low_end;
     const volatile uint32_t *c=(const volatile uint32_t *)(uintptr_t)fzx_road_stream_cart_start;
@@ -91,27 +122,39 @@ bool fzx_road_stream_load(void *vram){
        !fzx_road_stream_open(&pack,metadata,FZX_ROAD_LOD_BYTES,FZX_ROAD_LOD_FILE_HASH,FZX_ROAD_LOD_TEXTURE_BYTES)){
         fzx_road_stream_status=3;return false;
     }
-    work=reserve(&at,1,sizeof(*work));if(!work)return false;
+#if FZX_ROAD_STREAM_WORK_HIGH
+    high_at=0;
+    for(unsigned i=0;i<8;++i){road_high[i]=GUARD;road_high[(HIGH_BYTES+32u)/4u+i]=GUARD;}
+#endif
+    work=RESERVE_HOT(&at,1,sizeof(*work));if(!work)return false;
     memset(work,0,sizeof(*work));
 #if FZX_ROAD_STREAM_HOT_HIGH
     work->hot=&hot_high;
 #endif
     work->remap=reserve(&at,pack.count[FZX_RLD_VERTICES],sizeof(*work->remap));
     work->positions=reserve(&at,VERTICES,sizeof(*work->positions));
-    work->projected=reserve(&at,VERTICES,sizeof(*work->projected));
+    work->projected=RESERVE_HOT(&at,VERTICES,sizeof(*work->projected));
     work->images=reserve(&at,pack.count[FZX_RLD_IMAGES],sizeof(*work->images));
     packets=reserve(&at,FZX_ROAD_STREAM_MAX_DRAWS,sizeof(*packets));
 #if FZX_ROAD_STREAM_NATIVE_LAYOUT
     /* Native layout: renumbered positions (wrap copies included), 8-byte quad
      * records and texture spans, and chunk runs; remap is its boot scratch. */
     work->npos_capacity=pack.count[FZX_RLD_VERTICES]+NATIVE_COPIES;
-    work->npos=reserve(&at,work->npos_capacity,sizeof(*work->npos));
-    work->nquads=reserve(&at,pack.count[FZX_RLD_QUADS],sizeof(*work->nquads));
-    work->nspans=reserve(&at,pack.count[FZX_RLD_QUADS],sizeof(*work->nspans));
-    work->nchunks=reserve(&at,pack.count[FZX_RLD_CHUNKS],sizeof(*work->nchunks));
+    work->npos=RESERVE_HOT(&at,work->npos_capacity,sizeof(*work->npos));
+    work->nquads=RESERVE_HOT(&at,pack.count[FZX_RLD_QUADS],sizeof(*work->nquads));
+    work->nspans=RESERVE_HOT(&at,pack.count[FZX_RLD_QUADS],sizeof(*work->nspans));
+    work->nchunks=RESERVE_HOT(&at,pack.count[FZX_RLD_CHUNKS],sizeof(*work->nchunks));
     if(!work->npos||!work->nquads||!work->nspans||!work->nchunks){work=NULL;return false;}
 #endif
     if(!work->remap||!work->positions||!work->projected||!work->images||!packets){work=NULL;return false;}
+#if FZX_ROAD_STREAM_CLUSTERS
+    {   void *cl=reserve(&at,FZX_ROAD_CLUSTER_BYTES,1);
+        if(!cl||!fzx_texture_cd_load("ROADCL.PAK",FZX_ROAD_CLUSTER_BYTES,FZX_ROAD_CLUSTER_FILE_HASH,cl,(void *)scratch,log-32u-scratch)||
+           !fzx_road_stream_clusters_open(&clusters,cl,FZX_ROAD_CLUSTER_BYTES,FZX_ROAD_CLUSTER_FILE_HASH,&pack,FZX_ROAD_LOD_FILE_HASH)){
+            fzx_road_stream_status=6;work=NULL;return false;}
+        work->clusters=&clusters;
+    }
+#endif
     work->remap_capacity=pack.count[FZX_RLD_VERTICES];work->vertex_capacity=VERTICES;
     work->image_capacity=pack.count[FZX_RLD_IMAGES];
     fzx_road_stream_low_start=(uint32_t)log;fzx_road_stream_low_end=(uint32_t)aligned(at);

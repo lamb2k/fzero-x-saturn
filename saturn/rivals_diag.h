@@ -21,7 +21,8 @@ typedef struct {
     int16_t basis[3][3];
     uint16_t set;
     uint16_t flags;
-} fzx_racer_pose16_t; /* 32 bytes with alignment padding on SH-2 (28 bytes of fields) */
+} fzx_racer_pose16_t; /* 34 bytes of fields, sizeof 36 on SH-2 (int32 alignment) */
+_Static_assert(sizeof(fzx_racer_pose16_t) == 36, "pose16 hand-off ABI");
 
 /* Per-node baked pose in RIVALS.PAK: position Q4, unit rows Q1.14 (forward, up, left). */
 typedef struct {

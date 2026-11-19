@@ -86,6 +86,8 @@ Hardware: the owner runs each milestone's disc on a Saturn with the sheet in
 [HARDWARE_TEST.md](HARDWARE_TEST.md). E0 is the first run. Until then every
 timing is modelled, and the floor is not claimed.
 
+E0 status (2026-11-19, Ymir, MODELLED; hardware pending): default image on the 3-lap route at 40.8 fps with 0 intervals over two fields. Owner look decisions: road LOD shift 2 ("go with shift 2"); stable chunk cap 26 ("Yes stable cap 26 should be the default", replacing "cap 32"). With the stable cap the slave p99 is 21.8 ms (33 rows over 22 ms), inside the 22 ms margin target; chunk pops over 3 laps 896 against 2,932 at the old cap 32. Open: the hardware run and the full-scene HOST = SH-2 equality (C-061 item 3).
+
 Already built and reused by E0 to E2: VDP2 clouds and floor preparation,
 the slave job channel, the segment-mesh picker, rotation sprites, the line
 follower, the double-bank manager, the low-RAM helpers.

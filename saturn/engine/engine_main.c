@@ -211,12 +211,61 @@ static void fail(uint32_t code, const char *text, uint32_t detail) {
     for (;;) {}
 }
 
+/* Interrupt callbacks and the multiply registers. The BIOS SCU interrupt dispatcher
+ * (0x06000840..0x0600094A) saves r0-r7, PR and GBR but not MACH/MACL, and Yaul calls
+ * the VBlank callbacks as plain functions. A callback that multiplies (with E1's
+ * 44-byte frame row, fzx_fp_present indexes rows with mul.l) overwrites MACL under
+ * whatever master code the interrupt lands in: wrong products and quotients in the
+ * floor and view maths after the field wait (fault 2 refusals, status 23 in the
+ * probe control). Every engine callback runs inside these wrappers. E0_ISR_MAC_SAVE=0
+ * is the control. */
+#ifndef E0_ISR_MAC_SAVE
+#define E0_ISR_MAC_SAVE 1
+#endif
+#if E0_ISR_MAC_SAVE
+#define MAC_SAVE() uint32_t mac_h_, mac_l_; __asm__ volatile("sts mach,%0\n\tsts macl,%1" : "=r"(mac_h_), "=r"(mac_l_))
+#define MAC_RESTORE() __asm__ volatile("lds %0,mach\n\tlds %1,macl" : : "r"(mac_h_), "r"(mac_l_) : "mach", "macl")
+#else
+#define MAC_SAVE() do {} while (0)
+#define MAC_RESTORE() do {} while (0)
+#endif
+static void render_end(void *work) {
+    MAC_SAVE();
+    fzx_floor_present(work);
+    MAC_RESTORE();
+}
+/* Control probe (E0_MAC_PROBE=1, diagnostic only): for one field before the VBlank
+ * wait, check 32x32->64 products for a changed MACH/MACL. [0] products, [1] wrong. */
+#ifndef E0_MAC_PROBE
+#define E0_MAC_PROBE 0
+#endif
+volatile uint32_t fzx_e0_mac_probe[2];
+#if E0_MAC_PROBE
+static uint32_t probe_seed = 0x2545f491u;
+static void mac_probe(void) {
+    const uint16_t t0 = cpu_frt_count_get();
+    uint32_t n = 0, bad = 0;
+    while ((uint16_t)(cpu_frt_count_get() - t0) < field_frt) {
+        probe_seed = probe_seed * 1664525u + 1013904223u;
+        const int32_t a = (int32_t)probe_seed, b = (int32_t)(probe_seed * 2654435761u);
+        int64_t p, q;
+        __asm__ volatile("dmuls.l %1,%2\n\tnop\n\tnop\n\tnop\n\tnop\n\tnop\n\tnop\n\tsts mach,%S0\n\tsts macl,%R0"
+                         : "=&r"(p) : "r"(a), "r"(b) : "mach", "macl");
+        __asm__ volatile("dmuls.l %1,%2\n\tsts mach,%S0\n\tsts macl,%R0" : "=&r"(q) : "r"(a), "r"(b) : "mach", "macl");
+        ++n; if (p != q) ++bad;
+    }
+    fzx_e0_mac_probe[0] += n; fzx_e0_mac_probe[1] += bad;
+}
+#endif
+
 static void vblank_out(void *work) {
     (void)work;
+    MAC_SAVE();
     const uint16_t now = cpu_frt_count_get();
     field_frt = (uint16_t)(now - vblank_frt);
     vblank_frt = now;
     ++video_fields;
+    MAC_RESTORE();
 }
 
 void user_init(void) {
@@ -254,6 +303,26 @@ static void commands_init(void) {
 }
 
 /* ---- track pick: runs on the slave SH-2, ahead of the road build ---------- */
+#ifndef E0_POP_LOG
+#define E0_POP_LOG 0
+#endif
+#if E0_POP_LOG
+/* Diagnostic (E0_POP_LOG=1): per built frame, the chunks the pick marked and
+ * the chunks drawn after the cap, as 320-bit maps; the master copies them into
+ * the frame's row slot. */
+enum { POP_WORDS = 10u, POP_ROWS = 4608u };
+static uint32_t pop_marked[POP_WORDS], pop_drawn[POP_WORDS];
+uint32_t fzx_e0_pop[POP_ROWS][2u * POP_WORDS];
+static void pop_mark(uint32_t *map, const sh2z_segmesh_run_t *r, uint32_t from, uint32_t to) {
+    for (unsigned i = 0; i < POP_WORDS; ++i) map[i] = 0;
+    const uint32_t n = path.chunks;
+    for (uint32_t k = from; k < to; ++k) {
+        const uint32_t span = r[k].start == r[k].end ? n : (uint32_t)((r[k].end + n - r[k].start) % n);
+        for (uint32_t j = 0, c = r[k].start; j < span; ++j, c = c + 1u < n ? c + 1u : 0u)
+            if (c < 32u * POP_WORDS) map[c >> 5] |= 1u << (c & 31u);
+    }
+}
+#endif
 static const fzx_engine_cam_t *volatile job_cam;
 static volatile uint32_t job_tick;
 static int32_t pick_depth[FZX_EPATH_MAX_CHUNKS + 1u];
@@ -261,6 +330,89 @@ static int8_t pick_state[FZX_EPATH_MAX_CHUNKS + 1u];
 static sh2z_segmesh_run_t pick_runs[REF_ROAD_GROUPS];
 volatile uint32_t fzx_e0_pick[6]; /* result, runs, marked, bad view, FRT ticks, calls */
 _Static_assert(sizeof(sh2z_segmesh_anchor_t) == sizeof(fzx_engine_anchor_t), "anchor layout");
+
+#ifndef E0_CAP_STABLE
+#define E0_CAP_STABLE 0
+#endif
+#if E0_CAP_STABLE
+#if !E0_CHUNK_CAP
+#error E0_CAP_STABLE needs E0_CHUNK_CAP (the N it keeps)
+#endif
+/* E0_CAP_STABLE (with E0_CHUNK_CAP = N): rank the marked chunks by pick depth
+ * and keep the nearest, with hysteresis: a newly marked chunk is kept when it
+ * ranks inside N; a kept chunk is dropped only when it ranks N+2 or farther; a
+ * dropped chunk returns after ranking inside N-2 for 4 frames in a row. At
+ * most N+2 are kept (farthest dropped first). Runs are split only around
+ * dropped chunks, keeping the pick's far-to-near order. */
+enum { CAP_LIST = 128u };
+static uint32_t cap_last[FZX_EPATH_MAX_CHUNKS], cap_frame;
+static uint8_t cap_kept[FZX_EPATH_MAX_CHUNKS], cap_wait[FZX_EPATH_MAX_CHUNKS];
+static uint16_t cap_list[CAP_LIST];
+static int32_t cap_depth[CAP_LIST];
+volatile uint32_t fzx_e0_cap_dropped;
+static uint32_t run_span(const sh2z_segmesh_run_t *r, uint32_t n) {
+    return r->start == r->end ? n : (uint32_t)((r->end + n - r->start) % n);
+}
+/* Returns false when the frame does not fit the method (then nothing is dropped). */
+static bool cap_stable(const fzx_engine_pick_t *pv, uint32_t runs, RefRoadPlan *out) {
+    const uint32_t n = path.chunks, N = E0_CHUNK_CAP;
+    const int32_t *d = &pv->rows[12];
+    uint32_t m = 0;
+    ++cap_frame;
+    for (uint32_t k = 0; k < runs; ++k)
+        for (uint32_t j = 0, c = pick_runs[k].start, s = run_span(&pick_runs[k], n); j < s; ++j, c = c + 1u < n ? c + 1u : 0u) {
+            if (m >= CAP_LIST) return false;
+            const fzx_engine_anchor_t *a = &path.anchors[c];
+            const int32_t depth = d[0] * a->x + d[1] * a->y + d[2] * a->z + d[3];
+            uint32_t i = m++;
+            while (i && cap_depth[i - 1u] > depth) { cap_depth[i] = cap_depth[i - 1u]; cap_list[i] = cap_list[i - 1u]; --i; }
+            cap_depth[i] = depth; cap_list[i] = (uint16_t)c;
+        }
+    uint32_t kept = 0;
+    for (uint32_t r = 0; r < m; ++r) {
+        const uint32_t c = cap_list[r];
+        if (cap_last[c] + 1u != cap_frame) { cap_kept[c] = r < N; cap_wait[c] = 0; }
+        else if (cap_kept[c]) { if (r >= N + 2u) { cap_kept[c] = 0; cap_wait[c] = 0; } }
+        else if (r + 2u < N) { if (++cap_wait[c] >= 4u) { cap_kept[c] = 1; cap_wait[c] = 0; } }
+        else cap_wait[c] = 0;
+        cap_last[c] = cap_frame;
+        kept += cap_kept[c];
+    }
+    for (uint32_t r = m; r-- > 0 && kept > N + 2u;) if (cap_kept[cap_list[r]]) { cap_kept[cap_list[r]] = 0; --kept; }
+    fzx_e0_cap_dropped += m - kept;
+    /* Groups: each run's kept stretches, in the run's drawing order. */
+    uint32_t groups = 0, visible = 0;
+    for (uint32_t k = 0; k < runs; ++k) {
+        const sh2z_segmesh_run_t *pr = &pick_runs[k];
+        const uint32_t s = run_span(pr, n);
+        uint16_t seg[2][32]; uint32_t ns = 0;
+        for (uint32_t j = 0, c = pr->start; j < s;) {
+            if (!cap_kept[c]) { ++j; c = c + 1u < n ? c + 1u : 0u; continue; }
+            const uint32_t a = c, j0 = j;
+            while (j < s && cap_kept[c]) { ++j; c = c + 1u < n ? c + 1u : 0u; }
+            if (ns >= 32u) return false;
+            seg[0][ns] = (uint16_t)a; seg[1][ns] = (uint16_t)(j - j0); ++ns;
+        }
+        if (groups + ns > REF_ROAD_GROUPS) return false;
+        for (uint32_t q = 0; q < ns; ++q) {
+            /* direction +1 draws from the end backward: emit the highest stretch first. */
+            const uint32_t i = pr->direction == 1 ? ns - 1u - q : q;
+            RefRoadGroup *g = &out->groups[groups++];
+            g->start = seg[0][i];
+            g->end = seg[1][i] == n ? seg[0][i] : (uint16_t)((seg[0][i] + seg[1][i]) % n);
+            g->direction = pr->direction;
+            g->average_depth = (float)pr->average / (float)(1u << pv->depth_shift);
+            visible += seg[1][i];
+        }
+    }
+#if E0_POP_LOG
+    for (unsigned i = 0; i < POP_WORDS; ++i) pop_drawn[i] = 0;
+    for (uint32_t r = 0; r < m; ++r) { const uint32_t c = cap_list[r]; if (cap_kept[c] && c < 32u * POP_WORDS) pop_drawn[c >> 5] |= 1u << (c & 31u); }
+#endif
+    out->count = groups; out->visible_chunks = visible;
+    return true;
+}
+#endif
 
 bool fzx_engine_slave_pick(void) {
     RefRoadPlan *out = &fzx_source_road_plan;
@@ -289,6 +441,18 @@ bool fzx_engine_slave_pick(void) {
     out->visible_chunks = marked;
     if (r == SH2Z_SEGMESH_TOO_MANY) { out->faults = 2; ++fzx_e0_report[14]; return false; }
     uint32_t first_run = 0;
+#if E0_POP_LOG
+    pop_mark(pop_marked, pick_runs, 0u, runs);
+#endif
+#if E0_CAP_STABLE
+    if (cap_stable(&pv, runs, out)) {
+        fzx_e0_pick[4] = (uint16_t)(cpu_frt_count_get() - t0);
+#if FZX_ROAD_STREAM_PHASES
+        fzx_rsp_begin();
+#endif
+        return true;
+    }
+#endif
 #if E0_CHUNK_CAP
     /* E0_CHUNK_CAP (default 0, off): when more than this many chunks are
      * marked, drop whole runs, farthest first (the pick's order), keeping the
@@ -299,6 +463,9 @@ bool fzx_engine_slave_pick(void) {
         marked -= span < marked ? span : marked; ++first_run; ++fzx_e0_cap_runs;
     }
     out->visible_chunks = marked;
+#endif
+#if E0_POP_LOG
+    pop_mark(pop_drawn, pick_runs, first_run, runs);
 #endif
     out->count = runs - first_run;
     for (uint32_t i = 0; i < runs - first_run; ++i) {
@@ -400,6 +567,9 @@ volatile uint16_t fzx_e0_vdp2_regs[0x120 / 2], fzx_e0_cram[0x1000 / 2];
 #endif
 
 static void before_master(void) {
+#if E0_MAC_PROBE
+    mac_probe();
+#endif
 #if FZX_VDP1_DBANK
     vdp2_sync_wait();
     const uint32_t bank = sh2z_vdp1_banks_bank(&fzx_dbank_banks);
@@ -416,6 +586,9 @@ static void before_master(void) {
 }
 
 /* The view, then the slave's job: pick the visible track and build it at a fixed slot. */
+#ifndef E0_QUEUE_STRESS
+#define E0_QUEUE_STRESS 0
+#endif
 static void kick(const fzx_engine_cam_t *cam, uint32_t tick) {
     vdp1_cmdt_t *const commands = commands_buf;
     const fzx_engine_consts_t *k = &path.consts;
@@ -433,7 +606,11 @@ static void kick(const fzx_engine_cam_t *cam, uint32_t tick) {
 #else
     job.shades = road_shades[0];
 #endif
+#if E0_QUEUE_STRESS
+    (void)job; /* control: no track, so every frame fits one field */
+#else
     fzx_slave_road_start(&job);
+#endif
 }
 
 static void build(row_t *row, const fzx_engine_cam_t *cam, uint32_t tick, uint16_t kicked) {
@@ -441,6 +618,16 @@ static void build(row_t *row, const fzx_engine_cam_t *cam, uint32_t tick, uint16
     const fzx_engine_consts_t *k = &path.consts;
     uint32_t first = 0, n = 0, road_count = 0;
     const uint16_t t0 = cpu_frt_count_get();
+#if E0_QUEUE_STRESS
+    {
+        /* Control: a pseudo-random wait (0..1 field) so the queue pushes land at every
+         * phase of the field, including the VBlank-In present. */
+        static uint32_t seed = 1u;
+        seed = seed * 1664525u + 1013904223u;
+        const uint16_t w = (uint16_t)((seed >> 16) % (field_frt ? field_frt : 14000u)), s0 = cpu_frt_count_get();
+        while ((uint16_t)(cpu_frt_count_get() - s0) < w) {}
+    }
+#endif
 
     if (!fzx_engine_backdrop(&fzx_source_backdrop, cam, k, tick)) fail(20, "BACKDROP", tick);
     if (!fzx_engine_skyline(&fzx_source_skyline, cam)) fail(21, "SKYLINE", tick);
@@ -463,8 +650,12 @@ static void build(row_t *row, const fzx_engine_cam_t *cam, uint32_t tick, uint16
     row->master_ticks = (uint16_t)(cpu_frt_count_get() - t0);
 
     const uint16_t t1 = cpu_frt_count_get();
+#if E0_QUEUE_STRESS
+    road_count = 0;
+#else
     if (!fzx_slave_road_finish(&video_fields, &road_count))
         fail(27, "TRACK", fzx_road_stream_stats.fault * 100u + fzx_slave_road_status);
+#endif
     row->wait_road_ticks = (uint16_t)(cpu_frt_count_get() - t1);
 #if FZX_ROAD_STREAM_PHASES
     for (unsigned i = 0; i < FZX_RSPC_COUNTERS; ++i)
@@ -517,6 +708,7 @@ int main(void) {
     if (offset + FZX_PLANE_RESIDENT_BYTES + FZX_PLANE_SHADE_BYTES > partitions.texture_size || !fzx_planes_load(planes_vram))
         fail(31, "CLOUD TEXTURE LOAD", fzx_plane_status);
     if (!fzx_floor_load()) fail(32, "FLOOR LOAD", fzx_floor_status);
+    vdp1_sync_render_set(render_end, NULL); /* the floor's present, inside the MAC wrapper */
     if (!fzx_clouds_vdp2_load(planes_vram)) fail(33, "CLOUDS LOAD", fzx_clouds_status);
     planes_vram = NULL;
     commands_init();
@@ -629,6 +821,13 @@ int main(void) {
         fzx_e0_report[11] = fzx_slave_road_busy_sum;
 #if FZX_ROAD_STREAM_PHASES
         if (row != &scratch_row) prow_fill(row_index);
+#endif
+#if E0_POP_LOG
+        if (row != &scratch_row && row_index < POP_ROWS)
+            for (unsigned i = 0; i < POP_WORDS; ++i) {
+                fzx_e0_pop[row_index][i] = SLAVE32(pop_marked[i]);
+                fzx_e0_pop[row_index][POP_WORDS + i] = SLAVE32(pop_drawn[i]);
+            }
 #endif
         if (row != &scratch_row) { pending_row = row_index + 1u; ++row_index; fzx_e0_report[1] = row_index; }
         else pending_row = 0;

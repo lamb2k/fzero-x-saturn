@@ -746,7 +746,16 @@ ifeq ($(FZX_ROAD_STREAM_PHASES),1)
 $(error FZX_MEM_GHOSTS_LOW gives the profile rows all remaining low WRAM; FZX_ROAD_STREAM_PHASES has no room)
 endif
 SH_CFLAGS += -DFZX_MEM_GHOSTS_LOW=1
-SH_LDFLAGS += -Wl,-T,$(abspath mem_ghosts_low.ld)
+# The closure is linked from a copy with exactly the two ghost input sections
+# renamed (.bss.X -> .fzxlow.X, still NOBITS), so yaul.x's .bss wildcards cannot
+# take them; mem_ghosts_low.ld, an implicit script after the objects, places
+# them. yaul.x stays the primary script (see mem_ghosts_low.ld for why not INSERT).
+FZX_GHOSTS_LOW_CLOSURE := $(dir $(FZX_CLOSURE))ref_closure_ghosts_low.o
+FZX_GHOSTS_LOW_RENAME := $(shell $(SH_OBJCOPY)     --rename-section .bss.gGhosts=.fzxlow.gGhosts,alloc     --rename-section .bss.sGhostReplayRecordingBuffer=.fzxlow.sGhostReplayRecordingBuffer,alloc     $(FZX_CLOSURE) $(FZX_GHOSTS_LOW_CLOSURE) && echo ok)
+ifneq ($(FZX_GHOSTS_LOW_RENAME),ok)
+$(error FZX_MEM_GHOSTS_LOW: could not rename the closure's ghost sections)
+endif
+SH_LDFLAGS := $(filter-out $(FZX_CLOSURE),$(SH_LDFLAGS)) $(FZX_GHOSTS_LOW_CLOSURE) $(abspath mem_ghosts_low.ld)
 FZX_MEM_SRCS := mem_low.c
 else ifneq ($(FZX_MEM_GHOSTS_LOW),0)
 $(error FZX_MEM_GHOSTS_LOW must be 0 or 1)

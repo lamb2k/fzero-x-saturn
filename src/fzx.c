@@ -328,13 +328,19 @@ fzx_set_pose(const fzx_pose_t *p)
     speed=0; laps=p->lap;
 }
 
+#if FZX_MEM_NO_PROTO_RINGS
+/* saturn/main.c: reports and stops (C-048). The autopilot needs the rings;
+ * autopilot drives use a build without FZX_MEM_NO_PROTO_RINGS. */
+void fzx_autopilot_unsupported(void) __attribute__((noreturn));
+#endif
 FZX_EXPORT int32_t
 fzx_steer_hint(uint32_t lookahead)
 {
-    if (!initialized || !pose_valid || ring_count==0) return 0;
 #if FZX_MEM_NO_PROTO_RINGS
-    (void)lookahead; return 0; /* the debugger autopilot needs the rings */
+    (void)lookahead;
+    fzx_autopilot_unsupported(); /* before the tick runs: never steer straight silently */
 #else
+    if (!initialized || !pose_valid || ring_count==0) return 0;
     const sh2z_vec3_t target=rings[(current_ring+lookahead)%ring_count].center;
     const sh2z_vec3_t forward=unit_or(pose.forward,rings[current_ring].forward);
     const sh2z_vec3_t up=unit_or(pose.up,rings[current_ring].up);

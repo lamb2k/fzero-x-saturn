@@ -680,6 +680,12 @@ ifneq ($(FZX_SIM):$(FZX_SOURCE_SKY),orig:1)
 $(error FZX_SIMPIPE_PROFILE requires FZX_SIM=orig and FZX_SOURCE_SKY=1)
 endif
 SH_CFLAGS += -DFZX_SIMPIPE_PROFILE=1
+# FZX_SIMPIPE_PAINT_WINDOW=<bytes> (diagnostic, C-048): paint/scan a fixed
+# window below the main-loop stack pointer instead of the whole free gap.
+FZX_SIMPIPE_PAINT_WINDOW ?= 0
+ifneq ($(FZX_SIMPIPE_PAINT_WINDOW),0)
+SH_CFLAGS += -DFZX_SIMPIPE_PAINT_WINDOW=$(FZX_SIMPIPE_PAINT_WINDOW)u
+endif
 else ifneq ($(FZX_SIMPIPE_PROFILE),0)
 $(error FZX_SIMPIPE_PROFILE must be 0 or 1)
 endif

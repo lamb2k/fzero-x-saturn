@@ -33,7 +33,9 @@ enum { ROOT_ENTRIES=16 };
 _Static_assert(FZX_SIMPIPE_TOP_RESERVE_BASE==FZX_MEM_ROADLIST_RESERVE_BASE&&FZX_SIMPIPE_ROAD_LIST==FZX_MEM_ROADLIST&&
                FZX_SIMPIPE_ROAD_LIST_BYTES==FZX_MEM_ROADLIST_BYTES&&FZX_SIMPIPE_GUARD==FZX_MEM_ROADLIST_GUARD,"one road-list reservation");
 #endif
-_Static_assert(ROOT_ENTRIES*sizeof(cdfs_filelist_entry_t)==FZX_MEM_ROADLIST_BYTES,"road file list reservation");
+/* 16, 32 or 256 entries (448, 896 or 7,168 B) all fit; the guards stay at the
+ * reservation's fixed ends (C-048). */
+_Static_assert(ROOT_ENTRIES*sizeof(cdfs_filelist_entry_t)<=FZX_MEM_ROADLIST_BYTES,"road file list reservation");
 #define entries ((cdfs_filelist_entry_t *)(uintptr_t)FZX_MEM_ROADLIST)
 static void road_list_guards(void){
     volatile uint32_t *g=(volatile uint32_t *)(uintptr_t)FZX_MEM_ROADLIST_RESERVE_BASE;

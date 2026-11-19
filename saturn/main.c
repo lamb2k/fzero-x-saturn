@@ -354,6 +354,20 @@ volatile uint32_t fzx_debug_n64;
  * towards the centreline ahead (fzx_steer_hint). A test driver for whole races, never a player
  * aid. */
 volatile uint32_t fzx_debug_autopilot;
+#if FZX_MEM_NO_PROTO_RINGS
+/* The autopilot steers by the placeholder rings, which this build does not
+ * link (FZX_MEM_NO_PROTO_RINGS). A request is rejected visibly before its first
+ * tick: 1 in this word, a message, and a stop. Use a rings build for autopilot drives. */
+volatile uint32_t fzx_autopilot_rejected;
+void __attribute__((noreturn)) fzx_autopilot_unsupported(void) {
+    fzx_autopilot_rejected = 1;
+    dbgio_printf("[H[2J AUTOPILOT NEEDS A RINGS BUILD
+ (FZX_MEM_NO_PROTO_RINGS=0)
+");
+    dbgio_flush(); vdp2_sync();
+    for (;;) {}
+}
+#endif
 
 /* Every tick's input since the race (re)start, as N64 buttons << 16 | stick x << 8 | stick y:
  * a debugger reads it back as a host input script, so the host reference can replay a run. */
@@ -481,18 +495,24 @@ simpipe_fnv(uint32_t h, const volatile void *data, unsigned bytes)
     while (bytes--) { h ^= *b++; h *= 16777619u; }
     return h;
 }
+/* FZX_SIMPIPE_PAINT_WINDOW=<bytes> (C-048): paint and scan only a fixed window
+ * below the main-loop stack pointer, so paired images with different free gaps
+ * pay the same paint cost per phase. 0 keeps the whole gap (checkpoint 1). */
+#ifndef FZX_SIMPIPE_PAINT_WINDOW
+#define FZX_SIMPIPE_PAINT_WINDOW 0
+#endif
 static void __attribute__((noinline))
 simpipe_paint(void)
 {
     uintptr_t sp;
     __asm__ volatile("mov r15,%0" : "=r"(sp));
-    const uintptr_t lo = fzx_sky_stack_start, hi = (sp - 64u) & ~(uintptr_t)3u;
+    const uintptr_t lo = fzx_simpipe_prof[8], hi = (sp - 64u) & ~(uintptr_t)3u;
     for (volatile uint32_t *p = (volatile uint32_t *)lo; (uintptr_t)p < hi; ++p) *p = 0xa55aa55au;
 }
 static void __attribute__((noinline))
 simpipe_depth(unsigned slot)
 {
-    const uintptr_t lo = fzx_sky_stack_start, top = fzx_simpipe_prof[7];
+    const uintptr_t lo = fzx_simpipe_prof[8], top = fzx_simpipe_prof[7];
     uintptr_t a = lo;
     if (*(volatile uint32_t *)lo != 0xa55aa55au) ++fzx_simpipe_prof[9];
     while (a < top && *(volatile uint32_t *)a == 0xa55aa55au) a += 4;
@@ -1438,7 +1458,18 @@ main(void)
             __asm__ volatile("mov r15,%0" : "=r"(sp));
             if (fzx_simpipe_prof[1]) simpipe_depth(6); /* the previous loop's tail */
             fzx_simpipe_prof[0] = 0x53505046u; fzx_simpipe_prof[7] = sp;
-            fzx_simpipe_prof[8] = fzx_sky_stack_start; ++fzx_simpipe_prof[1];
+#if FZX_SIMPIPE_PAINT_WINDOW
+            /* Word 15: the window; bit 31 set if it does not fit above the paint start. */
+            {
+                const uintptr_t w = (sp - (uintptr_t)FZX_SIMPIPE_PAINT_WINDOW) & ~(uintptr_t)3u;
+                const bool fits = sp > (uintptr_t)FZX_SIMPIPE_PAINT_WINDOW && w >= fzx_sky_stack_start;
+                fzx_simpipe_prof[8] = fits ? w : fzx_sky_stack_start;
+                fzx_simpipe_prof[15] = FZX_SIMPIPE_PAINT_WINDOW | (fits ? 0u : 0x80000000u);
+            }
+#else
+            fzx_simpipe_prof[8] = fzx_sky_stack_start;
+#endif
+            ++fzx_simpipe_prof[1];
         }
 #endif
 #if FZX_FRAME_PROFILE

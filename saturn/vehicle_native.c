@@ -191,28 +191,26 @@ static bool racer_pose(racer_item_t *it,const fzx_racer_pose16_t *r,bool player)
     return true;
 }
 
-/* Far to near (painter order): shadow, then racer. */
+/* Far to near (painter order): shadow, then racer. Sorts a byte index, not the
+ * items; the sets were accepted by sh2z_rspr_valid at load. */
 static unsigned racer_emit(vdp1_cmdt_t *commands,unsigned capacity,unsigned n) {
-    for(unsigned i=1;i<n;++i) {
-        const racer_item_t key=racer_items[i];unsigned j=i;
-        while(j>0&&racer_items[j-1].depth<key.depth){racer_items[j]=racer_items[j-1];--j;}
-        racer_items[j]=key;
+    uint8_t order[FZX_RACER_SPRITE_MAX_EXTRA+1];
+    for(unsigned i=0;i<n;++i) {
+        const int32_t key=racer_items[i].depth;unsigned j=i;
+        while(j>0&&racer_items[order[j-1]].depth<key){order[j]=order[j-1];--j;}
+        order[j]=(uint8_t)i;
     }
     unsigned out=0;
-    for(unsigned i=0;i<n;++i) {
-        uint16_t words[16];
+    for(unsigned k=0;k<n;++k) {
+        const racer_item_t *it=&racer_items[order[k]];
 #if FZX_RACER_SPRITE_SHADOW
         const sh2z_rspr_pick_t zero={0};
-        if(racer_items[i].has_shadow&&out<capacity&&
-           sh2z_rspr_emit(words,shadow_set,&zero,&racer_items[i].shadow,shadow_vram,shadow_pmod)) {
-            memcpy(&commands[out],words,sizeof(words));++out;
-        }
+        if(it->has_shadow&&out<capacity&&
+           sh2z_rspr_emit_valid((uint16_t *)(void *)&commands[out],shadow_set,&zero,&it->shadow,shadow_vram,shadow_pmod))++out;
 #endif
         if(out>=capacity)break;
-        if(!sh2z_rspr_emit(words,racer_set,&racer_items[i].pick,&racer_items[i].place,racer_vram,racer_pmod)) {
-            ++fzx_racer_sprite_skips;continue;
-        }
-        memcpy(&commands[out],words,sizeof(words));++out;
+        if(sh2z_rspr_emit_valid((uint16_t *)(void *)&commands[out],racer_set,&it->pick,&it->place,racer_vram,racer_pmod))++out;
+        else ++fzx_racer_sprite_skips;
     }
     return out;
 }

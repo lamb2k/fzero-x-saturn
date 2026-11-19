@@ -265,6 +265,26 @@ static unsigned lean_side(const int32_t (*in)[2],unsigned count,int32_t (*out)[2
     }
     return written;
 }
+#if FZX_RBG_SHARE
+/* The 2D half of fzx_view_project_guarded for a quad whose four corners are all
+ * on the visible side of the near and far planes and already projected (in the
+ * input order): the 3D pass then copies them unchanged, so this is exact. */
+int fzx_view_guard_projected(const fzx_view_t *v,const int32_t projected[4][2],int32_t guard,int32_t output[10][2]) {
+    if(!v || !projected || !output || guard<0 || guard>1024)return -1;
+    int32_t xy[2][10][2];
+    for(unsigned i=0;i<4;++i){xy[0][i][0]=projected[i][0];xy[0][i][1]=projected[i][1];}
+    const int32_t g=guard*65536;
+    unsigned count=4;
+    count=lean_side((const int32_t (*)[2])xy[0],count,xy[1],0,(int32_t)v->clip[0]*65536-g,true);
+    count=lean_side((const int32_t (*)[2])xy[1],count,xy[0],0,(int32_t)v->clip[2]*65536+g,false);
+    count=lean_side((const int32_t (*)[2])xy[0],count,xy[1],1,(int32_t)v->clip[1]*65536-g,true);
+    count=lean_side((const int32_t (*)[2])xy[1],count,xy[0],1,(int32_t)v->clip[3]*65536+g,false);
+    if(count<3)return 0;
+    if(count>10)return -1;
+    memcpy(output,xy[0],count*sizeof(output[0]));
+    return (int)count;
+}
+#endif
 int fzx_view_project_guarded(const fzx_view_t *v,const int32_t input[4][3],
                              int32_t guard,int32_t output[10][2]) {
     if(!v || !input || !output || guard<0 || guard>1024 || v->near_plane<=0 ||

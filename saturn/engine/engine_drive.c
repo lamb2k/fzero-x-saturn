@@ -228,6 +228,8 @@ volatile uint32_t fzx_e1_vram[16];
 /* Cache: hits, misses, evictions, refused, previous-cell draws, fills, fill bytes,
  * fills left for the next frame, abandoned, slave fill ticks (last), max. */
 volatile uint32_t fzx_e1_cache[12];
+/* The player sprite this frame: origin x, y (whole pixels, -32768 none), sub-pixel x, y. */
+volatile uint32_t fzx_e1_sprite_pos[4];
 
 static uint32_t cell_bytes(uint32_t cell) {
     const sh2z_rspr_cell_t *c = (const sh2z_rspr_cell_t *)(const void *)(racer_set + 1) + cell;
@@ -363,6 +365,7 @@ static bool sprite_camera(const fzx_view_t *view, const fzx_engine_cam_t *cam) {
 
 unsigned fzx_drive_sprites(vdp1_cmdt_t *commands, unsigned capacity, const fzx_view_t *view, const fzx_engine_cam_t *cam) {
     if (fzx_e1_status != 1 || capacity < 3u) { ++fzx_e1_report[11]; return 0; }
+    fzx_e1_sprite_pos[0] = fzx_e1_sprite_pos[1] = (uint32_t)-32768;
     /* The slave's fills of the last job are in: drop them from the queue. */
     {
         const uint32_t done = *CT(&fill_done), count = fill_count;
@@ -415,6 +418,8 @@ unsigned fzx_drive_sprites(vdp1_cmdt_t *commands, unsigned capacity, const fzx_v
                 commands[out].cmd_srca = (uint16_t)(pool.slots[slot].addr >> 3);
                 commands[out].cmd_colr = (uint16_t)((clut_vram + (uint32_t)cell->clut * 32u) >> 3);
                 drawn_slot = slot; drawn_cell = pick.cell;
+                fzx_e1_sprite_pos[0] = (uint32_t)(int32_t)place.x; fzx_e1_sprite_pos[1] = (uint32_t)(int32_t)place.y;
+                fzx_e1_sprite_pos[2] = place.frac[0]; fzx_e1_sprite_pos[3] = place.frac[1];
                 ++out;
             } else ++fzx_e1_report[11];
             /* Prefetch: the cell for one frame (two ticks) of velocity ahead. */

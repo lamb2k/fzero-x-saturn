@@ -41,7 +41,7 @@ uint32_t fzx_drive_texture_floor(void);
 /* Slave, after the track build: copy queued cells into their slots (1 ms budget). */
 void fzx_drive_slave_fill(void);
 /* VDP1 map and cache counters for captures (engine_drive.c). */
-extern volatile uint32_t fzx_e1_vram[16], fzx_e1_cache[12];
+extern volatile uint32_t fzx_e1_vram[16], fzx_e1_cache[12], fzx_e1_sprite_pos[4];
 /* Steps the physics `ticks` times (60 Hz), reading the pad once. */
 void fzx_drive_step(uint32_t ticks);
 uint32_t fzx_drive_tick(void);

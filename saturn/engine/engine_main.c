@@ -64,7 +64,7 @@ enum {
     CMD_CAPACITY = SCENE_CAPACITY + 3u + DRIVE_SLOTS,
     PATH_BASE = 0x00200000u, PATH_CAPACITY = 0x0008C000u, /* Makefile: sat_stub_data_end follows */
     ROW_MAGIC = 0x45305246u, /* "E0RF" */
-    ROW_WORDS = 9u + (FZX_E1_DRIVE ? 2u : 0u)
+    ROW_WORDS = 9u + (FZX_E1_DRIVE ? 3u : 0u)
 };
 _Static_assert(FZX_ENGINE_PATH_BYTES + 64u <= PATH_CAPACITY, "path pack exceeds its low-RAM reservation");
 _Static_assert(CMD_CAPACITY <= VDP1_VRAM_DEFAULT_CMDT_COUNT, "commands exceed the VDP1 command partition");
@@ -87,7 +87,6 @@ volatile uint32_t fzx_e0_report[16];
  * refused call, floor status, build bank (bit 8: VDP1 busy), field, prelude. */
 volatile uint32_t fzx_e0_floor_diag[11]; /* [10]: refused frames skipped (E1) */
 #if FZX_E1_DRIVE
-static uint32_t floor_refusals_run;
 #include "fzx_floor_rbg.h"
 /* Floor fault probe (E1): the first refused frame's inputs, then the same prepare
  * run again as is and with every interrupt masked. [0] refusals seen, [1] tick,
@@ -146,6 +145,7 @@ typedef struct {
     uint16_t sprite_ticks; /* master FRT units: player sprite pose and emit */
     uint16_t steps;        /* physics ticks stepped for this frame */
     uint16_t hud_ticks;    /* master FRT units: HUD text */
+    int16_t sprite_x, sprite_y; /* player sprite origin, whole pixels (-32768: not drawn) */
 #endif
 } row_t;
 _Static_assert(sizeof(row_t) == ROW_WORDS * 4u, "frame row layout");
@@ -405,6 +405,30 @@ static bool dbank_guards(void) {
 }
 #endif
 
+/* Banked floor and cloud tables: each build queues one stage per layer and the
+ * VBlank-In present pops it. A frame's present can still be due when the frame
+ * after next is built (the draw ended, the VBlank-In has not come yet); both
+ * queue slots are then full and the layer refuses the build (E1 floor fault,
+ * status 1: "queue not free"). Wait for that present, at most three fields.
+ * [0] frames that waited, [1] longest wait (FRT ticks), [2] waits that timed out. */
+#ifndef E0_PRESENT_WAIT
+#define E0_PRESENT_WAIT 1 /* 0: the control that refuses as before */
+#endif
+static uint32_t floor_pushes, clouds_pushes;
+volatile uint32_t fzx_e0_present_wait[3];
+#if FZX_VDP1_DBANK && E0_PRESENT_WAIT
+static void present_wait(void) {
+    if (floor_pushes - fzx_floor_commits < 2u && clouds_pushes - fzx_clouds_commits < 2u) return;
+    const uint16_t t0 = cpu_frt_count_get();
+    const uint32_t f0 = video_fields;
+    while (floor_pushes - fzx_floor_commits >= 2u || clouds_pushes - fzx_clouds_commits >= 2u)
+        if (video_fields - f0 > 3u) { ++fzx_e0_present_wait[2]; break; }
+    const uint32_t t = (uint16_t)(cpu_frt_count_get() - t0);
+    ++fzx_e0_present_wait[0];
+    if (t > fzx_e0_present_wait[1]) fzx_e0_present_wait[1] = t;
+}
+#endif
+
 /* Before a build: VDP2's previous sync and the previous list's transfer are
  * done. With banks, VDP1 may still be drawing the previous frame. */
 /* Early kick: the slave's track job only needs the previous command list to
@@ -468,9 +492,13 @@ static void build(row_t *row, const fzx_engine_cam_t *cam, uint32_t tick, uint16
     fzx_sky_status = 1; fzx_skyline_status = 1;
 
     /* The master's prelude: sky lines and cloud fade bands, skyline, floor. */
+#if FZX_VDP1_DBANK && E0_PRESENT_WAIT
+    present_wait();
+#endif
     if (!fzx_clouds_sky_lines(&fzx_native_view, &fzx_source_backdrop)) fail(22, "SKY LINES", fzx_sky_stats.fault);
     if (!fzx_clouds_native(&commands[CMD_FIRST], FZX_SLAVE_ROAD_RESERVE - 1u, &fzx_native_view, &fzx_source_backdrop, &first))
         fail(23, "CLOUDS", fzx_clouds_rbg.fault);
+    ++clouds_pushes;
     if (!fzx_skyline_native(&commands[CMD_FIRST + first], FZX_SLAVE_ROAD_RESERVE - 1u - first, &fzx_native_view, skyline_vram, &n))
         fail(24, "SKYLINE DRAW", fzx_skyline_stats.fault);
     first += n; n = 0;
@@ -485,22 +513,14 @@ static void build(row_t *row, const fzx_engine_cam_t *cam, uint32_t tick, uint16
             fzx_e0_floor_diag[7] = sh2z_vdp1_banks_bank(&fzx_dbank_banks) | (vdp1_sync_busy() ? 0x100u : 0u);
 #endif
             fzx_e0_floor_diag[8] = video_fields; fzx_e0_floor_diag[9] = first;
-#if FZX_E1_DRIVE
-            /* E1: the floor mapping refuses some views (fault 2, intermittent; open
-             * defect). Skip its update for this frame: VDP2 keeps the last floor
-             * tables and no fog bands are drawn. Eight in a row is still a fault. */
             ++fzx_e0_floor_diag[10];
-            floor_probe(cam, tick);
-            if (++floor_refusals_run >= 8u) fail(25, "FLOOR", fzx_floor_rbg.fault);
-            n = 0;
-#else
-            fail(25, "FLOOR", fzx_floor_rbg.fault);
-#endif
-        }
 #if FZX_E1_DRIVE
-        else floor_refusals_run = 0;
+            floor_probe(cam, tick);
 #endif
+            fail(25, "FLOOR", fzx_floor_rbg.fault);
+        }
     }
+    ++floor_pushes;
     first += n;
     if (first >= FZX_SLAVE_ROAD_RESERVE) fail(26, "PRELUDE OVERFLOW", first);
     vdp1_cmdt_t *jump = &commands[CMD_FIRST + first];
@@ -522,6 +542,7 @@ static void build(row_t *row, const fzx_engine_cam_t *cam, uint32_t tick, uint16
     {
         const uint16_t s0 = cpu_frt_count_get();
         draws += fzx_drive_sprites(&commands[CMD_FIRST + draws], DRIVE_SLOTS, &fzx_native_view, cam);
+        row->sprite_x = (int16_t)fzx_e1_sprite_pos[0]; row->sprite_y = (int16_t)fzx_e1_sprite_pos[1];
         row->sprite_ticks = (uint16_t)(cpu_frt_count_get() - s0);
     }
 #endif

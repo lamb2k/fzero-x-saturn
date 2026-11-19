@@ -30,6 +30,7 @@ FZX_SOURCE_MACHINE ?= 0
 FZX_MACHINE_REBAKE ?= 0
 FZX_RACER_SPRITES ?= 0
 FZX_RACER_SPRITE_DEMO_N ?= 0
+FZX_RACER_SPRITE_SHADOW ?= 0
 ifneq ($(filter $(FZX_RACER_SPRITES),0 1),$(FZX_RACER_SPRITES))
 $(error FZX_RACER_SPRITES must be 0 or 1)
 endif
@@ -534,7 +535,7 @@ FZX_RACER_SPRITE_RECEIPT := $(shell sh ../tools/check_receipt.sh ../generated/ra
 ifeq ($(findstring rc=0,$(FZX_RACER_SPRITE_RECEIPT)),)
 $(error Racer sprite set is stale: $(FZX_RACER_SPRITE_RECEIPT))
 endif
-SH_CFLAGS += -DFZX_RACER_SPRITES=1 -DFZX_RACER_SPRITE_DEMO_N=$(FZX_RACER_SPRITE_DEMO_N) -I../generated/racer_sprites
+SH_CFLAGS += -DFZX_RACER_SPRITES=1 -DFZX_RACER_SPRITE_DEMO_N=$(FZX_RACER_SPRITE_DEMO_N) -DFZX_RACER_SPRITE_SHADOW=$(FZX_RACER_SPRITE_SHADOW) -I../generated/racer_sprites
 endif
 ifeq ($(FZX_VEHICLE_NATIVE),1)
 SH_CFLAGS += -DFZX_VEHICLE_NATIVE=1 -DFZX_VEHICLE_FAST=1 -DFZX_VEHICLE_NATIVE_LOW_TABLES=$(FZX_VEHICLE_NATIVE_LOW_TABLES) -DFZX_VEHICLE_NATIVE_LOW_WORK=$(FZX_VEHICLE_NATIVE_LOW_WORK)
@@ -855,7 +856,7 @@ FZX_SH2ZAM_UNITS += $(if $(filter 1,$(FZX_ROAD_STREAM_CAMERA30)),sh2zam_view_cam
 # C4 native vehicle arm (vehicle-kernels-1) and vehicle pose (pose-1).
 FZX_SH2ZAM_UNITS += $(if $(filter 1,$(FZX_VEHICLE_NATIVE)),sh2zam_vehicle.c sh2zam_view_indexed.c) $(if $(filter 1,$(FZX_VEHICLE_POSE1)),sh2zam_pose.c)
 # Racer rotation sprites (rotation-sprites-1).
-FZX_SH2ZAM_UNITS += $(if $(filter 1,$(FZX_RACER_SPRITES)),sh2zam_rotation_sprite.c)
+FZX_SH2ZAM_UNITS += $(if $(filter 1,$(FZX_RACER_SPRITES)),sh2zam_rotation_sprite.c sh2zam_divu.c)
 # Simulation knobs that adopt trig12-1 / fixed-unit-1 add here (sh2zam_trig12.c, sh2zam_unit30.c).
 FZX_SH2ZAM_SRCS := $(addprefix $(SH2ZAM_ROOT)/saturn/src/,$(sort $(FZX_SH2ZAM_UNITS)))
 FZX_SH2ZAM_MISSING := $(filter-out $(wildcard $(FZX_SH2ZAM_SRCS)),$(FZX_SH2ZAM_SRCS))

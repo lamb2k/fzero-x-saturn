@@ -98,23 +98,91 @@ _Static_assert(FZX_RACER_SPRITE_BYTES<=FZX_MACHINE_TEXTURE_BYTES+FZX_MACHINE_SHA
 _Static_assert(FZX_RACER_SPRITE_DEMO_N>=0&&FZX_RACER_SPRITE_DEMO_N<=FZX_RACER_SPRITE_MAX_EXTRA,"demo racer count");
 static const sh2z_rspr_set_t *racer_set;
 static uint32_t racer_vram;
-static uint16_t racer_pmod;
+static uint16_t racer_pmod,shadow_pmod;
 volatile uint32_t fzx_racer_sprite_status,fzx_racer_sprite_draws,fzx_racer_sprite_skips,fzx_racer_sprite_cell;
 volatile int32_t fzx_racer_sprite_eye_x,fzx_racer_sprite_eye_y,fzx_racer_sprite_eye_z,fzx_racer_sprite_scale;
-typedef struct {sh2z_rspr_pick_t pick;sh2z_rspr_place_t place;int32_t depth;} racer_item_t;
+/* Per-racer cost (demo field): FRT ticks of the last frame's extra-racer pose
+ * loop and how many racers it posed. */
+volatile uint32_t fzx_racer_sprite_loop_ticks,fzx_racer_sprite_loop_count;
+typedef struct {sh2z_rspr_pick_t pick;sh2z_rspr_place_t place,shadow;int32_t depth;uint8_t has_shadow;} racer_item_t;
 static racer_item_t racer_items[FZX_RACER_SPRITE_MAX_EXTRA+1];
+static sh2z_rspr_camera_t racer_camera;
+#ifndef FZX_RACER_SPRITE_SHADOW
+#define FZX_RACER_SPRITE_SHADOW 0
+#endif
+#if FZX_RACER_SPRITE_SHADOW
+/* Blob shadow: one 32x16 4-bit ellipse cell, generated here (no source art),
+ * drawn half-transparent under each racer. It lives in the VDP1 CLUT
+ * partition, which nothing else in the tree uses. */
+#define SHADOW_W 32u
+#define SHADOW_H 16u
+typedef struct {sh2z_rspr_set_t header;sh2z_rspr_cell_t cell;uint16_t clut[16];uint8_t pixels[SHADOW_W*SHADOW_H/2];} shadow_set_t;
+static const sh2z_rspr_set_t *shadow_set;
+static uint32_t shadow_vram;
+static sh2z_rspr_camera_t shadow_camera;
+static bool shadow_load(void) {
+    vdp1_vram_partitions_t parts;vdp1_vram_partitions_get(&parts);
+    if(parts.clut_size<sizeof(shadow_set_t)||((uintptr_t)parts.clut_base&7u))return false;
+    static shadow_set_t t;memset(&t,0,sizeof(t));
+    t.header.magic=SH2Z_RSPR_MAGIC;t.header.bytes=(uint32_t)sizeof(t);t.header.yaw_count=1;t.header.pitch_count=1;
+    t.header.clut_count=1;t.header.clut_offset=(uint32_t)offsetof(shadow_set_t,clut);
+    t.header.pixels_per_unit=(int32_t)((float)SHADOW_W*65536.0f/(1.4f*FZX_RACER_SPRITE_RADIUS));
+    t.header.yaw[0][1]=16384;t.header.pitch[0][1]=16384;
+    t.cell=(sh2z_rspr_cell_t){.width=SHADOW_W,.height=SHADOW_H,.origin_x=SHADOW_W/2,.origin_y=SHADOW_H/2,
+        .pixel_offset=(uint32_t)offsetof(shadow_set_t,pixels),.clut=0};
+    t.clut[1]=0x8000u;
+    for(unsigned y=0;y<SHADOW_H;++y)for(unsigned x=0;x<SHADOW_W;++x) {
+        const int dx=(int)(2*x+1)-(int)SHADOW_W,dy=(int)(2*y+1)-(int)SHADOW_H;
+        if(dx*dx*(int)(SHADOW_H*SHADOW_H)+dy*dy*(int)(SHADOW_W*SHADOW_W)<=(int)(SHADOW_W*SHADOW_W*SHADOW_H*SHADOW_H))
+            t.pixels[(y*SHADOW_W+x)/2]|=(uint8_t)((x&1u)?0x01u:0x10u);
+    }
+    memcpy(parts.clut_base,&t,sizeof(t));
+    shadow_set=(const sh2z_rspr_set_t *)parts.clut_base;shadow_vram=(uint32_t)((uintptr_t)parts.clut_base&0x7ffffu);
+    return sh2z_rspr_valid(shadow_set);
+}
+#endif
 
-static bool racer_item(racer_item_t *it,const fzx_view_t *view,const RefMachine *m,bool player) {
-    fzx_vehicle_pose_t pose;
-    if(!fzx_vehicle_pose(&pose,view,&fzx_source_camera,m))return false;
-    if(player){fzx_racer_sprite_eye_x=pose.eye[0];fzx_racer_sprite_eye_y=pose.eye[1];fzx_racer_sprite_eye_z=pose.eye[2];}
-    if(!sh2z_rspr_select(&it->pick,racer_set,pose.eye[0],pose.eye[1],pose.eye[2]))return false;
-    if(!sh2z_rspr_place(&it->place,&pose.view,racer_set))return false;
-    if(player){fzx_racer_sprite_cell=it->pick.cell|((uint32_t)it->pick.mirror<<16);fzx_racer_sprite_scale=it->place.scale;}
-    it->depth=pose.view.t[2];return true;
+/* Once per frame: the camera for every racer, from the source view. */
+static bool racer_camera_frame(const fzx_view_t *view) {
+    sh2z_rspr_camera_t c;memset(&c,0,sizeof(c));
+    for(unsigned i=0;i<3;++i)for(unsigned j=0;j<3;++j) {
+        const int32_t n=view->rotation[i][j];c.r[i][j]=(int16_t)((n>=0?n+32768:-(-n+32768))/65536);
+    }
+    for(unsigned i=0;i<3;++i) {
+        const float e=fzx_source_camera.eye[i]*65536.0f;
+        if(!(e>-2147483000.0f&&e<2147483000.0f))return false;
+        c.eye[i]=(int32_t)e;
+    }
+    c.focal_x=view->focal[0];c.focal_y=view->focal[1];
+    c.center_x=(int16_t)((view->center[0]+32768)>>16);c.center_y=(int16_t)(((view->center[1]+32768)>>16)-1);
+    c.near_z=view->near_plane*4;
+    const int32_t unit=(int32_t)(fzx_source_machine.model_scale[1]*16384.0f);
+    racer_camera=c;
+    if(!sh2z_rspr_camera_scale(&racer_camera,racer_set,unit))return false;
+#if FZX_RACER_SPRITE_SHADOW
+    shadow_camera=c;
+    if(!sh2z_rspr_camera_scale(&shadow_camera,shadow_set,unit))return false;
+#endif
+    return true;
 }
 
-/* Far to near (painter order), one distorted sprite each. */
+static bool racer_pose(racer_item_t *it,const fzx_racer_pose16_t *r,bool player) {
+    if(!sh2z_rspr_pose(&it->pick,&it->place,&it->depth,&racer_camera,racer_set,r->pos,&r->basis[0][0]))return false;
+    it->has_shadow=0;
+#if FZX_RACER_SPRITE_SHADOW
+    if(r->flags&1u) {
+        /* Ground point: down the racer's up axis by 0.3 model radii (Q1.14 basis x Q2 = Q16). */
+        const int32_t drop=(int32_t)(0.3f*FZX_RACER_SPRITE_RADIUS*fzx_source_machine.model_scale[1]*4.0f);
+        int32_t ground[3],dz;sh2z_rspr_pick_t sp;
+        for(unsigned k=0;k<3;++k)ground[k]=r->pos[k]-r->basis[1][k]*drop;
+        if(sh2z_rspr_pose(&sp,&it->shadow,&dz,&shadow_camera,shadow_set,ground,&r->basis[0][0]))it->has_shadow=1;
+    }
+#endif
+    if(player)fzx_racer_sprite_cell=it->pick.cell|((uint32_t)it->pick.mirror<<16),fzx_racer_sprite_scale=it->place.scale;
+    return true;
+}
+
+/* Far to near (painter order): shadow, then racer. */
 static unsigned racer_emit(vdp1_cmdt_t *commands,unsigned capacity,unsigned n) {
     for(unsigned i=1;i<n;++i) {
         const racer_item_t key=racer_items[i];unsigned j=i;
@@ -122,8 +190,16 @@ static unsigned racer_emit(vdp1_cmdt_t *commands,unsigned capacity,unsigned n) {
         racer_items[j]=key;
     }
     unsigned out=0;
-    for(unsigned i=0;i<n&&out<capacity;++i) {
+    for(unsigned i=0;i<n;++i) {
         uint16_t words[16];
+#if FZX_RACER_SPRITE_SHADOW
+        const sh2z_rspr_pick_t zero={0};
+        if(racer_items[i].has_shadow&&out<capacity&&
+           sh2z_rspr_emit(words,shadow_set,&zero,&racer_items[i].shadow,shadow_vram,shadow_pmod)) {
+            memcpy(&commands[out],words,sizeof(words));++out;
+        }
+#endif
+        if(out>=capacity)break;
         if(!sh2z_rspr_emit(words,racer_set,&racer_items[i].pick,&racer_items[i].place,racer_vram,racer_pmod)) {
             ++fzx_racer_sprite_skips;continue;
         }
@@ -132,21 +208,48 @@ static unsigned racer_emit(vdp1_cmdt_t *commands,unsigned capacity,unsigned n) {
     return out;
 }
 
-/* Appends items from racer_items[start]; returns the new item count. */
-static unsigned racer_bodies(unsigned start,unsigned n,const fzx_view_t *view,const fzx_racer_sprite_body_t *bodies) {
+/* Appends posed racers from racer_items[start]; returns the new item count. */
+static unsigned racer_poses(unsigned start,unsigned n,const fzx_racer_pose16_t *racers) {
     unsigned items=start;
     for(unsigned i=0;i<n&&items<FZX_RACER_SPRITE_MAX_EXTRA+1;++i) {
-        RefMachine m=fzx_source_machine;
-        for(unsigned a=0;a<3;++a){m.model_pos[a]=bodies[i].pos[a];for(unsigned b=0;b<3;++b)m.model_basis[a][b]=bodies[i].basis[a][b];}
-        if(racer_item(&racer_items[items],view,&m,false))++items;else ++fzx_racer_sprite_skips;
+        if(racer_pose(&racer_items[items],&racers[i],false))++items;else ++fzx_racer_sprite_skips;
     }
     return items;
 }
 
+/* The player's fixed-point pose (one float conversion per frame). */
+static bool racer_player_pose(fzx_racer_pose16_t *r) {
+    for(unsigned i=0;i<3;++i) {
+        const float p=fzx_source_machine.model_pos[i]*65536.0f;
+        if(!(p>-2147483000.0f&&p<2147483000.0f))return false;
+        r->pos[i]=(int32_t)p;
+        for(unsigned j=0;j<3;++j)r->basis[i][j]=(int16_t)(fzx_source_machine.model_basis[i][j]*16384.0f);
+    }
+    r->set=0;r->flags=FZX_RACER_SPRITE_SHADOW?1u:0u;return true;
+}
+
+unsigned fzx_racer_sprites_draw16(vdp1_cmdt_t *commands,unsigned capacity,const fzx_view_t *view,
+                                  const fzx_racer_pose16_t *racers,unsigned n) {
+    if(!commands||!view||!racers||fzx_machine_status!=1||!racer_set||n>FZX_RACER_SPRITE_MAX_EXTRA)return 0;
+    if(!racer_camera_frame(view))return 0;
+    return racer_emit(commands,capacity,racer_poses(0,n,racers));
+}
+
 unsigned fzx_racer_sprites_draw(vdp1_cmdt_t *commands,unsigned capacity,const fzx_view_t *view,
                                 const fzx_racer_sprite_body_t *bodies,unsigned n) {
-    if(!commands||!view||!bodies||fzx_machine_status!=1||!racer_set||n>FZX_RACER_SPRITE_MAX_EXTRA)return 0;
-    return racer_emit(commands,capacity,racer_bodies(0,n,view,bodies));
+    if(!bodies||n>FZX_RACER_SPRITE_MAX_EXTRA)return 0;
+    static fzx_racer_pose16_t poses[FZX_RACER_SPRITE_MAX_EXTRA];unsigned m=0;
+    for(unsigned i=0;i<n;++i) {
+        bool ok=true;
+        for(unsigned a=0;a<3;++a) {
+            const float p=bodies[i].pos[a]*65536.0f;ok=ok&&p>-2147483000.0f&&p<2147483000.0f;
+            poses[m].pos[a]=ok?(int32_t)p:0;
+            for(unsigned b=0;b<3;++b)poses[m].basis[a][b]=(int16_t)(bodies[i].basis[a][b]*16384.0f);
+        }
+        poses[m].set=0;poses[m].flags=FZX_RACER_SPRITE_SHADOW?1u:0u;
+        if(ok)++m;else ++fzx_racer_sprite_skips;
+    }
+    return fzx_racer_sprites_draw16(commands,capacity,view,poses,m);
 }
 #endif
 
@@ -182,7 +285,12 @@ bool fzx_machine_load(void *vram){
         vdp1_cmdt_t mode_cmd;memset(&mode_cmd,0,sizeof(mode_cmd));
         const vdp1_cmdt_draw_mode_t mode={.end_code_disable=1,.user_clipping_mode=2,.color_mode=VDP1_CMDT_CM_CLUT_16};
         vdp1_cmdt_draw_mode_set(&mode_cmd,mode);racer_pmod=mode_cmd.cmd_pmod;
+        const vdp1_cmdt_draw_mode_t half={.end_code_disable=1,.user_clipping_mode=2,.color_mode=VDP1_CMDT_CM_CLUT_16,.cc_mode=VDP1_CMDT_CC_HALF_TRANS};
+        vdp1_cmdt_draw_mode_set(&mode_cmd,half);shadow_pmod=mode_cmd.cmd_pmod;
     }
+#if FZX_RACER_SPRITE_SHADOW
+    if(!shadow_load()){fzx_racer_sprite_status=3;fzx_machine_status=3;return false;}
+#endif
     fzx_racer_sprite_status=1;
 #else
        !fzx_texture_cd_load("MACHTX.PAK",FZX_MACHINE_REBAKE_TEXTURE_BYTES,FZX_MACHINE_REBAKE_TEXTURE_HASH,vram,(void *)scratch,log-32-scratch)){fzx_machine_status=3;return false;}
@@ -257,27 +365,28 @@ bool fzx_machine_native(vdp1_cmdt_t *commands,unsigned capacity,const fzx_view_t
     NATIVE_MARK(2,cpu_frt_count_get());
 #if FZX_RACER_SPRITES
     (void)pixels;(void)shades;
-    unsigned items=0;
-    if(racer_item(&racer_items[0],view,&fzx_source_machine,true))items=1;else ++fzx_racer_sprite_skips;
+    unsigned items=0;fzx_racer_pose16_t player;
+    if(racer_camera_frame(view)&&racer_player_pose(&player)) {
+        if(racer_pose(&racer_items[0],&player,true))items=1;else ++fzx_racer_sprite_skips;
 #if FZX_RACER_SPRITE_DEMO_N
-    {
-        /* Demo field: copies of the player's state on a grid ahead of it (model z
-         * axis = basis row 0 forward, x axis = basis row 2 sideways), spaced in
-         * model radii, for the N-racer measurements before rivals exist. */
-        static fzx_racer_sprite_body_t demo[FZX_RACER_SPRITE_DEMO_N];
-        const float forward=3.0f*FZX_RACER_SPRITE_RADIUS*fzx_source_machine.model_scale[0];
-        const float side=2.4f*FZX_RACER_SPRITE_RADIUS*fzx_source_machine.model_scale[2];
+        /* Demo field: copies of the player's pose on a grid ahead of it (basis
+         * row 0 forward, row 2 sideways), spaced in model radii and built in
+         * fixed point, for the N-racer measurements before rivals exist. */
+        static fzx_racer_pose16_t demo[FZX_RACER_SPRITE_DEMO_N];
+        const int32_t forward=(int32_t)(3.0f*FZX_RACER_SPRITE_RADIUS*fzx_source_machine.model_scale[0]*4.0f);
+        const int32_t side=(int32_t)(2.4f*FZX_RACER_SPRITE_RADIUS*fzx_source_machine.model_scale[2]*4.0f);
         for(unsigned i=0;i<FZX_RACER_SPRITE_DEMO_N;++i) {
-            const float row=(float)(i/2u+1u),col=(i&1u)?1.0f:-1.0f;
-            for(unsigned a=0;a<3;++a) {
-                demo[i].pos[a]=fzx_source_machine.model_pos[a]+fzx_source_machine.model_basis[0][a]*forward*row+
-                               fzx_source_machine.model_basis[2][a]*side*col;
-                for(unsigned b=0;b<3;++b)demo[i].basis[a][b]=fzx_source_machine.model_basis[a][b];
-            }
+            const int32_t row=(int32_t)(i/2u+1u),col=(i&1u)?1:-1;
+            demo[i]=player;
+            for(unsigned a=0;a<3;++a)
+                demo[i].pos[a]+=player.basis[0][a]*forward*row+player.basis[2][a]*side*col;
         }
-        items=racer_bodies(items,FZX_RACER_SPRITE_DEMO_N,view,demo);
-    }
+        const uint16_t extra_start=cpu_frt_count_get();
+        items=racer_poses(items,FZX_RACER_SPRITE_DEMO_N,demo);
+        fzx_racer_sprite_loop_ticks=(uint16_t)(cpu_frt_count_get()-extra_start);
+        fzx_racer_sprite_loop_count=FZX_RACER_SPRITE_DEMO_N;
 #endif
+    } else ++fzx_racer_sprite_skips;
     s.count=racer_emit(s.commands,capacity-1,items);fzx_racer_sprite_draws=s.count;
     fzx_machine_stats=(fzx_machine_stats_t){.draws=s.count};
     bool ok=true;

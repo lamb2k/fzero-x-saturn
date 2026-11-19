@@ -1297,6 +1297,19 @@ void fzx_race_begin(void) {
     tick = 0; remainder = 0; previous = video_fields; row_index = 0; pending_row = 0;
     fzx_e0_report[1] = 0; fzx_e0_report[4] = previous;
     fzx_e0_done = 0; fzx_e0_status = 1;
+#if ENG_PACE == 4
+    {   /* The pacing pipeline restarts empty: a race that ended (or was left) mid-flight leaves
+         * a frame counted as submitted and never presented. */
+        const uint32_t mask = cpu_intc_mask_get();
+        cpu_intc_mask_set(15);
+        pace_rendered = 0u; pace_drawn = 0u; pace_vbi = 0u;
+        for (unsigned i = 0; i < 8u; ++i) fzx_pace[i] = 0u;
+#if FZX_E1_DRIVE && !ENG_PACE_HUD_LEAD
+        hud_pending = 0u;
+#endif
+        cpu_intc_mask_set(mask);
+    }
+#endif
 }
 
 /* One presented frame of the race (the plain image's loop body, shared text). */

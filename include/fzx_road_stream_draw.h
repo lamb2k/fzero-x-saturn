@@ -58,6 +58,33 @@ typedef struct { uint16_t quad_first,quad_count,vertex_first,vertex_end; } fzx_r
 _Static_assert(sizeof(fzx_road_stream_nquad_t)==8&&sizeof(fzx_road_stream_nspan_t)==8&&
     sizeof(fzx_road_stream_nchunk_t)==8,"native road record sizes");
 
+#ifndef FZX_ROAD_STREAM_CLUSTERS
+#define FZX_ROAD_STREAM_CLUSTERS 0
+#endif
+#if FZX_ROAD_STREAM_CLUSTERS
+#include "sh2zam/segmesh_experimental.h"
+/* FZX_ROAD_STREAM_CLUSTERS (default 0): baked cluster bounds
+ * (tools/road_cluster_bake.py, ROADCL.PAK). Each chunk's quads are split into
+ * facing classes with a sphere and a normal cone (SH2ZAM segmesh-2); per
+ * visible chunk one sh2z_segmesh_cull call classifies them, and quads of
+ * culled classes are skipped before they are fetched. Such quads would all be
+ * culled by outcode, clip or winding, so the commands are unchanged. The
+ * native layout is required; prepare copies each quad's class into its
+ * record's last byte. */
+typedef struct {
+    const uint8_t *chunks;              /* (chunks + 1) big-endian u16 cluster indices */
+    const sh2z_segmesh_bound_t *bounds;
+    const uint8_t *tags;                /* per quad: its class within its chunk */
+    uint32_t chunk_count,cluster_count,quad_count;
+} fzx_road_stream_clusters_t;
+/* Admit a cluster pack in place: magic, size, embedded and complete-file FNV,
+ * the FNV of the road pack it was baked from, counts against that pack, a
+ * monotonic chunk table with at most 32 classes per chunk, every tag inside
+ * its chunk's classes and every bound within segmesh-2's rules. bytes and
+ * data must stay resident; data must be 4-byte aligned. */
+bool fzx_road_stream_clusters_open(fzx_road_stream_clusters_t *out,const void *data,uint32_t bytes,
+    uint32_t expected_hash,const fzx_road_stream_pack_t *pack,uint32_t pack_hash);
+#endif
 typedef struct {
     int32_t boundary[65];
     sh2z_view_vertex_t edge[2][65];
@@ -103,6 +130,10 @@ typedef struct {
     uint32_t npos_capacity,npos_count;
     bool native;
     uint16_t nunit[256];
+#if FZX_ROAD_STREAM_CLUSTERS
+    /* Bind before prepare to select cluster culling (native layout only). */
+    const fzx_road_stream_clusters_t *clusters;
+#endif
 } fzx_road_stream_draw_work_t;
 
 /* One VDP1 command table entry (32 bytes, hardware layout). */

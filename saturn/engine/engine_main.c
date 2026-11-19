@@ -34,6 +34,27 @@ volatile uint32_t fzx_scp_road[FZX_RSP_PHASES], fzx_scp_road_calls;
 volatile uint32_t fzx_scp_ticks[FZX_SCP_LAYERS][FZX_SCP_PHASES], fzx_scp_calls[FZX_SCP_LAYERS];
 /* and the track build's per-frame counters, summed (quad clips, piece clips, pieces, ...). */
 volatile uint32_t fzx_e0_rsp_counts[FZX_RSPC_COUNTERS];
+/* and one record per frame row (diagnostic builds only, in the free high work
+ * RAM): the 16 phase times (slave timer units, saturated), the 19 counters,
+ * then quads, chunks, positions, culled, clipped, tiers 0..3 and commands. */
+enum { E0_PROW_ROWS = 4608u, E0_PROW_WORDS = 45u };
+uint16_t fzx_e0_prow[E0_PROW_ROWS][E0_PROW_WORDS];
+static void prow_fill(uint32_t index) {
+    if (index >= E0_PROW_ROWS) return;
+    uint16_t *r = fzx_e0_prow[index];
+    const volatile uint32_t *t = (const volatile uint32_t *)((uintptr_t)fzx_rsp.ticks | CPU_CACHE_THROUGH);
+    const volatile uint16_t *c = (const volatile uint16_t *)((uintptr_t)fzx_rsp.counts | CPU_CACHE_THROUGH);
+    const volatile fzx_road_stream_draw_stats_t *st =
+        (const volatile fzx_road_stream_draw_stats_t *)((uintptr_t)&fzx_road_stream_stats | CPU_CACHE_THROUGH);
+    for (unsigned i = 0; i < FZX_RSP_PHASES; ++i) r[i] = (uint16_t)(t[i] > 65535u ? 65535u : t[i]);
+    for (unsigned i = 0; i < FZX_RSPC_COUNTERS; ++i) r[FZX_RSP_PHASES + i] = c[i];
+    uint16_t *x = r + FZX_RSP_PHASES + FZX_RSPC_COUNTERS;
+    x[0] = (uint16_t)st->quads; x[1] = (uint16_t)st->chunks; x[2] = (uint16_t)st->positions;
+    x[3] = (uint16_t)st->culled; x[4] = (uint16_t)st->clipped;
+    for (unsigned i = 0; i < 4u; ++i) x[5 + i] = (uint16_t)st->tiers[i];
+    x[9] = (uint16_t)st->commands;
+}
+_Static_assert(FZX_RSP_PHASES + FZX_RSPC_COUNTERS + 10u == E0_PROW_WORDS, "per-frame record layout");
 #endif
 #ifndef FZX_VDP1_DBANK
 #define FZX_VDP1_DBANK 0
@@ -71,6 +92,12 @@ volatile uint32_t fzx_e0_status, fzx_e0_done, fzx_e0_fault;
  * [11] slave busy sum at the last frame, [12] FRT ticks per field, [13] pick
  * BAD_ARGS, [14] pick TOO_MANY, [15] visible chunks maximum. */
 volatile uint32_t fzx_e0_report[16];
+#ifndef E0_CHUNK_CAP
+#define E0_CHUNK_CAP 0
+#endif
+#if E0_CHUNK_CAP
+volatile uint32_t fzx_e0_cap_runs; /* runs dropped by E0_CHUNK_CAP */
+#endif
 /* Debugger hold: when nonzero, the camera stays at this tick (stills). */
 volatile uint32_t fzx_e0_hold_tick;
 #define HOLD_TICK (*(volatile uint32_t *)((uintptr_t)&fzx_e0_hold_tick | CPU_CACHE_THROUGH))
@@ -227,11 +254,24 @@ bool fzx_engine_slave_pick(void) {
     if (r == SH2Z_SEGMESH_BAD_ARGS) { ++fzx_e0_report[13]; return false; }
     out->visible_chunks = marked;
     if (r == SH2Z_SEGMESH_TOO_MANY) { out->faults = 2; ++fzx_e0_report[14]; return false; }
-    out->count = runs;
-    for (uint32_t i = 0; i < runs; ++i) {
+    uint32_t first_run = 0;
+#if E0_CHUNK_CAP
+    /* E0_CHUNK_CAP (default 0, off): when more than this many chunks are
+     * marked, drop whole runs, farthest first (the pick's order), keeping the
+     * nearest run. Dropped track is the most distant, inside the fog. */
+    while (marked > E0_CHUNK_CAP && runs - first_run > 1u) {
+        const sh2z_segmesh_run_t *f = &pick_runs[first_run];
+        const uint32_t n = path.chunks, span = f->start == f->end ? n : (uint32_t)((f->end + n - f->start) % n);
+        marked -= span < marked ? span : marked; ++first_run; ++fzx_e0_cap_runs;
+    }
+    out->visible_chunks = marked;
+#endif
+    out->count = runs - first_run;
+    for (uint32_t i = 0; i < runs - first_run; ++i) {
         RefRoadGroup *g = &out->groups[i];
-        g->start = pick_runs[i].start; g->end = pick_runs[i].end; g->direction = pick_runs[i].direction;
-        g->average_depth = (float)pick_runs[i].average / (float)(1u << pv.depth_shift);
+        const sh2z_segmesh_run_t *pr = &pick_runs[first_run + i];
+        g->start = pr->start; g->end = pr->end; g->direction = pr->direction;
+        g->average_depth = (float)pr->average / (float)(1u << pv.depth_shift);
     }
     fzx_e0_pick[4] = (uint16_t)(cpu_frt_count_get() - t0);
 #if FZX_ROAD_STREAM_PHASES
@@ -506,6 +546,9 @@ int main(void) {
 #endif
         row->slave_ticks = (uint16_t)(fzx_slave_road_busy_sum - fzx_e0_report[11]); /* this frame's slave job */
         fzx_e0_report[11] = fzx_slave_road_busy_sum;
+#if FZX_ROAD_STREAM_PHASES
+        if (row != &scratch_row) prow_fill(row_index);
+#endif
         if (row != &scratch_row) { pending_row = row_index + 1u; ++row_index; fzx_e0_report[1] = row_index; }
         else pending_row = 0;
         row->submit_frt = cpu_frt_count_get();

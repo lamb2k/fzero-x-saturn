@@ -15,6 +15,12 @@
 #define FZX_RS_PACKET_PATH 1
 #endif
 #define FZX_RS_COLD __attribute__((cold))
+#ifndef FZX_ROAD_STREAM_CLUSTER_AUDIT
+#define FZX_ROAD_STREAM_CLUSTER_AUDIT 0
+#endif
+#if FZX_ROAD_STREAM_CLUSTER_AUDIT && !(FZX_ROAD_STREAM_CLUSTERS && FZX_ROAD_STREAM_PHASES)
+#error FZX_ROAD_STREAM_CLUSTER_AUDIT needs FZX_ROAD_STREAM_CLUSTERS and FZX_ROAD_STREAM_PHASES
+#endif
 #define U16 fzx_road_u16
 #define U32 fzx_road_u32
 
@@ -79,6 +85,46 @@ static FZX_RS_COLD bool native_prepare(fzx_road_stream_draw_work_t *w,const fzx_
     }
     w->npos_count=used;return true;
 }
+#if FZX_ROAD_STREAM_CLUSTERS
+static uint32_t be16(const uint8_t *p){return (uint32_t)p[0]<<8|p[1];}
+static uint32_t be32(const uint8_t *p){return (uint32_t)p[0]<<24|(uint32_t)p[1]<<16|(uint32_t)p[2]<<8|p[3];}
+FZX_RS_COLD bool fzx_road_stream_clusters_open(fzx_road_stream_clusters_t *out,const void *data,uint32_t bytes,
+    uint32_t expected_hash,const fzx_road_stream_pack_t *pack,uint32_t pack_hash){
+    const uint8_t *b=data;
+    if(!out||!b||!pack||((uintptr_t)b&3u)||bytes<64u||(bytes&7u)||memcmp(b,"FZXRCL01",8)||be32(b+8)!=1u||
+       be32(b+12)!=bytes||be32(b+20)!=pack_hash||fzx_road_hash(b,bytes)!=expected_hash)return false;
+    /* Embedded FNV, computed with its own field zero. */
+    uint32_t h=2166136261u;
+    for(uint32_t i=0;i<bytes;++i)h=(h^(i>=16u&&i<20u?0u:b[i]))*16777619u;
+    if(h!=be32(b+16))return false;
+    const uint32_t chunks=be16(b+24),clusters=be16(b+26),quads=be16(b+28);
+    const uint32_t oc=be32(b+32),ob=be32(b+36),ot=be32(b+40);
+    if(chunks!=pack->count[FZX_RLD_CHUNKS]||quads!=pack->count[FZX_RLD_QUADS]||!clusters||
+       oc<64u||(oc&7u)||oc+(chunks+1u)*2u>ob||(ob&7u)||ob+clusters*20u>ot||ot+quads>bytes)return false;
+    const uint8_t *ct=b+oc,*tags=b+ot;
+    if(be16(ct))return false;
+    for(uint32_t c=0;c<chunks;++c){
+        const uint32_t first=be16(ct+c*2u),end=be16(ct+c*2u+2u);
+        if(end<first||end-first>SH2Z_SEGMESH_CULL_MAX||end>clusters)return false;
+        const uint8_t *r=fzx_road_stream_record(pack,FZX_RLD_CHUNKS,c);
+        const uint32_t q0=be32(r),qn=be32(r+4);
+        if(q0>quads||qn>quads-q0)return false;
+        for(uint32_t q=q0;q<q0+qn;++q)if(tags[q]>=end-first)return false;
+    }
+    if(be16(ct+chunks*2u)!=clusters)return false;
+    const sh2z_segmesh_bound_t *bounds=(const sh2z_segmesh_bound_t *)(const void *)(b+ob);
+    for(uint32_t i=0;i<clusters;++i){const sh2z_segmesh_bound_t *x=bounds+i;
+        if(x->flags&~(uint32_t)SH2Z_SEGMESH_NO_CONE)return false;
+        if(x->flags&SH2Z_SEGMESH_NO_CONE)continue;
+        const int64_t a2=(int64_t)x->axis[0]*x->axis[0]+(int64_t)x->axis[1]*x->axis[1]+(int64_t)x->axis[2]*x->axis[2];
+        /* A unit axis within 2^-12; a half angle under 80 degrees (cos >= 0.17). */
+        if(a2<INT64_C(268435456)-65536||a2>INT64_C(268435456)+65536||x->cos_q14<2786||x->cos_q14>16384||
+           x->sin_q14<0||x->sin_q14>16384)return false;
+    }
+    *out=(fzx_road_stream_clusters_t){ct,bounds,tags,chunks,clusters,quads};
+    return true;
+}
+#endif
 FZX_RS_COLD bool fzx_road_stream_draw_prepare(fzx_road_stream_draw_work_t *w,
     const fzx_road_stream_pack_t *p,const void *textures,uint32_t bytes,uint32_t expected){
     if(!w)return false;
@@ -92,6 +138,12 @@ FZX_RS_COLD bool fzx_road_stream_draw_prepare(fzx_road_stream_draw_work_t *w,
        (!native&&!w->positions)||!w->projected||!w->vertex_capacity||w->vertex_capacity>65535)return false;
     if(!FZX_RS_PACK_PATH&&!native)return false;
     if(native&&(!w->npos||!w->nquads||!w->nspans||!w->nchunks||!native_prepare(w,p)))return false;
+#if FZX_ROAD_STREAM_CLUSTERS
+    if(w->clusters){
+        if(!native||w->clusters->quad_count!=p->count[FZX_RLD_QUADS]||w->clusters->chunk_count!=p->count[FZX_RLD_CHUNKS])return false;
+        for(uint32_t i=0;i<w->clusters->quad_count;++i)w->nquads[i].reserved=w->clusters->tags[i];
+    }
+#endif
     for(uint32_t i=0;i<p->count[FZX_RLD_IMAGES];++i){
         const uint8_t *im=fzx_road_stream_record(p,FZX_RLD_IMAGES,i);
         fzx_road_stream_image_t *out=w->images+i;
@@ -174,6 +226,13 @@ typedef struct {
      * emission order (far first), and with over non-NULL count commands past
      * capacity instead of failing. */
     uint32_t skip,dropped,*over;
+#endif
+#if FZX_ROAD_STREAM_PHASES
+    unsigned alive; /* diagnostic: the last quad reached piece construction */
+#endif
+#if FZX_ROAD_STREAM_CLUSTERS
+    sh2z_segmesh_cull_t cull;  /* segmesh-2 state for this view */
+    uint32_t live;             /* the current chunk's classes that may draw */
 #endif
 } draw_t;
 /* One more command from the current piece: false to drop it, or a capacity
@@ -397,6 +456,19 @@ static bool native_quad(draw_t *d,unsigned id,const sh2z_view_vertex_t *base){
     const fzx_road_stream_nquad_t *nq=d->work->nquads+id;const unsigned flags=nq->flags;
     FZX_RSP(QFETCH);
     if(!d->plan->outer&&(flags&1u))return true;
+#if FZX_ROAD_STREAM_CLUSTERS
+    if(!((d->live>>nq->reserved)&1u)){
+        ++d->stats->culled;FZX_RSP_COUNT(CLUSTER_SKIPS,1);
+#if FZX_ROAD_STREAM_CLUSTER_AUDIT
+        /* Audit builds draw it anyway and count it if it reaches a piece. */
+        d->alive=0;
+        const vref_t audit[4]={base+nq->v[0],base+nq->v[1],base+nq->v[2],base+nq->v[3]};
+        if(!quad_body(d,id,audit,flags,nq,NULL,NULL))return false;
+        if(d->alive)FZX_RSP_COUNT(CLUSTER_FALSE,1);
+#endif
+        return true;
+    }
+#endif
     ++d->stats->quads;d->stats->error_quad=id;
     const vref_t vertices[4]={base+nq->v[0],base+nq->v[1],base+nq->v[2],base+nq->v[3]};
     return quad_body(d,id,vertices,flags,nq,NULL,NULL);
@@ -405,7 +477,7 @@ static bool quad_body(draw_t *d,unsigned id,const vref_t vertices[4],unsigned fl
     const fzx_road_stream_nquad_t *nq,const uint8_t *q,const unsigned rows[4]){
     fzx_road_stream_draw_work_t *w=d->work;bool front=true,safe;
     for(unsigned i=0;i<4;++i)if(vertices[i]->outcode&SH2Z_OUT_NEAR)front=false;
-    if(classify(vertices,&safe)){++d->stats->culled;return true;}
+    if(classify(vertices,&safe)){++d->stats->culled;FZX_RSP_COUNT(CULL_OUT,1);return true;}
     FZX_RSP(QCULL);
     int n=4;
 #if FZX_ROAD_STREAM_FAST_CULL
@@ -415,7 +487,7 @@ static bool quad_body(draw_t *d,unsigned id,const vref_t vertices[4],unsigned fl
      * clipped to the guard band. */
     if(!safe&&front){bool near_screen=true;
         for(unsigned i=0;i<4;++i)if(vertices[i]->sx< -900||vertices[i]->sx>900||vertices[i]->sy< -900||vertices[i]->sy>900)near_screen=false;
-        if(near_screen){if(area(vertices,4)>=0){++d->stats->culled;return true;}goto culled_ok;}
+        if(near_screen){if(area(vertices,4)>=0){++d->stats->culled;FZX_RSP_COUNT(CULL_WIND,1);return true;}goto culled_ok;}
     }
 #endif
     if(!safe){
@@ -423,12 +495,15 @@ static bool quad_body(draw_t *d,unsigned id,const vref_t vertices[4],unsigned fl
         n=sh2z_view_clip_guard_src_center_divu(d->hot->clip_out,&d->view,d->view.view.clip,d->hot->clip_in,4,0,10);
         FZX_RSP(QCULL);if(n>0)FZX_RSP_COUNT(CLIP_CORNERS,n);
         if(n<0)return fail(d,FZX_RS_CLIP);
-        if(n<3){++d->stats->culled;return true;}
+        if(n<3){++d->stats->culled;FZX_RSP_COUNT(CULL_CLIP,1);return true;}
     }
     {const sh2z_view_vertex_t *winding[SH2Z_VIEW_GUARD_MAX_OUT];
-     if(area(winding,corners_of(d->hot,vertices,safe,n,winding))>=0){++d->stats->culled;return true;}}
+     if(area(winding,corners_of(d->hot,vertices,safe,n,winding))>=0){++d->stats->culled;FZX_RSP_COUNT(CULL_WIND,1);return true;}}
 #if FZX_ROAD_STREAM_FAST_CULL
 culled_ok:
+#endif
+#if FZX_ROAD_STREAM_PHASES
+    d->alive=1;
 #endif
     FZX_RSP(QUAD);
     if(flags&2u){const bool ok=piece(d,vertices,id,0,0,0,0,0,0,true);FZX_RSP(QPIECE);return ok;}
@@ -573,7 +648,31 @@ static bool native_frame(draw_t *d){
             const fzx_road_stream_nchunk_t *c=w->nchunks+index;
             const run_t *r=index>=runs[0].first&&index<=runs[0].last?runs:runs+1;
             const sh2z_view_vertex_t *base=w->projected+(r->offset+(int32_t)c->vertex_first);
+#if FZX_ROAD_STREAM_CLUSTERS
+            if(w->clusters){const uint8_t *e=w->clusters->chunks+index*2u;
+                const uint32_t first=(uint32_t)e[0]<<8|e[1],count=((uint32_t)e[2]<<8|e[3])-first;
+                FZX_RSP(CLUSTER);FZX_RSP_COUNT(CLUSTER_TESTS,count);
+                d->live=sh2z_segmesh_cull(&d->cull,w->clusters->bounds+first,count);
+                FZX_RSP(QFETCH);}
+#endif
+#if FZX_ROAD_STREAM_PHASES
+            {   /* Diagnostic: dead chunks and dead (chunk, strip) groups. */
+                static uint8_t seen[256],live[256];unsigned any=0;
+                for(unsigned i=c->quad_first,e=i+c->quad_count;i<e;++i){seen[w->nquads[i].strip]=0;live[w->nquads[i].strip]=0;}
+                for(unsigned i=c->quad_first,e=i+c->quad_count;i<e;++i){
+                    const unsigned strip=w->nquads[i].strip;
+                    const bool counted=d->plan->outer||!(w->nquads[i].flags&1u);
+                    d->alive=0;if(!native_quad(d,i,base))return false;
+                    if(counted){if(seen[strip]<255)++seen[strip];if(d->alive){live[strip]=1;any=1;}}
+                }
+                unsigned quads=0;
+                for(unsigned i=c->quad_first,e=i+c->quad_count;i<e;++i){const unsigned strip=w->nquads[i].strip;
+                    if(seen[strip]){quads+=seen[strip];if(!live[strip]){FZX_RSP_COUNT(DEAD_STRIPS,1);FZX_RSP_COUNT(DEAD_STRIP_QUADS,seen[strip]);}seen[strip]=0;}}
+                if(!any){FZX_RSP_COUNT(DEAD_CHUNKS,1);FZX_RSP_COUNT(DEAD_CHUNK_QUADS,quads);}
+            }
+#else
             for(unsigned i=c->quad_first,e=i+c->quad_count;i<e;++i)if(!native_quad(d,i,base))return false;
+#endif
             if(group->direction==1){if(index==start)break;index=index?index-1:chunks-1;}
             else {index=index+1<chunks?index+1:0;if(index==end)break;}
         }while(true);
@@ -618,6 +717,10 @@ static bool draw_any(fzx_road_stream_draw_work_t *w,const sh2z_view_center_t *vi
     ramp_prepare(w,plan);
     if(!w->ramp_valid)return false;
     if(!sh2z_view_rails_prepare(&d.rails,&d.view))return false;
+#if FZX_ROAD_STREAM_CLUSTERS
+    d.live=UINT32_MAX;
+    if(w->clusters&&!sh2z_segmesh_cull_prepare(&d.cull,&d.view,2))return false;
+#endif
     if(w->native){
         FZX_RSP(FOG);
         fog_prepare(w,&d.view.view,plan,pa,pb,stats);

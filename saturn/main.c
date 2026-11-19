@@ -940,6 +940,7 @@ static bool simpipe_collected_unapplied;
  * the cut tick's input (consumed input), the cut tick's batch index, and the
  * unused tail the master then runs in order. */
 volatile uint32_t fzx_simpipe_cut[4];
+extern volatile uint32_t fzx_simpipe_present[16];   /* presentation report (below) */
 /* State ownership (fzx_simpipe_logic: drain before any serial mutation; resume
  * only on the new state's first serial publication). */
 static fzx_simpipe_owner_t simpipe_owner;

@@ -37,7 +37,7 @@ compile() {
 }
 OBJS=""
 for s in $SOURCES; do o=$OUT/$(basename "$s" .c).o; compile "$D/$s" "$o"; OBJS="$OBJS $o"; done
-for s in bridge hooks rivals_bake; do o=$OUT/ref_$s.o; compile "$ROOT/ref/$s.c" "$o"; OBJS="$OBJS $o"; done
+for s in bridge hooks rivals_bake course_line; do o=$OUT/ref_$s.o; compile "$ROOT/ref/$s.c" "$o"; OBJS="$OBJS $o"; done
 HOST="-m32 -fno-pic -O2 -g -std=gnu11 -Wall -Wextra -Werror -I$ROOT/ref -I$SZ/include"
 $CC $HOST -c "$ROOT/ref/rivals_main.c" -o "$OUT/rivals_main.o"
 $CC $HOST -c "$SZ/src/sh2zam_line_follower.c" -o "$OUT/sh2zam_line_follower.o"

@@ -17,9 +17,9 @@
 
 #include "ref.h"
 #include "sh2zam/line_follower_experimental.h"
+#include "course_line.h"
 
 int rb_segment_count(void);
-float rb_course_length(void);
 void rb_segment(int index, float out[5]);
 void rb_sample(int index, float t, float out[13]);
 void rb_player(float out[3]);
@@ -27,7 +27,6 @@ void rb_player(float out[3]);
 #define MAX_NODES 4096
 #define MAX_TICKS 16384
 #define MAX_RIVALS 29
-#define STEP_UNITS 64.0   /* bake spacing along the course, whole units */
 
 static void die(const char* m) { fprintf(stderr, "fzx-rivals: %s\n", m); exit(2); }
 
@@ -38,6 +37,9 @@ static double node_dist[MAX_NODES];
 static int node_seg[MAX_NODES];
 static double node_t[MAX_NODES];
 static int node_count;
+static CourseLineStation stations[MAX_NODES];
+static int line_len_q12;           /* course-line-1 lap length, Q12 */
+static unsigned long long line_hash;  /* course-line-1 agreement hash, from this bake */
 static int16_t cpu_line[0x200];
 static double handed_sum;   /* sum over nodes of (forward x up) . left */
 
@@ -56,52 +58,57 @@ static unsigned char* read_file(const char* path, size_t* n) {
     return b;
 }
 
-/* Bake nodes every STEP_UNITS along every segment, plus each segment start. */
+/* Bake one node per course-line-1 station (ref/course_line.c, shared with E1): the stations,
+ * their Q12 distances and the one Q12-to-Q8 rule come from there; this adds the rival payload. */
 static void bake(double speed_k) {
-    const int segs = rb_segment_count();
-    const double length = rb_course_length();
     float s[5], p[13];
-    node_count = 0;
-    for (int i = 0; i < segs; ++i) {
+    static int seg_start_q12[MAX_NODES];
+    const int segs = rb_segment_count();
+    node_count = course_line_stations(stations, MAX_NODES, &line_len_q12, COURSE_LINE_SPACING);
+    if (node_count < 2) die("course-line-1 baker failed (too many stations or a gap out of bounds)");
+    if (segs > MAX_NODES) die("too many segments");
+    for (int i = 0; i < segs; ++i) seg_start_q12[i] = -1;
+    for (int j = 0; j < node_count; ++j) {
+        const CourseLineStation* st = &stations[j];
+        const int i = st->segment;
+        const double t = st->t;
+        if (st->t_q16 == 0) seg_start_q12[i] = st->dist_q12;
         rb_segment(i, s);
-        const int n = (int)ceil(s[1] / STEP_UNITS);
-        for (int k = 0; k < n; ++k) {
-            const double t = (double)k / n;
-            rb_sample(i, (float)t, p);
-            double d = k == 0 ? s[0] : p[12];
-            if (node_count && d <= node_dist[node_count - 1] + 1.0 / 128) continue; /* keep starts strictly increasing */
-            if (node_count == MAX_NODES) die("too many nodes");
-            node_dist[node_count] = d; node_seg[node_count] = i; node_t[node_count] = t;
-            sh2z_line_node_t* nd = &nodes[node_count];
-            Pose* ps = &poses[node_count];
-            const int half = t >= 0.5 ? 2 : 0;
-            const int16_t cap = cpu_line[(i * 4 + half) & 0x1ff], lat = cpu_line[(i * 4 + half + 1) & 0x1ff];
-            nd->start = (int32_t)lround(d * 256.0);
-            nd->lateral = lat;
-            const double capq4 = cap > 0 ? cap * speed_k * 256.0 / 16.0 : 65535.0;   /* Q8 per tick -> Q4 */
-            nd->speed_cap = (uint16_t)(capq4 > 65535.0 ? 65535.0 : capq4);
-            const double hw = fmin(s[2], s[3]);
-            nd->half_width = (uint16_t)(hw > 0 ? (hw > 65535 ? 65535 : hw) : 0);
-            nd->flags = (uint16_t)s[4];
-            /* Basis rows as the source's: x forward, y up, z side (positive left), unit length. */
-            const double fl = sqrt(p[3]*p[3]+p[4]*p[4]+p[5]*p[5]), ul = sqrt(p[6]*p[6]+p[7]*p[7]+p[8]*p[8]);
-            const double ll = sqrt(p[9]*p[9]+p[10]*p[10]+p[11]*p[11]);
-            if (fl <= 0 || ul <= 0 || ll <= 0) die("degenerate course basis");
-            for (int a = 0; a < 3; ++a) {
-                ps->pos[a] = (int32_t)lround(p[a] * 16.0);
-                ps->fwd[a] = q14(p[3 + a] / fl);
-                ps->up[a] = q14(p[6 + a] / ul);
-                ps->left[a] = q14(p[9 + a] / ll);
-            }
-            /* Handedness: (forward x up) . left, summed (recorded in the report). */
-            const double cx = (p[4]*p[8]-p[5]*p[7])/(fl*ul), cy = (p[5]*p[6]-p[3]*p[8])/(fl*ul), cz = (p[3]*p[7]-p[4]*p[6])/(fl*ul);
-            handed_sum += (cx*p[9]+cy*p[10]+cz*p[11])/ll;
-            ps->pad = 0;
-            node_count++;
+        rb_sample(i, st->t, p);
+        node_dist[j] = st->dist_q12 / 4096.0; node_seg[j] = i; node_t[j] = t;
+        sh2z_line_node_t* nd = &nodes[j];
+        Pose* ps = &poses[j];
+        const int half = t >= 0.5 ? 2 : 0;
+        const int16_t cap = cpu_line[(i * 4 + half) & 0x1ff], lat = cpu_line[(i * 4 + half + 1) & 0x1ff];
+        nd->start = (int32_t)course_line_q8(st->dist_q12);
+        nd->lateral = lat;
+        const double capq4 = cap > 0 ? cap * speed_k * 256.0 / 16.0 : 65535.0;   /* Q8 per tick -> Q4 */
+        nd->speed_cap = (uint16_t)(capq4 > 65535.0 ? 65535.0 : capq4);
+        const double hw = fmin(s[2], s[3]);
+        nd->half_width = (uint16_t)(hw > 0 ? (hw > 65535 ? 65535 : hw) : 0);
+        nd->flags = (uint16_t)s[4];
+        /* Basis rows as the source's: x forward, y up, z side (positive left), unit length. */
+        const double fl = sqrt(p[3]*p[3]+p[4]*p[4]+p[5]*p[5]), ul = sqrt(p[6]*p[6]+p[7]*p[7]+p[8]*p[8]);
+        const double ll = sqrt(p[9]*p[9]+p[10]*p[10]+p[11]*p[11]);
+        if (fl <= 0 || ul <= 0 || ll <= 0) die("degenerate course basis");
+        for (int a = 0; a < 3; ++a) {
+            ps->pos[a] = (int32_t)lround(p[a] * 16.0);
+            ps->fwd[a] = q14(p[3 + a] / fl);
+            ps->up[a] = q14(p[6 + a] / ul);
+            ps->left[a] = q14(p[9 + a] / ll);
         }
+        /* Handedness: (forward x up) . left, summed (recorded in the report). */
+        const double cx = (p[4]*p[8]-p[5]*p[7])/(fl*ul), cy = (p[5]*p[6]-p[3]*p[8])/(fl*ul), cz = (p[3]*p[7]-p[4]*p[6])/(fl*ul);
+        handed_sum += (cx*p[9]+cy*p[10]+cz*p[11])/ll;
+        ps->pad = 0;
     }
-    if (node_count < 2 || nodes[0].start != 0) die("bake must start at distance 0");
-    const int32_t len_q8 = (int32_t)lround(length * 256.0);
+    if (nodes[0].start != 0) die("bake must start at distance 0");
+    /* Agreement hash from this bake's own stations (each segment start must be a station), which
+     * must equal the course's: then E1's physics pack and RIVALS.PAK index the same line. */
+    for (int i = 0; i < segs; ++i) if (seg_start_q12[i] < 0) die("a segment start is not a station");
+    line_hash = course_line_hash(line_len_q12, seg_start_q12, segs);
+    if (line_hash != course_line_course_hash()) die("course-line-1 agreement hash mismatch");
+    const int32_t len_q8 = (int32_t)course_line_q8(line_len_q12);
     for (int i = 0; i < node_count; ++i) {
         const int32_t next = i + 1 < node_count ? nodes[i + 1].start : len_q8;
         const int32_t span = next - nodes[i].start;
@@ -145,6 +152,8 @@ static void write_pack(const char* header_path, int32_t len_q8, const int32_t* l
     fprintf(o, "#define FZX_RIVALS_LINE_LENGTH %ld\n#define FZX_RIVALS_NODE_COUNT %du\n#define FZX_RIVALS_PACK_BYTES %luu\n"
                "#define FZX_RIVALS_PACK_HASH 0x%08lxu\n#define FZX_RIVALS_PACE \"%s\"\n",
             (long)len_q8, node_count, (unsigned long)n, (unsigned long)h, pace);
+    fprintf(o, "#define FZX_RIVALS_COURSE_LINE \"course-line-1\"\n#define FZX_RIVALS_COURSE_LINE_HASH 0x%016llxull"
+               " /* = E1 physics pack receipt course_line_hash */\n", line_hash);
     const double hand = handed_sum / node_count;
     if (fabs(fabs(hand) - 1.0) > 0.01) die("course basis is not orthonormal enough to fix the side sign");
     fprintf(o, "#define FZX_RIVALS_LEFT_SIGN (%d) /* left = sign * (forward x up), from the bake */\n", hand > 0 ? 1 : -1);
@@ -204,8 +213,8 @@ int main(int argc, char** argv) {
     if (sum_v <= 0) die("player never moved: cannot calibrate speed units");
     const double speed_k = sum_d / sum_v;   /* distance per tick per speed unit */
     bake(speed_k);
-    const double length = rb_course_length();
-    const int32_t len_q8 = (int32_t)lround(length * 256.0);
+    const double length = line_len_q12 / 4096.0;
+    const int32_t len_q8 = (int32_t)course_line_q8(line_len_q12);
     const sh2z_line_t L = { nodes, (uint32_t)node_count, len_q8 };
 
     /* Rival model (POC-1 crude follower plus the pace controller). */
@@ -272,7 +281,7 @@ int main(int argc, char** argv) {
     FILE* o = fopen(report, "w");
     if (!o) die("cannot write report");
     fprintf(o, "{\n \"tier\": \"HOST\", \"rivals\": %d, \"ticks\": %d, \"race_start_tick\": %d,\n", nriv, ticks, start_tick);
-    fprintf(o, " \"course_length\": %.3f, \"nodes\": %d, \"speed_units_to_distance_per_tick\": %.6f, \"basis_handedness_mean\": %.6f,\n", length, node_count, speed_k, handed_sum / node_count);
+    fprintf(o, " \"course_line\": \"course-line-1\", \"course_line_hash\": \"0x%016llx\", \"line_length_q8\": %ld,\n \"course_length\": %.3f, \"nodes\": %d, \"speed_units_to_distance_per_tick\": %.6f, \"basis_handedness_mean\": %.6f,\n", line_hash, (long)course_line_q8(line_len_q12), length, node_count, speed_k, handed_sum / node_count);
     fprintf(o, " \"host_ns_per_tick\": %.1f, \"rank_changes_ticks\": %d, \"player_passes_rivals\": %d, \"rivals_pass_player\": %d,\n",
             host_ns / (ticks - start_tick), rank_changes, passes_by_player, passes_of_player);
     fprintf(o, " \"max_lateral_beyond_half_width_q8\": %ld, \"min_speed_while_racing_q8\": %ld,\n", (long)max_lat_excess,

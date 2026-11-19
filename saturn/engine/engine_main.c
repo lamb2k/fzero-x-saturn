@@ -32,6 +32,8 @@ volatile uint32_t fzx_scp_road[FZX_RSP_PHASES], fzx_scp_road_calls;
 #include "fzx_scene_phase.h"
 /* and the master's floor and cloud table phases (master timer units). */
 volatile uint32_t fzx_scp_ticks[FZX_SCP_LAYERS][FZX_SCP_PHASES], fzx_scp_calls[FZX_SCP_LAYERS];
+/* and the track build's per-frame counters, summed (quad clips, piece clips, pieces, ...). */
+volatile uint32_t fzx_e0_rsp_counts[FZX_RSPC_COUNTERS];
 #endif
 #ifndef FZX_VDP1_DBANK
 #define FZX_VDP1_DBANK 0
@@ -367,6 +369,10 @@ static void build(row_t *row, const fzx_engine_cam_t *cam, uint32_t tick, uint16
     if (!fzx_slave_road_finish(&video_fields, &road_count))
         fail(27, "TRACK", fzx_road_stream_stats.fault * 100u + fzx_slave_road_status);
     row->wait_road_ticks = (uint16_t)(cpu_frt_count_get() - t1);
+#if FZX_ROAD_STREAM_PHASES
+    for (unsigned i = 0; i < FZX_RSPC_COUNTERS; ++i)
+        fzx_e0_rsp_counts[i] += ((volatile uint16_t *)((uintptr_t)fzx_rsp.counts | CPU_CACHE_THROUGH))[i];
+#endif
 
     const uint32_t draws = FZX_SLAVE_ROAD_RESERVE + road_count;
     vdp1_cmdt_t *end = &commands[CMD_FIRST + draws];

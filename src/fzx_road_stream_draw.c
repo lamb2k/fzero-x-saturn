@@ -201,6 +201,12 @@ static bool fail(draw_t *d,unsigned fault){d->stats->fault=fault;return false;}
  * distorted sprite, clipped or not, so a near piece with corners hundreds of
  * pixels off screen costs many times a full-screen fill; the band bounds that
  * work. Texture spans of clipped pieces are approximate either way. */
+#ifndef FZX_ROAD_STREAM_LOD_SHIFT
+#define FZX_ROAD_STREAM_LOD_SHIFT 0
+#endif
+#ifndef FZX_ROAD_STREAM_FAST_CULL
+#define FZX_ROAD_STREAM_FAST_CULL 0
+#endif
 #ifndef FZX_ROAD_STREAM_GUARD_MARGIN
 #define FZX_ROAD_STREAM_GUARD_MARGIN 0
 #endif
@@ -392,6 +398,16 @@ static bool quad_body(draw_t *d,unsigned id,const vref_t vertices[4],unsigned fl
     if(classify(vertices,&safe)){++d->stats->culled;return true;}
     FZX_RSP(QCULL);
     int n=4;
+#if FZX_ROAD_STREAM_FAST_CULL
+    /* FZX_ROAD_STREAM_FAST_CULL (default 0): a quad with no corner behind the
+     * near plane and every corner within +/-900 px is culled by the winding
+     * of its projected corners, with no whole-quad clip; its pieces are still
+     * clipped to the guard band. */
+    if(!safe&&front){bool near_screen=true;
+        for(unsigned i=0;i<4;++i)if(vertices[i]->sx< -900||vertices[i]->sx>900||vertices[i]->sy< -900||vertices[i]->sy>900)near_screen=false;
+        if(near_screen){if(area(vertices,4)>=0){++d->stats->culled;return true;}goto culled_ok;}
+    }
+#endif
     if(!safe){
         FZX_RSP(CLIP);FZX_RSP_COUNT(QUAD_CLIPS,1);clip_input(d->hot,vertices);
         n=sh2z_view_clip_guard_src_center_divu(d->hot->clip_out,&d->view,d->view.view.clip,d->hot->clip_in,4,0,10);
@@ -401,6 +417,9 @@ static bool quad_body(draw_t *d,unsigned id,const vref_t vertices[4],unsigned fl
     }
     {const sh2z_view_vertex_t *winding[SH2Z_VIEW_GUARD_MAX_OUT];
      if(area(winding,corners_of(d->hot,vertices,safe,n,winding))>=0){++d->stats->culled;return true;}}
+#if FZX_ROAD_STREAM_FAST_CULL
+culled_ok:
+#endif
     FZX_RSP(QUAD);
     if(flags&2u){const bool ok=piece(d,vertices,id,0,0,0,0,0,0,true);FZX_RSP(QPIECE);return ok;}
     /* Texture order and spans only for quads that survive culling. */
@@ -436,9 +455,19 @@ static bool quad_body(draw_t *d,unsigned id,const vref_t vertices[4],unsigned fl
     unsigned tier=0,factor=1;
     if(front&&!(d->flags&FZX_RS_FORCE_FIRST)){
         const int64_t pixels=(int64_t)screen*unit;
+#if FZX_ROAD_STREAM_LOD_SHIFT
+        /* FZX_ROAD_STREAM_LOD_SHIFT (default 0): the coarse tiers start at
+         * 2^shift times the screen extent, so merged and whole-quad pieces
+         * reach nearer (fewer pieces, longer texture periods). */
+        const int64_t s4=(int64_t)span<<(2+FZX_ROAD_STREAM_LOD_SHIFT);
+        if(pixels<s4){tier=3;factor=0;}
+        else if(pixels<s4*2){tier=2;factor=4;}
+        else if(pixels<s4*4){tier=1;factor=2;}
+#else
         if(pixels<(int64_t)span*4){tier=3;factor=0;}
         else if(pixels<(int64_t)span*8){tier=2;factor=4;}
         else if(pixels<(int64_t)span*16){tier=1;factor=2;}
+#endif
     }
     ++d->stats->tiers[tier];
     if(!factor){const vref_t whole[4]={vertices[left],vertices[right],vertices[re],vertices[le]};

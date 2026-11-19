@@ -19,10 +19,14 @@ FZX_VDP1_DBANK_STALE ?= 0
 E0_GUARD_MARGIN ?= 256
 # Diagnostic: per-phase totals of the track build (changes timing; never measured for the floor).
 E0_PHASES ?= 0
+# Whole-quad winding cull without a clip when no corner is behind the near plane.
+E0_FAST_CULL ?= 1
+# Coarse road tiers reach 2^N times nearer (0 = as legacy).
+E0_LOD_SHIFT ?= 0
 ifeq ($(filter 0 1,$(FZX_VDP1_DBANK)),)
 $(error FZX_VDP1_DBANK must be 0 or 1)
 endif
-SH_OUTPUT_DIR := build-e0-bank$(FZX_VDP1_DBANK)$(if $(filter 1,$(FZX_VDP1_DBANK_STALE)),-stale,)-g$(E0_GUARD_MARGIN)$(if $(filter 1,$(E0_PHASES)),-phases,)
+SH_OUTPUT_DIR := build-e0-bank$(FZX_VDP1_DBANK)$(if $(filter 1,$(FZX_VDP1_DBANK_STALE)),-stale,)-g$(E0_GUARD_MARGIN)-c$(E0_FAST_CULL)-l$(E0_LOD_SHIFT)$(if $(filter 1,$(E0_PHASES)),-phases,)
 SH_BUILD_DIR := $(SH_OUTPUT_DIR)/yaul
 IMAGE_DIRECTORY := $(SH_OUTPUT_DIR)/cd
 IMAGE_1ST_READ_BIN := A.BIN
@@ -59,7 +63,7 @@ SH_SRCS := engine_main.c engine_scene.c engine_path.c \
 
 SH_CFLAGS += -DFZX_ENGINE=1 -DFZX_FRAME_PROFILE=1 -DFZX_VDP1_DBANK=$(FZX_VDP1_DBANK) \
     -DFZX_VDP1_DBANK_STALE=$(FZX_VDP1_DBANK_STALE) -DFZX_ROAD_STREAM_GUARD_MARGIN=$(E0_GUARD_MARGIN) \
-    -DFZX_ROAD_STREAM_PHASES=$(E0_PHASES) -DFZX_SCENE_PHASES=$(E0_PHASES) \
+    -DFZX_ROAD_STREAM_PHASES=$(E0_PHASES) -DFZX_SCENE_PHASES=$(E0_PHASES) -DFZX_ROAD_STREAM_FAST_CULL=$(E0_FAST_CULL) -DFZX_ROAD_STREAM_LOD_SHIFT=$(E0_LOD_SHIFT) \
     -DFZX_SOURCE_SKY=1 -I$(G)/sky -DFZX_SKY_SIMPLIFY=1 -DFZX_SOURCE_SKYLINE=1 -I$(G)/skyline -DFZX_SKYLINE_CD=1 \
     -DFZX_SOURCE_PLANES=1 -I$(G)/planes_cloud -DFZX_PLANE_CLOUD_ONLY=1 -DFZX_PLANES_DEGENERATE_UV=1 \
     -DFZX_SOURCE_FLOOR_RBG=1 -I$(G)/floor_rbg -DFZX_CLOUDS_VDP2=1 \

@@ -218,6 +218,9 @@ static smpc_peripheral_digital_t digital;
 #ifndef FZX_VDP1_DBANK
 #define FZX_VDP1_DBANK 0
 #endif
+#ifndef FZX_VDP1_DBANK_STALE
+#define FZX_VDP1_DBANK_STALE 0
+#endif
 #if FZX_VDP1_DBANK
 /* FZX_VDP1_DBANK (generated/VDP1-DBANK-PLAN.md): the race scene builds frame
  * N+1 while VDP1 still draws N. The only per-frame VDP1 VRAM the race build
@@ -226,22 +229,21 @@ static smpc_peripheral_digital_t digital;
  * texture-partition tables. The WRAM command list is reused once its transfer
  * is done (vdp1_sync_put_wait). While C8 (results, finish menu, records) draws,
  * the build waits for the previous frame as before. */
+#include "sh2zam/vdp1_banks_experimental.h"
 #define DBANK_GUARD 0xdb4b5a17u
 #define DBANK_GUARD_WORDS 8u
 static void *dbank_road[2],*dbank_machine[2];
 static volatile uint32_t *dbank_guard_lo,*dbank_guard_hi,*dbank_stage_lo,*dbank_stage_hi;
-static unsigned dbank_build,dbank_inflight=2u;
-/* The previous submitted frame prepared race tables and was overlapped or
- * serial-race; a frame that prepared none forces the next build to wait, so
- * the VDP2 table queue never pairs a present with a later frame's tables. */
-static bool dbank_prev_race;
-/* Status 1 ready; 2 the Gouraud partition is too small or misaligned;
- * 3 a bank guard changed. Counters cover race frames since boot. */
-volatile uint32_t fzx_dbank_status,fzx_dbank_frames,fzx_dbank_serial,fzx_dbank_overlap,fzx_dbank_conflicts;
+/* Bank state and counters (SH2ZAM vdp1-banks-1): frames, serial builds,
+ * builds that started while VDP1 still drew, and conflicts (must stay 0). */
+sh2z_vdp1_banks_t fzx_dbank_banks;
+/* Status 1 ready; 2 the Gouraud or CLUT partition is too small or misaligned;
+ * 3 a bank guard changed. */
+volatile uint32_t fzx_dbank_status;
 volatile uint32_t fzx_dbank_base,fzx_dbank_bytes,fzx_dbank_stage_base,fzx_dbank_stage_bytes;
-/* Post-build wait for the previous frame (FRT ticks): total, maximum and a
- * 16-bin histogram of 1/8-field bins (bin 15 holds the rest). */
-volatile uint32_t fzx_dbank_wait_total,fzx_dbank_wait_max,fzx_dbank_wait_hist[16];
+/* Post-build wait for the previous frame (FRT ticks): count, total, maximum
+ * and a 16-bin histogram of 1/8-field bins (bin 15 holds the rest). */
+volatile uint32_t fzx_dbank_frames,fzx_dbank_wait_total,fzx_dbank_wait_max,fzx_dbank_wait_hist[16];
 #endif
 static volatile uint32_t video_fields;
 #if FZX_ROAD_TILE_PROFILE
@@ -924,94 +926,98 @@ simpipe_copy(bool out)
 #define FZX_PRELUDE_CAPACITY(f) (FZX_SCENE_CAPACITY-count-(f))
 #endif
 #if FZX_VDP1_DBANK
-#define DBANK_ROAD_SHADES dbank_road[dbank_build]
-#define DBANK_MACHINE_SHADES dbank_machine[dbank_build]
-/* Bank 1 in the Gouraud partition: guard, machine palettes and Gouraud,
- * road Gouraud, guard. Bank 0 stays where the original tables are. */
+#define DBANK_ROAD_SHADES dbank_road[sh2z_vdp1_banks_bank(&fzx_dbank_banks)]
+#define DBANK_MACHINE_SHADES dbank_machine[sh2z_vdp1_banks_bank(&fzx_dbank_banks)]
+/* Bank 1 of the road and machine shade tables in Yaul's Gouraud partition,
+ * which nothing else uses: guard, machine palettes and Gouraud, road Gouraud,
+ * guard. Bank 0 stays where the original tables are. The VDP2 floor and cloud
+ * tables (uploaded at the end of each draw) in the CLUT partition, likewise
+ * unused: guard, floor banks 0 and 1, cloud bank 1, sky lines bank 1, guard.
+ * Cloud bank 0 is the original WRAM tables; the WRAM floor tables become the
+ * presented copy the capture checks. */
 static bool dbank_init(void) {
     vdp1_vram_partitions_t p;vdp1_vram_partitions_get(&p);
-    const uintptr_t base=(uintptr_t)p.gouraud_base,guard=DBANK_GUARD_WORDS*4u;
-    const uint32_t bytes=guard+FZX_MACHINE_SHADE_BYTES+FZX_ROAD_RENDER_SHADE_BYTES+guard;
-    fzx_dbank_base=(uint32_t)base;fzx_dbank_bytes=bytes;
-    if((base&31u)||(FZX_MACHINE_SHADE_BYTES&7u)||bytes>p.gouraud_size||
-       base<(uintptr_t)p.texture_base+p.texture_size||!road_tile_shades||!machine_shades) {
-        fzx_dbank_status=2;return false;
-    }
-    dbank_guard_lo=(volatile uint32_t *)base;
-    dbank_machine[0]=machine_shades;dbank_machine[1]=(void *)(base+guard);
-    dbank_road[0]=road_tile_shades;dbank_road[1]=(void *)(base+guard+FZX_MACHINE_SHADE_BYTES);
-    dbank_guard_hi=(volatile uint32_t *)(base+guard+FZX_MACHINE_SHADE_BYTES+FZX_ROAD_RENDER_SHADE_BYTES);
-    for(unsigned i=0;i<DBANK_GUARD_WORDS;++i){dbank_guard_lo[i]=DBANK_GUARD^i;dbank_guard_hi[i]=DBANK_GUARD^(i<<8);}
-    /* Bank 1's tables start as copies of bank 0's, as loaded. */
-    memcpy(dbank_machine[1],dbank_machine[0],FZX_MACHINE_SHADE_BYTES);
-    memcpy(dbank_road[1],dbank_road[0],FZX_ROAD_RENDER_SHADE_BYTES);
-    fzx_machine_dbank(dbank_machine[0],dbank_machine[1]);
-#if FZX_SOURCE_FLOOR_RBG || FZX_CLOUDS_VDP2
-    /* The VDP2 floor/cloud tables (uploaded at the end of each draw) in Yaul's
-     * CLUT partition, which nothing else uses: guard, floor banks 0 and 1, cloud
-     * bank 1, sky lines bank 1, guard. Cloud bank 0 is the original WRAM tables;
-     * the WRAM floor tables become the presented copy the capture checks. */
+    const uint32_t guard=DBANK_GUARD_WORDS*4u;
+    sh2z_vdp1_banks_init(&fzx_dbank_banks,FZX_VDP1_DBANK_STALE!=0);
     {
-        const uintptr_t clut=(uintptr_t)p.clut_base;
-        uintptr_t at=clut+guard;
+        const uint32_t sizes[2]={FZX_MACHINE_SHADE_BYTES,FZX_ROAD_RENDER_SHADE_BYTES},aligns[2]={32u,8u};
+        uintptr_t out[2],end;
+        fzx_dbank_base=(uint32_t)(uintptr_t)p.gouraud_base;
+        if((uintptr_t)p.gouraud_base<(uintptr_t)p.texture_base+p.texture_size||!road_tile_shades||!machine_shades||
+           !sh2z_vdp1_carve((uintptr_t)p.gouraud_base,p.gouraud_size,guard,sizes,aligns,2u,out,&end)) {
+            fzx_dbank_status=2;return false;
+        }
+        fzx_dbank_bytes=(uint32_t)(end+guard-(uintptr_t)p.gouraud_base);
+        dbank_guard_lo=(volatile uint32_t *)(uintptr_t)p.gouraud_base;dbank_guard_hi=(volatile uint32_t *)end;
+        dbank_machine[0]=machine_shades;dbank_machine[1]=(void *)out[0];
+        dbank_road[0]=road_tile_shades;dbank_road[1]=(void *)out[1];
+        sh2z_vdp1_guard_fill(dbank_guard_lo,DBANK_GUARD_WORDS,DBANK_GUARD,0u);
+        sh2z_vdp1_guard_fill(dbank_guard_hi,DBANK_GUARD_WORDS,DBANK_GUARD,8u);
+        /* Bank 1's tables start as copies of bank 0's, as loaded. */
+        memcpy(dbank_machine[1],dbank_machine[0],FZX_MACHINE_SHADE_BYTES);
+        memcpy(dbank_road[1],dbank_road[0],FZX_ROAD_RENDER_SHADE_BYTES);
+        fzx_machine_dbank(dbank_machine[0],dbank_machine[1]);
+    }
+#if FZX_SOURCE_FLOOR_RBG || FZX_CLOUDS_VDP2
+    {
+        uint32_t sizes[4],aligns[4],n=0;
 #if FZX_SOURCE_FLOOR_RBG
-        void *const floor0=(void *)at;at=(at+sizeof(fzx_floor_rbg_t)+3u)&~(uintptr_t)3u;
-        void *const floor1=(void *)at;at=(at+sizeof(fzx_floor_rbg_t)+3u)&~(uintptr_t)3u;
+        sizes[n]=sizeof(fzx_floor_rbg_t);aligns[n++]=4u;sizes[n]=sizeof(fzx_floor_rbg_t);aligns[n++]=4u;
 #endif
 #if FZX_CLOUDS_VDP2
-        void *const clouds1=(void *)at;at=(at+sizeof(fzx_clouds_rbg_t)+3u)&~(uintptr_t)3u;
-        void *const sky1=(void *)at;at+=224u*sizeof(uint16_t);
+        sizes[n]=sizeof(fzx_clouds_rbg_t);aligns[n++]=4u;sizes[n]=224u*sizeof(uint16_t);aligns[n++]=4u;
 #endif
-        const uint32_t stage_bytes=(uint32_t)(at-clut)+guard;
-        fzx_dbank_stage_base=(uint32_t)clut;fzx_dbank_stage_bytes=stage_bytes;
-        if((clut&31u)||stage_bytes>p.clut_size||clut<base+p.gouraud_size){fzx_dbank_status=2;return false;}
-        dbank_stage_lo=(volatile uint32_t *)clut;dbank_stage_hi=(volatile uint32_t *)at;
-        for(unsigned i=0;i<DBANK_GUARD_WORDS;++i){dbank_stage_lo[i]=DBANK_GUARD^(i<<16);dbank_stage_hi[i]=DBANK_GUARD^(i<<24);}
+        uintptr_t out[4],end;
+        fzx_dbank_stage_base=(uint32_t)(uintptr_t)p.clut_base;
+        if((uintptr_t)p.clut_base<(uintptr_t)p.gouraud_base+p.gouraud_size||
+           !sh2z_vdp1_carve((uintptr_t)p.clut_base,p.clut_size,guard,sizes,aligns,n,out,&end)) {
+            fzx_dbank_status=2;return false;
+        }
+        fzx_dbank_stage_bytes=(uint32_t)(end+guard-(uintptr_t)p.clut_base);
+        dbank_stage_lo=(volatile uint32_t *)(uintptr_t)p.clut_base;dbank_stage_hi=(volatile uint32_t *)end;
+        sh2z_vdp1_guard_fill(dbank_stage_lo,DBANK_GUARD_WORDS,DBANK_GUARD,16u);
+        sh2z_vdp1_guard_fill(dbank_stage_hi,DBANK_GUARD_WORDS,DBANK_GUARD,24u);
+        for(uint32_t i=0;i<n;++i)memset((void *)out[i],0,sizes[i]);
+        n=0;
 #if FZX_SOURCE_FLOOR_RBG
-        memset(floor0,0,sizeof(fzx_floor_rbg_t));memset(floor1,0,sizeof(fzx_floor_rbg_t));fzx_floor_dbank(floor0,floor1);
+        fzx_floor_dbank((void *)out[0],(void *)out[1]);n=2;
 #endif
 #if FZX_CLOUDS_VDP2
-        memset(clouds1,0,sizeof(fzx_clouds_rbg_t));memset(sky1,0,224u*sizeof(uint16_t));fzx_clouds_dbank(clouds1,sky1);
+        fzx_clouds_dbank((void *)out[n],(void *)out[n+1]);
 #endif
     }
 #endif
     fzx_dbank_status=1;return true;
 }
 static bool dbank_guards(void) {
-    for(unsigned i=0;i<DBANK_GUARD_WORDS;++i)
-        if(dbank_guard_lo[i]!=(DBANK_GUARD^i)||dbank_guard_hi[i]!=(DBANK_GUARD^(i<<8)))return false;
-    if(dbank_stage_lo)
-        for(unsigned i=0;i<DBANK_GUARD_WORDS;++i)
-            if(dbank_stage_lo[i]!=(DBANK_GUARD^(i<<16))||dbank_stage_hi[i]!=(DBANK_GUARD^(i<<24)))return false;
-    return true;
+    if(!sh2z_vdp1_guard_check(dbank_guard_lo,DBANK_GUARD_WORDS,DBANK_GUARD,0u)||
+       !sh2z_vdp1_guard_check(dbank_guard_hi,DBANK_GUARD_WORDS,DBANK_GUARD,8u))return false;
+    return !dbank_stage_lo||(sh2z_vdp1_guard_check(dbank_stage_lo,DBANK_GUARD_WORDS,DBANK_GUARD,16u)&&
+                             sh2z_vdp1_guard_check(dbank_stage_hi,DBANK_GUARD_WORDS,DBANK_GUARD,24u));
 }
-/* Before the scene build: VDP2's previous sync (the floor and cloud uploads)
- * must be done and the previous command list transferred. VDP1 may still be
- * drawing it from the other shade bank, except while C8 draws. */
+/* Before the scene build: VDP2's previous sync and the previous command list's
+ * transfer must be done. VDP1 may still be drawing the previous frame from the
+ * other bank, unless C8 draws (it rewrites its tables in place) or the
+ * previous frame prepared no race tables. */
 static void dbank_before_build(void) {
-    bool serial=false;
+    bool required=false;
 #if FZX_SOURCE_RESULTS
-    serial=serial||fzx_results_texture_borrowed;
+    required=required||fzx_results_texture_borrowed;
 #endif
 #if FZX_SOURCE_RECORDS
-    serial=serial||fzx_records_active;
+    required=required||fzx_records_active;
 #endif
-    serial=serial||!dbank_prev_race;
     vdp2_sync_wait();
-    if(serial){vdp1_sync_wait();++fzx_dbank_serial;}
-    else {
-        vdp1_sync_put_wait();
-        if(vdp1_sync_busy()) {
-            ++fzx_dbank_overlap;
-            if(dbank_build==dbank_inflight)++fzx_dbank_conflicts;
-        }
-    }
+    vdp1_sync_put_wait();
+    if(sh2z_vdp1_banks_begin(&fzx_dbank_banks,required,vdp1_sync_busy()))vdp1_sync_wait();
+    const uint32_t bank=sh2z_vdp1_banks_bank(&fzx_dbank_banks);
 #if FZX_SOURCE_FLOOR_RBG
-    fzx_floor_dbank_select(dbank_build);
+    fzx_floor_dbank_select(bank);
 #endif
 #if FZX_CLOUDS_VDP2
-    fzx_clouds_dbank_select(dbank_build);
+    fzx_clouds_dbank_select(bank);
 #endif
+    (void)bank;
     if(!dbank_guards()) {
         fzx_dbank_status=3;
         dbgio_printf("VDP1 DBANK GUARD FAILED");dbgio_flush();vdp2_sync();for(;;) {}
@@ -1023,12 +1029,11 @@ static void dbank_after_build(uint16_t ticks,uint32_t field_ticks) {
     const uint32_t bin=(uint32_t)ticks*8u/(field_ticks?field_ticks:1u);
     ++fzx_dbank_wait_hist[bin<15u?bin:15u];
 }
+/* A frame that prepared no race tables (before the first tick) is not
+ * overlappable: the VDP2 table queue then never pairs a present with a later
+ * frame's tables. */
 static void dbank_submitted(void) {
-    dbank_inflight=dbank_build;
-    dbank_prev_race=fzx_input_count!=0;
-#if !FZX_VDP1_DBANK_STALE
-    dbank_build^=1u;
-#endif
+    sh2z_vdp1_banks_submitted(&fzx_dbank_banks,fzx_input_count!=0);
 }
 #else
 #define DBANK_ROAD_SHADES road_tile_shades
@@ -1172,8 +1177,12 @@ commands_build(const fzx_frame_t *frame)
             dbgio_printf("SLAVE ROAD PRELUDE OVERFLOW %lu\n",(unsigned long)first);dbgio_flush();vdp2_sync();for(;;) {}
         }
         vdp1_cmdt_t *road_jump=&commands[COMMAND_FIRST_POLYGON+first];
+#if FZX_VDP1_DBANK
+        (void)sh2z_vdp1_jump_skip((volatile uint16_t *)(void *)road_jump,COMMAND_FIRST_POLYGON+FZX_SLAVE_ROAD_RESERVE);
+#else
         memset(road_jump,0,sizeof(*road_jump));
         vdp1_cmdt_jump_skip_assign(road_jump,COMMAND_FIRST_POLYGON+FZX_SLAVE_ROAD_RESERVE);
+#endif
         first=FZX_SLAVE_ROAD_RESERVE;
         /* Profiler slot 4 records the road's cost to the master: the jump and the wait. */
         if(!fzx_slave_road_finish(&video_fields,&road_count)) {

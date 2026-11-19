@@ -156,11 +156,13 @@ static bool emit(void *context,const fzx_vehicle_quad_t *q){
 /* Two shade banks: a palette changed in either bank's absence is rewritten the
  * next time that bank is drawn. Both start stale, so each bank's first use
  * uploads every palette. */
+#include "sh2zam/vdp1_banks_experimental.h"
+_Static_assert(FZX_VEHICLE_PALETTES<=64,"per-bank palette staleness covers 64 entries");
 static uintptr_t dbank_shades[2];
-static uint8_t dbank_stale[2][FZX_VEHICLE_PALETTES];
+static sh2z_vdp1_stale64_t dbank_stale;
 void fzx_machine_dbank(void *bank_a,void *bank_b){
     dbank_shades[0]=(uintptr_t)bank_a;dbank_shades[1]=(uintptr_t)bank_b;
-    memset(dbank_stale,1,sizeof(dbank_stale));
+    sh2z_vdp1_stale_init(&dbank_stale);
 }
 #else
 void fzx_machine_dbank(void *bank_a,void *bank_b){(void)bank_a;(void)bank_b;}
@@ -204,8 +206,8 @@ bool fzx_machine_native(vdp1_cmdt_t *commands,unsigned capacity,const fzx_view_t
     if(dbank_shades[0]&&((uintptr_t)shades==dbank_shades[0]||(uintptr_t)shades==dbank_shades[1])) {
         const unsigned bank=(uintptr_t)shades==dbank_shades[1]?1u:0u;
         for(unsigned i=0;i<pack.palettes;++i) {
-            if(work->palette_dirty[i])dbank_stale[0][i]=dbank_stale[1][i]=1;
-            if(dbank_stale[bank][i]){memcpy((uint8_t *)shades+i*32u,work->palette[i],32);dbank_stale[bank][i]=0;}
+            if(work->palette_dirty[i])sh2z_vdp1_stale_mark(&dbank_stale,i);
+            if(sh2z_vdp1_stale_take(&dbank_stale,bank,i))memcpy((uint8_t *)shades+i*32u,work->palette[i],32);
         }
     } else
 #endif

@@ -30,11 +30,11 @@ volatile uint32_t fzx_floor_upload_ticks,fzx_floor_upload_blanking;
  * main). Prepared frames queue in build order; each present uploads the oldest,
  * which is the frame whose draw has just completed, and copies it into
  * fzx_floor_rbg, which therefore always holds the presented tables. */
+#include "sh2zam/vdp1_banks_experimental.h"
 static fzx_floor_rbg_t *floor_stage[2];
-static unsigned floor_bank,floor_queued;
-static uint8_t floor_queue[2];
-static uint32_t floor_tick[2];
-void fzx_floor_dbank(void *bank0,void *bank1){floor_stage[0]=bank0;floor_stage[1]=bank1;}
+static unsigned floor_bank;
+static sh2z_vdp1_queue_t floor_queue;
+void fzx_floor_dbank(void *bank0,void *bank1){floor_stage[0]=bank0;floor_stage[1]=bank1;sh2z_vdp1_queue_init(&floor_queue);}
 void fzx_floor_dbank_select(unsigned bank){floor_bank=bank&1u;}
 #define FLOOR_STAGE (*floor_stage[floor_bank])
 #else
@@ -103,7 +103,7 @@ bool fzx_floor_native(vdp1_cmdt_t *commands,unsigned capacity,const fzx_view_t *
                        const RefBackdrop *source,uint32_t *count) {
 #if FZX_VDP1_DBANK
     if(!commands || capacity<2 || !view || !source || !count || !floor_stage[floor_bank] ||
-       floor_tick[floor_bank] || floor_queued>=2u)return false;
+       !sh2z_vdp1_queue_free(&floor_queue,floor_bank))return false;
 #else
     if(!commands || capacity<2 || !view || !source || !count || fzx_floor_pending)return false;
 #endif
@@ -114,7 +114,7 @@ bool fzx_floor_native(vdp1_cmdt_t *commands,unsigned capacity,const fzx_view_t *
     if(!fzx_floor_rbg_prepare(view,source,&FLOOR_STAGE,emit,&submit)){fzx_floor_status=3;fzx_floor_busy=0;return false;}
     *count=submit.count+1;fzx_floor_ticks=(uint16_t)(cpu_frt_count_get()-start);
 #if FZX_VDP1_DBANK
-    floor_tick[floor_bank]=fzx_input_count?fzx_input_count:1u;floor_queue[floor_queued++]=(uint8_t)floor_bank;
+    (void)sh2z_vdp1_queue_push(&floor_queue,floor_bank,fzx_input_count?fzx_input_count:1u);
 #endif
     fzx_floor_pending=fzx_input_count;fzx_floor_busy=0;return true;
 }
@@ -129,13 +129,13 @@ void fzx_floor_present(void *unused) {
     const uint32_t upload_blank=vdp2_tvmd_vblank_in()?1u:0u;
     const bool clouds=fzx_clouds_present();
 #if FZX_VDP1_DBANK
-    if(!floor_queued){if(clouds)fzx_clouds_upload_record(upload_start,upload_blank);return;}
+    if(!floor_queue.count){if(clouds)fzx_clouds_upload_record(upload_start,upload_blank);return;}
 #else
     if(!fzx_floor_pending){if(clouds)fzx_clouds_upload_record(upload_start,upload_blank);return;}
 #endif
 #else
 #if FZX_VDP1_DBANK
-    if(!floor_queued)return;
+    if(!floor_queue.count)return;
 #else
     if(!fzx_floor_pending)return;
 #endif
@@ -146,15 +146,15 @@ void fzx_floor_present(void *unused) {
      * immediately before requesting the framebuffer change. No active draw or
      * scanout reads these tables while they are copied. */
 #if FZX_VDP1_DBANK
-    const unsigned bank=floor_queue[0];const fzx_floor_rbg_t *stage=floor_stage[bank];
+    uint32_t bank=0,tick=0;(void)sh2z_vdp1_queue_pop(&floor_queue,&bank,&tick);
+    const fzx_floor_rbg_t *stage=floor_stage[bank];
     memcpy((void *)FLOOR_RP,&stage->rp,sizeof(stage->rp));
     memcpy((void *)FLOOR_WINDOW,stage->window,sizeof(stage->window));
     fzx_floor_upload_blanking=blank_start|(vdp2_tvmd_vblank_in()?2u:0u);
     fzx_floor_upload_ticks=(uint16_t)(cpu_frt_count_get()-start);
     memcpy(&fzx_floor_rbg,stage,sizeof(fzx_floor_rbg));
-    fzx_floor_presented=floor_tick[bank];floor_tick[bank]=0;
-    floor_queue[0]=floor_queue[1];--floor_queued;
-    fzx_floor_pending=floor_queued?floor_tick[floor_queue[0]]:0u;++fzx_floor_commits;
+    fzx_floor_presented=tick;
+    fzx_floor_pending=sh2z_vdp1_queue_front(&floor_queue);++fzx_floor_commits;
 #else
     memcpy((void *)FLOOR_RP,&fzx_floor_rbg.rp,sizeof(fzx_floor_rbg.rp));
     memcpy((void *)FLOOR_WINDOW,fzx_floor_rbg.window,sizeof(fzx_floor_rbg.window));

@@ -21,14 +21,14 @@ volatile uint32_t fzx_clouds_status,fzx_clouds_pending,fzx_clouds_commits;
 volatile uint32_t fzx_clouds_degenerate,fzx_clouds_bands,fzx_clouds_sky_line_count;
 static uint16_t sky_lines[224];
 #if FZX_VDP1_DBANK
+#include "sh2zam/vdp1_banks_experimental.h"
 /* FZX_VDP1_DBANK: two banks of the staged tables (bank 1 in VDP1 VRAM, set by
  * main), queued in build order and uploaded oldest first; see floor_rbg_native.c. */
 static fzx_clouds_rbg_t *clouds_stage[2]={&fzx_clouds_rbg,0};
 static uint16_t *sky_stage[2]={sky_lines,0};
-static unsigned clouds_bank,clouds_queued;
-static uint8_t clouds_queue[2];
-static uint32_t clouds_tick[2];
-void fzx_clouds_dbank(void *clouds_bank1,void *sky_bank1){clouds_stage[1]=clouds_bank1;sky_stage[1]=sky_bank1;}
+static unsigned clouds_bank;
+static sh2z_vdp1_queue_t clouds_queue;
+void fzx_clouds_dbank(void *clouds_bank1,void *sky_bank1){clouds_stage[1]=clouds_bank1;sky_stage[1]=sky_bank1;sh2z_vdp1_queue_init(&clouds_queue);}
 void fzx_clouds_dbank_select(unsigned bank){clouds_bank=bank&1u;}
 #define SKY_LINES (sky_stage[clouds_bank])
 #define CLOUDS_STAGE (*clouds_stage[clouds_bank])
@@ -253,7 +253,7 @@ bool fzx_clouds_native(vdp1_cmdt_t *commands,unsigned capacity,const fzx_view_t 
                        const RefBackdrop *source,uint32_t *count) {
 #if FZX_VDP1_DBANK
     if(!commands || capacity<2 || !view || !source || !count || fzx_clouds_status!=1 ||
-       !clouds_stage[clouds_bank] || !sky_stage[clouds_bank] || clouds_tick[clouds_bank] || clouds_queued>=2u)return false;
+       !clouds_stage[clouds_bank] || !sky_stage[clouds_bank] || !sh2z_vdp1_queue_free(&clouds_queue,clouds_bank))return false;
 #else
     if(!commands || capacity<2 || !view || !source || !count || fzx_clouds_status!=1 || fzx_clouds_pending)return false;
 #endif
@@ -293,7 +293,7 @@ bool fzx_clouds_native(vdp1_cmdt_t *commands,unsigned capacity,const fzx_view_t 
     fzx_plane_stats.draws=submit.count;fzx_plane_stats.hash=CLOUDS_STAGE.hash;fzx_plane_busy=0;
     fzx_clouds_degenerate+=CLOUDS_STAGE.degenerate;fzx_clouds_bands=submit.count;
 #if FZX_VDP1_DBANK
-    clouds_tick[clouds_bank]=fzx_input_count?fzx_input_count:1u;clouds_queue[clouds_queued++]=(uint8_t)clouds_bank;
+    (void)sh2z_vdp1_queue_push(&clouds_queue,clouds_bank,fzx_input_count?fzx_input_count:1u);
 #endif
     *count=submit.count+1+borders;fzx_clouds_pending=fzx_input_count?fzx_input_count:1;return true;
 }
@@ -311,7 +311,7 @@ void fzx_clouds_upload_record(uint16_t start,uint32_t began_in_blank) {
 }
 bool fzx_clouds_present(void) {
 #if FZX_VDP1_DBANK
-    if(!clouds_queued) {
+    if(!clouds_queue.count) {
 #else
     if(!fzx_clouds_pending) {
 #endif
@@ -322,12 +322,12 @@ bool fzx_clouds_present(void) {
     idle_presents=0;
     if(!applied)apply();
 #if FZX_VDP1_DBANK
-    const unsigned bank=clouds_queue[0];const fzx_clouds_rbg_t *stage=clouds_stage[bank];
+    uint32_t bank=0,tick=0;(void)sh2z_vdp1_queue_pop(&clouds_queue,&bank,&tick);(void)tick;
+    const fzx_clouds_rbg_t *stage=clouds_stage[bank];
     memcpy((void *)CLOUD_RP,&stage->rp,sizeof(stage->rp));
     memcpy((void *)CLOUD_WINDOW,stage->window,sizeof(stage->window));
     memcpy((void *)SKY_BACK,sky_stage[bank],sizeof(sky_lines));
-    clouds_tick[bank]=0;clouds_queue[0]=clouds_queue[1];--clouds_queued;
-    fzx_clouds_pending=clouds_queued?clouds_tick[clouds_queue[0]]:0u;++fzx_clouds_commits;
+    fzx_clouds_pending=sh2z_vdp1_queue_front(&clouds_queue);++fzx_clouds_commits;
 #else
     memcpy((void *)CLOUD_RP,&fzx_clouds_rbg.rp,sizeof(fzx_clouds_rbg.rp));
     memcpy((void *)CLOUD_WINDOW,fzx_clouds_rbg.window,sizeof(fzx_clouds_rbg.window));

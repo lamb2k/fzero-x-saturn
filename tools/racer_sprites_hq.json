@@ -1,0 +1,17 @@
+{
+ "family": 0,
+ "skin": 1,
+ "profile": "nhq",
+ "model": "race",
+ "race_lod": 1,
+ "mirror": false,
+ "yaw_deg": [-180, -176, -172, -168, -163, -158, -152, -145, -137, -128, -117, -103, -86, -65, -43, -21,
+             0, 21, 43, 65, 86, 103, 117, 128, 137, 145, 152, 158, 163, 168, 172, 176],
+ "pitch_deg": [10.0, 20.0, 31.0, 44.0],
+ "distance_radii": 3.55,
+ "supersample": 2,
+ "clut_groups": "yaw",
+ "pixels_per_unit": 0.1204,
+ "budget_bytes": 262144,
+ "cell_limit": 120
+}

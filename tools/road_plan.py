@@ -66,8 +66,21 @@ def native(source):
     if body.count('    chunk = gSegmentChunks;\n\n    do {\n        chunk->depth =')!=1:
         raise ValueError('Source chunk visibility loop changed; review planner extraction')
     # Outside its supported range the fixed cull writes nothing and returns 0; the source loop runs.
-    body=(body[:start]+'#if FZX_ROAD_PLAN_FIXED\n    if (!ref_road_plan_cull_fixed(&sp60))\n#endif\n    {\n'
+    body=(body[:start]+'#if FZX_ROAD_PLAN_FIXED && !FZX_TRACK_BAKED\n    if (!ref_road_plan_cull_fixed(&sp60))\n#endif\n    {\n'
           +body[start:end]+'    }\n'+body[end:])
+    # FZX_TRACK_BAKED (default 0): the visibility loop, grouping and far-to-near
+    # ordering run as the Saturn-native SH2ZAM pick (ref/road_plan_segmesh.inc).
+    # Knob off preprocesses to the unchanged source text.
+    gstart=body.index('#if FZX_ROAD_PLAN_FIXED && !FZX_TRACK_BAKED\n    if (!ref_road_plan_cull_fixed(&sp60))')
+    gtail='        segmentChunkGroupEnd = segmentChunkGroup;\n    }\n'
+    if body.count(gtail)!=1:
+        raise ValueError('Source chunk grouping changed; review planner extraction')
+    gend=body.index(gtail)+len(gtail)
+    body=(body[:gstart]+'#if FZX_TRACK_BAKED\n    const s32 ref_native = ref_road_plan_segmesh(out, &sp60);\n'
+          '    if (ref_native < 0) return;\n    if (!ref_native) {\n#endif\n'
+          +body[gstart:gend]+'#if FZX_TRACK_BAKED\n    }\n#endif\n'+body[gend:])
+    body=replace_once(body,'    while (true) {\n        var_fv1 = -10000.0f;',
+        '#if FZX_TRACK_BAKED\n    while (!ref_native) {\n#else\n    while (true) {\n#endif\n        var_fv1 = -10000.0f;')
     prefix='''
 #include "road_plan.h"
 _Static_assert(SEGMENT_CHUNK_GROUP_COUNT == REF_ROAD_GROUPS, "source group bound");
@@ -79,8 +92,11 @@ static void ref_road_group(RefRoadPlan *out, const SegmentChunkGroup *group, int
     dest->end=group->endChunk-gSegmentChunks;
     dest->direction=direction; dest->average_depth=group->averageDepth;
 }
-#if FZX_ROAD_PLAN_FIXED
+#if FZX_ROAD_PLAN_FIXED && !FZX_TRACK_BAKED
 #include "road_plan_fixed.inc"
+#endif
+#if FZX_TRACK_BAKED
+#include "road_plan_segmesh.inc"
 #endif
 void ref_road_plan(RefRoadPlan *out, unsigned int draw_frame, const unsigned char course_fog[3]) {
     const s32 cameraIndex=0;
@@ -117,7 +133,7 @@ static void ref_road_oracle_backward(SegmentChunkGroup*);
     # -ffunction-sections and the normal target linker discard unused graphics.
     output.parent.mkdir(parents=True,exist_ok=True)
     output.write_bytes((source+'\n'+added).encode())
-    files=[Path(__file__),ROOT/'ref/road_plan.h',ROOT/'ref/road_plan_oracle.inc',ROOT/'ref/road_plan_fixed.inc',source_path]
+    files=[Path(__file__),ROOT/'ref/road_plan.h',ROOT/'ref/road_plan_oracle.inc',ROOT/'ref/road_plan_fixed.inc',ROOT/'ref/road_plan_segmesh.inc',ROOT/'ref/track_pick.h',source_path]
     sha=lambda p:hashlib.sha256(p.read_bytes()).hexdigest()
     lines=['# fzx generation receipt v1; regenerate, never edit']
     lines+=['generator %s %s'%(sha(p),os.path.relpath(p,ROOT/'tools')) for p in files]

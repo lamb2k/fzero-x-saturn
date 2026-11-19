@@ -598,6 +598,19 @@ SH_CFLAGS += -DFZX_ROAD_PLAN_FIXED=1
 else ifneq ($(FZX_ROAD_PLAN_FIXED),0)
 $(error FZX_ROAD_PLAN_FIXED must be 0 or 1)
 endif
+# FZX_TRACK_BAKED=1: the road planner's chunk visibility, grouping and far-to-near
+# ordering run as the Saturn-native SH2ZAM segmesh-1 pick (saturn/track_pick.c,
+# ref/road_plan_segmesh.inc). The closure must be built with the same value.
+FZX_TRACK_BAKED ?= 0
+ifeq ($(FZX_TRACK_BAKED),1)
+ifneq ($(FZX_SOURCE_ROAD),1)
+$(error FZX_TRACK_BAKED requires the source road planner)
+endif
+SH_CFLAGS += -DFZX_TRACK_BAKED=1
+FZX_ROAD_SRCS += track_pick.c
+else ifneq ($(FZX_TRACK_BAKED),0)
+$(error FZX_TRACK_BAKED must be 0 or 1)
+endif
 # Default-off C3 native road layout (boot-built chunk runs, 8-byte quads).
 FZX_ROAD_STREAM_NATIVE_LAYOUT ?= 0
 ifeq ($(FZX_ROAD_STREAM_NATIVE_LAYOUT),1)
@@ -839,6 +852,7 @@ FZX_SH2ZAM_UNITS += $(if $(filter 1,$(FZX_SOURCE_ROAD_STREAM)),sh2zam_shade_fuse
 FZX_SH2ZAM_UNITS += $(if $(filter 1,$(FZX_ROAD_STREAM_CAMERA30)),sh2zam_view_camera.c)
 # C4 native vehicle arm (vehicle-kernels-1) and vehicle pose (pose-1).
 FZX_SH2ZAM_UNITS += $(if $(filter 1,$(FZX_VEHICLE_NATIVE)),sh2zam_vehicle.c sh2zam_view_indexed.c) $(if $(filter 1,$(FZX_VEHICLE_POSE1)),sh2zam_pose.c)
+FZX_SH2ZAM_UNITS += $(if $(filter 1,$(FZX_TRACK_BAKED)),sh2zam_segmesh.c)
 # Simulation knobs that adopt trig12-1 / fixed-unit-1 add here (sh2zam_trig12.c, sh2zam_unit30.c).
 FZX_SH2ZAM_SRCS := $(addprefix $(SH2ZAM_ROOT)/saturn/src/,$(sort $(FZX_SH2ZAM_UNITS)))
 FZX_SH2ZAM_MISSING := $(filter-out $(wildcard $(FZX_SH2ZAM_SRCS)),$(FZX_SH2ZAM_SRCS))

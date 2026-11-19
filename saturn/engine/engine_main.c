@@ -405,30 +405,6 @@ static bool dbank_guards(void) {
 }
 #endif
 
-/* Banked floor and cloud tables: each build queues one stage per layer and the
- * VBlank-In present pops it. A frame's present can still be due when the frame
- * after next is built (the draw ended, the VBlank-In has not come yet); both
- * queue slots are then full and the layer refuses the build (E1 floor fault,
- * status 1: "queue not free"). Wait for that present, at most three fields.
- * [0] frames that waited, [1] longest wait (FRT ticks), [2] waits that timed out. */
-#ifndef E0_PRESENT_WAIT
-#define E0_PRESENT_WAIT 1 /* 0: the control that refuses as before */
-#endif
-static uint32_t floor_pushes, clouds_pushes;
-volatile uint32_t fzx_e0_present_wait[3];
-#if FZX_VDP1_DBANK && E0_PRESENT_WAIT
-static void present_wait(void) {
-    if (floor_pushes - fzx_floor_commits < 2u && clouds_pushes - fzx_clouds_commits < 2u) return;
-    const uint16_t t0 = cpu_frt_count_get();
-    const uint32_t f0 = video_fields;
-    while (floor_pushes - fzx_floor_commits >= 2u || clouds_pushes - fzx_clouds_commits >= 2u)
-        if (video_fields - f0 > 3u) { ++fzx_e0_present_wait[2]; break; }
-    const uint32_t t = (uint16_t)(cpu_frt_count_get() - t0);
-    ++fzx_e0_present_wait[0];
-    if (t > fzx_e0_present_wait[1]) fzx_e0_present_wait[1] = t;
-}
-#endif
-
 /* Before a build: VDP2's previous sync and the previous list's transfer are
  * done. With banks, VDP1 may still be drawing the previous frame. */
 /* Early kick: the slave's track job only needs the previous command list to
@@ -492,13 +468,9 @@ static void build(row_t *row, const fzx_engine_cam_t *cam, uint32_t tick, uint16
     fzx_sky_status = 1; fzx_skyline_status = 1;
 
     /* The master's prelude: sky lines and cloud fade bands, skyline, floor. */
-#if FZX_VDP1_DBANK && E0_PRESENT_WAIT
-    present_wait();
-#endif
     if (!fzx_clouds_sky_lines(&fzx_native_view, &fzx_source_backdrop)) fail(22, "SKY LINES", fzx_sky_stats.fault);
     if (!fzx_clouds_native(&commands[CMD_FIRST], FZX_SLAVE_ROAD_RESERVE - 1u, &fzx_native_view, &fzx_source_backdrop, &first))
         fail(23, "CLOUDS", fzx_clouds_rbg.fault);
-    ++clouds_pushes;
     if (!fzx_skyline_native(&commands[CMD_FIRST + first], FZX_SLAVE_ROAD_RESERVE - 1u - first, &fzx_native_view, skyline_vram, &n))
         fail(24, "SKYLINE DRAW", fzx_skyline_stats.fault);
     first += n; n = 0;
@@ -520,7 +492,6 @@ static void build(row_t *row, const fzx_engine_cam_t *cam, uint32_t tick, uint16
             fail(25, "FLOOR", fzx_floor_rbg.fault);
         }
     }
-    ++floor_pushes;
     first += n;
     if (first >= FZX_SLAVE_ROAD_RESERVE) fail(26, "PRELUDE OVERFLOW", first);
     vdp1_cmdt_t *jump = &commands[CMD_FIRST + first];

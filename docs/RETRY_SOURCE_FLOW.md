@@ -110,3 +110,25 @@ camera reset, reload count, RNG loop count or the live RNG2 seed. Six extraction
 drift controls cover changed source anchors. Native compilation, fade visuals,
 real ordered reset implementations, held/released pad behavior, retained tuning
 and records across an actual second full race, soak and hardware remain unrun.
+
+## Selected-race cold start
+
+The HOST arm `FZX_RETRY_INIT=1 FZX_SOURCE_MACHINE_MENU=1 FZX_SOURCE_CAMERA=1 bash ref/build.sh gcc -O2`
+builds a separate first-race executable. Use the owner course record, ROM boot
+data and selected-machine input script in the normal reference driver. The arm
+selects Blue Falcon skin 1 with engine 0.5078125, runs source race and camera
+initialization, and applies the extracted Menus_Init RNG work once, before
+any input tick. It rejects a diagnostic restart prefix.
+
+For the 7,059-input selected race, GCC and Clang produced byte-identical HOST
+traces. At the entry to the first ref_tick, all four RNG words matched the
+independent source Math_Rand oracle. Bypassing the menu RNG helper in the
+debugger changed all four words. The race-state hash alone was insensitive
+to this omission. A separate HOST probe fed the finish menu a synthetic records-ready snapshot
+after the first race. It drove real controller edges through the finish menu,
+committed its RNG, and confirmed RETRY at frame 7119. At 7120 the schedule
+emitted the controller/life settlement before the ordinary race update. Running
+the source settlement cleared the selected controller marker; suppressing
+that call preserved the marker and failed the check on both compilers. Course
+load count stayed one. Live records entry, native dispatch, the T+25 reload
+and the second race remain open.

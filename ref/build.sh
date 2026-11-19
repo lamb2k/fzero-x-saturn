@@ -35,6 +35,18 @@ if [ "$BACKDROP" = 1 ]; then
     OUT=$OUT-backdrop
 fi
 if [ "$MACHINE_MENU" = 1 ]; then OUT=$OUT-machine-menu; fi
+RETRY_INIT=${FZX_RETRY_INIT:-0}
+case "$RETRY_INIT" in
+    0) ;;
+    1)
+        [ "$MACHINE_MENU:$CAMERA:$ROAD:$PLAN:$BACKDROP" = 1:1:0:0:0 ] || { echo "retry init needs the selected-machine race and camera" >&2; exit 1; }
+        OUT=$OUT-retry-init
+        RETRY_FLOW=$ROOT/generated/retry-flow-source
+        python3 "$ROOT/tools/retry_flow_source.py" --output "$RETRY_FLOW"
+        bash "$ROOT/tools/check_receipt.sh" "$RETRY_FLOW/retry_flow_source.receipt"
+        ;;
+    *) echo "invalid FZX_RETRY_INIT" >&2; exit 1 ;;
+esac
 if [ "$PLAN" = 1 ]; then
     python3 "$ROOT/tools/road_plan.py" --output "$OUT/road_plan_course.c"
 fi
@@ -115,10 +127,17 @@ for s in $BRIDGES; do  # Bridge side: decomp headers.
     compile "$ROOT/ref/$s.c" "$o"
     OBJS="$OBJS $o"
 done
+if [ "$RETRY_INIT" = 1 ]; then
+    for unit in "$ROOT/ref/retry_init.c" "$RETRY_FLOW/retry_flow_source.c"; do
+        o=$OUT/$(basename "$unit" .c).o
+        $CC -m32 -fno-pic "$OPT" -std=c11 -I"$ROOT/include" -I"$ROOT/ref" -I"$RETRY_FLOW" -c "$unit" -o "$o"
+        OBJS="$OBJS $o"
+    done
+fi
 # Driver side: host headers only.
 DRIVER=main
 [ "$ROAD" = 0 ] || DRIVER=road_main
-$CC -m32 -fno-pic -O2 -g -std=c11 -Wall -Wextra -Werror -I"$ROOT/ref" -DFZX_SOURCE_CAMERA=$CAMERA -DFZX_ROAD_PLAN=$PLAN -DFZX_BACKDROP_STATE=$BACKDROP -c "$ROOT/ref/$DRIVER.c" -o "$OUT/ref_main.o"
+$CC -m32 -fno-pic -O2 -g -std=c11 -Wall -Wextra -Werror -I"$ROOT/ref" -DFZX_SOURCE_MACHINE_MENU=$MACHINE_MENU -DFZX_RETRY_INIT=$RETRY_INIT -DFZX_SOURCE_CAMERA=$CAMERA -DFZX_ROAD_PLAN=$PLAN -DFZX_BACKDROP_STATE=$BACKDROP -c "$ROOT/ref/$DRIVER.c" -o "$OUT/ref_main.o"
 OBJS="$OBJS $OUT/ref_main.o"
 python3 "$ROOT/ref/gen_stubs.py" "$OUT/stubs.c" "$OUT"/*.i -- $OBJS
 $CC -m32 -fno-pic -O0 -w -c "$OUT/stubs.c" -o "$OUT/stubs.o"

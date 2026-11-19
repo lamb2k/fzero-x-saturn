@@ -88,6 +88,7 @@ int ref_camera_draw_scissor(float out[4]);
 /* Bridge side. */
 int ref_load_course(const unsigned char* record, int big_endian); /* 0 on success */
 void ref_set_rom_boot(const unsigned char* boot); /* big-endian (z64) bytes; NULL = CI fixture */
+int ref_retry_race_init(void); /* selected-machine HOST retry oracle, cold start */
 int ref_race_init(void);                                    /* 0 on success */
 #if FZX_SOURCE_MACHINE_MENU
 /* Explicit first-course handoff. Unsupported machines are rejected, never

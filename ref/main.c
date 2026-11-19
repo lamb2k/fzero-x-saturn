@@ -287,7 +287,17 @@ int main(int argc, char** argv) {
     } else {
         ref_set_rom_boot(NULL);
     }
-    if (ref_load_course(record, strcmp(order, "big") == 0) != 0 || ref_race_init() != 0) {
+#if FZX_RETRY_INIT
+    if (prefix != NULL) die("ordinary retry init cannot use a diagnostic restart prefix");
+    if (ref_race_set_selection(0, 1, 0.5078125f) != 0) die("retry fixture selection failed");
+#endif
+    if (ref_load_course(record, strcmp(order, "big") == 0) != 0) die("course load failed");
+#if FZX_RETRY_INIT
+    const int init_status = ref_retry_race_init();
+#else
+    const int init_status = ref_race_init();
+#endif
+    if (init_status != 0) {
         die("race set-up failed: the original loader did not request the course record");
     }
     if (prefix != NULL) {

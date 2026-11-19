@@ -167,7 +167,8 @@ static bool racer_camera_frame(const fzx_view_t *view) {
 }
 
 static bool racer_pose(racer_item_t *it,const fzx_racer_pose16_t *r,bool player) {
-    if(!sh2z_rspr_pose(&it->pick,&it->place,&it->depth,&racer_camera,racer_set,r->pos,&r->basis[0][0]))return false;
+    int16_t basis[9];memcpy(basis,r->basis,sizeof(basis));
+    if(!sh2z_rspr_pose(&it->pick,&it->place,&it->depth,&racer_camera,racer_set,r->pos,basis))return false;
     it->has_shadow=0;
 #if FZX_RACER_SPRITE_SHADOW
     if(r->flags&1u) {
@@ -175,7 +176,7 @@ static bool racer_pose(racer_item_t *it,const fzx_racer_pose16_t *r,bool player)
         const int32_t drop=(int32_t)(0.3f*FZX_RACER_SPRITE_RADIUS*fzx_source_machine.model_scale[1]*4.0f);
         int32_t ground[3],dz;sh2z_rspr_pick_t sp;
         for(unsigned k=0;k<3;++k)ground[k]=r->pos[k]-r->basis[1][k]*drop;
-        if(sh2z_rspr_pose(&sp,&it->shadow,&dz,&shadow_camera,shadow_set,ground,&r->basis[0][0]))it->has_shadow=1;
+        if(sh2z_rspr_pose(&sp,&it->shadow,&dz,&shadow_camera,shadow_set,ground,basis))it->has_shadow=1;
     }
 #endif
     if(player)fzx_racer_sprite_cell=it->pick.cell|((uint32_t)it->pick.mirror<<16),fzx_racer_sprite_scale=it->place.scale;

@@ -51,6 +51,16 @@ void fzx_set_camera(const fzx_view_t *v) {
     if(v) { source_view=*v; source_view_valid=true; }
     else source_view_valid=false;
 }
+#if FZX_SIMPIPE_DBUF
+void fzx_core_publication_save(fzx_core_publication_t *out) {
+    out->pose=pose; out->pose_valid=pose_valid; out->pose_tracked=pose_tracked;
+    out->current_ring=current_ring; out->view=source_view; out->view_valid=source_view_valid;
+}
+void fzx_core_publication_load(const fzx_core_publication_t *in) {
+    pose=in->pose; pose_valid=in->pose_valid!=0; pose_tracked=in->pose_tracked!=0;
+    current_ring=in->current_ring; source_view=in->view; source_view_valid=in->view_valid!=0;
+}
+#endif
 #endif
 
 static sh2z_vec3_t

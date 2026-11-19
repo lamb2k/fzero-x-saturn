@@ -103,6 +103,17 @@ FZX_EXPORT void fzx_set_pose(const fzx_pose_t *pose);
 #if FZX_SOURCE_CAMERA
 /* Native view already converted from source camera matrices. NULL clears it. */
 void fzx_set_camera(const fzx_view_t *view);
+#if FZX_SIMPIPE_DBUF
+/* Sim-pipeline checkpoint 3: the core state that fzx_set_pose and
+ * fzx_set_camera leave behind, saved with a publication and restored before
+ * the scene that draws it. */
+typedef struct {
+    fzx_pose_t pose; uint32_t pose_valid, pose_tracked, current_ring;
+    fzx_view_t view; uint32_t view_valid;
+} fzx_core_publication_t;
+void fzx_core_publication_save(fzx_core_publication_t *out);
+void fzx_core_publication_load(const fzx_core_publication_t *in);
+#endif
 #endif
 /* Test driver only (the Saturn image's debugger autopilot): a stick x in -63..63, negative to
  * the left as the N64 stick, that turns the pose towards the centreline LOOKAHEAD rings ahead

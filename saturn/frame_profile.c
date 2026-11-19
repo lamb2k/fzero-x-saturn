@@ -3,6 +3,15 @@
 #include "frame_profile.h"
 #include "frame_clock.h"
 #define CAPACITY 4096u
+#if FZX_SIMPIPE_DBUF
+/* Sim-pipeline checkpoint 3 carves its slots ahead of the profile, so the
+ * frame and road rows share one runtime capacity (at most CAPACITY) that
+ * fits what is left below 0x00300000 with its guards. */
+static uint32_t row_capacity;
+#define ROW_CAPACITY row_capacity
+#else
+#define ROW_CAPACITY CAPACITY
+#endif
 #define GUARD 0x39c5a71eu
 typedef struct {
     uint32_t input_begin,input_end,time[8],present,field_begin,field_present,
@@ -81,17 +90,29 @@ static uint32_t stamp(uint32_t *field) {
 }
 bool fzx_fp_init(uint32_t low_end,uint32_t hz) {
     uintptr_t start=(low_end+95u)&~(uintptr_t)31u;
-    uintptr_t end=start+CAPACITY*sizeof(row_t);
+#if FZX_SIMPIPE_DBUF
+    {
+        uint32_t per_row=sizeof(row_t);
+#if FZX_SOURCE_ROAD_STREAM
+        per_row+=sizeof(road_row_t);
+#endif
+        if(start+32u>=0x00300000u)return false;
+        uint32_t fit=(uint32_t)((0x00300000u-32u-start)/per_row);
+        row_capacity=fit<CAPACITY?fit:CAPACITY;
+        if(!row_capacity)return false;
+    }
+#endif
+    uintptr_t end=start+ROW_CAPACITY*sizeof(row_t);
 #if FZX_SOURCE_ROAD_STREAM
     const uintptr_t road_start=end;
-    end+=CAPACITY*sizeof(road_row_t);
+    end+=ROW_CAPACITY*sizeof(road_row_t);
 #endif
     if(start<0x00200040u || end+32u>0x00300000u)return false;
     rows=(row_t *)start;
 #if FZX_SOURCE_ROAD_STREAM
     road_rows=(road_row_t *)road_start;
     /* C3PF, version, rows, capacity, stride, count, allocation end, reserved. */
-    const uint32_t report[8]={0x43335046u,1,(uint32_t)road_start,CAPACITY,
+    const uint32_t report[8]={0x43335046u,1,(uint32_t)road_start,ROW_CAPACITY,
         sizeof(road_row_t),0,(uint32_t)end,0};
     for(unsigned i=0;i<8;++i)fzx_frame_road_profile[i]=report[i];
 #endif
@@ -114,7 +135,7 @@ bool fzx_fp_init(uint32_t low_end,uint32_t hz) {
 #endif
     memset((void *)fzx_frame_profile,0,sizeof(fzx_frame_profile));
     fzx_frame_profile[0]=0x465a4650u;fzx_frame_profile[1]=2;fzx_frame_profile[2]=1;
-    fzx_frame_profile[3]=start;fzx_frame_profile[5]=CAPACITY;
+    fzx_frame_profile[3]=start;fzx_frame_profile[5]=ROW_CAPACITY;
     fzx_frame_profile[6]=sizeof(row_t);fzx_frame_profile[7]=end;
     fzx_frame_profile[10]=hz;fzx_frame_profile[11]=*(volatile uint8_t *)0xfffffe92u;
     fzx_frame_profile[14]=(uint32_t)(uintptr_t)fzx_frame_subsystems;
@@ -142,7 +163,7 @@ void fzx_fp_begin(uint32_t input) {
 #endif
     if(!armed)return;
     uint32_t n=fzx_frame_profile[4];
-    if(n>=CAPACITY){fzx_frame_profile[2]=2;armed=false;return;}
+    if(n>=ROW_CAPACITY){fzx_frame_profile[2]=2;armed=false;return;}
     current=rows+n;memset(current,0,sizeof(*current));current->input_begin=input;
 #if FZX_SOURCE_ROAD_STREAM
     road_rows[n].ticks=0;road_rows[n].commands=0;fzx_frame_road_profile[5]=n+1;

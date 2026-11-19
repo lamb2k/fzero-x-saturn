@@ -62,6 +62,10 @@ bool fzx_machine_publish(void){
     return true;
 }
 #endif
+#if FZX_MACHINE_PUBLISH && FZX_SIMPIPE_DBUF
+int32_t fzx_machine_published_get(void){return machine_published;}
+void fzx_machine_published_set(int32_t v){machine_published=(int)v;}
+#endif
 bool fzx_machine_native(vdp1_cmdt_t *commands,unsigned capacity,const fzx_view_t *view,void *pixels,void *shades,uint32_t *count){
     if(!commands||capacity<2||!view||!pixels||!shades||!count||fzx_machine_status!=1)return false;
     uint16_t start=cpu_frt_count_get();fzx_machine_busy=1;

@@ -91,6 +91,13 @@ bool fzx_countdown_publish(void){
     if(!okay)return fail(FZX_COUNTDOWN_SCENE_PUBLISH);
     scene->published=true;fzx_countdown_busy=0;return true;
 }
+#if FZX_SIMPIPE_DBUF
+/* Sim-pipeline checkpoint 3: the publication's phase and flag travel with the slot. */
+void fzx_countdown_publication_save(fzx_countdown_phase_t *phase,uint32_t *published){
+    if(!scene){*published=0;return;}*phase=scene->phase;*published=scene->published;}
+void fzx_countdown_publication_load(const fzx_countdown_phase_t *phase,uint32_t published){
+    if(scene){scene->phase=*phase;scene->published=published!=0;}}
+#endif
 bool fzx_countdown_native(vdp1_cmdt_t *commands,unsigned capacity,const fzx_view_t *view,uint32_t *count){
     if(count)*count=0;
     fzx_countdown_command_start=0;memset(&fzx_countdown_stats,0,sizeof(fzx_countdown_stats));

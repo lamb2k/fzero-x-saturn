@@ -161,6 +161,9 @@ volatile uint32_t fzx_source_hud_status; /* 1 uploaded, 2 bad atlas, 3 bad snaps
 #endif
 #if FZX_SIM == FZX_SIM_ORIG
 #include "ref.h"
+#if FZX_SIMPIPE_DBUF
+#include "simpipe.h"
+#endif
 #if FZX_DEFER_PROJECTION
 #include "sim.h"
 #endif
@@ -364,6 +367,9 @@ volatile uint32_t fzx_input_count;
  * its input before logged_tick writes the same slot. No added retail data. */
 volatile uint32_t fzx_debug_replay_count;
 
+#if FZX_SIMPIPE_PROFILE
+static void simpipe_hash_tick(uint32_t word);
+#endif
 static void
 logged_tick(uint16_t buttons, int8_t sx, int8_t sy)
 {
@@ -373,6 +379,10 @@ logged_tick(uint16_t buttons, int8_t sx, int8_t sy)
         fzx_input_count = n + 1u;
     }
     ref_tick(buttons, sx, sy);
+#if FZX_SIMPIPE_PROFILE
+    /* Diagnostic only: the executed tick's own input word. */
+    const uint32_t simpipe_word = (uint32_t)buttons << 16 | (uint32_t)(uint8_t)sx << 8 | (uint8_t)sy;
+#endif
 #if FZX_SOURCE_RESULTS
     if(!fzx_results_tick(digital.connected!=0)) {
         dbgio_printf("SOURCE RESULTS TICK FAILED %lu",(unsigned long)fzx_results_status);
@@ -394,6 +404,9 @@ logged_tick(uint16_t buttons, int8_t sx, int8_t sy)
         fzx_source_hud_status = 4;
         for (;;) {}
     }
+#endif
+#if FZX_SIMPIPE_PROFILE
+    simpipe_hash_tick(simpipe_word);
 #endif
 }
 
@@ -459,11 +472,15 @@ orig_tick(void)
  * 8 paint low bound, 9 low-bound overruns (pattern gone at the bound), 10 ticks hashed,
  * 11 RefState chain, 12 input chain, 13 restarts, 14 ticks in the deepest batch.
  * fzx_simpipe_k: batches by tick count (index 7 = 7 or more).
- * fzx_simpipe_chain: {ticks hashed, RefState chain, input chain} every 64 ticks. */
+ * fzx_simpipe_chain: {generation, tick, RefState chain, input chain} every 64 executed ticks. */
 extern volatile uint32_t fzx_sky_stack_start;
 volatile uint32_t fzx_simpipe_prof[16];
 volatile uint32_t fzx_simpipe_k[8];
-volatile uint32_t fzx_simpipe_chain[128][3];
+volatile uint32_t fzx_simpipe_chain[128][4];
+/* Executed ticks (counted at logged_tick, independent of the 12,288-entry input
+ * log), race generation (restarts), diagnostic-replay freezes (orig_tick calls
+ * that ran no tick). Rows: {generation, tick in generation, state, input}. */
+volatile uint32_t fzx_simpipe_ticks[4];
 static uint32_t
 simpipe_fnv(uint32_t h, const volatile void *data, unsigned bytes)
 {
@@ -490,18 +507,22 @@ simpipe_depth(unsigned slot)
     if (depth > fzx_simpipe_prof[slot]) fzx_simpipe_prof[slot] = depth;
 }
 static void __attribute__((noinline))
-simpipe_hash_tick(void)
+simpipe_hash_tick(uint32_t word)
 {
     RefState state;
     ref_state(&state);
-    const uint32_t n = fzx_input_count;
-    fzx_simpipe_prof[11] = simpipe_fnv(fzx_simpipe_prof[10] ? fzx_simpipe_prof[11] : 2166136261u, &state, sizeof(state));
-    fzx_simpipe_prof[12] = simpipe_fnv(fzx_simpipe_prof[10] ? fzx_simpipe_prof[12] : 2166136261u,
-                                       n && n <= INPUT_LOG_TICKS ? &fzx_input_log[n - 1] : &n, 4);
+    const uint32_t first = fzx_simpipe_prof[10] == 0;
+    const uint32_t gen = fzx_simpipe_ticks[1], in_gen = ++fzx_simpipe_ticks[2];
+    uint32_t salt[2] = { gen, in_gen };
+    uint32_t h = simpipe_fnv(first ? 2166136261u : fzx_simpipe_prof[11], salt, sizeof(salt));
+    fzx_simpipe_prof[11] = simpipe_fnv(h, &state, sizeof(state));
+    h = simpipe_fnv(first ? 2166136261u : fzx_simpipe_prof[12], salt, sizeof(salt));
+    fzx_simpipe_prof[12] = simpipe_fnv(h, &word, sizeof(word));
     const uint32_t hashed = ++fzx_simpipe_prof[10];
+    ++fzx_simpipe_ticks[0];
     if (!(hashed & 63u) && (hashed >> 6) <= 128u) {
         volatile uint32_t *row = fzx_simpipe_chain[(hashed >> 6) - 1u];
-        row[0] = hashed; row[1] = fzx_simpipe_prof[11]; row[2] = fzx_simpipe_prof[12];
+        row[0] = gen; row[1] = in_gen; row[2] = fzx_simpipe_prof[11]; row[3] = fzx_simpipe_prof[12];
     }
 }
 #endif
@@ -715,6 +736,111 @@ orig_publish(void)
     if(fzx_camera_status!=3)fzx_camera_status=1;
     PUB_END();
 #endif
+}
+#endif
+
+#ifndef FZX_SIMPIPE_DBUF
+#define FZX_SIMPIPE_DBUF 0
+#endif
+#ifndef FZX_SIMPIPE_DBUF_STALE
+#define FZX_SIMPIPE_DBUF_STALE 0
+#endif
+#if FZX_SIMPIPE_DBUF
+/* Sim-pipeline checkpoint 3 (C-035): serial double buffering. Every draw-facing
+ * publication output is copied into slot (sequence & 1) after orig_publish and
+ * restored from it before the scene draws. FZX_SIMPIPE_DBUF_STALE (negative
+ * control only) restores the previous publication's slot instead. */
+volatile uint32_t fzx_simpipe_layout[16];
+static fzx_simpipe_slot_t *simpipe_slot[2];
+static fzx_simpipe_job_t *simpipe_job;
+static volatile uint32_t *simpipe_guard[4];
+static uint32_t simpipe_sequence, simpipe_generation;
+static void
+simpipe_fail(uint32_t status)
+{
+    fzx_simpipe_layout[15] = status;
+    dbgio_printf("\x1b[H\x1b[2J SIM PIPELINE SLOT FAILED %lu\n", (unsigned long)status);
+    dbgio_flush(); vdp2_sync(); for (;;) {}
+}
+/* Two slots and the job block, each behind a 32-byte guard, from LOW_END up;
+ * returns the new low end for the frame profile. */
+static uint32_t
+simpipe_carve(uint32_t low_end)
+{
+    uintptr_t a = (low_end + 31u) & ~(uintptr_t)31u;
+    const uintptr_t base = a;
+    const uint32_t slot_bytes = (sizeof(fzx_simpipe_slot_t) + 31u) & ~31u;
+    const uint32_t job_bytes = (sizeof(fzx_simpipe_job_t) + 31u) & ~31u;
+    for (unsigned i = 0; i < 2; ++i) {
+        simpipe_guard[i] = (volatile uint32_t *)a; a += 32u;
+        simpipe_slot[i] = (fzx_simpipe_slot_t *)a; a += slot_bytes;
+    }
+    simpipe_guard[2] = (volatile uint32_t *)a; a += 32u;
+    simpipe_job = (fzx_simpipe_job_t *)a; a += job_bytes;
+    simpipe_guard[3] = (volatile uint32_t *)a; a += 32u;
+    if (base < 0x00200000u || a > 0x00300000u) simpipe_fail(2);
+    memset((void *)base, 0, a - base);
+    for (unsigned g = 0; g < 4; ++g) for (unsigned w = 0; w < 8; ++w) simpipe_guard[g][w] = FZX_SIMPIPE_GUARD;
+    simpipe_job->magic = FZX_SIMPIPE_JOB_MAGIC;
+    const uint32_t report[11] = { 0x53504442u, 1, base, (uint32_t)simpipe_slot[0], (uint32_t)simpipe_slot[1],
+        (uint32_t)simpipe_job, a, sizeof(fzx_simpipe_slot_t), sizeof(fzx_simpipe_job_t), 2u * sizeof(fzx_simpipe_slot_t), 0 };
+    for (unsigned i = 0; i < 11; ++i) fzx_simpipe_layout[i] = report[i];
+    fzx_simpipe_layout[15] = 1;
+    return (uint32_t)a;
+}
+static void
+simpipe_check_guards(void)
+{
+    for (unsigned g = 0; g < 4; ++g) for (unsigned w = 0; w < 8; ++w)
+        if (simpipe_guard[g][w] != FZX_SIMPIPE_GUARD) { ++fzx_simpipe_layout[10]; simpipe_fail(3); }
+    if (simpipe_job->magic != FZX_SIMPIPE_JOB_MAGIC) { ++fzx_simpipe_layout[10]; simpipe_fail(3); }
+}
+static void
+simpipe_copy_out(void)
+{
+    fzx_simpipe_slot_t *s = simpipe_slot[simpipe_sequence & 1u];
+    simpipe_check_guards();
+    s->magic = FZX_SIMPIPE_SLOT_MAGIC; s->generation = simpipe_generation;
+    s->sequence = ++simpipe_sequence; s->ticks = fzx_input_count;
+    s->camera_status = fzx_camera_status; s->camera_set = 0;
+    s->sky_status = fzx_sky_status; s->skyline_status = fzx_skyline_status;
+    s->road_plan_status = fzx_road_plan_status; s->road_plan_sequence = fzx_road_plan_sequence;
+    s->machine_published = fzx_machine_published_get();
+    fzx_countdown_publication_save(&s->countdown_phase, &s->countdown_published);
+    s->pose = orig_pose; s->camera = fzx_source_camera; s->view = fzx_native_view;
+    s->machine = fzx_source_machine; s->countdown = fzx_source_countdown;
+    s->skyline = fzx_source_skyline; s->backdrop = fzx_source_backdrop;
+    s->road_plan = fzx_source_road_plan; s->hud_clock = hud_clock;
+    fzx_core_publication_save(&s->core);
+    ++fzx_simpipe_layout[12];
+}
+static void
+simpipe_copy_in(void)
+{
+    simpipe_check_guards();
+    uint32_t want = simpipe_sequence;
+#if FZX_SIMPIPE_DBUF_STALE
+    if (want > 1u) { --want; ++fzx_simpipe_layout[14]; }
+#endif
+    const fzx_simpipe_slot_t *s = simpipe_slot[(want - 1u) & 1u];
+    if (!want || s->magic != FZX_SIMPIPE_SLOT_MAGIC || s->sequence != want
+#if !FZX_SIMPIPE_DBUF_STALE
+        || s->generation != simpipe_generation
+#endif
+        ) {
+        ++fzx_simpipe_layout[11]; simpipe_fail(4);
+    }
+    fzx_camera_status = s->camera_status;
+    fzx_sky_status = s->sky_status; fzx_skyline_status = s->skyline_status;
+    fzx_road_plan_status = s->road_plan_status; fzx_road_plan_sequence = s->road_plan_sequence;
+    fzx_machine_published_set(s->machine_published);
+    fzx_countdown_publication_load(&s->countdown_phase, s->countdown_published);
+    orig_pose = s->pose; fzx_source_camera = s->camera; fzx_native_view = s->view;
+    fzx_source_machine = s->machine; fzx_source_countdown = s->countdown;
+    fzx_source_skyline = s->skyline; fzx_source_backdrop = s->backdrop;
+    fzx_source_road_plan = s->road_plan; hud_clock = s->hud_clock;
+    fzx_core_publication_load(&s->core);
+    ++fzx_simpipe_layout[13];
 }
 #endif
 
@@ -1231,7 +1357,11 @@ main(void)
     fzx_timing.magic = 0x465A5854u;
 #if FZX_FRAME_PROFILE
 #if FZX_SOURCE_RECORDS
+#if FZX_SIMPIPE_DBUF
+    if(!fzx_fp_init(simpipe_carve(fzx_records_low_end),fields_per_second)) {
+#else
     if(!fzx_fp_init(fzx_records_low_end,fields_per_second)) {
+#endif
 #elif FZX_SOURCE_RESULTS
     if(!fzx_fp_init(fzx_results_low_end,fields_per_second)) {
 #elif FZX_SOURCE_COUNTDOWN
@@ -1294,18 +1424,23 @@ main(void)
                 if(fzx_debug_restart)fzx_road_next_frame=0;
 #endif
                 fzx_debug_restart = 0;
+#if FZX_SIMPIPE_PROFILE
+                ++fzx_simpipe_prof[13]; ++fzx_simpipe_ticks[1]; fzx_simpipe_ticks[2] = 0;
+#endif
+#if FZX_SIMPIPE_DBUF
+                ++simpipe_generation;
+#endif
                 orig_restart();
 #if FZX_FRAME_PROFILE
                 fzx_fp_restart();
 #endif
             }
 #if FZX_SIMPIPE_PROFILE
-            const uint32_t simpipe_n = fzx_input_count;
+            const uint32_t simpipe_n = fzx_simpipe_ticks[0];
 #endif
             orig_tick();
 #if FZX_SIMPIPE_PROFILE
-            if (fzx_input_count != simpipe_n) { ++simpipe_ticks; simpipe_hash_tick(); }
-            if (simpipe_n == 0 && fzx_input_count == 1 && fzx_simpipe_prof[10] > 1) ++fzx_simpipe_prof[13];
+            if (fzx_simpipe_ticks[0] != simpipe_n) ++simpipe_ticks; else ++fzx_simpipe_ticks[3];
 #endif
 #else
             fzx_step((buttons & ~FZX_RESET) | pending_reset);
@@ -1332,6 +1467,9 @@ main(void)
 #endif
         orig_publish();
 #endif
+#if FZX_SIMPIPE_DBUF
+        simpipe_copy_out();
+#endif
 #if FZX_SIMPIPE_PROFILE
         simpipe_depth(4);
         simpipe_paint();
@@ -1346,6 +1484,9 @@ main(void)
 #endif
 #if FZX_FRAME_PROFILE
         fzx_fp_mark(4);
+#endif
+#if FZX_SIMPIPE_DBUF
+        simpipe_copy_in();
 #endif
         const fzx_frame_t *frame = fzx_render();
 #if FZX_SOURCE_CAMERA

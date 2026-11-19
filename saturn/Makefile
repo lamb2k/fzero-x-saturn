@@ -695,6 +695,31 @@ SH_CFLAGS += -DFZX_MACHINE_PUBLISH=1
 else ifneq ($(FZX_MACHINE_PUBLISH),0)
 $(error FZX_MACHINE_PUBLISH must be 0 or 1)
 endif
+# FZX_SIMPIPE_DBUF=1 (default 0): sim-pipeline checkpoint 3. Serial double
+# buffering: two low-WRAM publication slots and a guarded job block carved
+# before the frame profile, whose frame/road row capacity becomes runtime.
+# FZX_SIMPIPE_DBUF_STALE=1 is the stale-slot negative control (draws the
+# previous publication); never a functional image.
+FZX_SIMPIPE_DBUF ?= 0
+FZX_SIMPIPE_DBUF_STALE ?= 0
+ifeq ($(FZX_SIMPIPE_DBUF),1)
+ifneq ($(FZX_SIM):$(FZX_MACHINE_PUBLISH):$(FZX_FRAME_PROFILE):$(FZX_SOURCE_RECORDS):$(FZX_SOURCE_HUD):$(FZX_SOURCE_COUNTDOWN):$(FZX_SOURCE_SKY):$(FZX_SOURCE_SKYLINE):$(FZX_SOURCE_ROAD):$(FZX_SOURCE_CAMERA),orig:1:1:1:1:1:1:1:1:1)
+$(error FZX_SIMPIPE_DBUF requires FZX_SIM=orig and FZX_MACHINE_PUBLISH, FZX_FRAME_PROFILE, FZX_SOURCE_RECORDS, FZX_SOURCE_HUD, FZX_SOURCE_COUNTDOWN, FZX_SOURCE_SKY, FZX_SOURCE_SKYLINE, FZX_SOURCE_ROAD and FZX_SOURCE_CAMERA =1)
+endif
+ifeq ($(FZX_ROAD_STREAM_PHASES),1)
+$(error FZX_SIMPIPE_DBUF gives the frame/road rows all remaining low WRAM; FZX_ROAD_STREAM_PHASES has no room)
+endif
+SH_CFLAGS += -DFZX_SIMPIPE_DBUF=1
+ifeq ($(FZX_SIMPIPE_DBUF_STALE),1)
+SH_CFLAGS += -DFZX_SIMPIPE_DBUF_STALE=1
+else ifneq ($(FZX_SIMPIPE_DBUF_STALE),0)
+$(error FZX_SIMPIPE_DBUF_STALE must be 0 or 1)
+endif
+else ifneq ($(FZX_SIMPIPE_DBUF),0)
+$(error FZX_SIMPIPE_DBUF must be 0 or 1)
+else ifneq ($(FZX_SIMPIPE_DBUF_STALE),0)
+$(error FZX_SIMPIPE_DBUF_STALE requires FZX_SIMPIPE_DBUF=1)
+endif
 # FZX_ROAD_LOD=1 (default 0): simplified far road. Every frame uses the
 # budget guard's coarse tiering (strip-length tiers), not only frames over
 # the budget. Approximation: far road texture periods merge sooner.

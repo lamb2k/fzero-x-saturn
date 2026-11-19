@@ -17,6 +17,9 @@ extern volatile uint32_t fzx_countdown_low_start,fzx_countdown_low_end;
 extern volatile uint32_t fzx_countdown_texture_start,fzx_countdown_texture_bytes;
 extern volatile uint32_t fzx_countdown_command_start;
 extern RefCountdown fzx_source_countdown;
+/* FZX_SIMPIPE_DBUF: publication state saved with and restored from a slot. */
+void fzx_countdown_publication_save(fzx_countdown_phase_t *phase,uint32_t *published);
+void fzx_countdown_publication_load(const fzx_countdown_phase_t *phase,uint32_t published);
 extern fzx_countdown_native_stats_t fzx_countdown_stats;
 
 /* Boot-only. low_end is the preceding owner's exclusive data end (its trailing

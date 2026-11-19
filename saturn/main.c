@@ -798,7 +798,9 @@ simpipe_guard(const fzx_simpipe_area_t *c, unsigned g)
 static uint32_t __attribute__((noinline))
 simpipe_carve(uint32_t low_end)
 {
-    fzx_simpipe_area_t *c = (fzx_simpipe_area_t *)((low_end + 31u) & ~(uintptr_t)31u);
+    /* As every low-WRAM allocator here: the previous owner's 32-byte trailing
+     * guard at LOW_END stays untouched. */
+    fzx_simpipe_area_t *c = (fzx_simpipe_area_t *)((low_end + 95u) & ~(uintptr_t)31u);
     const uintptr_t end = SIMPIPE_END(c);
     if (end > 0x00300000u) for (;;) {}
     memset(c, 0, end - (uintptr_t)c);

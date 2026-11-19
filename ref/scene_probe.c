@@ -57,6 +57,24 @@ int ref_scene_probe_init(void) {
 #endif
     return 0;
 }
+#ifdef REF_BACKDROP_ORACLE
+int ref_backdrop_catchup_oracle(RefBackdrop*,unsigned int,unsigned int,int);
+void ref_backdrop_catchup_wrap_preset(void);
+/* FZX_BACKDROP_CATCHUP: one catch-up of SPAN ticks with the probe camera FRAME,
+ * against SPAN original Background_Update calls. Pass 1 starts at maximum wind
+ * with both scrolls at the wrap points. 0 = identical. */
+int ref_scene_probe_catchup(unsigned int pass,unsigned int frame,unsigned int span,int paused) {
+    RefBackdrop backdrop;
+    if(frame>=REF_SCENE_PROBE_CASES)return 1;
+    if(frame==0) {
+        camera(0);
+        if(ref_backdrop_check_init(pass ? 0.005f : 0.0035f,pass ? -0.005f : -0.002f))return 2;
+        if(pass)ref_backdrop_catchup_wrap_preset();
+    }
+    camera(frame);
+    return ref_backdrop_catchup_oracle(&backdrop,span,(frame/3)&1,paused);
+}
+#endif
 int ref_scene_probe_step(unsigned int frame,unsigned int hashes[2]) {
     RefBackdrop backdrop;
     RefSkyline skyline;

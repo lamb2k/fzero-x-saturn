@@ -228,6 +228,21 @@ int main(int argc, char** argv) {
         }
         return 0;
     }
+    if(argc==2 && strcmp(argv[1],"--backdrop-catchup")==0) {
+        /* FZX_BACKDROP_CATCHUP: catch-up spans 1..8 against the original source,
+         * every probe camera (including the cloud-at-eye-height case), paused
+         * frames, both pools, and a pass that crosses the scroll wrap points. */
+        unsigned int pass,frame,checked=0,ticks=0;
+        if(ref_scene_probe_init())return 3;
+        for(pass=0;pass<2;++pass)for(frame=0;frame<REF_SCENE_PROBE_CASES;++frame) {
+            const unsigned int span=frame%8u+1u;
+            const int r=ref_scene_probe_catchup(pass,frame,span,frame%13u==5u);
+            if(r){printf("catch-up mismatch pass %u frame %u span %u: %d\n",pass,frame,span,r);return 4;}
+            ++checked;ticks+=span;
+        }
+        printf("catch-up identical: %u catch-ups, %u ticks\n",checked,ticks);
+        return 0;
+    }
 #endif
     const char *course = NULL, *order = NULL, *inputs = NULL, *trace = NULL, *rom = NULL, *prefix = NULL;
 #if FZX_SOURCE_CAMERA

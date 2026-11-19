@@ -7,6 +7,10 @@ RefBackdrop fzx_source_backdrop;
 fzx_sky_stats_t fzx_sky_stats;
 volatile uint32_t fzx_sky_status,fzx_sky_ticks,fzx_sky_count_max;
 volatile uint32_t fzx_sky_busy;
+#if FZX_BACKDROP_CATCHUP_VERIFY
+/* publications checked, ticks covered, longest span, mismatches, last result */
+volatile uint32_t fzx_backdrop_verify[5];
+#endif
 volatile uint32_t fzx_sky_stack_start,fzx_sky_stack_end;
 volatile uint32_t fzx_sky_heap_prefix,fzx_sky_heap_before,fzx_sky_heap_after;
 extern uint32_t __end[];
@@ -58,7 +62,23 @@ bool fzx_sky_publish(void) {
         ref_backdrop_tick(&fzx_source_backdrop,0,1);
     }
     if(fzx_input_count<backdrop_tick || fzx_input_count-backdrop_tick>12288){fzx_sky_status=3;return false;}
+#if FZX_BACKDROP_CATCHUP_VERIFY
+    /* Diagnostic: both catch-up forms from the same state, every publication. */
+    if(backdrop_tick<fzx_input_count) {
+        const uint32_t span=fzx_input_count-backdrop_tick;
+        const int r=ref_backdrop_catchup_check(&fzx_source_backdrop,span,0,0);
+        ++fzx_backdrop_verify[0];fzx_backdrop_verify[1]+=span;
+        if(span>fzx_backdrop_verify[2])fzx_backdrop_verify[2]=span;
+        if(r){++fzx_backdrop_verify[3];fzx_backdrop_verify[4]=(uint32_t)r;}
+        backdrop_tick=fzx_input_count;
+    }
+#endif
     while(backdrop_tick<fzx_input_count) {
+#if FZX_BACKDROP_CATCHUP
+        /* Only the last catch-up tick's vertices are presented; earlier ticks
+         * advance just the cloud scroll (ref_backdrop_scroll, exact). */
+        if(backdrop_tick+1u<fzx_input_count){ref_backdrop_scroll(0);++backdrop_tick;continue;}
+#endif
         ref_backdrop_tick(&fzx_source_backdrop,0,0);++backdrop_tick;
     }
 #else

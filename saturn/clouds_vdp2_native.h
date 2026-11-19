@@ -19,6 +19,15 @@ bool fzx_clouds_sky_lines(const fzx_view_t *view,const RefBackdrop *source);
  * (a user-clip command first, then the bands). */
 bool fzx_clouds_native(vdp1_cmdt_t *commands,unsigned capacity,const fzx_view_t *view,
                        const RefBackdrop *source,uint32_t *count);
-/* From fzx_floor_present at VBlank: tables, sky lines and band colours. */
-void fzx_clouds_present(void);
+/* From fzx_floor_present at VBlank: tables, sky lines and band colours.
+ * Returns true when it wrote a frame's data. */
+bool fzx_clouds_present(void);
+/* Per presented frame, after the floor upload: FRT ticks from the first cloud
+ * write to the end of the floor upload, and whether it began and ended in
+ * VBlank. Log words: ticks (bits 0..13) | 0x4000 began in blank | 0x8000
+ * ended in blank; the first FZX_CLOUDS_UPLOAD_LOG frames are kept. */
+#define FZX_CLOUDS_UPLOAD_LOG 2048u
+extern uint16_t fzx_clouds_upload_log[FZX_CLOUDS_UPLOAD_LOG];
+extern volatile uint32_t fzx_clouds_upload_count,fzx_clouds_upload_max,fzx_clouds_upload_overruns;
+void fzx_clouds_upload_record(uint16_t start,uint32_t began_in_blank);
 #endif

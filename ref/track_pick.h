@@ -18,9 +18,9 @@ typedef struct {
     float depth_unit;  /* source depth = depth units * depth_unit */
 } FzxTrackPickView;
 
-/* Bumped by the port wherever the course's chunk ring is built or replaced
- * (ref_race_init after Course_Init); the planner rebuilds its anchors when it
- * changes. Defined in the planner unit. */
+/* Bumped where the course's chunk ring is built or replaced: right after
+ * func_800A1954 in Course_Init, in the generated planner unit (tools/road_plan.py).
+ * The planner rebuilds its anchors when it changes. Defined in the planner unit. */
 extern unsigned ref_track_ring_generation;
 
 /* Once per course: n anchors, then each anchor. begin returns 0 when n is

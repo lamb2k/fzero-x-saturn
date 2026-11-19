@@ -128,6 +128,12 @@ static void ref_road_oracle_backward(SegmentChunkGroup*);
 #endif
 '''
     source=source.replace(marker,declarations+marker).replace(body,oracle_body)
+    # FZX_TRACK_BAKED (default 0): Course_Init's func_800A1954 builds the chunk ring;
+    # bump the planner's ring generation there. Knob off preprocesses unchanged.
+    ring='#else\n    func_800A1954(gCurrentCourseInfo);\n#endif\n'
+    if source.count(ring)!=1:
+        raise ValueError('Source chunk ring construction changed; review planner extraction')
+    source=source.replace(ring,ring+'#if FZX_TRACK_BAKED\n    { extern unsigned ref_track_ring_generation; ++ref_track_ring_generation; } /* chunk ring (re)built */\n#endif\n')
     added+='\n#ifdef REF_ROAD_PLAN_ORACLE\n#include "road_plan_oracle.inc"\n#endif\n'
     # No upstream edits.
     # -ffunction-sections and the normal target linker discard unused graphics.

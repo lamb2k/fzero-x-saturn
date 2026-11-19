@@ -184,11 +184,14 @@ class TrackPickCacheTests(unittest.TestCase):
         out = build_and_run(self, CACHE_DRIVER, ['-DFZX_TRACK_VERIFY=1'])
         self.assertIn('cache ok', out)
 
-    def test_bridge_bumps_generation_after_course_init(self):
-        """The ring's only construction path in the image (ref_race_init's Course_Init) bumps it."""
-        text = (ROOT / 'ref' / 'bridge.c').read_text()
-        self.assertIn('    Course_Init();\n#if FZX_TRACK_BAKED\n    ++ref_track_ring_generation;', text)
-        self.assertEqual(text.count('Course_Init();'), 1)
+    def test_generator_bumps_generation_at_ring_build(self):
+        """The ring's construction (func_800A1954 in Course_Init) bumps the generation in the generated unit."""
+        import importlib.util
+        spec = importlib.util.spec_from_file_location('road_plan', ROOT / 'tools' / 'road_plan.py')
+        text = (ROOT / 'tools' / 'road_plan.py').read_text()
+        self.assertIn("func_800A1954(gCurrentCourseInfo);\\n#endif\\n'", text)
+        self.assertIn('++ref_track_ring_generation;', text)
+        self.assertNotIn('ref_track_ring_generation', (ROOT / 'ref' / 'bridge.c').read_text())
 
 
 @unittest.skipIf(CC is None or not (SH2ZAM / 'src' / 'sh2zam_segmesh.c').is_file(),

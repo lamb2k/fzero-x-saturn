@@ -6,9 +6,6 @@
 #include "fzx_game.h"
 #include "controller.h"
 #include "ref.h"
-#if FZX_TRACK_BAKED
-#include "track_pick.h"
-#endif
 #if FZX_SOURCE_MACHINE
 #include "fzx_camera.h"
 #include "fzx_machine.h"
@@ -156,9 +153,6 @@ int ref_race_init(void) {
 
     /* The Race_Init steps that set simulation state, in its order. */
     Course_Init();
-#if FZX_TRACK_BAKED
-    ++ref_track_ring_generation; /* Course_Init built the chunk ring */
-#endif
     if (ref_course_loads != 1) {
         return 1; /* The original loader never asked for the course record. */
     }

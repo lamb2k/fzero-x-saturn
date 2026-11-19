@@ -3,6 +3,9 @@
 #include "road_native.h"
 #include "road_cd.h"
 #include "road_identity.h"
+#if FZX_LOAD_VERIFIED
+#include "engine_load_fast.h"
+#endif
 
 _Static_assert(!FZX_ROAD_PACK_FIXTURE,"A source-road race requires the local source pack");
 _Static_assert(FZX_ROAD_PACK_BYTES<=FZX_ROAD_MAX_BYTES,"road pack exceeds cartridge");
@@ -121,6 +124,9 @@ bool fzx_road_load(const void *course,uint32_t course_bytes) {
     }
     if(!file) {fzx_road_load_status.status=4;return false;}
     if(file->size!=FZX_ROAD_PACK_BYTES) {fzx_road_load_status.status=5;return false;}
+#if FZX_LOAD_VERIFIED
+    uint32_t road_hash=2166136261u;
+#endif
     for(uint32_t at=0;at<file->size;at+=CDFS_SECTOR_SIZE) {
         fzx_road_load_status.io_result=fzx_road_sector_read(file->starting_fad+at/CDFS_SECTOR_SIZE,&sector);
         if(fzx_road_load_status.io_result) {
@@ -131,11 +137,22 @@ bool fzx_road_load(const void *course,uint32_t course_bytes) {
         /* CPU stores only. The cartridge is never an SCU/SH-2 DMA endpoint. */
         volatile uint32_t *dest=cart+at/4u;
         for(uint32_t i=0;i<count/4u;++i) dest[i]=sector.buffer32[i];
+#if FZX_LOAD_VERIFIED
+        /* The pack's own FNV (bytes 20..23 as zero) as the sectors arrive: the open
+         * below does not read the pack a second time for it. */
+        for(uint32_t i=0;i<count;++i) road_hash=(road_hash^((at+i>=20u && at+i<24u)?0u:sector.buffer8[i]))*16777619u;
+#endif
         ++fzx_road_load_status.sectors;
     }
     fzx_road_load_status.status=12;
+#if FZX_LOAD_VERIFIED
+    if(road_hash!=FZX_ROAD_PACK_HASH ||
+       !fzx_road_pack_open_verified(&fzx_native_road,(const void *)cart,file->size,FZX_ROAD_PACK_HASH,
+                                    fzx_road_hash(course,course_bytes),false)) {
+#else
     if(!fzx_road_pack_open(&fzx_native_road,(const void *)cart,file->size,FZX_ROAD_PACK_HASH,
                            fzx_road_hash(course,course_bytes),false)) {
+#endif
         fzx_road_load_status.status=6;return false;
     }
     fzx_road_load_status.bytes=fzx_native_road.bytes;

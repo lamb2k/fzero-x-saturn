@@ -555,7 +555,8 @@ static void load_tick(void *u, uint32_t s) {
         ++fzx_scn_report[8];
         fzx_scn_report[11] = 1;
     }
-    fzx_scn_vblank_hook = NULL;
+    /* The card's VBlank animation stays on until LOAD leaves (its first frames after the
+     * load can wait on VDP1, see load_leave). */
     fzx_scn_report[10] = video_fields_get() - f0;
     fzx_scn_report[23] = fzx_ab_report[0];
     fzx_scn_report[24] = family;
@@ -565,6 +566,10 @@ static void load_tick(void *u, uint32_t s) {
     (void)request(FZX_SCN_RACE, RANK_GOTO);
 }
 static void load_draw(void) {}
+/* The first manager frames after a cold load wait for VDP1 for about 17 fields in Ymir
+ * (2026-11-19, under investigation): the VBlank spinner keeps the card moving until
+ * LOAD leaves. */
+static void load_leave(void *u, uint32_t s) { (void)u; (void)s; leaving = true; fzx_scn_vblank_hook = NULL; }
 
 /* ---- RACE ------------------------------------------------------------------ */
 static uint32_t end_reason, end_wait, max_kmh;
@@ -693,7 +698,7 @@ static const sh2z_scene_t table[FZX_SCN_COUNT] = {
     [FZX_SCN_BOOT]    = { NULL, boot_enter, boot_tick, common_leave, common_release, NULL, 0 },
     [FZX_SCN_TITLE]   = { menu_preload, title_enter, title_tick, common_leave, title_release, menu_arenas, 1 },
     [FZX_SCN_SELECT]  = { menu_preload, select_enter, select_tick, common_leave, common_release, menu_arenas, 1 },
-    [FZX_SCN_LOAD]    = { NULL, load_enter, load_tick, common_leave, common_release, NULL, 0 },
+    [FZX_SCN_LOAD]    = { NULL, load_enter, load_tick, load_leave, common_release, NULL, 0 },
     [FZX_SCN_RACE]    = { NULL, race_enter, race_tick, common_leave, race_release, race_arenas, 1 },
     [FZX_SCN_RESULTS] = { menu_preload, results_enter, results_tick, common_leave, results_release, menu_arenas, 1 },
     [FZX_SCN_RECORDS] = { menu_preload, records_enter, records_tick, common_leave, common_release, menu_arenas, 1 },

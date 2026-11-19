@@ -16,6 +16,13 @@ static bool texture_range(uint32_t at,uint32_t length,uint32_t bytes) {
 #ifndef FZX_LOAD_VERIFIED
 #define FZX_LOAD_VERIFIED 0
 #endif
+/* Engine scenes image: the loading screen's turn inside the long open loops. */
+#if FZX_CD_STREAM
+extern void (*volatile fzx_cd_yield)(void);
+#define LOAD_TURN() do { void (*h_)(void) = fzx_cd_yield; if (h_) h_(); } while (0)
+#else
+#define LOAD_TURN() ((void)0)
+#endif
 /* Boot-only: cold (optimized for size, kept out of the hot text). */
 __attribute__((cold)) bool fzx_road_stream_open(fzx_road_stream_pack_t *out,const void *data,uint32_t bytes,
                           uint32_t hash,uint32_t texture_bytes) {
@@ -50,6 +57,7 @@ __attribute__((cold)) bool fzx_road_stream_open(fzx_road_stream_pack_t *out,cons
            U16(s+6) || (int16_t)U16(s+8)>=(int16_t)U16(s+10) || U16(s+12)!=i*5 || U16(s+14)!=5)return false;
     }
     for(uint32_t i=0;i<nq;++i) {
+        if((i&255u)==0u)LOAD_TURN();
         const uint8_t *q=fzx_road_stream_record(&pack,FZX_RLD_QUADS,i);
         const unsigned strip=U16(q+8),flags=U16(q+10);
         if((flags&~3u) || U16(q+12)!=i*2 || U16(q+14)>=nc)return false;
@@ -77,6 +85,7 @@ __attribute__((cold)) bool fzx_road_stream_open(fzx_road_stream_pack_t *out,cons
     }
     cursor=0;
     for(uint32_t i=0;i<nc;++i) {
+        if((i&63u)==0u)LOAD_TURN();
         const uint8_t *c=fzx_road_stream_record(&pack,FZX_RLD_CHUNKS,i);
         const uint32_t first=U32(c),count=U32(c+4);
         if(first!=cursor || count>nq-cursor)return false;

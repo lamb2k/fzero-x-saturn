@@ -43,6 +43,7 @@
 #endif
 #if ENG_SCENES
 #include "engine_scenes.h"
+#include "engine_load_fast.h"
 /* Load step stamps for the scenes lane's load-time table (fields, CD sectors and CD time). */
 #define SCN_STAMP(i) fzx_scn_stamp(i)
 /* One-time set-up, once per image (a cancelled load may stop between them). */
@@ -752,7 +753,11 @@ void fzx_race_load(void) {
     if (!fzx_texture_cd_load("ENGPATH.PAK", FZX_ENGINE_PATH_BYTES, FZX_ENGINE_PATH_FILE_HASH, (void *)PATH_BASE,
                              (void *)scratch, 0x00300000u - scratch))
         fail(17, "PATH LOAD", fzx_texture_cd_status.status);
+#if ENG_SCENES /* the CD loader checked the file hash as it read it (engine_load_fast.c) */
+    if (!fzx_engine_path_open_verified(&path, (const void *)PATH_BASE, FZX_ENGINE_PATH_BYTES, FZX_ENGINE_PATH_HASH))
+#else
     if (!fzx_engine_path_open(&path, (const void *)PATH_BASE, FZX_ENGINE_PATH_BYTES, FZX_ENGINE_PATH_HASH))
+#endif
         fail(18, "PATH PACK", 0);
 
     vdp1_vram_partitions_get(&partitions);

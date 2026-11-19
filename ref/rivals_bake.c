@@ -96,3 +96,7 @@ void rb_racer(int i, float f[5], int n[6]) {
     n[4] = r->character;
     n[5] = r->unk_39C;
 }
+
+/* The game loop's frame counter: CPU racers think on (id & 3) == (frame % 4). Call once per tick. */
+extern u32 gGameFrameCount;
+void rb_gp_frame(void) { gGameFrameCount++; }

@@ -19,6 +19,7 @@
 int rb_gp_init(int difficulty, unsigned seed, const short* cpu_line);
 void rb_racer(int i, float f[5], int n[6]);
 float rb_course_length(void);
+void rb_gp_frame(void);
 
 #define MAXR 30
 #define ST_RETIRED (1 << 18)
@@ -81,6 +82,7 @@ int main(int argc, char** argv) {
     if (trace && !tf) die("cannot write trace");
     for (int i = 0; i < MAXR; ++i) { finish_tick[i] = retire_tick[i] = -1; for (int k = 0; k < 4; ++k) lap_end[i][k] = -1; }
     for (int t = 0; t < max_ticks; ++t) {
+        rb_gp_frame();
         ref_tick(0, 0, 0);
         float f[5]; int v[6];
         double lead = -1e18, last = 1e18; int changed = 0;

@@ -508,7 +508,7 @@ static void load_turn(void) {
 #define SPIN_COL 3u
 static volatile uint16_t spin_words[4];
 static volatile uint32_t spin_fields, spin_phase;
-static bool load_done;
+static bool load_done, load_ran;
 
 static volatile uint32_t card_updates;
 static void bar_draw(void);
@@ -557,6 +557,7 @@ static void load_tick(void *u, uint32_t s) {
         return;
     }
     const uint32_t f0 = video_fields_get();
+    load_ran = true;
     spin_fields = 0;
     fzx_scn_vblank_hook = spin_hook;
     if (retry_pending && resident_key == family + 1u) {
@@ -808,6 +809,14 @@ void fzx_scn_main(void) {
     for (;;) {
         const uint32_t now = video_fields_get();
         uint32_t steps = now - frame_fields;
+        {   /* Manager frame cadence outside RACE (fzx_scn_ctl[6] worst gap, [7] gaps over two
+             * fields); the frame that ran a blocking load (load_ran) is counted apart. */
+            static uint32_t last_kind;
+            if (last_kind == 1u && steps > fzx_scn_ctl[6]) fzx_scn_ctl[6] = steps;
+            if (last_kind == 1u && steps > 2u) ++fzx_scn_ctl[7];
+            last_kind = (seq.current != FZX_SCN_RACE && !load_ran) ? 1u : 0u;
+            load_ran = false;
+        }
         frame_fields = now;
         if (steps == 0u) steps = 1u;
         if (steps > 4u) steps = 4u;

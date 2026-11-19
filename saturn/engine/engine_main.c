@@ -83,6 +83,9 @@ volatile uint32_t fzx_e0_status, fzx_e0_done, fzx_e0_fault;
  * [11] slave busy sum at the last frame, [12] FRT ticks per field, [13] pick
  * BAD_ARGS, [14] pick TOO_MANY, [15] visible chunks maximum. */
 volatile uint32_t fzx_e0_report[16];
+/* Floor refusal: queue front, presented tick and commits before and after the
+ * refused call, floor status, build bank (bit 8: VDP1 busy), field, prelude. */
+volatile uint32_t fzx_e0_floor_diag[10];
 /* Debugger hold: when nonzero, the camera stays at this tick (stills). */
 volatile uint32_t fzx_e0_hold_tick;
 #define HOLD_TICK (*(volatile uint32_t *)((uintptr_t)&fzx_e0_hold_tick | CPU_CACHE_THROUGH))
@@ -377,8 +380,20 @@ static void build(row_t *row, const fzx_engine_cam_t *cam, uint32_t tick, uint16
     if (!fzx_skyline_native(&commands[CMD_FIRST + first], FZX_SLAVE_ROAD_RESERVE - 1u - first, &fzx_native_view, skyline_vram, &n))
         fail(24, "SKYLINE DRAW", fzx_skyline_stats.fault);
     first += n; n = 0;
-    if (!fzx_floor_native(&commands[CMD_FIRST + first], FZX_SLAVE_ROAD_RESERVE - 1u - first, &fzx_native_view, &fzx_source_backdrop, &n))
-        fail(25, "FLOOR", fzx_floor_rbg.fault);
+    {
+        /* Floor refusal diagnostics: queue front and presents before the call. */
+        const uint32_t pending = fzx_floor_pending, presented = fzx_floor_presented, commits = fzx_floor_commits;
+        if (!fzx_floor_native(&commands[CMD_FIRST + first], FZX_SLAVE_ROAD_RESERVE - 1u - first, &fzx_native_view, &fzx_source_backdrop, &n)) {
+            fzx_e0_floor_diag[0] = pending; fzx_e0_floor_diag[1] = presented; fzx_e0_floor_diag[2] = commits;
+            fzx_e0_floor_diag[3] = fzx_floor_pending; fzx_e0_floor_diag[4] = fzx_floor_presented;
+            fzx_e0_floor_diag[5] = fzx_floor_commits; fzx_e0_floor_diag[6] = fzx_floor_status;
+#if FZX_VDP1_DBANK
+            fzx_e0_floor_diag[7] = sh2z_vdp1_banks_bank(&fzx_dbank_banks) | (vdp1_sync_busy() ? 0x100u : 0u);
+#endif
+            fzx_e0_floor_diag[8] = video_fields; fzx_e0_floor_diag[9] = first;
+            fail(25, "FLOOR", fzx_floor_rbg.fault);
+        }
+    }
     first += n;
     if (first >= FZX_SLAVE_ROAD_RESERVE) fail(26, "PRELUDE OVERFLOW", first);
     vdp1_cmdt_t *jump = &commands[CMD_FIRST + first];

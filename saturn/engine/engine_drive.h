@@ -44,6 +44,11 @@ bool fzx_drive_load(void *scratch, uint32_t scratch_bytes);
 /* After the track and the VDP1 banks: the raw sprite set into the cartridge from
  * cart_free, its CLUTs and the shadow into the CLUT partition after clut_used bytes,
  * and the sprite slot pool at the top of the texture partition (sprite-cache-1). */
+#if E1_FIELD && E2_ROSTER
+/* E2_ROSTER: the roster pack into the cartridge, each rival bound to its machine's near/far sets. */
+bool fzx_drive_roster_load(void *scratch, uint32_t scratch_bytes, uintptr_t cart_limit);
+extern volatile uint32_t fzx_e2_roster[8];
+#endif
 bool fzx_drive_sprites_load(const vdp1_vram_partitions_t *parts, uint32_t clut_used, uintptr_t cart_free,
                             uintptr_t cart_limit, void *scratch, uint32_t scratch_bytes);
 /* Texture-partition offset where the slot pool starts (E0 users must end below it). */

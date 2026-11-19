@@ -68,6 +68,14 @@ E2_CULL ?= 0
 E2_LOD ?= 0
 E2_LOD_NEAR ?= 1000,3000,8000
 E2_EARLY ?= 0
+# Diagnostic: per-frame master phase times (fzx_e2_prof); changes timing slightly, never a floor measurement.
+E2_PROF ?= 0
+# E2_FASTSPRITE (needs E2_CULL): rival sprite poses reuse the cull's camera-space terms; one division for the up vector.
+E2_FASTSPRITE ?= 0
+# E2_ROSTER (needs E2_PACK, E2_CULL, E2_FASTSPRITE, E2_EARLY): each rival drawn from its own machine's
+#   near/far rotation-sprite sets in the private roster pack (generated/roster/ROSTER.PAK and
+#   roster_identity.h from tools/roster_identity.py, which refuses a pack with the wrong SHA-256).
+E2_ROSTER ?= 0
 # Skip zero-area fan pieces of clipped road polygons (the tick-3000 seam).
 E0_FAN_FIX ?= 1
 # Floor/cloud fog bands: near/far 3D clip + 2D clip at the view, no diagnostic hash.
@@ -117,7 +125,7 @@ endif
 # The racer sprite set the player is drawn from.
 E1_SPRITES := $(if $(filter 2,$(E1_CLOSEUP)),racer_sprites_hq,racer_sprites)
 comma := ,
-SH_OUTPUT_DIR := build-$(if $(filter 1,$(FZX_E1_DRIVE)),e1-d$(E1_DRIVER)$(if $(filter-out 0,$(E1_DRIVER_BOOST)),-b$(E1_DRIVER_BOOST),)$(if $(filter-out 0,$(E1_CLOSEUP)),-ab$(E1_CLOSEUP)$(if $(filter 1,$(E1_CLOSEUP_EARLY)),e,)$(if $(filter-out 0,$(E1_FIELD)),-f$(E1_FIELD)$(if $(filter 1,$(E2_PACK)),p,)$(if $(filter 1,$(E2_FASTPOSE)),q,)$(if $(filter 1,$(E2_CULL)),c,)$(if $(filter 1,$(E2_LOD)),l$(subst $(comma),_,$(E2_LOD_NEAR)),)$(if $(filter 1,$(E2_EARLY)),e,),),)-,e0-)bank$(FZX_VDP1_DBANK)$(if $(filter 1,$(FZX_VDP1_DBANK_STALE)),-stale,)-g$(E0_GUARD_MARGIN)-c$(E0_FAST_CULL)-l$(E0_LOD_SHIFT)-f$(E0_FAN_FIX)-r$(E0_RBG_LEAN)-k$(E0_CLUSTERS)-w$(E0_WORK_HIGH)$(if $(filter-out 0,$(E0_CHUNK_CAP)),-cap$(E0_CHUNK_CAP),)-n$(E0_LEAN_CLIP)-e$(E0_FOG_EARLY)$(if $(filter 1,$(E0_HW_COUNTER)),-hw,)$(if $(filter 1,$(E0_VDP2_MAP)),-map,)$(if $(filter 1,$(E0_SENTINEL_CONTROL)),-sentinel,)$(if $(filter 1,$(E0_POP_LOG)),-pop,)$(if $(filter 1,$(E0_CAP_STABLE)),-stable,)$(if $(filter 1,$(E0_CLUSTER_AUDIT)),-audit,)$(if $(filter 1,$(E0_PHASES)),-phases,)
+SH_OUTPUT_DIR := build-$(if $(filter 1,$(FZX_E1_DRIVE)),e1-d$(E1_DRIVER)$(if $(filter-out 0,$(E1_DRIVER_BOOST)),-b$(E1_DRIVER_BOOST),)$(if $(filter-out 0,$(E1_CLOSEUP)),-ab$(E1_CLOSEUP)$(if $(filter 1,$(E1_CLOSEUP_EARLY)),e,)$(if $(filter-out 0,$(E1_FIELD)),-f$(E1_FIELD)$(if $(filter 1,$(E2_PACK)),p,)$(if $(filter 1,$(E2_FASTPOSE)),q,)$(if $(filter 1,$(E2_CULL)),c,)$(if $(filter 1,$(E2_LOD)),l$(subst $(comma),_,$(E2_LOD_NEAR)),)$(if $(filter 1,$(E2_EARLY)),e,)$(if $(filter 1,$(E2_FASTSPRITE)),f,)$(if $(filter 1,$(E2_ROSTER)),r,)$(if $(filter 1,$(E2_PROF)),P,),),)-,e0-)bank$(FZX_VDP1_DBANK)$(if $(filter 1,$(FZX_VDP1_DBANK_STALE)),-stale,)-g$(E0_GUARD_MARGIN)-c$(E0_FAST_CULL)-l$(E0_LOD_SHIFT)-f$(E0_FAN_FIX)-r$(E0_RBG_LEAN)-k$(E0_CLUSTERS)-w$(E0_WORK_HIGH)$(if $(filter-out 0,$(E0_CHUNK_CAP)),-cap$(E0_CHUNK_CAP),)-n$(E0_LEAN_CLIP)-e$(E0_FOG_EARLY)$(if $(filter 1,$(E0_HW_COUNTER)),-hw,)$(if $(filter 1,$(E0_VDP2_MAP)),-map,)$(if $(filter 1,$(E0_SENTINEL_CONTROL)),-sentinel,)$(if $(filter 1,$(E0_POP_LOG)),-pop,)$(if $(filter 1,$(E0_CAP_STABLE)),-stable,)$(if $(filter 1,$(E0_CLUSTER_AUDIT)),-audit,)$(if $(filter 1,$(E0_PHASES)),-phases,)
 SH_BUILD_DIR := $(SH_OUTPUT_DIR)/yaul
 IMAGE_DIRECTORY := $(SH_OUTPUT_DIR)/cd
 IMAGE_1ST_READ_BIN := A.BIN
@@ -190,9 +198,18 @@ SH_CFLAGS += -DE1_CLOSEUP=$(E1_CLOSEUP) -DE1_CLOSEUP_EARLY=$(E1_CLOSEUP_EARLY)
 ifneq ($(E1_FIELD),0)
 # FZX_CLOSEUP_CARS: 3D slots (engine_field.h FZX_FIELD_K_MAX).
 SH_CFLAGS += -DE1_FIELD=$(E1_FIELD) -DFZX_CLOSEUP_CARS=6
-SH_CFLAGS += -DE2_PACK=$(E2_PACK) -DE2_FASTPOSE=$(E2_FASTPOSE) -DE2_CULL=$(E2_CULL) -DE2_LOD=$(E2_LOD) -DE2_LOD_NEAR=$(E2_LOD_NEAR) -DE2_EARLY=$(E2_EARLY)
+SH_CFLAGS += -DE2_PACK=$(E2_PACK) -DE2_FASTPOSE=$(E2_FASTPOSE) -DE2_CULL=$(E2_CULL) -DE2_LOD=$(E2_LOD) -DE2_LOD_NEAR=$(E2_LOD_NEAR) -DE2_EARLY=$(E2_EARLY) -DE2_PROF=$(E2_PROF) -DE2_FASTSPRITE=$(E2_FASTSPRITE) -DE2_ROSTER=$(E2_ROSTER)
 ifeq ($(E2_PACK),1)
 SH_CFLAGS += -I$(G)/rivals
+endif
+ifeq ($(E2_ROSTER),1)
+ifneq ($(E2_PACK):$(E2_CULL):$(E2_FASTSPRITE):$(E2_EARLY),1:1:1:1)
+$(error E2_ROSTER needs E2_PACK=1 E2_CULL=1 E2_FASTSPRITE=1 E2_EARLY=1)
+endif
+ifeq ($(wildcard $(G)/roster/roster_identity.h),)
+$(error E2_ROSTER needs generated/roster/roster_identity.h (tools/roster_identity.py ROSTER.PAK SHA256 OUT))
+endif
+SH_CFLAGS += -I$(G)/roster
 endif
 endif
 endif
@@ -246,5 +263,8 @@ ifeq ($(E1_CLOSEUP),1)
 endif
 ifeq ($(E2_PACK),1)
 	cp $(G)/rivals/RIVALS.PAK "$(IMAGE_DIRECTORY)/"
+endif
+ifeq ($(E2_ROSTER),1)
+	cp $(G)/roster/ROSTER.PAK "$(IMAGE_DIRECTORY)/"
 endif
 	$(if $(filter 1,$(E0_CLUSTERS)),cp $(G)/road_cluster/ROADCL.PAK "$(IMAGE_DIRECTORY)/",)

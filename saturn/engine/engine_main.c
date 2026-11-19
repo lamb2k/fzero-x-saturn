@@ -174,6 +174,22 @@ volatile uint32_t fzx_e0_cap_runs; /* runs dropped by E0_CHUNK_CAP */
 /* Debugger hold: when nonzero, the camera stays at this tick (stills). */
 volatile uint32_t fzx_e0_hold_tick;
 #define HOLD_TICK (*(volatile uint32_t *)((uintptr_t)&fzx_e0_hold_tick | CPU_CACHE_THROUGH))
+#ifndef E2_PROF
+#define E2_PROF 0
+#endif
+#if E2_PROF
+/* Diagnostic (E2_PROF=1; changes timing slightly): the master's phases per frame row, FRT units:
+ * [0] backdrop + skyline (VDP2 words), [1] present wait + sky lines, [2] clouds, [3] skyline draw,
+ * [4] floor, [5] field poses and selection, [6] 3D cars, [7] sprite emit and sort. */
+enum { E2_PROF_ROWS = 6144u };
+uint16_t fzx_e2_prof[E2_PROF_ROWS][8];
+static uint32_t prof_row;
+#define PROF_MARK(v) uint16_t v = cpu_frt_count_get()
+#define PROF(k, v) do { const uint16_t now_ = cpu_frt_count_get();     if (prof_row < E2_PROF_ROWS) fzx_e2_prof[prof_row][k] = (uint16_t)(now_ - (v)); (v) = now_; } while (0)
+#else
+#define PROF_MARK(v) do { } while (0)
+#define PROF(k, v) do { } while (0)
+#endif
 
 static fzx_engine_path_t path;
 static vdp1_cmdt_t commands_buf[CMD_CAPACITY];
@@ -748,7 +764,9 @@ static void field_stage(const fzx_engine_cam_t *cam) {
     static const vdp1_cmdt_t *car_stage_p[FZX_FIELD_K_MAX];
     uint16_t car_stage_n[FZX_FIELD_K_MAX];
     const uint16_t v0 = cpu_frt_count_get();
+    PROF_MARK(vp);
     const unsigned ncars = fzx_field_cars(field_cars, fzx_drive_body());
+    PROF(5, vp);
     for (unsigned i = 0; i < FZX_FIELD_K_MAX; ++i) { car_stage_n[i] = 0; car_stage_p[i] = car_stage[i]; }
     for (unsigned i = 0; i < ncars; ++i) {
         const fzx_field_car_t *c = &field_cars[i];
@@ -758,10 +776,15 @@ static void field_stage(const fzx_engine_cam_t *cam) {
             : (fzx_closeup_lod = (fzx_field_k >> 8) & 0xffu,
                fzx_closeup_draw_pose(car_stage[c->slot], FIELD_CAR_COMMANDS, &fzx_native_view, cam, vbank, c->slot, c->pos, c->basis)));
     }
+    PROF(6, vp);
     const uint16_t v1 = cpu_frt_count_get();
+#if E2_PROF
+    vp = v1;
+#endif
     field_stage_n = fzx_drive_cars(field_stage_cmds, DRIVE_SLOTS, &fzx_native_view, cam, field_cars, ncars, car_stage_p, car_stage_n);
     field_stage_c3d = (uint16_t)(v1 - v0);
     field_stage_emit = (uint16_t)(cpu_frt_count_get() - v1);
+    PROF(7, vp);
     field_stage_sprites = (uint16_t)fzx_field_draw[0];
     field_stage_near = (uint8_t)fzx_field_report[6]; field_stage_n3d = (uint8_t)fzx_field_report[7];
 }
@@ -773,8 +796,10 @@ static void build(row_t *row, const fzx_engine_cam_t *cam, uint32_t tick, uint16
     uint32_t first = 0, n = 0, road_count = 0;
     const uint16_t t0 = cpu_frt_count_get();
 
+    PROF_MARK(pt);
     if (!fzx_engine_backdrop(&fzx_source_backdrop, cam, k, tick)) fail(20, "BACKDROP", tick);
     if (!fzx_engine_skyline(&fzx_source_skyline, cam)) fail(21, "SKYLINE", tick);
+    PROF(0, pt);
     fzx_sky_status = 1; fzx_skyline_status = 1;
 
     /* The master's prelude: sky lines and cloud fade bands, skyline, floor. */
@@ -782,12 +807,15 @@ static void build(row_t *row, const fzx_engine_cam_t *cam, uint32_t tick, uint16
     present_wait();
 #endif
     if (!fzx_clouds_sky_lines(&fzx_native_view, &fzx_source_backdrop)) fail(22, "SKY LINES", fzx_sky_stats.fault);
+    PROF(1, pt);
     if (!fzx_clouds_native(&commands[CMD_FIRST], FZX_SLAVE_ROAD_RESERVE - 1u, &fzx_native_view, &fzx_source_backdrop, &first))
         fail(23, "CLOUDS", fzx_clouds_rbg.fault);
     ++clouds_pushes;
+    PROF(2, pt);
     if (!fzx_skyline_native(&commands[CMD_FIRST + first], FZX_SLAVE_ROAD_RESERVE - 1u - first, &fzx_native_view, skyline_vram, &n))
         fail(24, "SKYLINE DRAW", fzx_skyline_stats.fault);
     first += n; n = 0;
+    PROF(3, pt);
     {
         /* Floor refusal diagnostics: queue front and presents before the call. */
         const uint32_t pending = fzx_floor_pending, presented = fzx_floor_presented, commits = fzx_floor_commits;
@@ -807,6 +835,7 @@ static void build(row_t *row, const fzx_engine_cam_t *cam, uint32_t tick, uint16
         }
     }
     ++floor_pushes;
+    PROF(4, pt);
     first += n;
     if (first >= FZX_SLAVE_ROAD_RESERVE) fail(26, "PRELUDE OVERFLOW", first);
     vdp1_cmdt_t *jump = &commands[CMD_FIRST + first];
@@ -1000,6 +1029,11 @@ int main(void) {
         if (!fzx_drive_sprites_load(&partitions, clut_used, (uintptr_t)fzx_road_stream_cart_end + 32u, cart_limit,
                                     (void *)scratch, 0x0028D000u - 32u - scratch))
             fail(52, "SPRITE LOAD", fzx_e1_status * 100u + fzx_texture_cd_status.status);
+#if E1_FIELD && E2_ROSTER
+        /* Each rival's own machine sets (the private roster pack) after the player's set. */
+        if (!fzx_drive_roster_load((void *)scratch, 0x0028D000u - 32u - scratch, cart_limit))
+            fail(54, "ROSTER LOAD", fzx_e2_roster[0] * 100u + fzx_texture_cd_status.status);
+#endif
 #if E1_CLOSEUP == 1
         /* Arm A: the vehicle's texels and two shade tables just below the slot pool. */
         const uint32_t closeup_floor = fzx_closeup_load(&partitions, fzx_drive_texture_floor(), (void *)scratch,
@@ -1094,6 +1128,9 @@ int main(void) {
         fzx_input_count = shown;
 
         row_t scratch_row, *row = row_index < row_capacity && !fzx_e0_done ? &rows[row_index] : &scratch_row;
+#if E2_PROF
+        prof_row = row != &scratch_row ? row_index : E2_PROF_ROWS;
+#endif
         memset(row, 0, sizeof(*row));
         row->tick = shown; row->build_field = field;
 #if FZX_E1_DRIVE

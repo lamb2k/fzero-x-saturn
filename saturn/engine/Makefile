@@ -46,6 +46,9 @@ E1_CLOSEUP ?= 0
 # Arm A only: 1 builds the vehicle's commands while the slave builds the track (staged,
 # copied after the shadow); 0 builds them after the track, as the sprite.
 E1_CLOSEUP_EARLY ?= 0
+# The 3D vehicle's generated folders (stills of other machines: machine_rebake_fNN / closeup_fNN).
+E1_REBAKE ?= machine_rebake
+E1_VEHICLE ?= closeup
 # Close-up 3D-N (generated/CLOSEUP-3DN.md): N rivals (1..29) on the SH2ZAM line field, the
 # nearest K cars within D drawn in 3D (K, D: run-time words fzx_field_k, fzx_field_d).
 # Needs E1_CLOSEUP=1 E1_CLOSEUP_EARLY=1 and an SH2ZAM pin with line-field-1.
@@ -94,7 +97,7 @@ E0_RECEIPTS := engine_path/engine_path.receipt road_pack/road_pack.receipt road_
                skyline/skyline.receipt sky/sky.receipt planes_cloud/planes.receipt floor_rbg/floor_rbg.receipt
 E0_RECEIPT_CHECK := $(foreach R,$(E0_RECEIPTS),$(shell sh ../../tools/check_receipt.sh $(G)/$(R) >/dev/null 2>&1 || echo $(R)))
 ifeq ($(FZX_E1_DRIVE),1)
-E1_RECEIPT_CHECK := $(foreach R,physics/physics.receipt $(E1_SPRITES)/racer_sprites.receipt $(if $(filter 1,$(E1_CLOSEUP)),machine_rebake/machine_rebake.receipt closeup/closeup.receipt,),$(shell sh ../../tools/check_receipt.sh $(G)/$(R) >/dev/null 2>&1 || echo $(R)))
+E1_RECEIPT_CHECK := $(foreach R,physics/physics.receipt $(E1_SPRITES)/racer_sprites.receipt $(if $(filter 1,$(E1_CLOSEUP)),$(E1_REBAKE)/machine_rebake.receipt $(E1_VEHICLE)/closeup.receipt,),$(shell sh ../../tools/check_receipt.sh $(G)/$(R) >/dev/null 2>&1 || echo $(R)))
 ifneq ($(strip $(E1_RECEIPT_CHECK)),)
 $(error Missing or stale E1 assets; run their generators: $(E1_RECEIPT_CHECK))
 endif
@@ -156,7 +159,7 @@ ifeq ($(E1_CLOSEUP),1)
 # no original code is linked (engine_closeup.c fills them from the native physics).
 # As ../Makefile: view_indexed shares assembler names with view_rails, and pose-1's
 # assembly reads a file-static table, so both stay out of LTO.
-SH_CFLAGS += -I$(G)/machine_rebake -I$(G)/closeup
+SH_CFLAGS += -I$(G)/$(E1_REBAKE) -I$(G)/$(E1_VEHICLE)
 # 16 root files plus MACHAB.PAK: the CD loader reads up to 32 root entries (default 16).
 SH_CFLAGS += $$(if $$(filter %/texture_cd.c,$$<),-DFZX_TEXTURE_CD_ROOT_ENTRIES=32,)
 SH_CFLAGS += $$(if $$(filter engine_closeup.c %/fzx_vehicle.c %/fzx_vehicle_draw.c,$$<),-DFZX_SOURCE_CAMERA=1 -DFZX_SOURCE_MACHINE=1 -DFZX_VEHICLE_NATIVE=1 -DFZX_VEHICLE_FAST=1 -DFZX_VEHICLE_POSE1=1,)
@@ -196,5 +199,5 @@ ifeq ($(FZX_E1_DRIVE),1)
 	cp $(G)/physics/PHYS.PAK $(G)/$(E1_SPRITES)/RSPRITE.PAK "$(IMAGE_DIRECTORY)/"
 endif
 ifeq ($(E1_CLOSEUP),1)
-	cp $(G)/closeup/MACHAB.PAK "$(IMAGE_DIRECTORY)/"
+	cp $(G)/$(E1_VEHICLE)/MACHAB.PAK "$(IMAGE_DIRECTORY)/"
 endif

@@ -582,7 +582,8 @@ static void build(row_t *row, const fzx_engine_cam_t *cam, uint32_t tick, uint16
         if (!c->is3d) continue;
         car_stage_n[c->slot] = (uint16_t)(c->id == 0
             ? fzx_closeup_draw(car_stage[c->slot], FIELD_CAR_COMMANDS, &fzx_native_view, cam, vbank)
-            : fzx_closeup_draw_pose(car_stage[c->slot], FIELD_CAR_COMMANDS, &fzx_native_view, cam, vbank, c->slot, c->pos, c->basis));
+            : (fzx_closeup_lod = (fzx_field_k >> 8) & 0xffu,
+               fzx_closeup_draw_pose(car_stage[c->slot], FIELD_CAR_COMMANDS, &fzx_native_view, cam, vbank, c->slot, c->pos, c->basis)));
     }
     row->cars3d_ticks = (uint16_t)(cpu_frt_count_get() - v0);
 #elif E1_CLOSEUP_EARLY

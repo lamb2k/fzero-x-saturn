@@ -202,7 +202,8 @@ static uint32_t dist_units(const int32_t a[3], const int32_t b[3]) {
 
 unsigned fzx_field_cars(fzx_field_car_t *out, const sh2z_vd_body_t *player) {
     if (fzx_field_report[0] != 1) return 0;
-    const uint32_t k = fzx_field_k > FZX_FIELD_K_MAX ? FZX_FIELD_K_MAX : fzx_field_k;
+    /* fzx_field_k: K in bits 0..7, the rivals' 3D LOD (source numbering, 0 = 1) in bits 8..15. */
+    const uint32_t k = (fzx_field_k & 0xffu) > FZX_FIELD_K_MAX ? FZX_FIELD_K_MAX : (fzx_field_k & 0xffu);
     const uint32_t dmax = fzx_field_d, margin = fzx_field_margin;
     uint32_t dist[FZX_FIELD_CARS], near = 0;
     /* The player. */

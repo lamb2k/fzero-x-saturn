@@ -12,6 +12,8 @@
 const sh2z_vd_body_t *fzx_drive_body(void);
 
 volatile uint32_t fzx_ab_report[16];
+/* LOD for fzx_closeup_draw_pose (the source's numbering, 1..5): set by the caller per car. */
+volatile uint32_t fzx_closeup_lod = 1;
 fzx_vehicle_stats_t fzx_ab_vehicle_stats;
 
 #define ALIGN32(x) (((x) + 31u) & ~31u)
@@ -171,5 +173,9 @@ unsigned fzx_closeup_draw_pose(vdp1_cmdt_t *commands, unsigned capacity, const f
         state.model_pos[i] = fixed_to_float(pos[i], 16);
         for (unsigned j = 0; j < 3u; ++j) state.model_basis[i][j] = fixed_to_float(basis[i][j], 14);
     }
-    return draw_state(commands, capacity, view, cam, bank, slot, t0);
+    /* The source's LOD numbers: 1..3 draw the pack's LOD 1, 4 its LOD 4, 5 its LOD 5. */
+    state.source_lod = (int)(fzx_closeup_lod >= 1u && fzx_closeup_lod <= 5u ? fzx_closeup_lod : 1u);
+    const unsigned n = draw_state(commands, capacity, view, cam, bank, slot, t0);
+    state.source_lod = 1;
+    return n;
 }

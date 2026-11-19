@@ -146,6 +146,9 @@ static const int32_t EYE_F = QF(-98.869, 16), EYE_U = QF(60.294, 16);
 static const int32_t PITCH_C = QF(CAM_DX / CAM_LEN, 30), PITCH_S = QF(CAM_DY / CAM_LEN, 30);
 static const int32_t ROLL_C = QF(0.920504853, 30), ROLL_S = QF(0.390731128, 30); /* cos, sin 23 degrees */
 volatile uint32_t fzx_e1_roll_limited; /* frames whose camera roll was limited */
+#if E1_CLOSEUP == 1
+volatile uint32_t fzx_e1_cam_orbit; /* stills: see fzx_drive_camera */
+#endif
 
 static int32_t mul30(int32_t a, int32_t b) { return (int32_t)(((int64_t)a * b) >> 30); }
 static uint32_t isqrt64(uint64_t v) {
@@ -159,7 +162,19 @@ static uint32_t isqrt64(uint64_t v) {
 }
 
 void fzx_drive_camera(fzx_engine_cam_t *cam, const fzx_engine_cam_t *lens) {
+#if E1_CLOSEUP == 1
+    /* Stills only: fzx_e1_cam_orbit 1 swings the chase camera 135 degrees around the car's
+     * up axis (a front three-quarter view), 2 by 90 degrees (side); 0 is the chase camera. */
+    int32_t orbit_f[3];
     const int32_t *f = body.body[0], *u = body.body[1];
+    if (fzx_e1_cam_orbit == 1u || fzx_e1_cam_orbit == 2u) {
+        const int32_t oc = fzx_e1_cam_orbit == 1u ? -759250125 : 0, os = fzx_e1_cam_orbit == 1u ? 759250125 : 1073741824;
+        for (unsigned i = 0; i < 3u; ++i) orbit_f[i] = mul30(oc, f[i]) + mul30(os, body.body[2][i]);
+        f = orbit_f;
+    }
+#else
+    const int32_t *f = body.body[0], *u = body.body[1];
+#endif
     int32_t cf[3], cu[3], r0[3];
     for (unsigned i = 0; i < 3u; ++i) {
         cam->eye[i] = body.pos[i] + mul30(EYE_F, f[i]) + mul30(EYE_U, u[i]);

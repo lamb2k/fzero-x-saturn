@@ -40,6 +40,7 @@ unsigned fzx_closeup_draw(vdp1_cmdt_t *commands, unsigned capacity, const fzx_vi
                           const fzx_engine_cam_t *cam, uint32_t bank);
 /* Several 3D cars (FZX_CLOSEUP_CARS slots, each with its own shade and template tables
  * per bank): one car at a Q16 position with Q1.14 rows (forward, up, left). */
+extern volatile uint32_t fzx_closeup_lod; /* the pose draw's source LOD (1..5) */
 unsigned fzx_closeup_draw_pose(vdp1_cmdt_t *commands, unsigned capacity, const fzx_view_t *view,
                                const fzx_engine_cam_t *cam, uint32_t bank, uint32_t slot,
                                const int32_t pos[3], const int16_t basis[3][3]);

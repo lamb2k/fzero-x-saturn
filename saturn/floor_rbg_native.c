@@ -10,6 +10,7 @@
 #if FZX_CLOUDS_VDP2
 #include "clouds_vdp2_native.h"
 #endif
+#include "mem_low.h"
 _Static_assert(!FZX_FLOOR_FIXTURE,"original floor required");
 _Static_assert(sizeof(fzx_floor_rp_t)==sizeof(vdp2_scrn_rp_table_t),"rotation ABI size");
 _Static_assert(offsetof(fzx_floor_rp_t,coefficient_start)==offsetof(vdp2_scrn_rp_table_t,kast),"rotation ABI coefficient");
@@ -26,8 +27,8 @@ volatile uint32_t fzx_floor_pending,fzx_floor_presented,fzx_floor_commits;
 volatile uint32_t fzx_floor_upload_ticks,fzx_floor_upload_blanking;
 static bool load(const char *name,unsigned size,uint32_t hash,uintptr_t destination) {
     const uintptr_t scratch=((uintptr_t)sat_stub_data_end+31u)&~(uintptr_t)31u;
-    return scratch>=0x00200000u && scratch<0x00300000u &&
-        fzx_texture_cd_load(name,size,hash,(void *)destination,(void *)scratch,0x00300000u-scratch);
+    return scratch>=0x00200000u && scratch<FZX_LOW_SCRATCH_TOP &&
+        fzx_texture_cd_load(name,size,hash,(void *)destination,(void *)scratch,FZX_LOW_SCRATCH_TOP-scratch);
 }
 bool fzx_floor_load(void) {
     if(!load("FLOORCHR.BIN",FZX_FLOORCHR_BYTES,FZX_FLOORCHR_HASH,FLOOR_CHARS) ||

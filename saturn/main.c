@@ -9,6 +9,7 @@
 
 #include "fzx.h"
 #include "frame_profile.h"
+#include "mem_low.h"
 #ifndef FZX_SOURCE_RESULTS
 #define FZX_SOURCE_RESULTS 0
 #endif
@@ -1161,6 +1162,10 @@ int
 main(void)
 {
     cpu_intc_mask_set(0);
+#if FZX_MEM_GHOSTS_LOW
+    /* Before any low-WRAM scratch user: the relocated ghost BSS starts zeroed. */
+    fzx_mem_ghosts_boot();
+#endif
 #if FZX_SOURCE_SKY
     fzx_sky_stack_paint();
 #endif
@@ -1171,8 +1176,8 @@ main(void)
     const uintptr_t title_scratch=((uintptr_t)sat_stub_data_end+31u)&~(uintptr_t)31u;
 #if FZX_MENU_TABLES_LOW
     /* Once, before the title: the menu tables into reserved low work RAM. */
-    if(title_scratch<0x00200000u || title_scratch>=0x00300000u ||
-       !fzx_menu_tables_low_load((void *)title_scratch,0x00300000u-title_scratch)) {
+    if(title_scratch<0x00200000u || title_scratch>=FZX_LOW_SCRATCH_TOP ||
+       !fzx_menu_tables_low_load((void *)title_scratch,FZX_LOW_SCRATCH_TOP-title_scratch)) {
         dbgio_printf("MENU TABLES LOAD FAILED %lu",(unsigned long)fzx_menu_tables_low_status);
         dbgio_flush();vdp2_sync();for(;;) {}
     }
@@ -1181,14 +1186,14 @@ main(void)
 #if FZX_SOURCE_MENU
     for(;;) {
 #endif
-    if(title_scratch<0x00200000u || title_scratch>=0x00300000u ||
+    if(title_scratch<0x00200000u || title_scratch>=FZX_LOW_SCRATCH_TOP ||
        !fzx_title_run(&video_fields,commands_buf[0],COMMAND_CAPACITY,
-                      (void *)title_scratch,0x00300000u-title_scratch)) {
+                      (void *)title_scratch,FZX_LOW_SCRATCH_TOP-title_scratch)) {
         dbgio_printf("SOURCE TITLE FAILED");dbgio_flush();vdp2_sync();for(;;) {}
     }
 #if FZX_SOURCE_MENU
     if(!fzx_menu_run(&video_fields,commands_buf[0],COMMAND_CAPACITY,
-                     (void *)title_scratch,0x00300000u-title_scratch)) {
+                     (void *)title_scratch,FZX_LOW_SCRATCH_TOP-title_scratch)) {
         dbgio_printf("SOURCE MENU FAILED");dbgio_flush();vdp2_sync();for(;;) {}
     }
 #if FZX_SOURCE_MACHINE_MENU
@@ -1287,10 +1292,10 @@ main(void)
     }
 #if FZX_HUD_CD
     const uintptr_t hud_scratch=((uintptr_t)sat_stub_data_end+31u)&~(uintptr_t)31u;
-    if(hud_scratch<0x00200000u || hud_scratch>=0x00300000u ||
-       fzx_texture_cd_scratch_bytes()>0x00300000u-hud_scratch ||
+    if(hud_scratch<0x00200000u || hud_scratch>=FZX_LOW_SCRATCH_TOP ||
+       fzx_texture_cd_scratch_bytes()>FZX_LOW_SCRATCH_TOP-hud_scratch ||
        !fzx_texture_cd_load("HUD.PAK",FZX_HUD_BYTES,FZX_HUD_PACK_HASH,
-                           hud_partitions.texture_base,(void *)hud_scratch,0x00300000u-hud_scratch)) {
+                           hud_partitions.texture_base,(void *)hud_scratch,FZX_LOW_SCRATCH_TOP-hud_scratch)) {
         fzx_source_hud_status=2;
         dbgio_printf("\x1b[H\x1b[2J SOURCE HUD LOAD FAILED\n");
         dbgio_flush();vdp2_sync();for(;;) {}
@@ -1416,6 +1421,12 @@ main(void)
 #endif
         dbgio_printf("FRAME PROFILE MEMORY FAILED");dbgio_flush();
         for(;;){}
+    }
+#endif
+#if FZX_MEM_GHOSTS_LOW
+    if(fzx_mem_ghosts_check()!=1) {
+        dbgio_printf("GHOST RESERVATION FAILED %lu",(unsigned long)fzx_mem_ghosts_status);
+        dbgio_flush();vdp2_sync();for(;;){}
     }
 #endif
     uint32_t warmup = 2; /* the first loops still carry the course load */

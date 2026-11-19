@@ -23,7 +23,11 @@ typedef struct {
 } ring_t;
 
 static fzx_course_t active_course, upload_course;
+#if !FZX_MEM_NO_PROTO_RINGS
+/* FZX_MEM_NO_PROTO_RINGS=1 (native core empty, original race): not linked;
+ * nothing on the original-race path reads them (generated/MEM-HEADROOM-PLAN.md). */
 static ring_t rings[MAX_RINGS];
+#endif
 #if !(FZX_NATIVE_CORE_EMPTY && FZX_SOURCE_ROAD_STREAM)
 static sh2z_vec3_t track_mesh[MAX_RINGS * RING_VERTS];
 #endif
@@ -34,7 +38,9 @@ static sh2z_vec3_t transformed[MAX_RINGS * RING_VERTS];
 static uint8_t out_codes[MAX_RINGS * RING_VERTS], in_codes[MAX_RINGS * RING_VERTS];
 static int16_t screen_x[MAX_RINGS * RING_VERTS], screen_y[MAX_RINGS * RING_VERTS];
 static int32_t depth4[MAX_RINGS * RING_VERTS];
+#if !FZX_MEM_NO_PROTO_RINGS
 static sh2z_vec3_t point_ups[FZX_MAX_POINTS];
+#endif
 static sh2z_mesh_view_t mesh_view;
 static fzx_frame_t frame;
 static fzx_poly_t sort_scratch[FZX_MAX_POLYGONS];
@@ -193,6 +199,9 @@ course_geometry_valid(const fzx_course_t *c)
 static void
 build_track(void)
 {
+#if FZX_MEM_NO_PROTO_RINGS
+    ring_count=0;
+#else
     ring_count=active_course.count*SAMPLES;
     for (uint32_t i=0;i<active_course.count;++i)
         point_ups[i]=control_up(&active_course,i);
@@ -236,6 +245,7 @@ build_track(void)
 #if !(FZX_NATIVE_CORE_EMPTY && FZX_SOURCE_ROAD_STREAM)
     (void)sh2z_mesh_view_init(&mesh_view,track_mesh,ring_count*4u);
 #endif
+#endif
     current_ring=0; travel=0; speed=0; lateral=0; laps=1; pose_tracked=false;
 }
 
@@ -276,6 +286,7 @@ fzx_use_demo(void)
 FZX_EXPORT void fzx_set_transform_mode(uint32_t prepared) { use_prepared=!!prepared; }
 FZX_EXPORT uint32_t fzx_sim_id(void) { return FZX_SIM; }
 
+#if !FZX_MEM_NO_PROTO_RINGS
 static int64_t
 distance2(sh2z_vec3_t a, sh2z_vec3_t b)
 {
@@ -283,6 +294,7 @@ distance2(sh2z_vec3_t a, sh2z_vec3_t b)
     /* Q16.16 squared, scaled down so a +/-8192-unit course cannot overflow. */
     return (x>>8)*(x>>8)+(y>>8)*(y>>8)+(z>>8)*(z>>8);
 }
+#endif
 
 FZX_EXPORT void
 fzx_set_pose(const fzx_pose_t *p)
@@ -290,6 +302,11 @@ fzx_set_pose(const fzx_pose_t *p)
     if (!initialized) fzx_init();
     if (!p) { pose_valid=false; return; }
     pose=*p; pose_valid=true;
+#if FZX_MEM_NO_PROTO_RINGS
+    /* No rings: current_ring is read only by the placeholder step/render
+     * and the debugger autopilot, none of which runs on this path. */
+    current_ring=0; pose_tracked=true;
+#else
     /* The ring nearest the craft: everywhere once, then near the last one
      * (a craft moves far less than 16 rings in one tick). */
     const uint32_t span=pose_tracked && ring_count>32u ? 16u : ring_count;
@@ -307,6 +324,7 @@ fzx_set_pose(const fzx_pose_t *p)
     const sh2z_vec3_t to=sh2z_vec3_sub(p->position,rings[best].center);
     if (sh2z_vec3_dot(to,rings[best].forward)<0) best=prev;
     current_ring=best; pose_tracked=true;
+#endif
     speed=0; laps=p->lap;
 }
 
@@ -314,6 +332,9 @@ FZX_EXPORT int32_t
 fzx_steer_hint(uint32_t lookahead)
 {
     if (!initialized || !pose_valid || ring_count==0) return 0;
+#if FZX_MEM_NO_PROTO_RINGS
+    (void)lookahead; return 0; /* the debugger autopilot needs the rings */
+#else
     const sh2z_vec3_t target=rings[(current_ring+lookahead)%ring_count].center;
     const sh2z_vec3_t forward=unit_or(pose.forward,rings[current_ring].forward);
     const sh2z_vec3_t up=unit_or(pose.up,rings[current_ring].up);
@@ -329,6 +350,7 @@ fzx_steer_hint(uint32_t lookahead)
     if (sx>63) sx=63;
     if (sx<-63) sx=-63;
     return (int32_t)sx;
+#endif
 }
 
 FZX_EXPORT void
@@ -342,6 +364,9 @@ fzx_step(uint32_t buttons)
     const sh2z_fx_t steer=SH2Z_ONE/8+speed/5;
     if (buttons&FZX_LEFT) lateral=sh2z_add(lateral,steer);
     if (buttons&FZX_RIGHT) lateral=sh2z_sub(lateral,steer);
+#if FZX_MEM_NO_PROTO_RINGS
+    /* The placeholder driver needs rings; it never runs with the original race. */
+#else
     const sh2z_fx_t lo=-sh2z_max(rings[current_ring].width_right-SH2Z_ONE,0);
     const sh2z_fx_t hi=sh2z_max(rings[current_ring].width_left-SH2Z_ONE,0);
     if (lateral<lo || lateral>hi) { lateral=sh2z_clamp(lateral,lo,hi); speed-=speed/4; }
@@ -350,6 +375,7 @@ fzx_step(uint32_t buttons)
         travel-=rings[current_ring].length;
         if (++current_ring==ring_count) { current_ring=0; if(laps<UINT32_MAX) ++laps; }
     }
+#endif
 }
 
 static int64_t

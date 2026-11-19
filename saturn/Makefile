@@ -729,6 +729,55 @@ $(error FZX_SIMPIPE_DBUF must be 0 or 1)
 else ifneq ($(FZX_SIMPIPE_DBUF_STALE),0)
 $(error FZX_SIMPIPE_DBUF_STALE requires FZX_SIMPIPE_DBUF=1)
 endif
+# Master-stack headroom (generated/MEM-HEADROOM-PLAN.md, C-046). Each knob is
+# default 0, layout only, and attributable on its own.
+# FZX_MEM_GHOSTS_LOW=1: the closure's two ghost arrays (gGhosts,
+# sGhostReplayRecordingBuffer; 64,968 B of high-WRAM BSS) move to a guarded
+# low-WRAM NOLOAD section through one added linker script (mem_ghosts_low.ld,
+# INSERT BEFORE .bss; Yaul's yaul.x stays the primary script). Low-WRAM scratch
+# and the frame/road profile rows stop at the reservation (saturn/mem_low.h).
+FZX_MEM_GHOSTS_LOW ?= 0
+FZX_MEM_SRCS :=
+ifeq ($(FZX_MEM_GHOSTS_LOW),1)
+ifneq ($(FZX_SIM):$(FZX_FRAME_PROFILE),orig:1)
+$(error FZX_MEM_GHOSTS_LOW requires FZX_SIM=orig and FZX_FRAME_PROFILE=1)
+endif
+ifeq ($(FZX_ROAD_STREAM_PHASES),1)
+$(error FZX_MEM_GHOSTS_LOW gives the profile rows all remaining low WRAM; FZX_ROAD_STREAM_PHASES has no room)
+endif
+SH_CFLAGS += -DFZX_MEM_GHOSTS_LOW=1
+SH_LDFLAGS += -Wl,-T,$(abspath mem_ghosts_low.ld)
+FZX_MEM_SRCS := mem_low.c
+else ifneq ($(FZX_MEM_GHOSTS_LOW),0)
+$(error FZX_MEM_GHOSTS_LOW must be 0 or 1)
+endif
+# FZX_MEM_ROADLIST_LOW=1: the road loader's CD file list (7,168 B) moves to the
+# guarded top-of-low-WRAM reservation proven in sim-pipeline checkpoint 3,
+# without the rest of FZX_SIMPIPE_DBUF.
+FZX_MEM_ROADLIST_LOW ?= 0
+ifeq ($(FZX_MEM_ROADLIST_LOW),1)
+ifneq ($(FZX_SOURCE_ROAD):$(FZX_FRAME_PROFILE),1:1)
+$(error FZX_MEM_ROADLIST_LOW requires FZX_SOURCE_ROAD=1 and FZX_FRAME_PROFILE=1)
+endif
+ifeq ($(FZX_ROAD_STREAM_PHASES),1)
+$(error FZX_MEM_ROADLIST_LOW gives the profile rows all remaining low WRAM; FZX_ROAD_STREAM_PHASES has no room)
+endif
+SH_CFLAGS += -DFZX_MEM_ROADLIST_LOW=1
+else ifneq ($(FZX_MEM_ROADLIST_LOW),0)
+$(error FZX_MEM_ROADLIST_LOW must be 0 or 1)
+endif
+# FZX_MEM_NO_PROTO_RINGS=1: with the native core empty, the placeholder
+# simulation's course rings (30,720 B) are neither built nor linked; only the
+# debugger autopilot read them on the original-race path, and it is compiled out.
+FZX_MEM_NO_PROTO_RINGS ?= 0
+ifeq ($(FZX_MEM_NO_PROTO_RINGS),1)
+ifneq ($(FZX_SIM):$(FZX_NATIVE_CORE_EMPTY),orig:1)
+$(error FZX_MEM_NO_PROTO_RINGS requires FZX_SIM=orig and FZX_NATIVE_CORE_EMPTY=1)
+endif
+SH_CFLAGS += -DFZX_MEM_NO_PROTO_RINGS=1
+else ifneq ($(FZX_MEM_NO_PROTO_RINGS),0)
+$(error FZX_MEM_NO_PROTO_RINGS must be 0 or 1)
+endif
 # FZX_ROAD_LOD=1 (default 0): simplified far road. Every frame uses the
 # budget guard's coarse tiering (strip-length tiers), not only frames over
 # the budget. Approximation: far road texture periods merge sooner.
@@ -868,7 +917,7 @@ else ifneq ($(FZX_MENU_TABLES_LOW),0)
 $(error FZX_MENU_TABLES_LOW must be 0 or 1)
 endif
 
-SH_SRCS := $(FZX_FINISH_MENU_SRCS) $(FZX_RECORDS_SRCS) $(FZX_RESULTS_SRCS) $(FZX_MACHINE_MENU_SRCS) $(FZX_COURSE_MENU_SRCS) $(FZX_MENU_SRCS) $(FZX_TITLE_SRCS) $(FZX_COUNTDOWN_SRCS) $(FZX_FRAME_PROFILE_SRCS) main.c ../src/fzx.c $(FZX_ORIG_SRCS) $(FZX_HUD_SRCS) $(FZX_CAMERA_SRCS) $(FZX_ROAD_SRCS) $(FZX_SKY_SRCS) $(FZX_MACHINE_SRCS) $(FZX_SH2ZAM_SRCS) $(FZX_MENU_TABLES_SRCS)
+SH_SRCS := $(FZX_FINISH_MENU_SRCS) $(FZX_RECORDS_SRCS) $(FZX_RESULTS_SRCS) $(FZX_MACHINE_MENU_SRCS) $(FZX_COURSE_MENU_SRCS) $(FZX_MENU_SRCS) $(FZX_TITLE_SRCS) $(FZX_COUNTDOWN_SRCS) $(FZX_FRAME_PROFILE_SRCS) main.c ../src/fzx.c $(FZX_ORIG_SRCS) $(FZX_HUD_SRCS) $(FZX_CAMERA_SRCS) $(FZX_ROAD_SRCS) $(FZX_SKY_SRCS) $(FZX_MACHINE_SRCS) $(FZX_SH2ZAM_SRCS) $(FZX_MENU_TABLES_SRCS) $(FZX_MEM_SRCS)
 SH_CFLAGS += -DFZX_SH2_DIVU=1 -O2 -std=c11 -Wall -Wextra -I../include \
              -I$(SH2ZAM_ROOT)/saturn/include -DSH2Z_REQUIRE_SH2=1
 # These tagged view units contain same-named local assembler macros. Keep their

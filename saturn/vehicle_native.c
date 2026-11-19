@@ -11,6 +11,7 @@
 #include "texture_cd.h"
 #include <stddef.h>
 #include <string.h>
+#include "mem_low.h"
 #ifndef FZX_VEHICLE_FAST
 #define FZX_VEHICLE_FAST 0
 #endif
@@ -82,7 +83,7 @@ bool fzx_machine_load(void *vram){
     uintptr_t scratch=((uintptr_t)sat_stub_data_end+31u)&~(uintptr_t)31u,log=(uintptr_t)fzx_input_log;
     uintptr_t metadata=(fzx_road_tile_low_end+95u)&~(uintptr_t)31u;
     uintptr_t cache=(metadata+FZX_MACHINE_REBAKE_METADATA_BYTES+31u)&~(uintptr_t)31u,end=cache+WORK_LOW_BYTES;
-    if(fzx_road_tile_status!=1||metadata<0x00200000u||end+32>0x00300000u||scratch+fzx_texture_cd_scratch_bytes()>log-32){fzx_machine_status=2;return false;}
+    if(fzx_road_tile_status!=1||metadata<0x00200000u||end+32>FZX_LOW_SCRATCH_TOP||scratch+fzx_texture_cd_scratch_bytes()>log-32){fzx_machine_status=2;return false;}
     fzx_machine_low_start=(uint32_t)metadata;fzx_machine_low_end=(uint32_t)end;
 #if FZX_VEHICLE_NATIVE
 #if FZX_VEHICLE_NATIVE_LOW_WORK

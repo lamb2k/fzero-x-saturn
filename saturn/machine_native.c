@@ -9,6 +9,7 @@
 #include "texture_cd.h"
 #include "machine_identity.h"
 #include <string.h>
+#include "mem_low.h"
 extern unsigned char sat_stub_data_end[];
 extern volatile uint32_t fzx_input_log[];
 volatile uint32_t fzx_machine_status,fzx_machine_busy,fzx_machine_ticks,fzx_machine_fields;
@@ -21,7 +22,7 @@ bool fzx_machine_load(void *vram){
     uintptr_t scratch=((uintptr_t)sat_stub_data_end+31u)&~(uintptr_t)31u,log=(uintptr_t)fzx_input_log;
     uintptr_t metadata=(fzx_road_tile_low_end+95u)&~(uintptr_t)31u;
     uintptr_t cache=(metadata+FZX_MACHINE_METADATA_BYTES+31u)&~(uintptr_t)31u,end=cache+sizeof(*work);
-    if(fzx_road_tile_status!=1||metadata<0x00200000u||end+32>0x00300000u||scratch+fzx_texture_cd_scratch_bytes()>log-32){fzx_machine_status=2;return false;}
+    if(fzx_road_tile_status!=1||metadata<0x00200000u||end+32>FZX_LOW_SCRATCH_TOP||scratch+fzx_texture_cd_scratch_bytes()>log-32){fzx_machine_status=2;return false;}
     fzx_machine_low_start=(uint32_t)metadata;fzx_machine_low_end=(uint32_t)end;work=(fzx_machine_work_t *)cache;
     for(unsigned i=0;i<8;++i){((volatile uint32_t *)metadata)[(int)i-8]=0x5ac71e39u;((volatile uint32_t *)end)[i]=0x5ac71e39u;}
     if(!fzx_texture_cd_load("MACHINE.PAK",FZX_MACHINE_METADATA_BYTES,FZX_MACHINE_METADATA_HASH,(void *)metadata,(void *)scratch,log-32-scratch)||

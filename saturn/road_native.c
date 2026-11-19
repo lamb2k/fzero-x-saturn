@@ -3,6 +3,7 @@
 #include "road_native.h"
 #include "road_cd.h"
 #include "road_identity.h"
+#include "mem_low.h"
 
 _Static_assert(!FZX_ROAD_PACK_FIXTURE,"A source-road race requires the local source pack");
 _Static_assert(FZX_ROAD_PACK_BYTES<=FZX_ROAD_MAX_BYTES,"road pack exceeds cartridge");
@@ -24,8 +25,9 @@ enum { ROOT_ENTRIES=32 };
 #else
 enum { ROOT_ENTRIES=16 };
 #endif
-#if FZX_SIMPIPE_DBUF
+#if FZX_SIMPIPE_DBUF || FZX_MEM_ROADLIST_LOW
 #include "simpipe.h"
+_Static_assert(FZX_SIMPIPE_TOP_RESERVE_BASE==FZX_MEM_ROADLIST_RESERVE_BASE,"one road-list reservation");
 _Static_assert(ROOT_ENTRIES*sizeof(cdfs_filelist_entry_t)==FZX_SIMPIPE_ROAD_LIST_BYTES,"road file list reservation");
 #define entries ((cdfs_filelist_entry_t *)(uintptr_t)FZX_SIMPIPE_ROAD_LIST)
 static void road_list_guards(void){
@@ -101,7 +103,7 @@ bool fzx_road_load(const void *course,uint32_t course_bytes) {
     fzx_road_load_status.status=13;
     const cdfs_config_t config={.sector_read=read_volume_sector,.sectors=&sector,.sector_count=1};
     cdfs_config_set(&config);
-#if FZX_SIMPIPE_DBUF
+#if FZX_SIMPIPE_DBUF || FZX_MEM_ROADLIST_LOW
     road_list_guards();
 #endif
     cdfs_filelist_init(&list,entries,ROOT_ENTRIES);

@@ -3,14 +3,22 @@
 #include "frame_profile.h"
 #include "frame_clock.h"
 #define CAPACITY 4096u
-#if FZX_SIMPIPE_DBUF
-/* Sim-pipeline checkpoint 3 carves its slots ahead of the profile, so the
- * frame and road rows share one runtime capacity (at most CAPACITY) that
- * fits what is left below 0x00300000 with its guards. */
+#include "mem_low.h"
+#if FZX_SIMPIPE_DBUF || FZX_MEM_GHOSTS_LOW || FZX_MEM_ROADLIST_LOW
+/* Sim-pipeline checkpoint 3 carves its slots ahead of the profile, and the
+ * low-WRAM reservations at the top (road file list, relocated ghost BSS) end
+ * it lower, so the frame and road rows share one runtime capacity (at most
+ * CAPACITY) that fits what is left below LOW_TOP with its guards. */
 static uint32_t row_capacity;
 #define ROW_CAPACITY row_capacity
+#if FZX_SIMPIPE_DBUF
 #include "simpipe.h"
-#define LOW_TOP FZX_SIMPIPE_TOP_RESERVE_BASE
+#endif
+#if FZX_MEM_GHOSTS_LOW
+#define LOW_TOP FZX_MEM_GHOSTS_RESERVE_BASE
+#else
+#define LOW_TOP FZX_MEM_ROADLIST_RESERVE_BASE
+#endif
 #else
 #define LOW_TOP 0x00300000u
 #define ROW_CAPACITY CAPACITY
@@ -93,7 +101,7 @@ static uint32_t stamp(uint32_t *field) {
 }
 bool fzx_fp_init(uint32_t low_end,uint32_t hz) {
     uintptr_t start=(low_end+95u)&~(uintptr_t)31u;
-#if FZX_SIMPIPE_DBUF
+#if FZX_SIMPIPE_DBUF || FZX_MEM_GHOSTS_LOW || FZX_MEM_ROADLIST_LOW
     {
         uint32_t per_row=sizeof(row_t);
 #if FZX_SOURCE_ROAD_STREAM

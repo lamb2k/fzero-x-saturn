@@ -2,6 +2,7 @@
 #include "texture_cd.h"
 #include "planes_identity.h"
 #include <string.h>
+#include "mem_low.h"
 /* The unchanged combined identity header predates the compact-pack tag. */
 #ifndef FZX_PLANE_CLOUD_ONLY_PACK
 #define FZX_PLANE_CLOUD_ONLY_PACK 0
@@ -14,8 +15,8 @@ volatile uint32_t fzx_plane_status,fzx_plane_busy,fzx_plane_ticks;
 volatile uint32_t fzx_plane_fields;
 bool fzx_planes_load(void *vram) {
     uintptr_t start=((uintptr_t)sat_stub_data_end+31u)&~(uintptr_t)31u;
-    if(start<0x00200000u || start>=0x00300000u || fzx_texture_cd_scratch_bytes()>0x00300000u-start)return false;
-    bool ok=fzx_texture_cd_load("PLANES.PAK",FZX_PLANE_RESIDENT_BYTES,FZX_PLANE_HASH,vram,(void *)start,0x00300000u-start);
+    if(start<0x00200000u || start>=FZX_LOW_SCRATCH_TOP || fzx_texture_cd_scratch_bytes()>FZX_LOW_SCRATCH_TOP-start)return false;
+    bool ok=fzx_texture_cd_load("PLANES.PAK",FZX_PLANE_RESIDENT_BYTES,FZX_PLANE_HASH,vram,(void *)start,FZX_LOW_SCRATCH_TOP-start);
     fzx_plane_status=ok?1:2;return ok;
 }
 typedef struct {vdp1_cmdt_t *cmd;uintptr_t pixels;uint16_t *shades;unsigned count;} submit_t;

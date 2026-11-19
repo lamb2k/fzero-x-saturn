@@ -287,6 +287,16 @@ static void hw_count(void) {
 }
 #endif
 
+#ifndef ENG_PACE
+#define ENG_PACE 0
+#endif
+#if ENG_PACE
+/* ENG_PACE: 1 adaptive (when the last presented frame's VDP1 draw ran past fzx_pace_limit FRT
+ * ticks, 0 = one field, the next build waits for a two-field gap since the previous build);
+ * 2 the 30 fps lock (builds, so presents, at least two fields apart). */
+volatile uint32_t fzx_pace_last_draw, fzx_pace_limit, fzx_pace_holds;
+static uint32_t pace_last_build;
+#endif
 /* The floor's render-end callback calls this when a frame has been drawn. */
 void fzx_fp_present(void) {
 #if E0_HW_COUNTER
@@ -296,6 +306,9 @@ void fzx_fp_present(void) {
     if (i && i <= row_capacity && !rows[i - 1u].present_field) {
         rows[i - 1u].present_field = video_fields;
         rows[i - 1u].draw_ticks = (uint16_t)((uint16_t)fzx_e0_draw_end_frt - rows[i - 1u].submit_frt);
+#if ENG_PACE
+        fzx_pace_last_draw = rows[i - 1u].draw_ticks;
+#endif
     }
 }
 
@@ -1180,6 +1193,21 @@ int main(void) {
 #endif
         const uint16_t w1 = cpu_frt_count_get();
         before_master();
+#if ENG_PACE
+        {
+#if ENG_PACE == 2
+            const uint32_t need = 1u; /* the lock is on the submit (below) */
+#else
+            const uint32_t limit = fzx_pace_limit ? fzx_pace_limit : (uint32_t)field_frt;
+            const uint32_t need = fzx_pace_last_draw > limit ? 2u : 1u;
+#endif
+            if (pace_last_build && video_fields - pace_last_build < need) {
+                ++fzx_pace_holds;
+                while (video_fields - pace_last_build < need) {}
+            }
+            pace_last_build = video_fields;
+        }
+#endif
         row->wait_prev_ticks = (uint16_t)((uint16_t)(kicked - w0) + (uint16_t)(cpu_frt_count_get() - w1));
 #if FZX_E1_DRIVE
         build(row, cam, shown, kicked);
@@ -1235,6 +1263,16 @@ int main(void) {
                 dbgio_flush();
                 hw_mark_frames = frames; hw_next = (hw_next ? hw_next : field) + 60u;
             }
+        }
+#endif
+#if ENG_PACE == 2
+        /* 30 fps lock: present_field is the field in which VDP1 finished the previous frame
+         * (its swap follows at the next VBlank). Submitting no sooner than two fields after it
+         * puts this frame's end of draw, so its swap, at least two fields after the previous. */
+        if (row_index >= 2u && row != &scratch_row) {
+            volatile row_t *const last = &rows[row_index - 2u];
+            while (!last->present_field) {}
+            if (video_fields < last->present_field + 2u) { ++fzx_pace_holds; while (video_fields < last->present_field + 2u) {} }
         }
 #endif
         row->submit_frt = cpu_frt_count_get();

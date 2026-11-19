@@ -6,9 +6,9 @@
  * original font on NBG3 (the manager's layer) until Codex's C8 screens bind. LOAD
  * shows a text loading card; RACE is the E1 drive with the 3D player (engine_main.c).
  *
- * Video: the manager owns the VDP1 command list outside RACE (an empty list each
- * frame), NBG3 and colour offset A (every fade). RACE owns everything else while it
- * runs; its release turns RBG0 off and puts the back screen to black. */
+ * Video: the manager owns the VDP1 command list outside RACE (prelude, a black
+ * full-screen polygon, END each frame), NBG3 and colour offset A (every fade). RACE owns
+ * everything else while it runs; its release returns VDP2 to the boot baseline. */
 #include <string.h>
 #include <yaul.h>
 #include "road_cd.h"
@@ -150,17 +150,48 @@ static void snd_event(uint32_t id) {
 }
 static void snd_deliver(void) { fzx_scn_report[26] += snd_count; snd_count = 0; }
 
-/* The manager's own frames (menus, loading, transitions) send VDP1 nothing: a list
- * outside the race's frame flow stalls Yaul's VDP1 sync in this image (2026-11-19,
- * Ymir). The sprite layer is hidden instead (VDP2 sprite priority 0) whenever RACE is
- * not drawing, so the race's last VDP1 image is never shown behind a menu. */
+/* The manager's VDP1 list for frames RACE doesn't draw: system clip, local origin and
+ * END (menu scenes will add their commands between the prelude and END). */
+static vdp1_cmdt_t menu_cmds[4];
+static vdp1_cmdt_list_t menu_list;
+static void menu_list_init(void) {
+    const int16_vec2_t clip = INT16_VEC2_INITIALIZER(319, 223);
+    const int16_vec2_t origin = INT16_VEC2_INITIALIZER(0, 0);
+    memset(menu_cmds, 0, sizeof(menu_cmds));
+    vdp1_cmdt_system_clip_coord_set(&menu_cmds[0]);
+    vdp1_cmdt_vtx_system_clip_coord_set(&menu_cmds[0], clip);
+    vdp1_cmdt_local_coord_set(&menu_cmds[1]);
+    vdp1_cmdt_vtx_local_coord_set(&menu_cmds[1], origin);
+    {   /* Full-screen black polygon: the frame's erase. */
+        const vdp1_cmdt_draw_mode_t mode = {.pre_clipping_disable = 1};
+        vdp1_cmdt_polygon_set(&menu_cmds[2]);
+        vdp1_cmdt_draw_mode_set(&menu_cmds[2], mode);
+        vdp1_cmdt_color_set(&menu_cmds[2], RGB1555(1, 0, 0, 0));
+        menu_cmds[2].cmd_xa = 0; menu_cmds[2].cmd_ya = 0; menu_cmds[2].cmd_xb = 319; menu_cmds[2].cmd_yb = 0;
+        menu_cmds[2].cmd_xc = 319; menu_cmds[2].cmd_yc = 223; menu_cmds[2].cmd_xd = 0; menu_cmds[2].cmd_yd = 223;
+    }
+    vdp1_cmdt_end_set(&menu_cmds[3]);
+    menu_list.cmdts = menu_cmds; menu_list.count = 4;
+}
+/* A frame of the manager's (menus, loading, transitions): its VDP1 list (menu scenes
+ * add their commands between the prelude and END) and the VDP2 commit.
+ * Each list waits for the previous VDP1 frame to complete (vdp1_sync_wait), as the
+ * race's serial frames do: a put while Yaul's previous sync is still pending stalls in
+ * vdp1_sync_cmdt_put (2026-11-19, Ymir; the cause of the earlier menu-list hang). */
 static void own_frame(void) {
-    vdp2_sync();
     vdp2_sync_wait();
+    vdp1_sync_put_wait();
+    vdp1_sync_wait();
+    vdp1_sync_cmdt_list_put(&menu_list, 0);
+    vdp1_sync_render();
+    vdp1_sync();
+    vdp2_sync();
 }
 
-static void text_frame(void) {
-    dbgio_flush();
+/* NBG3 text goes to VRAM only on the frames that printed (a flush each frame next to
+ * the VDP1 list hand-over stalls Yaul's sync in this image). */
+static void text_frame(bool printed) {
+    if (printed) dbgio_flush();
     own_frame();
 }
 
@@ -399,6 +430,7 @@ static void load_tick(void *u, uint32_t s) {
             return;
         }
         fzx_race_load();
+        fzx_race_render_callback(false); /* until RACE enters */
         load_running = false;
         fzx_cd_yield = NULL;
         bar_total = fzx_cd_stats[0] - s0;
@@ -425,6 +457,7 @@ static bool race_enter(void *u, uint32_t s) {
     (void)u; (void)s;
     (void)sh2z_arena_alloc(&race_arena, 256u, 16u);
     if (retry_entering) { *vdp2_regs_get() = race_regs; retry_entering = false; }
+    fzx_race_render_callback(true);
     fzx_race_begin();
     end_reason = FZX_END_NONE; end_wait = 0; max_kmh = 0;
     ++run_counter;
@@ -471,6 +504,7 @@ static void race_tick(void *u, uint32_t s) {
 static void race_release(void *u, uint32_t s) {
     (void)u; (void)s;
     /* RACE's VDP2 lease back to the baseline (registers; RBG0 off, the back screen black). */
+    fzx_race_render_callback(false);
     race_regs = *vdp2_regs_get();
     race_regs_kept = true;
     *vdp2_regs_get() = baseline_regs;
@@ -517,6 +551,15 @@ static void draw_current(void) {
 
 void fzx_scn_main(void) {
 
+    menu_list_init();
+    /* Yaul leaves the end-of-draw interrupt masked; unmask it as the race load does
+     * (which later chains its stamp ahead of Yaul's handler). */
+    {
+        const uint32_t mask = cpu_intc_mask_get();
+        cpu_intc_mask_set(15);
+        scu_ic_mask_chg(SCU_IC_MASK_ALL & ~SCU_IC_MASK_SPRITE_END, SCU_IC_MASK_NONE);
+        cpu_intc_mask_set(mask);
+    }
     sh2z_arena_init(&menu_arena, menu_heap, sizeof(menu_heap));
     sh2z_arena_init(&race_arena, race_heap, sizeof(race_heap));
     sh2z_scene_input_init(&input, PAD_UP | PAD_DOWN | PAD_LEFT | PAD_RIGHT, 20u, 6u);
@@ -566,22 +609,20 @@ void fzx_scn_main(void) {
         }
         if (seq.phase == SH2Z_SCENE_FAULT) fault(2, "ENTER");
         apply_fade(level);
-        /* The sprite layer shows only while RACE draws (user_init's priority 6). */
-        const bool race_drawing = seq.current == FZX_SCN_RACE && sh2z_scene_drawing(&seq);
-        vdp2_sprite_priority_set(0, race_drawing ? 6u : 0u);
         snd_deliver();
         if (sh2z_scene_drawing(&seq)) {
             own_frames = 0;
             if (seq.current == FZX_SCN_RACE) (void)fzx_race_frame();
-            else { draw_current(); text_frame(); }
+            else { const bool printed = text_dirty; draw_current(); text_frame(printed); }
         } else {
             own_frame();
             ++own_frames;
             ++fzx_scn_report[22];
-            /* Confirmed retirement: a field has been displayed with the sprite layer
-             * hidden (own_frame waited for its VDP2 commit) and VDP1 has no list in
-             * flight, so nothing VDP1 reads or shows still references the scene. */
-            if (seq.phase == SH2Z_SCENE_RETIRE && own_frames >= 1u && !vdp1_sync_busy()) sh2z_scene_retired(&seq);
+            /* Confirmed retirement: the manager's own list has replaced the scene's last
+             * one. own_frame waits for the previous VDP1 frame (vdp1_sync_wait) before it
+             * puts its list, so at the second own frame the first manager list has been
+             * drawn and shown: nothing VDP1 reads or shows still references the scene. */
+            if (seq.phase == SH2Z_SCENE_RETIRE && own_frames >= 2u) sh2z_scene_retired(&seq);
         }
         fzx_scn_report[1] = seq.current; fzx_scn_report[2] = seq.phase; fzx_scn_report[3] = level;
         fzx_scn_report[4] = seq.epoch; fzx_scn_report[5] = seq.frames; fzx_scn_report[6] = seq.switches;

@@ -50,6 +50,7 @@ uint32_t fzx_scn_player_family(void);
 
 /* engine_main.c (shared text with the plain image's main). */
 uint32_t video_fields_get(void);
+void fzx_race_render_callback(bool on);
 void fzx_race_load(void);
 void fzx_race_begin(void);
 bool fzx_race_frame(void);

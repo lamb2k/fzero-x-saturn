@@ -726,6 +726,8 @@ int main(void) {
 }
 
 uint32_t video_fields_get(void) { return video_fields; }
+/* The race's VDP1 render callback (the floor's present) runs only while RACE draws. */
+void fzx_race_render_callback(bool on) { vdp1_sync_render_set(on ? render_end : NULL, NULL); }
 
 static fzx_engine_cam_t drive_cam;
 static const fzx_engine_cam_t *scn_lens;

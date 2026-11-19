@@ -35,6 +35,18 @@
 #if FZX_E1_DRIVE
 #include "engine_drive.h"
 #endif
+#ifndef E1_CLOSEUP
+#define E1_CLOSEUP 0
+#endif
+#ifndef E1_CLOSEUP_EARLY
+#define E1_CLOSEUP_EARLY 0
+#endif
+#if E1_CLOSEUP == 1
+#include "engine_closeup.h"
+#define CLOSEUP_COMMANDS FZX_CLOSEUP_SLOTS
+#else
+#define CLOSEUP_COMMANDS 0u
+#endif
 #if FZX_ROAD_STREAM_PHASES
 /* Diagnostic builds only: the track build's phase totals (slave timer units). */
 fzx_rsp_state_t fzx_rsp;
@@ -80,8 +92,10 @@ enum {
     WIDTH = 320, HEIGHT = 224,
     CMD_SYSTEM_CLIP = 0, CMD_LOCAL = 1, CMD_FIRST = 2,
     SCENE_CAPACITY = FZX_SLAVE_ROAD_RESERVE + FZX_ROAD_STREAM_MAX_DRAWS + 8u,
-    /* E1: user clip, shadow and sprite for the player after the track. */
-    DRIVE_SLOTS = FZX_E1_DRIVE ? 3u : 0u,
+    /* E1: user clip, shadow and sprite for the player after the track
+     * (close-up arm A: and the 3D model's commands). */
+    CLOSEUP_SLOTS = CLOSEUP_COMMANDS,
+    DRIVE_SLOTS = FZX_E1_DRIVE ? 3u + CLOSEUP_SLOTS : 0u,
     CMD_CAPACITY = SCENE_CAPACITY + 3u + DRIVE_SLOTS,
     PATH_BASE = 0x00200000u, PATH_CAPACITY = 0x0008C000u, /* Makefile: sat_stub_data_end follows */
     ROW_MAGIC = 0x45305246u, /* "E0RF" */
@@ -704,6 +718,22 @@ static void build(row_t *row, const fzx_engine_cam_t *cam, uint32_t tick, uint16
     memset(jump, 0, sizeof(*jump));
     vdp1_cmdt_jump_skip_assign(jump, CMD_FIRST + FZX_SLAVE_ROAD_RESERVE);
     row->master_ticks = (uint16_t)(cpu_frt_count_get() - t0);
+#if E1_CLOSEUP == 1
+#if FZX_VDP1_DBANK
+    const uint32_t vbank = sh2z_vdp1_banks_bank(&fzx_dbank_banks);
+#else
+    const uint32_t vbank = 0;
+#endif
+#if E1_CLOSEUP_EARLY
+    /* Arm A, early: the vehicle is built while the slave still builds the track (its
+     * Gouraud words go to this build's bank, which VDP1 is not drawing); only the
+     * copy of its commands after the shadow waits for the track. */
+    static vdp1_cmdt_t vehicle_stage[FZX_CLOSEUP_SLOTS];
+    const uint16_t v0 = cpu_frt_count_get();
+    const unsigned vehicle_staged = fzx_closeup_draw(vehicle_stage, FZX_CLOSEUP_SLOTS, &fzx_native_view, cam, vbank);
+    const uint16_t vehicle_ticks = (uint16_t)(cpu_frt_count_get() - v0);
+#endif
+#endif
 
     const uint16_t t1 = cpu_frt_count_get();
     if (!fzx_slave_road_finish(&video_fields, &road_count))
@@ -718,9 +748,21 @@ static void build(row_t *row, const fzx_engine_cam_t *cam, uint32_t tick, uint16
 #if FZX_E1_DRIVE
     {
         const uint16_t s0 = cpu_frt_count_get();
-        draws += fzx_drive_sprites(&commands[CMD_FIRST + draws], DRIVE_SLOTS, &fzx_native_view, cam);
+        draws += fzx_drive_sprites(&commands[CMD_FIRST + draws], DRIVE_SLOTS - CLOSEUP_SLOTS, &fzx_native_view, cam);
+#if E1_CLOSEUP == 1 && E1_CLOSEUP_EARLY
+        /* Arm A, early: the staged vehicle after its shadow. */
+        memcpy(&commands[CMD_FIRST + draws], vehicle_stage, vehicle_staged * sizeof(vdp1_cmdt_t));
+        draws += vehicle_staged;
+#elif E1_CLOSEUP == 1
+        /* Arm A: the 3D model after its shadow, Gouraud words in this build's bank. */
+        draws += fzx_closeup_draw(&commands[CMD_FIRST + draws], CLOSEUP_SLOTS, &fzx_native_view, cam, vbank);
+#endif
         row->sprite_x = (int16_t)fzx_e1_sprite_pos[0]; row->sprite_y = (int16_t)fzx_e1_sprite_pos[1];
         row->sprite_ticks = (uint16_t)(cpu_frt_count_get() - s0);
+#if E1_CLOSEUP == 1 && E1_CLOSEUP_EARLY
+        /* Master time of the player's draw, wherever it ran (the vehicle ran before the wait). */
+        row->sprite_ticks = (uint16_t)(row->sprite_ticks + vehicle_ticks);
+#endif
     }
 #endif
     vdp1_cmdt_t *end = &commands[CMD_FIRST + draws];
@@ -815,6 +857,13 @@ int main(void) {
         if (!fzx_drive_sprites_load(&partitions, clut_used, (uintptr_t)fzx_road_stream_cart_end + 32u, cart_limit,
                                     (void *)scratch, 0x0028D000u - 32u - scratch))
             fail(52, "SPRITE LOAD", fzx_e1_status * 100u + fzx_texture_cd_status.status);
+#if E1_CLOSEUP == 1
+        /* Arm A: the vehicle's texels and two shade tables just below the slot pool. */
+        const uint32_t closeup_floor = fzx_closeup_load(&partitions, fzx_drive_texture_floor(), (void *)scratch,
+                                                        0x0028D000u - 32u - scratch);
+        if (!closeup_floor) fail(53, "VEHICLE LOAD", fzx_ab_report[0] * 100u + fzx_texture_cd_status.status);
+        if (offset > closeup_floor) fail(51, "SPRITE VRAM OVERLAP", offset);
+#endif
         if (offset > fzx_drive_texture_floor()) fail(51, "SPRITE VRAM OVERLAP", offset);
     }
 #endif

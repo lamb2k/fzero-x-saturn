@@ -114,6 +114,10 @@ void fzx_drive_step(uint32_t n) {
 }
 
 uint32_t fzx_drive_tick(void) { return ticks; }
+#if E1_CLOSEUP == 1
+/* Arm A (engine_closeup.c) poses the 3D model from the body itself. */
+const sh2z_vd_body_t *fzx_drive_body(void) { return &body; }
+#endif
 
 /* ---- chase camera --------------------------------------------------------------
  * Fitted to the race camera (camera 0) against the car over ticks 600..6900 of the
@@ -206,7 +210,14 @@ void fzx_drive_camera(fzx_engine_cam_t *cam, const fzx_engine_cam_t *lens) {
 #define SHADOW_H 16u
 #define VDP1_VRAM_BASE 0x25C00000u
 #define CT(p) ((__typeof__(p))((uintptr_t)(p) | CPU_CACHE_THROUGH))
+#if E1_CLOSEUP == 2
+/* Arm B: the near set's header and 128-cell table (2,216 B) need a larger work RAM copy. */
+enum { CLUT_SETS = 60u, POOL_SLOTS = 90u, FILL_MAX = 32u, SET_TABLE_BYTES = 4096u, FILL_BUDGET_TICKS = 210u /* 1 ms at FRT/128 */ };
+volatile uint32_t fzx_ab_cell[3] = { 0xffffu, 0u, 0u }; /* last cell, changes, last scale (Q16 screen px per cell px) */
+volatile uint32_t fzx_ab_cell_frames[128];           /* frames per cell */
+#else
 enum { CLUT_SETS = 60u, POOL_SLOTS = 90u, FILL_MAX = 32u, SET_TABLE_BYTES = 2048u, FILL_BUDGET_TICKS = 210u /* 1 ms at FRT/128 */ };
+#endif
 static const uint32_t pool_sizes[4] = { 512u, 1024u, 1536u, 2304u }, pool_counts[4] = { 40u, 24u, 20u, 6u };
 typedef struct {sh2z_rspr_set_t header;sh2z_rspr_cell_t cell;uint16_t clut[16];uint8_t pixels[SHADOW_W*SHADOW_H/2];} shadow_set_t;
 static const sh2z_rspr_set_t *racer_set, *shadow_set; /* racer_set: header and cells in work RAM */
@@ -398,9 +409,20 @@ unsigned fzx_drive_sprites(vdp1_cmdt_t *commands, unsigned capacity, const fzx_v
         if (sh2z_rspr_pose(&pick, &place, &depth, &shadow_camera, shadow_set, ground, basis) &&
             sh2z_rspr_emit_valid((uint16_t *)(void *)&commands[out], shadow_set, &zero, &place, shadow_vram, shadow_pmod)) ++out;
     }
+#if E1_CLOSEUP == 1
+    /* Arm A: the 3D model follows the shadow (engine_closeup.c); no sprite cell. */
+    fzx_e1_report[10] = out - 1u;
+    return out;
+#endif
     {
         int32_t depth; sh2z_rspr_pick_t pick; sh2z_rspr_place_t place;
         if (sh2z_rspr_pose(&pick, &place, &depth, &racer_camera, racer_set, pos, basis)) {
+#if E1_CLOSEUP == 2
+            /* Arm B: which cells the player shows (look list: cell changes per run). */
+            if (pick.cell != fzx_ab_cell[0]) ++fzx_ab_cell[1];
+            fzx_ab_cell[0] = pick.cell; fzx_ab_cell[2] = (uint32_t)place.scale;
+            if (pick.cell < 128u) fzx_ab_cell_frames[pick.cell] += 1u;
+#endif
             /* Key = racer x 1024 + profile x 256 + cell (player 0, profile 0). */
             uint32_t slot = 0;
             const int r = sh2z_scache_get(&pool, pick.cell, cell_bytes(pick.cell), false, &slot);

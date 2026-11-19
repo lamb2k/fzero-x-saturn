@@ -88,6 +88,36 @@ volatile uint32_t fzx_e0_report[16];
 volatile uint32_t fzx_e0_floor_diag[11]; /* [10]: refused frames skipped (E1) */
 #if FZX_E1_DRIVE
 static uint32_t floor_refusals_run;
+#include "fzx_floor_rbg.h"
+/* Floor fault probe (E1): the first refused frame's inputs, then the same prepare
+ * run again as is and with every interrupt masked. [0] refusals seen, [1] tick,
+ * [2] retry ok, [3] retry fault, [4] masked ok, [5] masked fault, [6] retry ok
+ * count over all refusals, [7] masked ok count. */
+volatile uint32_t fzx_e1_floor_probe[8];
+fzx_engine_cam_t fzx_e1_floor_cam;
+fzx_view_t fzx_e1_floor_view;
+RefBackdrop fzx_e1_floor_backdrop;
+static fzx_floor_rbg_t probe_out;
+static bool probe_emit(void *context, const fzx_floor_polygon_t *q) { (void)q; ++*(uint32_t *)context; return true; }
+static void floor_probe(const fzx_engine_cam_t *cam, uint32_t tick) {
+    uint32_t emitted = 0;
+    const bool first = fzx_e1_floor_probe[0]++ == 0u;
+    if (first) {
+        fzx_e1_floor_cam = *cam; fzx_e1_floor_view = fzx_native_view; fzx_e1_floor_backdrop = fzx_source_backdrop;
+        fzx_e1_floor_probe[1] = tick;
+    }
+    memset(&probe_out, 0, sizeof(probe_out));
+    const bool ok = fzx_floor_rbg_prepare(&fzx_native_view, &fzx_source_backdrop, &probe_out, probe_emit, &emitted);
+    if (first) { fzx_e1_floor_probe[2] = ok; fzx_e1_floor_probe[3] = probe_out.fault; }
+    fzx_e1_floor_probe[6] += ok ? 1u : 0u;
+    const uint32_t mask = cpu_intc_mask_get();
+    cpu_intc_mask_set(15);
+    memset(&probe_out, 0, sizeof(probe_out));
+    const bool okm = fzx_floor_rbg_prepare(&fzx_native_view, &fzx_source_backdrop, &probe_out, probe_emit, &emitted);
+    cpu_intc_mask_set(mask);
+    if (first) { fzx_e1_floor_probe[4] = okm; fzx_e1_floor_probe[5] = probe_out.fault; }
+    fzx_e1_floor_probe[7] += okm ? 1u : 0u;
+}
 #endif
 /* Debugger hold: when nonzero, the camera stays at this tick (stills). */
 volatile uint32_t fzx_e0_hold_tick;
@@ -177,8 +207,58 @@ static void fail(uint32_t code, const char *text, uint32_t detail) {
     for (;;) {}
 }
 
+/* Interrupt callbacks and the multiply registers (E1 floor fault, 2026-11-19).
+ * The BIOS SCU interrupt dispatcher (0x06000840..0x0600094A) saves r0-r7, PR and
+ * GBR but not MACH/MACL, and Yaul's SCU handlers call our VBlank callbacks as plain
+ * functions. A callback that multiplies (fzx_fp_present: row index x 44, mul.l)
+ * overwrites MACL under whatever master code the VBlank-In interrupt lands in; the
+ * floor and view maths right after the field wait are the main victims (fault 2,
+ * off-by-a-few quotients from libgcc's division). Every engine callback runs inside
+ * these wrappers, which keep MACH/MACL. E0_ISR_MAC_SAVE=0 is the control. */
+#ifndef E0_ISR_MAC_SAVE
+#define E0_ISR_MAC_SAVE 1
+#endif
+#if E0_ISR_MAC_SAVE
+#define MAC_SAVE() uint32_t mac_h_, mac_l_; __asm__ volatile("sts mach,%0\n\tsts macl,%1" : "=r"(mac_h_), "=r"(mac_l_))
+#define MAC_RESTORE() __asm__ volatile("lds %0,mach\n\tlds %1,macl" : : "r"(mac_h_), "r"(mac_l_) : "mach", "macl")
+#else
+#define MAC_SAVE() do {} while (0)
+#define MAC_RESTORE() do {} while (0)
+#endif
+static void render_end(void *work) {
+    MAC_SAVE();
+    fzx_floor_present(work);
+    MAC_RESTORE();
+}
+/* Control probe (E0_MAC_PROBE=1, diagnostic only): for up to one field before the
+ * VBlank wait, check 32x32->64 products for a changed MACH/MACL. [0] products,
+ * [1] wrong. Costs a field per frame. */
+#ifndef E0_MAC_PROBE
+#define E0_MAC_PROBE 0
+#endif
+volatile uint32_t fzx_e0_mac_probe[2];
+#if E0_MAC_PROBE
+static uint32_t probe_seed = 0x2545f491u;
+static void mac_probe(void) {
+    const uint16_t t0 = cpu_frt_count_get();
+    uint32_t n = 0, bad = 0;
+    while ((uint16_t)(cpu_frt_count_get() - t0) < field_frt) {
+        probe_seed = probe_seed * 1664525u + 1013904223u;
+        const int32_t a = (int32_t)probe_seed, b = (int32_t)(probe_seed * 2654435761u);
+        int64_t p, q;
+        /* A wide window between the multiply and the reads, then a reference. */
+        __asm__ volatile("dmuls.l %1,%2\n\tnop\n\tnop\n\tnop\n\tnop\n\tnop\n\tnop\n\tsts mach,%S0\n\tsts macl,%R0"
+                         : "=&r"(p) : "r"(a), "r"(b) : "mach", "macl");
+        __asm__ volatile("dmuls.l %1,%2\n\tsts mach,%S0\n\tsts macl,%R0" : "=&r"(q) : "r"(a), "r"(b) : "mach", "macl");
+        ++n; if (p != q) ++bad;
+    }
+    fzx_e0_mac_probe[0] += n; fzx_e0_mac_probe[1] += bad;
+}
+#endif
+
 static void vblank_out(void *work) {
     (void)work;
+    MAC_SAVE();
     const uint16_t now = cpu_frt_count_get();
     field_frt = (uint16_t)(now - vblank_frt);
     vblank_frt = now;
@@ -186,6 +266,7 @@ static void vblank_out(void *work) {
 #if FZX_E1_DRIVE
     smpc_peripheral_intback_issue();
 #endif
+    MAC_RESTORE();
 }
 
 void user_init(void) {
@@ -339,6 +420,9 @@ static void before_slave(void) {
 }
 
 static void before_master(void) {
+#if E0_MAC_PROBE
+    mac_probe();
+#endif
 #if FZX_VDP1_DBANK
     vdp2_sync_wait();
     const uint32_t bank = sh2z_vdp1_banks_bank(&fzx_dbank_banks);
@@ -406,6 +490,7 @@ static void build(row_t *row, const fzx_engine_cam_t *cam, uint32_t tick, uint16
              * defect). Skip its update for this frame: VDP2 keeps the last floor
              * tables and no fog bands are drawn. Eight in a row is still a fault. */
             ++fzx_e0_floor_diag[10];
+            floor_probe(cam, tick);
             if (++floor_refusals_run >= 8u) fail(25, "FLOOR", fzx_floor_rbg.fault);
             n = 0;
 #else
@@ -499,6 +584,7 @@ int main(void) {
     if (offset + FZX_PLANE_RESIDENT_BYTES + FZX_PLANE_SHADE_BYTES > partitions.texture_size || !fzx_planes_load(planes_vram))
         fail(31, "CLOUD TEXTURE LOAD", fzx_plane_status);
     if (!fzx_floor_load()) fail(32, "FLOOR LOAD", fzx_floor_status);
+    vdp1_sync_render_set(render_end, NULL); /* the floor's present, inside the MAC wrapper */
     if (!fzx_clouds_vdp2_load(planes_vram)) fail(33, "CLOUDS LOAD", fzx_clouds_status);
     planes_vram = NULL;
     commands_init();

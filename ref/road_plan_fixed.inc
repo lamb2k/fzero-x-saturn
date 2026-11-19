@@ -32,6 +32,11 @@ static const SegmentChunk *ref_road_fixed_base;
 static s32 ref_road_fixed_count, ref_road_fixed_shift, ref_road_fixed_valid;
 static u32 ref_road_fixed_key;
 u32 ref_road_plan_fixed_builds, ref_road_plan_fixed_fallbacks;
+#if FZX_ROAD_CULL_PROFILE
+/* Diagnostic: the Saturn image times the chunk loop; chunks reaching the x/y/w tests. */
+void fzx_road_cull_mark(s32 phase, s32 chunks);
+u32 ref_road_cull_depth_pass;
+#endif
 
 static u32 ref_road_fixed_bits(f32 v) { u32 b; memcpy(&b, &v, 4); return b; }
 static s32 ref_road_fixed_finite(f32 v) { return ((ref_road_fixed_bits(v) >> 23) & 0xff) != 0xff; }
@@ -156,6 +161,9 @@ static s32 ref_road_plan_cull_fixed(const MtxF *sp60) {
         if (ef > 127 || ef + 4 > 58) goto fallback;
         far16 = ef < -126 ? 0 : (s64)(far * 16.0f);
     }
+#if FZX_ROAD_CULL_PROFILE
+    fzx_road_cull_mark(0, 0);
+#endif
     for (chunk = gSegmentChunks, i = 0; chunk != sLastSegmentChunk; chunk++, i++) {
         const s16 *p = ref_road_fixed_pos[i];
         const s64 dd = ref_road_fixed_dot(ad, p, td);        /* |dd| < 2^61 */
@@ -164,7 +172,15 @@ static s32 ref_road_plan_cull_fixed(const MtxF *sp60) {
         chunk->depth = (f32)(s32)(d16 > 0x7fffffff ? 0x7fffffff : d16 < -0x7fffffff ? -0x7fffffff : d16) * 0.0625f;
         if (d16 < 0 || far16 < d16) {
             chunk->drawState = 0;
+#if FZX_ROAD_CULL_PROFILE == 2
+        } else if (1) {
+            chunk->drawState = 1; /* timing only: x/y/w tests skipped */
+            ++ref_road_cull_depth_pass;
+#endif
         } else {
+#if FZX_ROAD_CULL_PROFILE
+            ++ref_road_cull_depth_pass;
+#endif
             s64 w = ref_road_fixed_dot(aw, p, tw), x = ref_road_fixed_dot(ax, p, tx);
             if (w < 0) w = -w;
             if (x < 0) x = -x;
@@ -177,6 +193,9 @@ static s32 ref_road_plan_cull_fixed(const MtxF *sp60) {
             }
         }
     }
+#if FZX_ROAD_CULL_PROFILE
+    fzx_road_cull_mark(1, i);
+#endif
     return 1;
 fallback:
     ++ref_road_plan_fixed_fallbacks;

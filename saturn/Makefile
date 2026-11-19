@@ -598,6 +598,18 @@ SH_CFLAGS += -DFZX_ROAD_PLAN_FIXED=1
 else ifneq ($(FZX_ROAD_PLAN_FIXED),0)
 $(error FZX_ROAD_PLAN_FIXED must be 0 or 1)
 endif
+# FZX_ROAD_CULL_PROFILE (diagnostic, default 0; needs FZX_PUB_PROFILE=1): time the
+# fixed planner's chunk loop. 2 skips the x/y/w tests (wrong output, timing only).
+FZX_ROAD_CULL_PROFILE ?= 0
+ifneq ($(FZX_ROAD_CULL_PROFILE),0)
+ifneq ($(FZX_PUB_PROFILE)$(FZX_ROAD_PLAN_FIXED),11)
+$(error FZX_ROAD_CULL_PROFILE requires FZX_PUB_PROFILE=1 and FZX_ROAD_PLAN_FIXED=1)
+endif
+ifeq ($(filter 1 2,$(FZX_ROAD_CULL_PROFILE)),)
+$(error FZX_ROAD_CULL_PROFILE must be 0, 1 or 2)
+endif
+SH_CFLAGS += -DFZX_ROAD_CULL_PROFILE=$(FZX_ROAD_CULL_PROFILE)
+endif
 # Default-off C3 native road layout (boot-built chunk runs, 8-byte quads).
 FZX_ROAD_STREAM_NATIVE_LAYOUT ?= 0
 ifeq ($(FZX_ROAD_STREAM_NATIVE_LAYOUT),1)

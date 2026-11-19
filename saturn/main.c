@@ -649,6 +649,22 @@ static void pub_add(unsigned part,uint16_t ticks) {
 #define PUB_BEGIN() do{pub_t0=pub_last=cpu_frt_count_get();}while(0)
 #define PUB_MARK(part) do{const uint16_t now_=cpu_frt_count_get();pub_add((part),(uint16_t)(now_-pub_last));pub_last=now_;}while(0)
 #define PUB_END() do{pub_add(8,(uint16_t)(pub_last-pub_t0));}while(0)
+#if FZX_ROAD_CULL_PROFILE
+/* Diagnostic: the fixed planner's chunk loop. Columns: calls, ticks lo, ticks hi, max,
+ * chunks, chunks reaching the x/y/w tests (lo word of a running sum). */
+volatile uint32_t fzx_road_cull_profile[6];
+extern unsigned int ref_road_cull_depth_pass;
+static uint16_t road_cull_t0;
+void fzx_road_cull_mark(int phase,int chunks) {
+    const uint16_t now=cpu_frt_count_get();
+    if(!phase){road_cull_t0=now;return;}
+    const uint16_t ticks=(uint16_t)(now-road_cull_t0);
+    volatile uint32_t *r=fzx_road_cull_profile;
+    ++r[0];const uint32_t prev=r[1];r[1]+=ticks;if(r[1]<prev)++r[2];
+    if(ticks>r[3])r[3]=ticks;
+    r[4]+=(uint32_t)chunks;r[5]=ref_road_cull_depth_pass;
+}
+#endif
 #else
 #define PUB_BEGIN() do{}while(0)
 #define PUB_MARK(part) do{}while(0)

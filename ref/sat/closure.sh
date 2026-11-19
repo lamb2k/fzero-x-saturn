@@ -93,6 +93,11 @@ if [ "$CATCHUP_VERIFY" = 1 ]; then CFLAGS="$CFLAGS -DFZX_BACKDROP_CATCHUP_VERIFY
 PLAN_FIXED=${FZX_ROAD_PLAN_FIXED:-0}
 [ "$PLAN_FIXED" = 0 ] || [ "$PLAN_FIXED:$PLAN" = 1:1 ] || { echo "fixed road plan requires the source road planner" >&2; exit 1; }
 if [ "$PLAN_FIXED" = 1 ]; then CFLAGS="$CFLAGS -DFZX_ROAD_PLAN_FIXED=1"; fi
+# FZX_ROAD_CULL_PROFILE (diagnostic, default 0): time the fixed planner's chunk loop
+# (1), or time it with the x/y/w frustum tests skipped (2, wrong output, timing only).
+CULLPROF=${FZX_ROAD_CULL_PROFILE:-0}
+case "$CULLPROF" in 0) ;; 1|2) [ "$PLAN_FIXED" = 1 ] || { echo "road cull profile requires the fixed road plan" >&2; exit 1; }
+    CFLAGS="$CFLAGS -DFZX_ROAD_CULL_PROFILE=$CULLPROF";; *) echo "FZX_ROAD_CULL_PROFILE must be 0, 1 or 2" >&2; exit 1;; esac
 OBJ=$OUT/obj
 mkdir -p "$OBJ"
 objs=""

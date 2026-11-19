@@ -39,6 +39,7 @@ def fnv32(data):
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument('--skin', type=int, default=racer_sprites.DEFAULT_VIEWS['skin'])
+    ap.add_argument('--family', type=int, default=0, help='stock family whose skin colours the body')
     ap.add_argument('--output', type=Path, default=ROOT / 'generated/closeup')
     ap.add_argument('--rebake', type=Path, default=ROOT / 'generated/machine_rebake', help='tools/machine_rebake.py output')
     args = ap.parse_args()
@@ -46,7 +47,9 @@ def main():
     if not out.is_relative_to((ROOT / 'generated').resolve()):
         ap.error('output must stay in generated/')
     families = racer_sprites.source_families()
-    skins = families[0]['skins']
+    if not 0 <= args.family < racer_sprites.STOCK_FAMILIES:
+        ap.error('unknown stock family')
+    skins = families[args.family]['skins']
     if not 0 <= args.skin < len(skins):
         ap.error('unknown skin')
     r, g, b = skins[args.skin][:3]
@@ -71,6 +74,8 @@ def main():
         lines.append('generator %s %s' % (sha((ROOT / rel).read_bytes()), os.path.relpath(ROOT / rel, ROOT / 'tools').replace('\\', '/')))
     lines.append('input %s machine-table' % sha(racer_sprites.machine_menu_models.RACER.read_bytes()))
     lines.append('input %s skin-%d' % (sha(str(args.skin).encode()), args.skin))
+    if args.family:
+        lines.append('input %s family-%d' % (sha(str(args.family).encode()), args.family))
     lines.append('input %s machine-rebake-metadata' % sha(meta))
     lines.append('input %s machine-rebake-texels' % sha(texels))
     lines.append('output %s MACHAB.PAK' % sha(pak))

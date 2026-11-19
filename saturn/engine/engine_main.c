@@ -56,7 +56,19 @@
 #ifndef E1_CLOSEUP_EARLY
 #define E1_CLOSEUP_EARLY 0
 #endif
-#if E1_CLOSEUP == 1
+#ifndef E1_FIELD
+#define E1_FIELD 0
+#endif
+#if E1_FIELD
+/* Close-up 3D-N: up to FZX_FIELD_K_MAX 3D cars of FIELD_CAR_COMMANDS each, every car's
+ * sprite and FIELD_SHADOWS + 1 shadows (engine_field.h, fzx_drive_cars). */
+#if E1_CLOSEUP != 1 || !E1_CLOSEUP_EARLY
+#error E1_FIELD needs E1_CLOSEUP=1 and E1_CLOSEUP_EARLY=1
+#endif
+#include "engine_closeup.h"
+#define FIELD_CAR_COMMANDS 96u
+#define CLOSEUP_COMMANDS (FZX_FIELD_K_MAX * FIELD_CAR_COMMANDS + FZX_FIELD_CARS + 9u)
+#elif E1_CLOSEUP == 1
 #include "engine_closeup.h"
 #define CLOSEUP_COMMANDS FZX_CLOSEUP_SLOTS
 #else
@@ -114,7 +126,7 @@ enum {
     CMD_CAPACITY = SCENE_CAPACITY + 3u + DRIVE_SLOTS,
     PATH_BASE = 0x00200000u, PATH_CAPACITY = 0x0008C000u, /* Makefile: sat_stub_data_end follows */
     ROW_MAGIC = 0x45305246u, /* "E0RF" */
-    ROW_WORDS = 9u + (FZX_E1_DRIVE ? 3u : 0u)
+    ROW_WORDS = 9u + (FZX_E1_DRIVE ? 3u : 0u) + (E1_FIELD ? 3u : 0u)
 };
 _Static_assert(FZX_ENGINE_PATH_BYTES + 64u <= PATH_CAPACITY, "path pack exceeds its low-RAM reservation");
 _Static_assert(CMD_CAPACITY <= VDP1_VRAM_DEFAULT_CMDT_COUNT, "commands exceed the VDP1 command partition");
@@ -133,16 +145,10 @@ volatile uint32_t fzx_e0_status, fzx_e0_done, fzx_e0_fault;
  * [11] slave busy sum at the last frame, [12] FRT ticks per field, [13] pick
  * BAD_ARGS, [14] pick TOO_MANY, [15] visible chunks maximum. */
 volatile uint32_t fzx_e0_report[16];
-#ifndef E0_CHUNK_CAP
-#define E0_CHUNK_CAP 0
-#endif
-#if E0_CHUNK_CAP
-volatile uint32_t fzx_e0_cap_runs; /* runs dropped by E0_CHUNK_CAP */
-#endif
-/* Floor refusal: queue front, presented tick and commits before and after the
- * refused call, floor status, build bank (bit 8: VDP1 busy), field, prelude. */
-volatile uint32_t fzx_e0_floor_diag[11]; /* [10]: refused frames skipped (E1) */
 #if FZX_E1_DRIVE
+/* Floor refusal (E1): queue front, presented tick and commits before and after the
+ * refused call, floor status, build bank (bit 8: VDP1 busy), field, prelude, count. */
+volatile uint32_t fzx_e0_floor_diag[11];
 #include "fzx_floor_rbg.h"
 /* Floor fault probe (E1): the first refused frame's inputs, then the same prepare
  * run again as is and with every interrupt masked. [0] refusals seen, [1] tick,
@@ -174,9 +180,31 @@ static void floor_probe(const fzx_engine_cam_t *cam, uint32_t tick) {
     fzx_e1_floor_probe[7] += okm ? 1u : 0u;
 }
 #endif
+#ifndef E0_CHUNK_CAP
+#define E0_CHUNK_CAP 0
+#endif
+#if E0_CHUNK_CAP
+volatile uint32_t fzx_e0_cap_runs; /* runs dropped by E0_CHUNK_CAP */
+#endif
 /* Debugger hold: when nonzero, the camera stays at this tick (stills). */
 volatile uint32_t fzx_e0_hold_tick;
 #define HOLD_TICK (*(volatile uint32_t *)((uintptr_t)&fzx_e0_hold_tick | CPU_CACHE_THROUGH))
+#ifndef E2_PROF
+#define E2_PROF 0
+#endif
+#if E2_PROF
+/* Diagnostic (E2_PROF=1; changes timing slightly): the master's phases per frame row, FRT units:
+ * [0] backdrop + skyline (VDP2 words), [1] present wait + sky lines, [2] clouds, [3] skyline draw,
+ * [4] floor, [5] field poses and selection, [6] 3D cars, [7] sprite emit and sort. */
+enum { E2_PROF_ROWS = 6144u };
+uint16_t fzx_e2_prof[E2_PROF_ROWS][8];
+static uint32_t prof_row;
+#define PROF_MARK(v) uint16_t v = cpu_frt_count_get()
+#define PROF(k, v) do { const uint16_t now_ = cpu_frt_count_get();     if (prof_row < E2_PROF_ROWS) fzx_e2_prof[prof_row][k] = (uint16_t)(now_ - (v)); (v) = now_; } while (0)
+#else
+#define PROF_MARK(v) do { } while (0)
+#define PROF(k, v) do { } while (0)
+#endif
 
 static fzx_engine_path_t path;
 static vdp1_cmdt_t commands_buf[CMD_CAPACITY];
@@ -201,7 +229,15 @@ typedef struct {
     uint16_t sprite_ticks; /* master FRT units: player sprite pose and emit */
     uint16_t steps;        /* physics ticks stepped for this frame */
     uint16_t hud_ticks;    /* master FRT units: HUD text */
-    int16_t sprite_x, sprite_y; /* player sprite origin, whole pixels (-32768: not drawn) */
+    int16_t sprite_x, sprite_y; /* player sprite corner A as drawn (-32768: not drawn) */
+#endif
+#if E1_FIELD
+    uint16_t rival_ticks;  /* master FRT units: the rival field's steps (inside phys_ticks) */
+    uint16_t cars3d_ticks; /* master FRT units: the 3D cars (staged before the track wait) */
+    uint16_t emit_ticks;   /* master FRT units: sort, shadows, sprites and copies after the track */
+    uint8_t near, n3d;     /* rivals within 400 units, 3D cars this frame */
+    uint16_t car_cmds;     /* VDP1 commands of every car (shadows included) */
+    uint16_t sprites;      /* sprite cars drawn */
 #endif
 } row_t;
 _Static_assert(sizeof(row_t) == ROW_WORDS * 4u, "frame row layout");
@@ -266,6 +302,74 @@ static void hw_count(void) {
 }
 #endif
 
+#ifndef ENG_PACE
+#define ENG_PACE 0
+#endif
+#if ENG_PACE
+/* ENG_PACE: 1 adaptive (when the last presented frame's VDP1 draw ran past fzx_pace_limit FRT
+ * ticks, 0 = one field, the next build waits for a two-field gap since the previous build);
+ * 2 the 30 fps lock (builds, so presents, at least two fields apart). */
+volatile uint32_t fzx_pace_last_draw, fzx_pace_limit, fzx_pace_holds;
+static uint32_t pace_last_build;
+#endif
+#if ENG_PACE == 4
+/* ENG_PACE=4, the pipelined 30 fps lock. Three frames are in flight: F-1 on screen, F drawn by
+ * VDP1, F+1 built by both CPUs. The loop builds F+1 as soon as F is submitted (no field wait
+ * before the prelude); only the submit waits, for F-1's swap, because VDP1 has two framebuffers.
+ * Yaul's variable interval with the 30 Hz cap (vdp1_sync_interval_set(-2)) draws a list as soon
+ * as it is put and changes framebuffers at the second VBlank-In after the render, or at the first
+ * one after that at which the draw has ended; a long draw delays the swap and is never cut.
+ * Yaul calls the render callback when it sees the draw end, which with the cap can be a field
+ * before the change, so the VDP2 present (floor, clouds, sky lines) moves to the VBlank-In
+ * callback, which runs after Yaul's change logic in the same interrupt and applies its rule: a
+ * frame is presented at the VBlank-In where it is drawn and has seen at least two VBlank-Ins.
+ * The submit checks that the mirror and Yaul agree (fault 45).
+ * Banks: F+1 builds into the bank F does not use, and F-1 references no VDP1 bank (it is in the
+ * display framebuffer) and no VDP2 stage (presented), so two command/shade banks, two floor and
+ * cloud stages and the sprite cache's live = 2 cover the three stages.
+ * fzx_pace_lead (W): the build of frame F starts no sooner than W fields after the field in
+ * which F-2 was presented. W = 1 never waits (the build starts at F-1's submit); W = 2 starts a
+ * field later: one field less latency and one field less build time.
+ * fzx_pace: [0] frames submitted, [1] frames presented, [2] field (VBlank-Out count) of the last
+ * present, [3] build starts held, [4] VBlank-Ins of the last presented frame, [5] presents later
+ * than two VBlank-Ins, [6] submits that waited for the swap, [7] most VBlank-Ins of a frame. */
+#if !FZX_VDP1_DBANK
+#error ENG_PACE=4 needs FZX_VDP1_DBANK=1 (two banks and the present queues)
+#endif
+#ifndef ENG_PACE_LEAD
+#define ENG_PACE_LEAD 1
+#endif
+/* Control (diagnostic only): 1 presents at the first VBlank-In after the draw, a field before
+ * Yaul's change on short draws; the submit's check must stop the image (fault 45). */
+#ifndef ENG_PACE_EARLY_CONTROL
+#define ENG_PACE_EARLY_CONTROL 0
+#endif
+volatile uint32_t fzx_pace_lead = ENG_PACE_LEAD;
+volatile uint32_t fzx_pace[8];
+static volatile uint32_t pace_rendered, pace_drawn, pace_vbi;
+/* The HUD with its picture: frame F's text is formatted after F's build and flushed by the
+ * next submit's wait, in the vertical blank of F's present (the VBlank-In callback cannot run
+ * the dbgio DMA; the master is spinning there). Probe: [0] HUD flushes, [1] flushes whose text
+ * tick differs from the tick of the frame just presented, [2] flushes that ended outside that
+ * frame's blank, [3] text tick minus presented tick of the last mismatch, [4] presented tick,
+ * [5] text tick. ENG_PACE_HUD_LEAD=1 (control) keeps the old path (text and flush right after
+ * the build, a frame ahead of the picture). */
+#ifndef ENG_PACE_HUD_LEAD
+#define ENG_PACE_HUD_LEAD 0
+#endif
+volatile uint32_t fzx_pace_hud[6];
+static volatile uint32_t pace_tick_inflight, pace_tick_presented;
+#if FZX_E1_DRIVE
+static uint32_t hud_text_tick, hud_pending;
+static void pace_hud_probe(uint32_t text_tick) {
+    const uint32_t shown = pace_tick_presented;
+    ++fzx_pace_hud[0];
+    if (text_tick != shown) { ++fzx_pace_hud[1]; fzx_pace_hud[3] = text_tick - shown; }
+    if (!vdp2_tvmd_vblank_in() || video_fields != fzx_pace[2]) ++fzx_pace_hud[2];
+    fzx_pace_hud[4] = shown; fzx_pace_hud[5] = text_tick;
+}
+#endif
+#endif
 /* The floor's render-end callback calls this when a frame has been drawn. */
 void fzx_fp_present(void) {
 #if E0_HW_COUNTER
@@ -275,6 +379,9 @@ void fzx_fp_present(void) {
     if (i && i <= row_capacity && !rows[i - 1u].present_field) {
         rows[i - 1u].present_field = video_fields;
         rows[i - 1u].draw_ticks = (uint16_t)((uint16_t)fzx_e0_draw_end_frt - rows[i - 1u].submit_frt);
+#if ENG_PACE
+        fzx_pace_last_draw = rows[i - 1u].draw_ticks;
+#endif
     }
 }
 
@@ -288,14 +395,14 @@ static void fail(uint32_t code, const char *text, uint32_t detail) {
     for (;;) {}
 }
 
-/* Interrupt callbacks and the multiply registers (E1 floor fault, 2026-11-19).
- * The BIOS SCU interrupt dispatcher (0x06000840..0x0600094A) saves r0-r7, PR and
- * GBR but not MACH/MACL, and Yaul's SCU handlers call our VBlank callbacks as plain
- * functions. A callback that multiplies (fzx_fp_present: row index x 44, mul.l)
- * overwrites MACL under whatever master code the VBlank-In interrupt lands in; the
- * floor and view maths right after the field wait are the main victims (fault 2,
- * off-by-a-few quotients from libgcc's division). Every engine callback runs inside
- * these wrappers, which keep MACH/MACL. E0_ISR_MAC_SAVE=0 is the control. */
+/* Interrupt callbacks and the multiply registers. The BIOS SCU interrupt dispatcher
+ * (0x06000840..0x0600094A) saves r0-r7, PR and GBR but not MACH/MACL, and Yaul calls
+ * the VBlank callbacks as plain functions. A callback that multiplies (with E1's
+ * 44-byte frame row, fzx_fp_present indexes rows with mul.l) overwrites MACL under
+ * whatever master code the interrupt lands in: wrong products and quotients in the
+ * floor and view maths after the field wait (fault 2 refusals, status 23 in the
+ * probe control). Every engine callback runs inside these wrappers. E0_ISR_MAC_SAVE=0
+ * is the control. */
 #ifndef E0_ISR_MAC_SAVE
 #define E0_ISR_MAC_SAVE 1
 #endif
@@ -307,13 +414,36 @@ static void fail(uint32_t code, const char *text, uint32_t detail) {
 #define MAC_RESTORE() do {} while (0)
 #endif
 static void render_end(void *work) {
+#if ENG_PACE == 4
+    (void)work;
+    pace_drawn = 1u; /* presented by pace_vblank_in, at the framebuffer change */
+#else
     MAC_SAVE();
     fzx_floor_present(work);
     MAC_RESTORE();
+#endif
 }
-/* Control probe (E0_MAC_PROBE=1, diagnostic only): for up to one field before the
- * VBlank wait, check 32x32->64 products for a changed MACH/MACL. [0] products,
- * [1] wrong. Costs a field per frame. */
+#if ENG_PACE == 4
+static void pace_vblank_in(void *work) {
+    (void)work;
+    MAC_SAVE();
+    if (pace_rendered) {
+        const uint32_t n = ++pace_vbi;
+        if (pace_drawn && n >= 2u - ENG_PACE_EARLY_CONTROL) {
+            fzx_floor_present(NULL);
+            pace_tick_presented = pace_tick_inflight;
+            fzx_pace[2] = video_fields; fzx_pace[4] = n;
+            if (n > 2u) ++fzx_pace[5];
+            if (n > fzx_pace[7]) fzx_pace[7] = n;
+            pace_rendered = 0u; pace_drawn = 0u; pace_vbi = 0u;
+            ++fzx_pace[1];
+        }
+    }
+    MAC_RESTORE();
+}
+#endif
+/* Control probe (E0_MAC_PROBE=1, diagnostic only): for one field before the VBlank
+ * wait, check 32x32->64 products for a changed MACH/MACL. [0] products, [1] wrong. */
 #ifndef E0_MAC_PROBE
 #define E0_MAC_PROBE 0
 #endif
@@ -327,7 +457,6 @@ static void mac_probe(void) {
         probe_seed = probe_seed * 1664525u + 1013904223u;
         const int32_t a = (int32_t)probe_seed, b = (int32_t)(probe_seed * 2654435761u);
         int64_t p, q;
-        /* A wide window between the multiply and the reads, then a reference. */
         __asm__ volatile("dmuls.l %1,%2\n\tnop\n\tnop\n\tnop\n\tnop\n\tnop\n\tnop\n\tsts mach,%S0\n\tsts macl,%R0"
                          : "=&r"(p) : "r"(a), "r"(b) : "mach", "macl");
         __asm__ volatile("dmuls.l %1,%2\n\tsts mach,%S0\n\tsts macl,%R0" : "=&r"(q) : "r"(a), "r"(b) : "mach", "macl");
@@ -366,7 +495,17 @@ void user_init(void) {
     vdp1_env_default_init(&env);
     env.erase_color = RGB1555(0, 0, 0, 0);
     vdp1_env_set(&env);
+#if ENG_PACE == 3
+    /* ENG_PACE=3 (probe): Yaul's fixed interval (ENG_VDP1_INTERVAL): VDP1 draws as soon as
+     * its list is put; the framebuffer change waits for the interval. */
+    vdp1_sync_interval_set(ENG_VDP1_INTERVAL);
+#elif ENG_PACE == 4
+    /* ENG_PACE=4: variable interval capped at 30 Hz; the present follows the change (pace_vblank_in). */
+    vdp1_sync_interval_set(-2);
+    vdp_sync_vblank_in_set(pace_vblank_in, NULL);
+#else
     vdp1_sync_interval_set(-1); /* present when the list has been drawn */
+#endif
     vdp_sync_vblank_out_set(vblank_out, NULL);
     vdp2_tvmd_display_set();
 }
@@ -385,6 +524,26 @@ static void commands_init(void) {
 }
 
 /* ---- track pick: runs on the slave SH-2, ahead of the road build ---------- */
+#ifndef E0_POP_LOG
+#define E0_POP_LOG 0
+#endif
+#if E0_POP_LOG
+/* Diagnostic (E0_POP_LOG=1): per built frame, the chunks the pick marked and
+ * the chunks drawn after the cap, as 320-bit maps; the master copies them into
+ * the frame's row slot. */
+enum { POP_WORDS = 10u, POP_ROWS = 4608u };
+static uint32_t pop_marked[POP_WORDS], pop_drawn[POP_WORDS];
+uint32_t fzx_e0_pop[POP_ROWS][2u * POP_WORDS];
+static void pop_mark(uint32_t *map, const sh2z_segmesh_run_t *r, uint32_t from, uint32_t to) {
+    for (unsigned i = 0; i < POP_WORDS; ++i) map[i] = 0;
+    const uint32_t n = path.chunks;
+    for (uint32_t k = from; k < to; ++k) {
+        const uint32_t span = r[k].start == r[k].end ? n : (uint32_t)((r[k].end + n - r[k].start) % n);
+        for (uint32_t j = 0, c = r[k].start; j < span; ++j, c = c + 1u < n ? c + 1u : 0u)
+            if (c < 32u * POP_WORDS) map[c >> 5] |= 1u << (c & 31u);
+    }
+}
+#endif
 static const fzx_engine_cam_t *volatile job_cam;
 static volatile uint32_t job_tick;
 static int32_t pick_depth[FZX_EPATH_MAX_CHUNKS + 1u];
@@ -393,12 +552,103 @@ static sh2z_segmesh_run_t pick_runs[REF_ROAD_GROUPS];
 volatile uint32_t fzx_e0_pick[6]; /* result, runs, marked, bad view, FRT ticks, calls */
 _Static_assert(sizeof(sh2z_segmesh_anchor_t) == sizeof(fzx_engine_anchor_t), "anchor layout");
 
-/* The slave's job after the track build (slave_road.c, engine line). */
-void fzx_engine_slave_after(void) {
-#if FZX_E1_DRIVE
-    fzx_drive_slave_fill();
+/* The slave's job after the track build (slave_road.c, E1): sprite slot fills. */
+#if FZX_E1_DRIVE && E1_FIELD && E2_EARLY
+static volatile uint32_t stage_ready;
+#define STAGE_READY (*(volatile uint32_t *)((uintptr_t)&stage_ready | CPU_CACHE_THROUGH))
 #endif
+#if FZX_E1_DRIVE
+void fzx_engine_slave_after(void) {
+#if E1_FIELD && E2_EARLY
+    /* The master stages the cars (and queues their fills) after the kick: wait for it. */
+    while (!STAGE_READY) {}
+#endif
+    fzx_drive_slave_fill();
 }
+#endif
+
+#ifndef E0_CAP_STABLE
+#define E0_CAP_STABLE 0
+#endif
+#if E0_CAP_STABLE
+#if !E0_CHUNK_CAP
+#error E0_CAP_STABLE needs E0_CHUNK_CAP (the N it keeps)
+#endif
+/* E0_CAP_STABLE (with E0_CHUNK_CAP = N): rank the marked chunks by pick depth
+ * and keep the nearest, with hysteresis: a newly marked chunk is kept when it
+ * ranks inside N; a kept chunk is dropped only when it ranks N+2 or farther; a
+ * dropped chunk returns after ranking inside N-2 for 4 frames in a row. At
+ * most N+2 are kept (farthest dropped first). Runs are split only around
+ * dropped chunks, keeping the pick's far-to-near order. */
+enum { CAP_LIST = 128u };
+static uint32_t cap_last[FZX_EPATH_MAX_CHUNKS], cap_frame;
+static uint8_t cap_kept[FZX_EPATH_MAX_CHUNKS], cap_wait[FZX_EPATH_MAX_CHUNKS];
+static uint16_t cap_list[CAP_LIST];
+static int32_t cap_depth[CAP_LIST];
+volatile uint32_t fzx_e0_cap_dropped;
+static uint32_t run_span(const sh2z_segmesh_run_t *r, uint32_t n) {
+    return r->start == r->end ? n : (uint32_t)((r->end + n - r->start) % n);
+}
+/* Returns false when the frame does not fit the method (then nothing is dropped). */
+static bool cap_stable(const fzx_engine_pick_t *pv, uint32_t runs, RefRoadPlan *out) {
+    const uint32_t n = path.chunks, N = E0_CHUNK_CAP;
+    const int32_t *d = &pv->rows[12];
+    uint32_t m = 0;
+    ++cap_frame;
+    for (uint32_t k = 0; k < runs; ++k)
+        for (uint32_t j = 0, c = pick_runs[k].start, s = run_span(&pick_runs[k], n); j < s; ++j, c = c + 1u < n ? c + 1u : 0u) {
+            if (m >= CAP_LIST) return false;
+            const fzx_engine_anchor_t *a = &path.anchors[c];
+            const int32_t depth = d[0] * a->x + d[1] * a->y + d[2] * a->z + d[3];
+            uint32_t i = m++;
+            while (i && cap_depth[i - 1u] > depth) { cap_depth[i] = cap_depth[i - 1u]; cap_list[i] = cap_list[i - 1u]; --i; }
+            cap_depth[i] = depth; cap_list[i] = (uint16_t)c;
+        }
+    uint32_t kept = 0;
+    for (uint32_t r = 0; r < m; ++r) {
+        const uint32_t c = cap_list[r];
+        if (cap_last[c] + 1u != cap_frame) { cap_kept[c] = r < N; cap_wait[c] = 0; }
+        else if (cap_kept[c]) { if (r >= N + 2u) { cap_kept[c] = 0; cap_wait[c] = 0; } }
+        else if (r + 2u < N) { if (++cap_wait[c] >= 4u) { cap_kept[c] = 1; cap_wait[c] = 0; } }
+        else cap_wait[c] = 0;
+        cap_last[c] = cap_frame;
+        kept += cap_kept[c];
+    }
+    for (uint32_t r = m; r-- > 0 && kept > N + 2u;) if (cap_kept[cap_list[r]]) { cap_kept[cap_list[r]] = 0; --kept; }
+    fzx_e0_cap_dropped += m - kept;
+    /* Groups: each run's kept stretches, in the run's drawing order. */
+    uint32_t groups = 0, visible = 0;
+    for (uint32_t k = 0; k < runs; ++k) {
+        const sh2z_segmesh_run_t *pr = &pick_runs[k];
+        const uint32_t s = run_span(pr, n);
+        uint16_t seg[2][32]; uint32_t ns = 0;
+        for (uint32_t j = 0, c = pr->start; j < s;) {
+            if (!cap_kept[c]) { ++j; c = c + 1u < n ? c + 1u : 0u; continue; }
+            const uint32_t a = c, j0 = j;
+            while (j < s && cap_kept[c]) { ++j; c = c + 1u < n ? c + 1u : 0u; }
+            if (ns >= 32u) return false;
+            seg[0][ns] = (uint16_t)a; seg[1][ns] = (uint16_t)(j - j0); ++ns;
+        }
+        if (groups + ns > REF_ROAD_GROUPS) return false;
+        for (uint32_t q = 0; q < ns; ++q) {
+            /* direction +1 draws from the end backward: emit the highest stretch first. */
+            const uint32_t i = pr->direction == 1 ? ns - 1u - q : q;
+            RefRoadGroup *g = &out->groups[groups++];
+            g->start = seg[0][i];
+            g->end = seg[1][i] == n ? seg[0][i] : (uint16_t)((seg[0][i] + seg[1][i]) % n);
+            g->direction = pr->direction;
+            g->average_depth = (float)pr->average / (float)(1u << pv->depth_shift);
+            visible += seg[1][i];
+        }
+    }
+#if E0_POP_LOG
+    for (unsigned i = 0; i < POP_WORDS; ++i) pop_drawn[i] = 0;
+    for (uint32_t r = 0; r < m; ++r) { const uint32_t c = cap_list[r]; if (cap_kept[c] && c < 32u * POP_WORDS) pop_drawn[c >> 5] |= 1u << (c & 31u); }
+#endif
+    out->count = groups; out->visible_chunks = visible;
+    return true;
+}
+#endif
 
 bool fzx_engine_slave_pick(void) {
     RefRoadPlan *out = &fzx_source_road_plan;
@@ -427,6 +677,18 @@ bool fzx_engine_slave_pick(void) {
     out->visible_chunks = marked;
     if (r == SH2Z_SEGMESH_TOO_MANY) { out->faults = 2; ++fzx_e0_report[14]; return false; }
     uint32_t first_run = 0;
+#if E0_POP_LOG
+    pop_mark(pop_marked, pick_runs, 0u, runs);
+#endif
+#if E0_CAP_STABLE
+    if (cap_stable(&pv, runs, out)) {
+        fzx_e0_pick[4] = (uint16_t)(cpu_frt_count_get() - t0);
+#if FZX_ROAD_STREAM_PHASES
+        fzx_rsp_begin();
+#endif
+        return true;
+    }
+#endif
 #if E0_CHUNK_CAP
     /* E0_CHUNK_CAP (default 0, off): when more than this many chunks are
      * marked, drop whole runs, farthest first (the pick's order), keeping the
@@ -437,6 +699,9 @@ bool fzx_engine_slave_pick(void) {
         marked -= span < marked ? span : marked; ++first_run; ++fzx_e0_cap_runs;
     }
     out->visible_chunks = marked;
+#endif
+#if E0_POP_LOG
+    pop_mark(pop_drawn, pick_runs, first_run, runs);
 #endif
     out->count = runs - first_run;
     for (uint32_t i = 0; i < runs - first_run; ++i) {
@@ -502,30 +767,6 @@ static bool dbank_guards(void) {
 }
 #endif
 
-/* Banked floor and cloud tables: each build queues one stage per layer and the
- * VBlank-In present pops it. A frame's present can still be due when the frame
- * after next is built (the draw ended, the VBlank-In has not come yet); both
- * queue slots are then full and the layer refuses the build (E1 floor fault,
- * status 1: "queue not free"). Wait for that present, at most three fields.
- * [0] frames that waited, [1] longest wait (FRT ticks), [2] waits that timed out. */
-#ifndef E0_PRESENT_WAIT
-#define E0_PRESENT_WAIT 1 /* 0: the control that refuses as before */
-#endif
-static uint32_t floor_pushes, clouds_pushes;
-volatile uint32_t fzx_e0_present_wait[3];
-#if FZX_VDP1_DBANK && E0_PRESENT_WAIT
-static void present_wait(void) {
-    if (floor_pushes - fzx_floor_commits < 2u && clouds_pushes - fzx_clouds_commits < 2u) return;
-    const uint16_t t0 = cpu_frt_count_get();
-    const uint32_t f0 = video_fields;
-    while (floor_pushes - fzx_floor_commits >= 2u || clouds_pushes - fzx_clouds_commits >= 2u)
-        if (video_fields - f0 > 3u) { ++fzx_e0_present_wait[2]; break; }
-    const uint32_t t = (uint16_t)(cpu_frt_count_get() - t0);
-    ++fzx_e0_present_wait[0];
-    if (t > fzx_e0_present_wait[1]) fzx_e0_present_wait[1] = t;
-}
-#endif
-
 /* Before a build: VDP2's previous sync and the previous list's transfer are
  * done. With banks, VDP1 may still be drawing the previous frame. */
 /* Early kick: the slave's track job only needs the previous command list to
@@ -566,7 +807,9 @@ static void before_master(void) {
     mac_probe();
 #endif
 #if FZX_VDP1_DBANK
-    vdp2_sync_wait();
+#if ENG_PACE != 4
+    vdp2_sync_wait(); /* ENG_PACE=4: no field wait; the build's VDP2 data reaches VDP2 only at its present */
+#endif
     const uint32_t bank = sh2z_vdp1_banks_bank(&fzx_dbank_banks);
     fzx_floor_dbank_select(bank);
     fzx_clouds_dbank_select(bank);
@@ -581,6 +824,9 @@ static void before_master(void) {
 }
 
 /* The view, then the slave's job: pick the visible track and build it at a fixed slot. */
+#ifndef E0_QUEUE_STRESS
+#define E0_QUEUE_STRESS 0
+#endif
 static void kick(const fzx_engine_cam_t *cam, uint32_t tick) {
     vdp1_cmdt_t *const commands = commands_buf;
     const fzx_engine_consts_t *k = &path.consts;
@@ -598,30 +844,117 @@ static void kick(const fzx_engine_cam_t *cam, uint32_t tick) {
 #else
     job.shades = road_shades[0];
 #endif
+#if E0_QUEUE_STRESS
+    (void)job; /* control: no track, so every frame fits one field */
+#else
     fzx_slave_road_start(&job);
+#endif
 }
+
+#if E1_FIELD && E2_EARLY
+/* E2_EARLY: every car (the 3D ones, then the sorted sprites, shadows and copies) is built
+ * before the slave's kick, while the slave is idle (the sprite cache and its fill queue are
+ * only touched by one CPU at a time) and before the master's field-boundary wait. After the
+ * VBlank the master only runs the prelude and one copy, so the list reaches VDP1 sooner. */
+static vdp1_cmdt_t field_stage_cmds[DRIVE_SLOTS];
+static unsigned field_stage_n;
+static uint16_t field_stage_c3d, field_stage_emit, field_stage_sprites;
+static uint8_t field_stage_near, field_stage_n3d;
+static void field_stage(const fzx_engine_cam_t *cam) {
+#if FZX_VDP1_DBANK
+    const uint32_t vbank = sh2z_vdp1_banks_bank(&fzx_dbank_banks);
+#else
+    const uint32_t vbank = 0;
+#endif
+    static fzx_field_car_t field_cars[FZX_FIELD_CARS];
+    static vdp1_cmdt_t car_stage[FZX_FIELD_K_MAX][FIELD_CAR_COMMANDS];
+    static const vdp1_cmdt_t *car_stage_p[FZX_FIELD_K_MAX];
+    uint16_t car_stage_n[FZX_FIELD_K_MAX];
+    const uint16_t v0 = cpu_frt_count_get();
+    PROF_MARK(vp);
+    const unsigned ncars = fzx_field_cars(field_cars, fzx_drive_body());
+    PROF(5, vp);
+    for (unsigned i = 0; i < FZX_FIELD_K_MAX; ++i) { car_stage_n[i] = 0; car_stage_p[i] = car_stage[i]; }
+    for (unsigned i = 0; i < ncars; ++i) {
+        const fzx_field_car_t *c = &field_cars[i];
+        if (!c->is3d) continue;
+        car_stage_n[c->slot] = (uint16_t)(c->id == 0
+            ? fzx_closeup_draw(car_stage[c->slot], FIELD_CAR_COMMANDS, &fzx_native_view, cam, vbank)
+            : (fzx_closeup_lod = (fzx_field_k >> 8) & 0xffu,
+               fzx_closeup_draw_pose(car_stage[c->slot], FIELD_CAR_COMMANDS, &fzx_native_view, cam, vbank, c->slot, c->pos, c->basis)));
+    }
+    PROF(6, vp);
+    const uint16_t v1 = cpu_frt_count_get();
+#if E2_PROF
+    vp = v1;
+#endif
+    field_stage_n = fzx_drive_cars(field_stage_cmds, DRIVE_SLOTS, &fzx_native_view, cam, field_cars, ncars, car_stage_p, car_stage_n);
+    field_stage_c3d = (uint16_t)(v1 - v0);
+    field_stage_emit = (uint16_t)(cpu_frt_count_get() - v1);
+    PROF(7, vp);
+    field_stage_sprites = (uint16_t)fzx_field_draw[0];
+    field_stage_near = (uint8_t)fzx_field_report[6]; field_stage_n3d = (uint8_t)fzx_field_report[7];
+}
+#endif
+
+#if FZX_E1_DRIVE && E2_EARLY
+/* E2_EARLY: the cars are built after the slave's kick and before the master's field wait,
+ * so after the VBlank the master runs only the prelude and the copies. With the field,
+ * every car (field_stage); without it, the player's 3D model. */
+#if E1_FIELD
+static void early_stage(const fzx_engine_cam_t *cam) { field_stage(cam); STAGE_READY = 1u; }
+#elif E1_CLOSEUP == 1
+static vdp1_cmdt_t early_vehicle[FZX_CLOSEUP_SLOTS];
+static unsigned early_vehicle_n;
+static uint16_t early_vehicle_ticks;
+static void early_stage(const fzx_engine_cam_t *cam) {
+#if FZX_VDP1_DBANK
+    const uint32_t vbank = sh2z_vdp1_banks_bank(&fzx_dbank_banks);
+#else
+    const uint32_t vbank = 0;
+#endif
+    const uint16_t v0 = cpu_frt_count_get();
+    early_vehicle_n = fzx_closeup_draw(early_vehicle, FZX_CLOSEUP_SLOTS, &fzx_native_view, cam, vbank);
+    early_vehicle_ticks = (uint16_t)(cpu_frt_count_get() - v0);
+}
+#else
+#error E2_EARLY needs the 3D player (E1_CLOSEUP=1) or the field
+#endif
+#endif
 
 static void build(row_t *row, const fzx_engine_cam_t *cam, uint32_t tick, uint16_t kicked) {
     vdp1_cmdt_t *const commands = commands_buf;
     const fzx_engine_consts_t *k = &path.consts;
     uint32_t first = 0, n = 0, road_count = 0;
     const uint16_t t0 = cpu_frt_count_get();
+#if E0_QUEUE_STRESS
+    {
+        /* Control: a pseudo-random wait (0..1 field) so the queue pushes land at every
+         * phase of the field, including the VBlank-In present. */
+        static uint32_t seed = 1u;
+        seed = seed * 1664525u + 1013904223u;
+        const uint16_t w = (uint16_t)((seed >> 16) % (field_frt ? field_frt : 14000u)), s0 = cpu_frt_count_get();
+        while ((uint16_t)(cpu_frt_count_get() - s0) < w) {}
+    }
+#endif
 
+    PROF_MARK(pt);
     if (!fzx_engine_backdrop(&fzx_source_backdrop, cam, k, tick)) fail(20, "BACKDROP", tick);
     if (!fzx_engine_skyline(&fzx_source_skyline, cam)) fail(21, "SKYLINE", tick);
+    PROF(0, pt);
     fzx_sky_status = 1; fzx_skyline_status = 1;
 
     /* The master's prelude: sky lines and cloud fade bands, skyline, floor. */
-#if FZX_VDP1_DBANK && E0_PRESENT_WAIT
-    present_wait();
-#endif
     if (!fzx_clouds_sky_lines(&fzx_native_view, &fzx_source_backdrop)) fail(22, "SKY LINES", fzx_sky_stats.fault);
+    PROF(1, pt);
     if (!fzx_clouds_native(&commands[CMD_FIRST], FZX_SLAVE_ROAD_RESERVE - 1u, &fzx_native_view, &fzx_source_backdrop, &first))
         fail(23, "CLOUDS", fzx_clouds_rbg.fault);
-    ++clouds_pushes;
+    PROF(2, pt);
     if (!fzx_skyline_native(&commands[CMD_FIRST + first], FZX_SLAVE_ROAD_RESERVE - 1u - first, &fzx_native_view, skyline_vram, &n))
         fail(24, "SKYLINE DRAW", fzx_skyline_stats.fault);
     first += n; n = 0;
+    PROF(3, pt);
+#if FZX_E1_DRIVE
     {
         /* Floor refusal diagnostics: queue front and presents before the call. */
         const uint32_t pending = fzx_floor_pending, presented = fzx_floor_presented, commits = fzx_floor_commits;
@@ -640,7 +973,11 @@ static void build(row_t *row, const fzx_engine_cam_t *cam, uint32_t tick, uint16
             fail(25, "FLOOR", fzx_floor_rbg.fault);
         }
     }
-    ++floor_pushes;
+#else
+    if (!fzx_floor_native(&commands[CMD_FIRST + first], FZX_SLAVE_ROAD_RESERVE - 1u - first, &fzx_native_view, &fzx_source_backdrop, &n))
+        fail(25, "FLOOR", fzx_floor_rbg.fault);
+#endif
+    PROF(4, pt);
     first += n;
     if (first >= FZX_SLAVE_ROAD_RESERVE) fail(26, "PRELUDE OVERFLOW", first);
     vdp1_cmdt_t *jump = &commands[CMD_FIRST + first];
@@ -653,7 +990,33 @@ static void build(row_t *row, const fzx_engine_cam_t *cam, uint32_t tick, uint16
 #else
     const uint32_t vbank = 0;
 #endif
-#if E1_CLOSEUP_EARLY
+#if E1_FIELD && E2_EARLY
+    (void)vbank; /* the cars were staged before the kick (field_stage) */
+#elif E1_FIELD
+    /* 3D-N: the field's cars and the nearest K as 3D models, built while the slave builds
+     * the track into this build's bank tables (one slot each). */
+    static fzx_field_car_t field_cars[FZX_FIELD_CARS];
+    static vdp1_cmdt_t car_stage[FZX_FIELD_K_MAX][FIELD_CAR_COMMANDS];
+    static const vdp1_cmdt_t *car_stage_p[FZX_FIELD_K_MAX];
+    uint16_t car_stage_n[FZX_FIELD_K_MAX];
+    const uint16_t v0 = cpu_frt_count_get();
+    const unsigned ncars = fzx_field_cars(field_cars, fzx_drive_body());
+    for (unsigned i = 0; i < FZX_FIELD_K_MAX; ++i) { car_stage_n[i] = 0; car_stage_p[i] = car_stage[i]; }
+    for (unsigned i = 0; i < ncars; ++i) {
+        const fzx_field_car_t *c = &field_cars[i];
+        if (!c->is3d) continue;
+        car_stage_n[c->slot] = (uint16_t)(c->id == 0
+            ? fzx_closeup_draw(car_stage[c->slot], FIELD_CAR_COMMANDS, &fzx_native_view, cam, vbank)
+            : (fzx_closeup_lod = (fzx_field_k >> 8) & 0xffu,
+               fzx_closeup_draw_pose(car_stage[c->slot], FIELD_CAR_COMMANDS, &fzx_native_view, cam, vbank, c->slot, c->pos, c->basis)));
+    }
+    row->cars3d_ticks = (uint16_t)(cpu_frt_count_get() - v0);
+#elif E1_CLOSEUP_EARLY && E2_EARLY
+    (void)vbank; /* the vehicle was staged before the field wait (early_stage) */
+    vdp1_cmdt_t *const vehicle_stage = early_vehicle;
+    const unsigned vehicle_staged = early_vehicle_n;
+    const uint16_t vehicle_ticks = early_vehicle_ticks;
+#elif E1_CLOSEUP_EARLY
     /* Arm A, early: the vehicle is built while the slave still builds the track (its
      * Gouraud words go to this build's bank, which VDP1 is not drawing); only the
      * copy of its commands after the shadow waits for the track. */
@@ -665,8 +1028,12 @@ static void build(row_t *row, const fzx_engine_cam_t *cam, uint32_t tick, uint16
 #endif
 
     const uint16_t t1 = cpu_frt_count_get();
+#if E0_QUEUE_STRESS
+    road_count = 0;
+#else
     if (!fzx_slave_road_finish(&video_fields, &road_count))
         fail(27, "TRACK", fzx_road_stream_stats.fault * 100u + fzx_slave_road_status);
+#endif
     row->wait_road_ticks = (uint16_t)(cpu_frt_count_get() - t1);
 #if FZX_ROAD_STREAM_PHASES
     for (unsigned i = 0; i < FZX_RSPC_COUNTERS; ++i)
@@ -677,8 +1044,32 @@ static void build(row_t *row, const fzx_engine_cam_t *cam, uint32_t tick, uint16
 #if FZX_E1_DRIVE
     {
         const uint16_t s0 = cpu_frt_count_get();
+#if E1_FIELD && E2_EARLY
+        {
+            /* The cars staged before the kick: one copy after the track. */
+            const unsigned m = field_stage_n;
+            memcpy(&commands[CMD_FIRST + draws], field_stage_cmds, m * sizeof(vdp1_cmdt_t));
+            draws += m;
+            row->car_cmds = (uint16_t)(m ? m - 1u : 0u); row->sprites = field_stage_sprites;
+            row->near = field_stage_near; row->n3d = field_stage_n3d;
+            row->cars3d_ticks = field_stage_c3d;
+        }
+#elif E1_FIELD
+        {
+            const unsigned m = fzx_drive_cars(&commands[CMD_FIRST + draws], DRIVE_SLOTS, &fzx_native_view, cam,
+                                              field_cars, ncars, car_stage_p, car_stage_n);
+            draws += m;
+            row->car_cmds = (uint16_t)(m ? m - 1u : 0u); row->sprites = (uint16_t)fzx_field_draw[0];
+            row->near = (uint8_t)fzx_field_report[6]; row->n3d = (uint8_t)fzx_field_report[7];
+        }
+#else
         draws += fzx_drive_sprites(&commands[CMD_FIRST + draws], DRIVE_SLOTS - CLOSEUP_SLOTS, &fzx_native_view, cam);
-#if E1_CLOSEUP == 1 && E1_CLOSEUP_EARLY
+#endif
+#if E1_FIELD && E2_EARLY
+        row->emit_ticks = (uint16_t)(field_stage_emit + (uint16_t)(cpu_frt_count_get() - s0)); /* staged emit + copy */
+#elif E1_FIELD
+        row->emit_ticks = (uint16_t)(cpu_frt_count_get() - s0);
+#elif E1_CLOSEUP == 1 && E1_CLOSEUP_EARLY
         /* Arm A, early: the staged vehicle after its shadow. */
         memcpy(&commands[CMD_FIRST + draws], vehicle_stage, vehicle_staged * sizeof(vdp1_cmdt_t));
         draws += vehicle_staged;
@@ -688,7 +1079,10 @@ static void build(row_t *row, const fzx_engine_cam_t *cam, uint32_t tick, uint16
 #endif
         row->sprite_x = (int16_t)fzx_e1_sprite_pos[0]; row->sprite_y = (int16_t)fzx_e1_sprite_pos[1];
         row->sprite_ticks = (uint16_t)(cpu_frt_count_get() - s0);
-#if E1_CLOSEUP == 1 && E1_CLOSEUP_EARLY
+#if E1_FIELD
+        /* Master time of every car's draw, wherever it ran. */
+        row->sprite_ticks = (uint16_t)(row->sprite_ticks + row->cars3d_ticks);
+#elif E1_CLOSEUP == 1 && E1_CLOSEUP_EARLY
         /* Master time of the player's draw, wherever it ran (the vehicle ran before the wait). */
         row->sprite_ticks = (uint16_t)(row->sprite_ticks + vehicle_ticks);
 #endif
@@ -835,6 +1229,11 @@ void fzx_race_load(void) {
                                     (void *)scratch, 0x0028D000u - 32u - scratch))
             fail(52, "SPRITE LOAD", fzx_e1_status * 100u + fzx_texture_cd_status.status);
         SCN_STAMP(4);
+#if E1_FIELD && E2_ROSTER
+        /* Each rival's own machine sets (the private roster pack) after the player's set. */
+        if (!fzx_drive_roster_load((void *)scratch, 0x0028D000u - 32u - scratch, cart_limit))
+            fail(54, "ROSTER LOAD", fzx_e2_roster[0] * 100u + fzx_texture_cd_status.status);
+#endif
 #if E1_CLOSEUP == 1
         /* Arm A: the vehicle's texels and two shade tables just below the slot pool. */
 #if ENG_SCENES
@@ -914,6 +1313,15 @@ bool fzx_race_frame(void) {
     fzx_e0_status = 1;
     for (;;) {
 #endif
+#if ENG_PACE == 4
+        /* The build (pad read, physics, both CPUs' scene) starts at a fixed phase of the swap
+         * cadence: fzx_pace_lead fields after the present of the frame two back, while the frame
+         * one back is still in flight. */
+        if (fzx_pace[0] >= 2u && fzx_pace[1] + 1u == fzx_pace[0]) {
+            const uint32_t start = fzx_pace[2] + fzx_pace_lead;
+            if ((int32_t)(video_fields - start) < 0) { ++fzx_pace[3]; while ((int32_t)(video_fields - start) < 0) {} }
+        }
+#endif
         const uint16_t loop_start = cpu_frt_count_get();
         const uint32_t field = video_fields;
         /* Real time: the path advances one tick per 1/60 s, whatever the frame takes. */
@@ -929,6 +1337,9 @@ bool fzx_race_frame(void) {
         if (advance > 4u) advance = 4u;
         if (hold && fzx_drive_tick() + advance > hold) advance = fzx_drive_tick() < hold ? hold - fzx_drive_tick() : 0u;
         const uint16_t p0 = cpu_frt_count_get();
+#if E1_FIELD
+        fzx_field_sim_ticks = 0;
+#endif
         fzx_drive_step(advance);
         const uint16_t phys = (uint16_t)(cpu_frt_count_get() - p0);
         tick = fzx_drive_tick() ? fzx_drive_tick() : 1u;
@@ -950,28 +1361,78 @@ bool fzx_race_frame(void) {
 #endif
         const uint32_t hold = HOLD_TICK;
         const uint32_t shown = hold && hold <= path.ticks ? hold : tick;
-        const fzx_engine_cam_t *const cam = &path.cams[shown - 1u];
 #endif
         fzx_input_count = shown;
 
         row_t scratch_row, *row = row_index < row_capacity && !fzx_e0_done ? &rows[row_index] : &scratch_row;
+#if E2_PROF
+        prof_row = row != &scratch_row ? row_index : E2_PROF_ROWS;
+#endif
         memset(row, 0, sizeof(*row));
         row->tick = shown; row->build_field = field;
 #if FZX_E1_DRIVE
         row->phys_ticks = phys; row->steps = (uint16_t)advance;
 #endif
+#if E1_FIELD
+        row->rival_ticks = (uint16_t)fzx_field_sim_ticks;
+#endif
         const uint16_t w0 = cpu_frt_count_get();
         before_slave();
+#if E1_FIELD && E2_EARLY
+        STAGE_READY = 0u; /* the slave's sprite fills wait for this frame's staging */
+#endif
         const uint16_t kicked = cpu_frt_count_get();
+#if FZX_E1_DRIVE
         kick(cam, shown);
+#if E2_EARLY
+        early_stage(cam);
+#endif
+#else
+        kick(&path.cams[shown - 1u], shown);
+#endif
         const uint16_t w1 = cpu_frt_count_get();
         before_master();
+#if ENG_PACE == 1 || ENG_PACE == 2
+        {
+#if ENG_PACE == 2
+            const uint32_t need = 1u; /* the lock is on the submit (below) */
+#else
+            const uint32_t limit = fzx_pace_limit ? fzx_pace_limit : (uint32_t)field_frt;
+            const uint32_t need = fzx_pace_last_draw > limit ? 2u : 1u;
+#endif
+            if (pace_last_build && video_fields - pace_last_build < need) {
+                ++fzx_pace_holds;
+                while (video_fields - pace_last_build < need) {}
+            }
+            pace_last_build = video_fields;
+        }
+#endif
         row->wait_prev_ticks = (uint16_t)((uint16_t)(kicked - w0) + (uint16_t)(cpu_frt_count_get() - w1));
+#if FZX_E1_DRIVE
         build(row, cam, shown, kicked);
+#else
+        build(row, &path.cams[shown - 1u], shown, kicked);
+#endif
 #if FZX_VDP1_DBANK
         {
             /* The previous frame must be drawn and swapped before this one is sent. */
             const uint16_t w2 = cpu_frt_count_get();
+#if ENG_PACE == 4
+            /* Mirror check: when Yaul's change is seen here, the VBlank-In callback has presented
+             * every submitted frame, and when this wait spanned the change, it did so at the
+             * VBlank-In just before (a present at the wrong field would show VDP2 data out of step
+             * with VDP1). */
+#if FZX_E1_DRIVE && !ENG_PACE_HUD_LEAD
+            /* The previous frame's HUD text, flushed in the blank of its present. */
+            while (fzx_pace[1] != fzx_pace[0] && vdp1_sync_busy()) {}
+            if (hud_pending) { hud_pending = 0u; dbgio_flush(); pace_hud_probe(hud_text_tick); }
+#endif
+            const bool waited = vdp1_sync_busy();
+            vdp1_sync_wait();
+            if (fzx_pace[1] != fzx_pace[0] || (waited && fzx_pace[2] + 1u != video_fields))
+                fail(45, "PACE ORDER", fzx_pace[0] * 16u + fzx_pace[1] - fzx_pace[0] + (waited ? 8u : 0u));
+            if (waited) ++fzx_pace[6];
+#endif
             vdp1_sync_wait();
             vdp2_sync_wait();
             row->wait_prev_ticks = (uint16_t)(row->wait_prev_ticks + (uint16_t)(cpu_frt_count_get() - w2));
@@ -982,8 +1443,30 @@ bool fzx_race_frame(void) {
 #if FZX_ROAD_STREAM_PHASES
         if (row != &scratch_row) prow_fill(row_index);
 #endif
+#if E0_POP_LOG
+        if (row != &scratch_row && row_index < POP_ROWS)
+            for (unsigned i = 0; i < POP_WORDS; ++i) {
+                fzx_e0_pop[row_index][i] = SLAVE32(pop_marked[i]);
+                fzx_e0_pop[row_index][POP_WORDS + i] = SLAVE32(pop_drawn[i]);
+            }
+#endif
         if (row != &scratch_row) { pending_row = row_index + 1u; ++row_index; fzx_e0_report[1] = row_index; }
         else pending_row = 0;
+#if FZX_E1_DRIVE
+        {
+            const uint16_t h0 = cpu_frt_count_get();
+#if ENG_PACE == 4 && !ENG_PACE_HUD_LEAD
+            fzx_drive_hud_text(); /* flushed at this frame's present (the next submit's wait) */
+            hud_text_tick = shown; hud_pending = 1u;
+#else
+            fzx_drive_hud();
+#if ENG_PACE == 4
+            pace_hud_probe(shown); /* control: the old path, a frame ahead of the picture */
+#endif
+#endif
+            row->hud_ticks = (uint16_t)(cpu_frt_count_get() - h0);
+        }
+#endif
 #if E0_HW_COUNTER
         {   /* Once a second (60 fields): the readout, inset from the top left for TV overscan. */
             const uint32_t frames = fzx_hw_frames, last = fzx_hw_last_field;
@@ -1005,17 +1488,37 @@ bool fzx_race_frame(void) {
             }
         }
 #endif
-#if FZX_E1_DRIVE
-        {
-            const uint16_t h0 = cpu_frt_count_get();
-            fzx_drive_hud();
-            row->hud_ticks = (uint16_t)(cpu_frt_count_get() - h0);
+#if ENG_PACE == 2
+        /* 30 fps lock: present_field is the field in which VDP1 finished the previous frame
+         * (its swap follows at the next VBlank). Submitting no sooner than two fields after it
+         * puts this frame's end of draw, so its swap, at least two fields after the previous. */
+        if (row_index >= 2u && row != &scratch_row) {
+            volatile row_t *const last = &rows[row_index - 2u];
+            while (!last->present_field) {}
+            if (video_fields < last->present_field + 2u) { ++fzx_pace_holds; while (video_fields < last->present_field + 2u) {} }
         }
 #endif
         row->submit_frt = cpu_frt_count_get();
         vdp1_sync_cmdt_list_put(&command_list, 0);
+#if ENG_PACE == 4
+        /* The render and the sync with interrupts masked, so Yaul's change logic and the
+         * mirror in pace_vblank_in count the same VBlank-Ins (the transfer is waited first:
+         * its end interrupt sets the flag the render waits on). */
+        vdp1_sync_put_wait();
+        {
+            const uint32_t mask = cpu_intc_mask_get();
+            cpu_intc_mask_set(15);
+            vdp1_sync_render();
+            vdp1_sync();
+            pace_vbi = 0u; pace_drawn = 0u; pace_rendered = 1u;
+            pace_tick_inflight = shown;
+            ++fzx_pace[0];
+            cpu_intc_mask_set(mask);
+        }
+#else
         vdp1_sync_render();
         vdp1_sync();
+#endif
         vdp2_sync();
 #if FZX_VDP1_DBANK
         sh2z_vdp1_banks_submitted(&fzx_dbank_banks, true);

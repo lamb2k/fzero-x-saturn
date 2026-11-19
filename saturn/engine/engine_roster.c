@@ -73,6 +73,41 @@ bool fzx_roster_cell_source(uint32_t family, unsigned prof, uint32_t cell, uint3
     return true;
 }
 
+/* Slot fill (the slave, inside the fill budget): the cell's pixels into dst, decoding its
+ * stream, or its alias source's stream mirrored. */
+bool fzx_roster_fill(const sh2z_rspr_set_t *set, uint32_t cell, volatile uint16_t *dst) {
+    int s = -1;
+    for (unsigned i = 0; i < FZX_RZ_SETS; ++i) if (block_at[i] == (const uint8_t *)set) { s = (int)i; break; }
+    if (s < 0) return false;
+    const uint32_t cells = (uint32_t)set->yaw_count * set->pitch_count;
+    if (cell >= cells) return false;
+    const uint8_t *table = block_at[s] + fzx_rz_sets[s].table_at;
+    const uint16_t a = (uint16_t)((table[8u * cells + 2u * cell] << 8) | table[8u * cells + 2u * cell + 1u]);
+    const uint32_t from = (a & 0x8000u) ? (uint32_t)(a & 0x7FFFu) : cell;
+    if (from >= cells) return false;
+    const uint32_t off = be32(table + 8u * from), n = be32(table + 8u * from + 4u);
+    if (!n) return false;
+    const sh2z_rspr_cell_t *c = sh2z_rspr_cells(set) + from;
+    const uint8_t *stream = table + 10u * cells + off;
+    const size_t readable = (size_t)((block_at[s] + fzx_rz_sets[s].bytes + FZX_ROSTER_SLACK) - stream);
+    if (!sh2z_cell4z_decode(dst, c->width, c->height, stream, readable, arena, &tables, NULL)) return false;
+    if (a & 0x8000u) {
+        /* Mirror each row in place: reverse the 4-bit pixels of its 16-bit words. */
+        const uint32_t words = c->width / 4u;
+        for (uint32_t y = 0; y < c->height; ++y) {
+            volatile uint16_t *row = dst + y * words;
+            for (uint32_t i = 0, j = words - 1u; i <= j && j < words; ++i, --j) {
+                const uint16_t p = row[i], q = row[j];
+                const uint16_t rp = (uint16_t)(((p & 0xFu) << 12) | ((p & 0xF0u) << 4) | ((p >> 4) & 0xF0u) | (p >> 12));
+                const uint16_t rq = (uint16_t)(((q & 0xFu) << 12) | ((q & 0xF0u) << 4) | ((q >> 4) & 0xF0u) | (q >> 12));
+                row[i] = rq; row[j] = rp;
+                if (j == 0u) break;
+            }
+        }
+    }
+    return true;
+}
+
 bool fzx_roster_cell_decode(uint32_t family, unsigned prof, uint32_t cell, volatile uint16_t *dst) {
     const int s = find(family, prof);
     if (s < 0 || !block_at[s]) return false;

@@ -37,6 +37,8 @@ extern volatile uint32_t fzx_roster_report[16];
 const sh2z_rspr_set_t *fzx_roster_set(uint32_t family, unsigned prof);
 /* The cell whose stream to decode for `cell`, and whether it is drawn flipped. */
 bool fzx_roster_cell_source(uint32_t family, unsigned prof, uint32_t cell, uint32_t *src_cell, bool *flip);
+/* Slot fill: cell `cell` of a loaded set (alias cells mirrored from their source) into dst. */
+bool fzx_roster_fill(const sh2z_rspr_set_t *set, uint32_t cell, volatile uint16_t *dst);
 /* Decodes a non-alias cell (4 bpp, the RSP1 1.1 pixels) into dst. */
 bool fzx_roster_cell_decode(uint32_t family, unsigned prof, uint32_t cell, volatile uint16_t *dst);
 #endif

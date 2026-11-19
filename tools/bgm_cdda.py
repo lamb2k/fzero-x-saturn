@@ -485,6 +485,7 @@ def main():
     ap.add_argument("--menu-seconds", type=float, default=90.0, help="minimum track length for other looping music")
     ap.add_argument("--peak-dbfs", type=float, default=-1.0, help="peak of the loudest track after the shared gain")
     ap.add_argument("--list", action="store_true", help="print the music table and stop")
+    ap.add_argument("--verify", action="store_true", help="only re-check the tracks already in --output")
     ap.add_argument("--seam-test", action="store_true",
                     help="also write 10 s around each loop-back (track end, then the loop-back sector)")
     args = ap.parse_args()
@@ -492,6 +493,10 @@ def main():
     if not path:
         raise SystemExit("FZX_TEST_ROM is required locally; keep its path out of logs")
     output_ok(args.output)
+    if args.verify:
+        bad = verify(args.output)
+        print("verify: %s" % ("; ".join(bad) if bad else "all tracks pass"))
+        raise SystemExit(1 if bad else 0)
     raw = Path(path).read_bytes()
     extract_rom_course(raw)                                      # fingerprint: unmodified US rev0
     rom, _ = normalize_rom(raw)
@@ -541,7 +546,16 @@ def main():
     args.output.mkdir(parents=True, exist_ok=True)
     manifest = {"note": "Local rendering from the owner's ROM. Do not commit, upload or share.",
                 "rate": CD_RATE, "sector_frames": SECTOR, "shared_gain": shared, "tracks": []}
+    first_of = {}
     for mid, pieces in tracks:
+        key = tuple(table[mid]["parts"])
+        if key in first_of:                                       # same audio as an earlier id: share its track
+            for e in manifest["tracks"]:
+                if e["music_id"] == first_of[key]:
+                    e["aliases"].append(mid)
+            print("music %2d -> same track as music %d" % (mid, first_of[key]))
+            continue
+        first_of[key] = mid
         target = args.course_seconds if mid in course_ids else args.menu_seconds
         segs = []
         loop_info = None
@@ -566,6 +580,10 @@ def main():
                  "loop_sector": None if loop_info["loop_sector"] is None else loop_info["lead_sectors"] + loop_info["loop_sector"],
                  "loop_phase_error_frames": loop_info["loop_phase_error"],
                  "loop_seconds": round(loop_info["loop_frames"] / CD_RATE, 3),
+                 "loop_frames": int(loop_info["loop_frames"]),
+                 "loop_body_frame": None if loop_info["loop_sector"] is None
+                 else loop_info["lead_sectors"] * SECTOR + int(loop_info["intro_frames"]),
+                 "aliases": [],
                  "sha256": hashlib.sha256((args.output / name).read_bytes()).hexdigest()}
         manifest["tracks"].append(entry)
         if args.seam_test and entry["loop_sector"] is not None:

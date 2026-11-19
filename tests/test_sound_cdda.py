@@ -15,6 +15,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
 import bgm_cdda as B  # noqa: E402
 import disc_cdda as D  # noqa: E402
+import sfx_pack as P  # noqa: E402
 
 
 def reference_decode(data, book, count):
@@ -143,6 +144,45 @@ class DiscTests(unittest.TestCase):
             (t / "a.iso").write_bytes(bytes(2048 * 20 + 1))
             with self.assertRaises(D.DiscError):                         # control: not whole sectors
                 D.build(t / "a.iso", t / "music", [0], t / "out2", "x")
+
+
+class SfxPackTests(unittest.TestCase):
+    def clip(self, n, name="c"):
+        return {"name": name, "data": np.ones(n, dtype=np.int8), "loop": False, "loop_start": 0, "loop_end": n,
+                "rate": 16000, "oct": -2, "fns": 0, "tl": 0, "kind": "one_shot"}
+
+    def test_layout_and_overflow_control(self):
+        pack = P.build([self.clip(1000, "a"), self.clip(3, "b"), self.clip(500, "c")], 512 * 1024)
+        offs = [c["offset"] for c in pack["clips"]]
+        self.assertEqual(offs[0], P.IDLE_BYTES)
+        self.assertTrue(all(o % 2 == 0 for o in offs))
+        for c, d in zip(pack["clips"], pack["clips"][1:]):
+            self.assertLessEqual(c["offset"] + c["samples"], d["offset"])      # no overlap
+        ends = [b + n for _, b, n in pack["regions"]]
+        self.assertEqual(ends[-1], 512 * 1024)
+        for (_, b, n), (_, b2, _) in zip(pack["regions"], pack["regions"][1:]):
+            self.assertEqual(b + n, b2)                                         # regions tile sound RAM
+        with self.assertRaises(P.PackError):                                    # control: overflow is caught
+            P.build([self.clip(60000), self.clip(60000)], 100000)
+        with self.assertRaises(P.PackError):                                    # control: SCSP loop-end limit
+            P.build([self.clip(70000)], 512 * 1024)
+
+    def test_pitch_and_level(self):
+        self.assertEqual(P.oct_fns(44100), (0, 0))
+        self.assertEqual(P.oct_fns(22050), (-1, 0))
+        o, f = P.oct_fns(16000)
+        self.assertAlmostEqual(44100 * 2 ** o * (1 + f / 1024), 16000, delta=16000 * 0.001)
+        y, tl = P.to_s8(np.array([0.0, 16383.5, -16383.5]))
+        self.assertEqual(int(np.max(np.abs(y.astype(int)))), 127)
+        self.assertEqual(tl, 16)                                                # -6.02 dB = 16 TL steps
+
+    def test_resample_tone(self):
+        t = np.arange(32000)
+        x = 10000 * np.sin(2 * np.pi * 1000 * t / 32000)
+        y = P.resample(x, 32000, 16000)
+        self.assertEqual(len(y), 16000)
+        ref = 10000 * np.sin(2 * np.pi * 1000 * np.arange(16000) / 16000)
+        self.assertLess(np.max(np.abs(y[100:-100] - ref[100:-100])), 60)
 
 
 if __name__ == "__main__":

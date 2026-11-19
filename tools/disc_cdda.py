@@ -144,8 +144,9 @@ def build(iso: Path, music: Path, ids: list, out: Path, name: str, header: Path 
             f.write(bytes(PREGAP * SECTOR_RAW))
             f.write(pcm)
         files.append((path, "AUDIO", PREGAP + t["sectors"], PREGAP))
-        table.append({"music_id": mid, "track": k + 2, "sectors": t["sectors"],
-                      "loop_sector": t["loop_sector"]})
+        for alias in [mid] + t.get("aliases", []):
+            table.append({"music_id": alias, "track": k + 2, "sectors": t["sectors"],
+                          "loop_sector": t["loop_sector"]})
     lines = []
     for n, (path, mode, _, gap) in enumerate(files, 1):
         lines.append('FILE "%s" BINARY' % path.name)
@@ -192,19 +193,21 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--iso", type=Path, help="data track (the engine build's ISO); not needed with --header-only")
     ap.add_argument("--music", type=Path, required=True, help="bgm_cdda.py output directory")
-    ap.add_argument("--ids", required=True, help="comma-separated music ids, in track order from track 2")
+    ap.add_argument("--ids", required=True, help="comma-separated music ids in track order from track 2, or 'all' (manifest order)")
     ap.add_argument("--output", type=Path)
     ap.add_argument("--header-only", action="store_true", help="write only --header (the engine needs it before its build)")
     ap.add_argument("--name", default="fzs-engine")
     ap.add_argument("--header", type=Path)
     args = ap.parse_args()
-    ids = [int(x) for x in args.ids.split(",")]
+    tracks = json.loads((args.music / "manifest.json").read_text())["tracks"]
+    by_id = {t["music_id"]: t for t in tracks}
+    ids = [t["music_id"] for t in tracks] if args.ids == "all" else [int(x) for x in args.ids.split(",")]
     if args.header_only:
         if not args.header:
             raise DiscError("--header-only needs --header")
-        by_id = {t["music_id"]: t for t in json.loads((args.music / "manifest.json").read_text())["tracks"]}
-        write_header(args.header, [{"music_id": m, "track": k + 2, "sectors": by_id[m]["sectors"],
-                                    "loop_sector": by_id[m]["loop_sector"]} for k, m in enumerate(ids)])
+        write_header(args.header, [{"music_id": a, "track": k + 2, "sectors": by_id[m]["sectors"],
+                                    "loop_sector": by_id[m]["loop_sector"]}
+                                   for k, m in enumerate(ids) for a in [m] + by_id[m].get("aliases", [])])
         return
     if not args.iso or not args.output:
         raise DiscError("--iso and --output are required")

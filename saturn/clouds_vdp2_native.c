@@ -38,14 +38,30 @@ static sh2z_vdp1_queue_t clouds_queue;
 #ifndef FZX_DBANK_QUEUE_ATOMIC
 #define FZX_DBANK_QUEUE_ATOMIC 1
 #endif
+/* FZX_DBANK_QUEUE_WIDEN=N (control only): the same push, with N spins between
+ * reading the count and storing it, so the race window is wide enough to hit in
+ * seconds instead of once a race. */
+#ifndef FZX_DBANK_QUEUE_WIDEN
+#define FZX_DBANK_QUEUE_WIDEN 0
+#endif
 static bool queue_push(sh2z_vdp1_queue_t *q,uint32_t bank,uint32_t tag) {
 #if FZX_DBANK_QUEUE_ATOMIC
     const uint8_t mask=cpu_intc_mask_get();cpu_intc_mask_set(15);
-    const bool ok=sh2z_vdp1_queue_push(q,bank,tag);
-    cpu_intc_mask_set(mask);return ok;
-#else
-    return sh2z_vdp1_queue_push(q,bank,tag);
 #endif
+#if FZX_DBANK_QUEUE_WIDEN
+    bool ok=false;
+    if(tag && sh2z_vdp1_queue_free(q,bank)) {
+        const uint32_t c=q->count;
+        for(volatile uint32_t spin=FZX_DBANK_QUEUE_WIDEN;spin;--spin){}
+        q->bank[c]=bank;q->tag[c]=tag;q->count=c+1u;ok=true;
+    }
+#else
+    const bool ok=sh2z_vdp1_queue_push(q,bank,tag);
+#endif
+#if FZX_DBANK_QUEUE_ATOMIC
+    cpu_intc_mask_set(mask);
+#endif
+    return ok;
 }
 #endif
 void fzx_clouds_dbank(void *clouds_bank1,void *sky_bank1){clouds_stage[1]=clouds_bank1;sky_stage[1]=sky_bank1;sh2z_vdp1_queue_init(&clouds_queue);}

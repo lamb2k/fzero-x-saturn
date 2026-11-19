@@ -13,16 +13,12 @@ ROAD=${FZX_ROAD_EXPORT:-0}
 PLAN=${FZX_ROAD_PLAN:-0}
 BACKDROP=${FZX_BACKDROP_STATE:-0}
 MACHINE_MENU=${FZX_SOURCE_MACHINE_MENU:-0}
-# FZX_ENGINE_DUMP=0|1: HOST-only course dump for the engine checks (ref/engine_dump.c, REF_ENGINE_COURSE).
-EDUMP=${FZX_ENGINE_DUMP:-0}
-case "$EDUMP" in 0|1) ;; *) echo "invalid FZX_ENGINE_DUMP" >&2; exit 1;; esac
 [ "$MACHINE_MENU" = 0 ] || [ "$MACHINE_MENU" = 1 ] || { echo "invalid FZX_SOURCE_MACHINE_MENU" >&2; exit 1; }
 [ "$BACKDROP" = 0 ] || [ "$BACKDROP:$CAMERA:$ROAD:$PLAN" = 1:1:0:0 ] || { echo "backdrop state requires source camera without road tools" >&2; exit 1; }
 [ "$PLAN" = 0 ] || [ "$PLAN:$CAMERA:$ROAD" = 1:1:0 ] || { echo "road planner requires source camera and no offline export" >&2; exit 1; }
 [ "$ROAD" = 0 ] || [ "$ROAD" = 1 ] || { echo "invalid FZX_ROAD_EXPORT" >&2; exit 1; }
 [ "$ROAD:$CAMERA" != 1:1 ] || { echo "road export is an offline tool, not a camera race" >&2; exit 1; }
 [ "$ROAD" = 0 ] || OUT=$OUT-road
-[ "$EDUMP" = 0 ] || [ "$PLAN" = 1 ] || { echo "the engine dump needs FZX_ROAD_PLAN=1" >&2; exit 1; }
 [ "$CAMERA" = 0 ] || [ "$CAMERA" = 1 ] || { echo "invalid FZX_SOURCE_CAMERA" >&2; exit 1; }
 if [ "$CAMERA" = 1 ]; then
     export REF_STUB_CALLS=1
@@ -39,7 +35,6 @@ if [ "$BACKDROP" = 1 ]; then
     OUT=$OUT-backdrop
 fi
 if [ "$MACHINE_MENU" = 1 ]; then OUT=$OUT-machine-menu; fi
-[ "$EDUMP" = 0 ] || OUT=$OUT-edump
 if [ "$PLAN" = 1 ]; then
     python3 "$ROOT/tools/road_plan.py" --output "$OUT/road_plan_course.c"
 fi
@@ -115,7 +110,6 @@ if [ "$ROAD" = 1 ]; then
     python3 "$ROOT/tools/road_bindings.py" "$STUB/asset_syms.h" "$STUB/road_bindings.h" "$D/include/fzx_segmentA.h"
     BRIDGES="$BRIDGES road_bridge"
 fi
-[ "$EDUMP" = 0 ] || BRIDGES="$BRIDGES engine_dump"
 for s in $BRIDGES; do  # Bridge side: decomp headers.
     o=$OUT/ref_$s.o
     compile "$ROOT/ref/$s.c" "$o"
@@ -124,7 +118,7 @@ done
 # Driver side: host headers only.
 DRIVER=main
 [ "$ROAD" = 0 ] || DRIVER=road_main
-$CC -m32 -fno-pic -O2 -g -std=c11 -Wall -Wextra -Werror -I"$ROOT/ref" -DFZX_SOURCE_CAMERA=$CAMERA -DFZX_ROAD_PLAN=$PLAN -DFZX_BACKDROP_STATE=$BACKDROP -DFZX_ENGINE_DUMP=$EDUMP -c "$ROOT/ref/$DRIVER.c" -o "$OUT/ref_main.o"
+$CC -m32 -fno-pic -O2 -g -std=c11 -Wall -Wextra -Werror -I"$ROOT/ref" -DFZX_SOURCE_CAMERA=$CAMERA -DFZX_ROAD_PLAN=$PLAN -DFZX_BACKDROP_STATE=$BACKDROP -c "$ROOT/ref/$DRIVER.c" -o "$OUT/ref_main.o"
 OBJS="$OBJS $OUT/ref_main.o"
 python3 "$ROOT/ref/gen_stubs.py" "$OUT/stubs.c" "$OUT"/*.i -- $OBJS
 $CC -m32 -fno-pic -O0 -w -c "$OUT/stubs.c" -o "$OUT/stubs.o"

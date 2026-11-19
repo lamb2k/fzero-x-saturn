@@ -285,6 +285,10 @@ def rgb1555(rgba: bytes, width: int, height: int) -> tuple[bytes, int]:
     return bytes(out), stride
 
 
+PRIMITIVE_COMBINE = "PRIMITIVE ENVIRONMENT TEXEL0 ENVIRONMENT 0 0 0 ENVIRONMENT COMBINED 0 SHADE 0 0 0 0 COMBINED".split()
+FLAT_COMBINE = "0 0 0 ENVIRONMENT 0 0 0 ENVIRONMENT COMBINED 0 SHADE 0 0 0 0 COMBINED".split()
+
+
 class SourceArt:
     def __init__(self, rom: bytes, decomp: Path = DECOMP):
         self.rom, self.decomp = rom, decomp
@@ -316,10 +320,14 @@ class SourceArt:
         return dict(symbol=symbol, family=row["family"], offset=row["offset"],
                     format=fmt, width=w, height=h, source_sha256=sha(raw), rgba=rgba, texels=raw)
 
-    def model(self, lod: int) -> dict:
+    def model(self, lod: int, stem: str = "BlueFalcon") -> dict:
+        """One authored LOD (1..5) of a stock machine's race model, Machine_Draw<stem>Lod<lod>
+        (the Blue Falcon by default; the other families for the engine's 3D packs)."""
         if lod not in range(1, 6):
-            raise ArtError("Blue Falcon has five authored LODs")
-        name = f"Machine_DrawBlueFalconLod{lod}"
+            raise ArtError("Stock machines have five authored LODs")
+        if not re.fullmatch(r"[A-Za-z0-9]+", stem):
+            raise ArtError("Invalid machine family stem")
+        name = f"Machine_Draw{stem}Lod{lod}"
         vertices, triangles, materials, cache = [], [], [], {}
         state = dict(tile=None, primitive=None, environment="racer.bodyRGB", combine=None)
         for command, args in commands(stock_function(self.draw.decode(), name)):
@@ -329,14 +337,18 @@ class SourceArt:
                 continue
             if command == "gDPSetCombineLERP":
                 combine = args[1:]
-                if combine not in [
+                if combine == FLAT_COMBINE and stem != "BlueFalcon":
+                    combine = "flat"  # environment colour only: resolved per triangle below
+                elif combine not in [
                     "TEXEL0 ENVIRONMENT TEXEL0_ALPHA ENVIRONMENT 0 0 0 ENVIRONMENT COMBINED 0 SHADE 0 0 0 0 COMBINED".split(),
-                    "PRIMITIVE ENVIRONMENT TEXEL0 ENVIRONMENT 0 0 0 ENVIRONMENT COMBINED 0 SHADE 0 0 0 0 COMBINED".split(),
+                    PRIMITIVE_COMBINE,
                 ]:
                     raise ArtError("Unsupported Blue Falcon combiner")
                 state["combine"] = combine
             elif command in ("gDPSetPrimColor", "gDPSetEnvColor"):
                 state["primitive" if command == "gDPSetPrimColor" else "environment"] = list(map(int, args[-4:]))
+            elif command == "gSPTexture" and stem != "BlueFalcon" and args[-1] == "G_OFF":
+                continue  # untextured (flat) materials of other families: no tile change
             elif command == "gSPTexture":
                 if args[1:4] != ["0xFFFF", "0xFFFF", "0"] or args[-1] != "G_ON":
                     raise ArtError("Unsupported source texture scaling")
@@ -363,16 +375,31 @@ class SourceArt:
                 indices = list(map(int, args[1:]))
                 if len(indices) != (4 if command == "gSP1Triangle" else 8):
                     raise ArtError("Triangle argument count mismatch")
-                if state["tile"] is None or state["combine"] is None:
+                if state["combine"] == "flat":
+                    # (P - E) * T + E with P = E: the environment colour on any texel (the
+                    # Blue Falcon's own combiner), sampled from the last bound tile.
+                    if state["environment"] == "racer.bodyRGB":
+                        raise ArtError("Flat body-colour material is not supported")
+                    current = dict(state, combine=PRIMITIVE_COMBINE, primitive=list(state["environment"]),
+                                   tile=state["tile"] if state["tile"] is not None else 1)
+                else:
+                    current = state
+                if current["tile"] is None or current["combine"] is None:
                     raise ArtError("Triangle lacks source material state")
-                if state not in materials:
-                    materials.append(dict(state))
-                material = materials.index(state)
+                if current not in materials:
+                    materials.append(dict(current))
+                material = materials.index(current)
                 for i in range(0, len(indices), 4):
                     a, b, c, flag = indices[i:i + 4]
                     if flag or any(v not in cache for v in (a, b, c)):
                         raise ArtError("Triangle references unloaded vertex or unsupported flag")
-                    triangles.append(dict(vertices=[cache[v] for v in (a, b, c)], material=material))
+                    ids = [cache[v] for v in (a, b, c)]
+                    if stem != "BlueFalcon":
+                        pa, pb, pc = (vertices[j]["position"] for j in ids)
+                        u = [pb[k] - pa[k] for k in range(3)]; w = [pc[k] - pa[k] for k in range(3)]
+                        if not any((u[1] * w[2] - u[2] * w[1], u[2] * w[0] - u[0] * w[2], u[0] * w[1] - u[1] * w[0])):
+                            continue  # zero-area source triangle (other families only): nothing to draw
+                    triangles.append(dict(vertices=ids, material=material))
             else:
                 raise ArtError(f"Unhandled Blue Falcon command {command}")
         if not vertices or not triangles:
@@ -380,16 +407,21 @@ class SourceArt:
         return dict(lod=lod, source_function=name, vertices=vertices,
                     triangles=triangles, materials=materials)
 
-    def texture_bindings(self) -> list[dict]:
+    def texture_bindings(self, stem: str = "BlueFalcon") -> list[dict]:
+        if not re.fullmatch(r"[A-Za-z0-9]+", stem):
+            raise ArtError("Invalid machine family stem")
         bindings = []
-        for command, args in commands(stock_function(self.draw.decode(), "Machine_DrawLoadBlueFalconTextures")):
+        for command, args in commands(stock_function(self.draw.decode(), f"Machine_DrawLoad{stem}Textures")):
             if command == "gDPPipeSync":
                 continue
             if command not in ("gDPLoadMultiBlock", "gDPLoadMultiBlock_4b"):
                 raise ArtError(f"Unhandled texture command {command}")
             bindings.append(dict(tile=int(args[3]), symbol=args[1], source_command=command, arguments=args[2:]))
-        if [b["tile"] for b in bindings] != list(range(1, 8)):
+        tiles = [b["tile"] for b in bindings]
+        if stem == "BlueFalcon" and tiles != list(range(1, 8)):
             raise ArtError("Incomplete Blue Falcon texture bindings")
+        if not tiles or tiles != sorted(set(tiles)) or tiles[0] < 1 or tiles[-1] > 7:
+            raise ArtError("Incomplete machine texture bindings")
         setup = self.race_setup()
         bindings.insert(0, dict(tile=0, symbol=setup["texture_symbol"],
                                source_setup="D_303A6A8", sampling=setup["tile_zero"]))

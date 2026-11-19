@@ -31,6 +31,7 @@ FACE=56
 PALETTE=112
 PACK_LIMIT=65536
 TEXTURE_LIMIT=32768
+PALETTE_CAP=32  # include/fzx_vehicle.h FZX_VEHICLE_PALETTES (native arm)
 
 
 def sub(a,b):return tuple(x-y for x,y in zip(a,b))
@@ -95,7 +96,24 @@ def address(index,extent,mode,mask):
     return 2*period-1-index if mode&1 and index>=period else index
 
 
-def chart(model,face,texture,sampling,pixels):
+def reduce16(colors):
+    """16 representative RGBA colours for a chart that samples more (deterministic k-means
+    over the sampled texels, seeded by frequency). Used only when quantize is requested."""
+    counts={}
+    for c in colors:counts[c]=counts.get(c,0)+1
+    keys=sorted(counts,key=lambda k:(-counts[k],k));centres=[list(k) for k in keys[:16]]
+    for _ in range(8):
+        sums=[[0,0,0,0,0] for _ in centres]
+        for k,n in counts.items():
+            best=min(range(len(centres)),key=lambda i:(sum((k[j]-centres[i][j])**2 for j in range(4)),i))
+            for j in range(4):sums[best][j]+=k[j]*n
+            sums[best][4]+=n
+        centres=[[(s[j]+s[4]//2)//s[4] for j in range(4)] if s[4] else centres[i] for i,s in enumerate(sums)]
+    centres=[tuple(c) for c in centres]
+    return [min(centres,key=lambda c:(sum((k[j]-c[j])**2 for j in range(4)),c)) for k in colors]
+
+
+def chart(model,face,texture,sampling,pixels,quantize=False):
     vertices=[model['vertices'][i] for i in face['vertices']]
     v=[[*p['position'],*((u*65535)//65536 for u in p['uv'])] for p in vertices]
     if sampling['s_shift'] or sampling['t_shift']:
@@ -125,6 +143,8 @@ def chart(model,face,texture,sampling,pixels):
                      for n,size,axis in zip(uv,(tw,th),('s','t'))]
             at=(indices[1]*tw+indices[0])*4;colors.append(tuple(pixels[at:at+4]))
     palette=sorted(set(colors))
+    if len(palette)>16 and quantize and len(face['triangles'])==1:
+        colors=reduce16(colors);palette=sorted(set(colors));chart.quantized+=1
     if len(palette)>16:raise ArtError('Vehicle chart exceeds 16 source colors')
     mapping={c:i for i,c in enumerate(palette)};indices=[mapping[c] for c in colors]
     packed=bytes((indices[i]<<4)|indices[i+1] for i in range(0,len(indices),2))
@@ -172,7 +192,14 @@ def face_plane(vertices):
     return normal,dot(normal,a)
 
 
-def build(models,bindings,textures,raw,lut,body,fog,fixture=False,orders=None):
+chart.quantized=0
+
+
+def build(models,bindings,textures,raw,lut,body,fog,fixture=False,orders=None,quantize=False):
+    """quantize (default off, the Blue Falcon never needs it): a single triangle whose
+    chart samples more than 16 source colours gets 16 representative ones (counted in
+    the report's quantized_charts) instead of failing."""
+    chart.quantized=0
     if len(models)<5 or len(lut)!=256 or any(not 0<=x<=255 for x in [*lut,*body,*fog]) or len(body)!=3 or len(fog)!=3:
         raise ArtError('Invalid vehicle source setup')
     by_name={t['symbol']:t for t in textures};by_tile={b['tile']:b for b in bindings}
@@ -192,7 +219,7 @@ def build(models,bindings,textures,raw,lut,body,fog,fixture=False,orders=None):
         while queue:
             face=queue.pop(0);mat=model['materials'][face['material']];binding=by_tile[mat['tile']];tex=by_name[binding['symbol']]
             if tex['symbol'] not in image_cache:image_cache[tex['symbol']]=decode_texture(raw[tex['symbol']],tex['format'],tex['width'],tex['height'])
-            try:w,h,colors,pixels=chart(model,face,tex,sampler(binding,tex),image_cache[tex['symbol']])
+            try:w,h,colors,pixels=chart(model,face,tex,sampler(binding,tex),image_cache[tex['symbol']],quantize)
             except ArtError as exc:
                 if len(face['triangles'])!=2 or str(exc)!='Vehicle chart exceeds 16 source colors':raise
                 rejected_pairs+=1
@@ -222,6 +249,49 @@ def build(models,bindings,textures,raw,lut,body,fog,fixture=False,orders=None):
                 if sorted(order)!=list(range(len(source))) or any(t not in index for t in source):raise ArtError('Supplied vehicle order does not match the faces')
                 orders[octant]=[index[source[i]] for i in order];supplied+=1
         prepared.append(dict(lod=lod+1,model=model,maps=maps,positions=list(unique_positions),normals=list(unique_normals),faces=faces,orders=orders,rejected_pairs=rejected_pairs))
+    # Texels in face order (the pack's contract): a pair split for its colours puts its two
+    # triangles' charts next to each other in the bank, ahead of faces sorted between them.
+    relaid=bytearray()
+    for p in prepared:
+        for f in p['faces']:
+            n=f['width']*f['height']//2;chunk=bank[f['offset']:f['offset']+n];f['offset']=len(relaid);relaid+=chunk
+    bank=relaid
+    merged=0
+    if quantize and len(palettes)>PALETTE_CAP:
+        # Over the native draw's palette capacity: merge palettes of one material key whose
+        # colour union fits 16 (largest first, first fit), then re-index the chart texels.
+        groups=[]
+        for i in sorted(range(len(palettes)),key=lambda i:(-len(palettes[i][1]),i)):
+            key,colors=palettes[i]
+            for g in groups:
+                if g['key']==key and len(g['colors']|set(colors))<=16:g['colors']|=set(colors);g['members'].append(i);break
+            else:groups.append(dict(key=key,colors=set(colors),members=[i]))
+        # Still over: join the two groups of one key with the smallest colour union (lossy:
+        # a group over 16 colours is reduced to 16 below), until the capacity holds.
+        while len(groups)>PALETTE_CAP:
+            best=None
+            for a in range(len(groups)):
+                for b in range(a+1,len(groups)):
+                    if groups[a]['key']!=groups[b]['key']:continue
+                    u=len(groups[a]['colors']|groups[b]['colors'])
+                    if best is None or u<best[0]:best=(u,a,b)
+            if best is None:raise ArtError('Vehicle palettes exceed the native capacity (material keys)')
+            _,a,b=best;groups[a]['colors']|=groups[b]['colors'];groups[a]['members']+=groups[b]['members'];del groups[b]
+        new_of={};merged_palettes=[];nearest=[]
+        for g in sorted(groups,key=lambda g:min(g['members'])):
+            colors=sorted(g['colors']);near={c:c for c in colors}
+            if len(colors)>16:
+                reduced=reduce16(colors);near=dict(zip(colors,reduced));colors=sorted(set(reduced));chart.quantized+=1
+            merged_palettes.append((g['key'],colors));nearest.append(near)
+            for m in g['members']:new_of[m]=len(merged_palettes)-1
+        for p in prepared:
+            for f in p['faces']:
+                g=new_of[f['palette']];old=palettes[f['palette']][1];new=merged_palettes[g][1]
+                index={c:new.index(nearest[g][c]) for c in old}
+                n=f['width']*f['height']//2;chunk=bank[f['offset']:f['offset']+n];out=bytearray(n)
+                for i,b in enumerate(chunk):out[i]=(index[old[b>>4]]<<4)|index[old[b&15]]
+                bank[f['offset']:f['offset']+n]=out;f['palette']=new_of[f['palette']]
+        merged=len(palettes)-len(merged_palettes);palettes=merged_palettes
     data=bytearray(HEADER+len(prepared)*DESCRIPTOR);data[:8]=b'FZXMCH02'
     def align():data.extend(bytes((-len(data))%8))
     for index,p in enumerate(prepared):
@@ -253,7 +323,7 @@ def build(models,bindings,textures,raw,lut,body,fog,fixture=False,orders=None):
     if len(data)>PACK_LIMIT or len(bank)>TEXTURE_LIMIT:raise ArtError('Prepared vehicle exceeds pack budget')
     struct.pack_into('>10I',data,8,len(data),len(bank),fnv(bank),0,int(fixture),3,HEADER,len(palettes),palette_at,lut_at)
     data[48:54]=bytes([*body,*fog]);struct.pack_into('>I',data,20,fnv(data))
-    report=dict(format='FZXMCH02',metadata_bytes=len(data),texture_bytes=len(bank),palette_groups=len(palettes),palette_vram_bytes=len(palettes)*32,
+    report=dict(**({'quantized_charts':chart.quantized,'merged_palettes':merged} if quantize else {}),format='FZXMCH02',metadata_bytes=len(data),texture_bytes=len(bank),palette_groups=len(palettes),palette_vram_bytes=len(palettes)*32,
                 gouraud_bytes=max(len(p['faces']) for p in prepared)*8,
                 lods=[dict(lod=p['lod'],source_vertices=len(p['model']['vertices']),source_triangles=len(p['model']['triangles']),positions=len(p['positions']),
                            normals=len(p['normals']),faces=len(p['faces']),pairs=sum(len(f['triangles'])==2 for f in p['faces']),palette_rejected_pairs=p['rejected_pairs']) for p in prepared],

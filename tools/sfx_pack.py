@@ -34,6 +34,14 @@ RAM_BYTES = 512 * 1024
 IDLE_BYTES = 32            # 68000 vectors and its one-instruction idle loop
 STREAM_RING = 8 * 1024     # one announcer stream ring
 STREAMS = 2
+# The game's race events, as (sequence channel, io value) the way external.c starts them:
+# player SEs on channel 10 with the SE id (Audio_PlayerSEStart), system and voice SEs on channel 1
+# (Audio_SystemSEStart), the player's engine on channel 2 (Audio_PlayerEngineStart, NA_LEVEL_SE_2)
+# and the nearest rival's engine on channel 14 (Audio_UpdateEnemyEngine, NA_LEVEL_SE_1).
+EVENTS = (("boost", 10, 7), ("wall", 10, 3), ("energy_slow", 10, 19), ("energy_medium", 10, 20),
+          ("energy_fast", 10, 21), ("lap_two", 1, 17), ("lap_final", 1, 18),
+          ("engine_player", 2, 2), ("engine_rival", 14, 1))
+EVENT_PARTS = 3
 RACER_CHANNELS = (2, 3, 4, 5, 6, 7, 8, 9, 14)
 ONE_SHOT_CHANNELS = (1, 10, 11, 12, 13, 15)
 
@@ -118,6 +126,17 @@ def classify(font: dict, walker: B.SeqWalker, chans: dict, music: set) -> dict:
     return groups
 
 
+def event_parts(walker: B.SeqWalker, chans: dict, channel: int, io: int, font: dict) -> list:
+    """(instrument, note, velocity) of each layer the channel starts for io, first note per layer."""
+    c, layers, s = walker.start(chans[channel], io)
+    parts = []
+    for _, pc in sorted(layers.items()):
+        notes = [n for n in walker.notes(s, pc, c["instr"]) if n[0] is not None and n[0] in font]
+        if notes:
+            parts.append((notes[0][0], notes[0][1], notes[0][2]))
+    return parts[:EVENT_PARTS]
+
+
 def build(clips: list, ram_bytes: int, streams: int = STREAMS, reverb_bytes: int = 0) -> dict:
     """Lay clips out in sound RAM. clips: dicts with 'name', 'data' (int8 array), loop fields, rate, tl."""
     offset = IDLE_BYTES
@@ -150,6 +169,19 @@ def build(clips: list, ram_bytes: int, streams: int = STREAMS, reverb_bytes: int
 def write_outputs(out: Path, pack: dict):
     out.mkdir(parents=True, exist_ok=True)
     (out / "SNDRACE.PAK").write_bytes(b"SNP1" + struct.pack(">II", IDLE_BYTES, len(pack["image"])) + pack["image"])
+    def event_table(events):
+        if not events:
+            return ""
+        defs = "".join("#define SND_RACE_EV_%s %d\n" % (n.upper(), k) for k, (n, _) in enumerate(events))
+        body = ",\n".join("    { %s }" % ", ".join(
+            ["{ %d, %d, %du, %du }" % (p["clip"], p["oct"], p["fns"], p["level"]) for p in row] +
+            ["{ 0xFF, 0, 0u, 0u }"] * (EVENT_PARTS - len(row))) for _, row in events)
+        return ("/* Race events: up to %d parts (clip index, pitch for the note, level 0..255); clip 0xFF = none. */\n"
+                "typedef struct snd_race_part { uint8_t clip; int8_t oct; uint16_t fns; uint8_t level; } snd_race_part_t;\n"
+                "%s#define SND_RACE_EVENT_COUNT %d\n#define SND_RACE_EVENT_PARTS %d\n"
+                "static const snd_race_part_t snd_race_events[SND_RACE_EVENT_COUNT][SND_RACE_EVENT_PARTS] = {\n%s\n};\n"
+                % (EVENT_PARTS, defs, len(events), EVENT_PARTS, body))
+
     rows = []
     for c in pack["clips"]:
         rows.append("    { 0x%05Xu, %5uu, %5uu, %5uu, %2d, %4uu, %3uu, %uu } /* %s */" % (
@@ -164,10 +196,10 @@ def write_outputs(out: Path, pack: dict):
         " uint16_t fns; uint8_t tl, loop; } snd_race_clip_t;\n"
         "#define SND_RACE_CLIP_COUNT %d\n#define SND_RACE_USED_BYTES %uu\n%s\n"
         "_Static_assert(SND_RACE_USED_BYTES <= 0x80000u, \"sound RAM map exceeds 512 KB\");\n"
-        "static const snd_race_clip_t snd_race_clips[SND_RACE_CLIP_COUNT] = {\n%s\n};\n#endif\n"
-        % (len(pack["clips"]), pack["used"], regions, ",\n".join(rows)))
+        "static const snd_race_clip_t snd_race_clips[SND_RACE_CLIP_COUNT] = {\n%s\n};\n%s#endif\n"
+        % (len(pack["clips"]), pack["used"], regions, ",\n".join(rows), event_table(pack.get("events", []))))
     meta = {"note": "Local, derived from the owner's ROM. Do not commit or share.", "used": pack["used"],
-            "regions": pack["regions"],
+            "regions": pack["regions"], "events": pack.get("events", []),
             "clips": [{k: v for k, v in c.items() if k != "data"} for c in pack["clips"]]}
     (out / "snd_race.json").write_text(json.dumps(meta, indent=1) + "\n")
 
@@ -193,7 +225,16 @@ def main():
     seq_seg = lay["seg"]["audio_seq"]
     seq = rom[seq_seg + lay["seqs"][0][0]: seq_seg + lay["seqs"][0][0] + lay["seqs"][0][1]]
     walker = B.SeqWalker(seq, args_table)
-    groups = classify(font, walker, walker.channels(), music)
+    chans = walker.channels()
+    groups = classify(font, walker, chans, music)
+    events = {name: event_parts(walker, chans, ch, io, font) for name, ch, io in EVENTS}
+    for name, parts in events.items():
+        if not parts:
+            raise PackError("event %s starts no note" % name)
+        for inst, _, _ in parts:
+            if inst in groups["stream"]:                           # an event's voice clip is packed for the race
+                groups["stream"].remove(inst)
+                groups["one_shot"].append(inst)
     clips = []
     for kind in ("engine", "one_shot"):
         for inst in groups[kind]:
@@ -213,6 +254,16 @@ def main():
                           "rate": out_rate, "loop": smp["loop_forever"], "loop_start": ls, "loop_end": le,
                           "oct": octv, "fns": fns, "tl": tl})
     pack = build(clips, args.ram_bytes, reverb_bytes=args.reverb_bytes)
+    index = {c["inst"]: k for k, c in enumerate(pack["clips"])}
+    pack["events"] = []
+    for name, parts in events.items():
+        row = []
+        for inst, note, vel in parts:
+            c = pack["clips"][index[inst]]
+            rate = c["rate"] * 2 ** ((note - 39) / 12.0)               # the note transposes from middle C
+            o, f = oct_fns(rate)
+            row.append({"clip": index[inst], "oct": o, "fns": f, "level": min(255, int(round(255 * (vel / 127.0) ** 2)))})
+        pack["events"].append((name, row))
     write_outputs(args.output, pack)
     kb = lambda b: b / 1024
     by = {k: sum(c["samples"] for c in pack["clips"] if c["kind"] == k) for k in ("engine", "one_shot")}

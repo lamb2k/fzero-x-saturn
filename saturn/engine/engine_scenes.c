@@ -508,7 +508,7 @@ static void load_turn(void) {
 #define SPIN_COL 3u
 static volatile uint16_t spin_words[4];
 static volatile uint32_t spin_fields, spin_phase;
-static bool load_done, load_ran;
+static bool load_done, load_ran, menu_frame_prev;
 
 static volatile uint32_t card_updates;
 static void bar_draw(void);
@@ -809,14 +809,11 @@ void fzx_scn_main(void) {
     for (;;) {
         const uint32_t now = video_fields_get();
         uint32_t steps = now - frame_fields;
-        {   /* Manager frame cadence outside RACE (fzx_scn_ctl[6] worst gap, [7] gaps over two
-             * fields); the frame that ran a blocking load (load_ran) is counted apart. */
-            static uint32_t last_kind;
-            if (last_kind == 1u && steps > fzx_scn_ctl[6]) fzx_scn_ctl[6] = steps;
-            if (last_kind == 1u && steps > 2u) ++fzx_scn_ctl[7];
-            last_kind = (seq.current != FZX_SCN_RACE && !load_ran) ? 1u : 0u;
-            load_ran = false;
-        }
+        /* Manager frame cadence outside RACE (fzx_scn_ctl[6] worst gap, [7] gaps over two
+         * fields): the gap measured here belongs to the previous iteration, counted only when
+         * that iteration was a manager frame that ran no blocking load. */
+        if (menu_frame_prev && steps > fzx_scn_ctl[6]) fzx_scn_ctl[6] = steps;
+        if (menu_frame_prev && steps > 2u) ++fzx_scn_ctl[7];
         frame_fields = now;
         if (steps == 0u) steps = 1u;
         if (steps > 4u) steps = 4u;
@@ -867,7 +864,10 @@ void fzx_scn_main(void) {
         const uint32_t before = seq.epoch;
         const uint32_t level = sh2z_scene_frame(&seq);
         if (seq.epoch != before) leaving = false;
-        for (uint32_t k = 1; k < steps && seq.phase <= SH2Z_SCENE_RUN && seq.current != FZX_SCN_RACE; ++k) {
+        /* Extra 60 Hz steps for the menus (LOAD starts its load from the frame's own tick, so
+         * the frame before it has reported RUN). */
+        for (uint32_t k = 1; k < steps && seq.phase <= SH2Z_SCENE_RUN && seq.current != FZX_SCN_RACE &&
+                             seq.current != FZX_SCN_LOAD; ++k) {
             (void)sh2z_scene_input_update(&input, chord_latched ? 0u : pad);
             if (seq.pending == SH2Z_SCENE_NONE) table[seq.current].tick(NULL, seq.current);
         }
@@ -891,6 +891,8 @@ void fzx_scn_main(void) {
                 sh2z_scene_retired(&seq);
             }
         }
+        menu_frame_prev = seq.current != FZX_SCN_RACE && !load_ran && !(seq.phase <= SH2Z_SCENE_RUN && seq.current == FZX_SCN_RACE);
+        load_ran = false;
         fzx_scn_report[1] = seq.current; fzx_scn_report[2] = seq.phase; fzx_scn_report[3] = level;
         fzx_scn_report[4] = seq.epoch; fzx_scn_report[5] = seq.frames; fzx_scn_report[6] = seq.switches;
         fzx_scn_report[17] = menu_arena.high; fzx_scn_report[18] = race_arena.high;

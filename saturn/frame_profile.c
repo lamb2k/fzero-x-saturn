@@ -2,7 +2,11 @@
 #include <string.h>
 #include "frame_profile.h"
 #include "frame_clock.h"
+#if FZX_DIAG_RIVALS
+#define CAPACITY 3072u /* diagnostic: room for RIVALS.PAK in low WRAM; the 7059 route needs < 2048 rows */
+#else
 #define CAPACITY 4096u
+#endif
 #if FZX_SIMPIPE_DBUF
 /* Sim-pipeline checkpoint 3 carves its slots ahead of the profile, so the
  * frame and road rows share one runtime capacity (at most CAPACITY) that

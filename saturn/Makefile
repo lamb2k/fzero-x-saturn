@@ -851,6 +851,14 @@ endif
 FZX_SH2ZAM_UNITS += sh2zam_line_follower.c
 SH_CFLAGS += -DFZX_DIAG_RIVALS=$(FZX_DIAG_RIVALS) -I../generated/rivals
 FZX_DIAG_RIVALS_SRCS := rivals_diag.c
+$(SH_OUTPUT_PATH)/$(SH_PROGRAM).iso: ../generated/rivals/RIVALS.PAK
+pre-build-iso: stage-rivals-pack
+.PHONY: stage-rivals-pack
+stage-rivals-pack: export FZX_RIVALS_STAGE := $(IMAGE_DIRECTORY)
+stage-rivals-pack:
+	@[ -n "$$FZX_RIVALS_STAGE" ] || { echo "stage-rivals-pack: IMAGE_DIRECTORY is empty" >&2; exit 1; }
+	mkdir -p -- "$$FZX_RIVALS_STAGE"
+	cp -- ../generated/rivals/RIVALS.PAK "$$FZX_RIVALS_STAGE/RIVALS.PAK"
 endif
 FZX_SH2ZAM_SRCS := $(addprefix $(SH2ZAM_ROOT)/saturn/src/,$(sort $(FZX_SH2ZAM_UNITS)))
 FZX_SH2ZAM_MISSING := $(filter-out $(wildcard $(FZX_SH2ZAM_SRCS)),$(FZX_SH2ZAM_SRCS))

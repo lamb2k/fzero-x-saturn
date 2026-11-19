@@ -1410,6 +1410,8 @@ main(void)
 #if FZX_SOURCE_RECORDS
 #if FZX_SIMPIPE_DBUF
     if(!fzx_fp_init(simpipe_carve(fzx_records_low_end),fields_per_second)) {
+#elif FZX_DIAG_RIVALS
+    if(!fzx_fp_init(fzx_rivals_diag_load(fzx_records_low_end),fields_per_second)) {
 #else
     if(!fzx_fp_init(fzx_records_low_end,fields_per_second)) {
 #endif

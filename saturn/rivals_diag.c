@@ -1,7 +1,9 @@
 /* Rivals diagnostic (see rivals_diag.h). Fixed point only, SH2ZAM line follower. */
 #include "rivals_diag.h"
 #include <yaul.h>
+#include <string.h>
 #include "sh2zam/line_follower_experimental.h"
+#include "texture_cd.h"
 #include "rivals_course.h"   /* generated from the owner's ROM; never committed */
 
 #if FZX_DIAG_RIVALS < 1 || FZX_DIAG_RIVALS > FZX_RIVALS_MAX
@@ -12,14 +14,43 @@ fzx_rival_pose_t fzx_rival_poses[FZX_RIVALS_MAX];
 volatile uint32_t fzx_rival_count = FZX_DIAG_RIVALS;
 volatile uint32_t fzx_rivals_prof[8];
 
-static const sh2z_line_t line = { fzx_rivals_nodes, FZX_RIVALS_NODE_COUNT, FZX_RIVALS_LINE_LENGTH };
+/* The baked tables live in low WRAM, loaded once from RIVALS.PAK (high WRAM is full). */
+static const sh2z_line_node_t *fzx_rivals_nodes;
+static const fzx_rival_node_pose_t *fzx_rivals_poses;
+static sh2z_line_t line;
+static int loaded;
+volatile uint32_t fzx_rivals_load_status;
 static const sh2z_follow_params_t follow = { 24, 48, 3277, 64, 6 * 256 };
 static sh2z_track_state_t rv[FZX_DIAG_RIVALS];
 static int32_t expect[FZX_DIAG_RIVALS], lane[FZX_DIAG_RIVALS], pace_v[FZX_DIAG_RIVALS];
 static uint8_t order[FZX_DIAG_RIVALS];
 static int started;
 
+#define RIVALS_GUARD 0x52495641u /* "RIVA" */
+uint32_t fzx_rivals_diag_load(uint32_t low_end) {
+    /* As every low-WRAM allocator: the previous owner's trailing guard at low_end stays untouched. */
+    const uintptr_t base = (low_end + 95u) & ~(uintptr_t)31u;
+    const uintptr_t end = base + ((FZX_RIVALS_PACK_BYTES + 31u) & ~31u);
+    const uintptr_t scratch = end + 32u;
+    const uint32_t scratch_bytes = fzx_texture_cd_scratch_bytes();
+    if (scratch + scratch_bytes > 0x00300000u) { fzx_rivals_load_status = 2; return low_end; }
+    if (!fzx_texture_cd_load("RIVALS.PAK", FZX_RIVALS_PACK_BYTES, FZX_RIVALS_PACK_HASH, (void *)base,
+                             (void *)scratch, scratch_bytes)) {
+        fzx_rivals_load_status = 3u + fzx_texture_cd_status.status;
+        return low_end;
+    }
+    for (unsigned i = 0; i < 8u; ++i) ((volatile uint32_t *)end)[i] = RIVALS_GUARD;
+    fzx_rivals_nodes = (const sh2z_line_node_t *)base;
+    fzx_rivals_poses = (const fzx_rival_node_pose_t *)(base + FZX_RIVALS_NODE_COUNT * sizeof(sh2z_line_node_t));
+    line.nodes = fzx_rivals_nodes; line.count = FZX_RIVALS_NODE_COUNT; line.length = FZX_RIVALS_LINE_LENGTH;
+    loaded = 1;
+    fzx_rivals_load_status = 1;
+    fzx_rivals_diag_reset();
+    return (uint32_t)end;   /* the trailing guard block starts here */
+}
+
 void fzx_rivals_diag_reset(void) {
+    if (!loaded) return;
     for (uint32_t i = 0; i < FZX_DIAG_RIVALS; ++i) {
         /* pace = length / lap ticks: one divide per rival at set-up only. */
         pace_v[i] = FZX_RIVALS_LINE_LENGTH / fzx_rivals_lap_ticks[i];
@@ -40,6 +71,7 @@ void fzx_rivals_diag_reset(void) {
 }
 
 void fzx_rivals_diag_ticks(uint32_t ticks, int32_t race_time) {
+    if (!loaded) return;
     if (!started) {
         if (race_time <= 0) return;
         started = 1;
@@ -71,6 +103,7 @@ static uint16_t lerp_angle(uint16_t a, uint16_t b, int32_t f) {
 }
 
 void fzx_rivals_diag_poses(void) {
+    if (!loaded) return;
     const uint16_t t0 = cpu_frt_count_get();
     for (uint32_t r = 0; r < FZX_DIAG_RIVALS; ++r) {
         const uint32_t n = rv[r].node;

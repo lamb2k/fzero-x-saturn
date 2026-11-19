@@ -38,6 +38,10 @@ extern volatile uint32_t fzx_rivals_prof[8];
 /* 0 executed sim ticks, 1 FRT in sim steps, 2 max FRT per tick, 3 presented frames,
  * 4 FRT in pose output, 5 max FRT per pose pass, 6 race start tick seen, 7 laps completed (sum) */
 
+/* Loads RIVALS.PAK into low WRAM from low_end up (once, before the frame profile takes the
+ * rest); returns the new low end (unchanged on failure, see fzx_rivals_load_status). */
+uint32_t fzx_rivals_diag_load(uint32_t low_end);
+extern volatile uint32_t fzx_rivals_load_status;
 void fzx_rivals_diag_reset(void);
 /* Steps every rival `ticks` times (one call per executed tick batch); race_time gates the start. */
 void fzx_rivals_diag_ticks(uint32_t ticks, int32_t race_time);

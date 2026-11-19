@@ -566,9 +566,8 @@ static void load_tick(void *u, uint32_t s) {
     (void)request(FZX_SCN_RACE, RANK_GOTO);
 }
 static void load_draw(void) {}
-/* The first manager frames after a cold load wait for VDP1 for about 17 fields in Ymir
- * (2026-11-19, under investigation): the VBlank spinner keeps the card moving until
- * LOAD leaves. */
+/* The VBlank spinner stays on until LOAD leaves, so the card moves from the first field
+ * of the load to the fade out. */
 static void load_leave(void *u, uint32_t s) { (void)u; (void)s; leaving = true; fzx_scn_vblank_hook = NULL; }
 
 /* ---- RACE ------------------------------------------------------------------ */

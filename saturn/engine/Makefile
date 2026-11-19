@@ -5,7 +5,7 @@
 #
 #   make -C saturn/engine SH2ZAM_ROOT=<checkout of the engine pin> [FZX_VDP1_DBANK=0|1]
 #
-# The SH2ZAM pin is saturn/engine/sh2zam.pin (branch claude/segmesh-2: claude/engine-train plus segmesh-2).
+# The SH2ZAM pin is saturn/engine/sh2zam.pin (scenes build: claude/segmesh-2 plus claude/e1-train plus scene-1).
 # Assets come from ../../generated (owning generators, receipts checked here).
 ifeq ($(strip $(YAUL_INSTALL_ROOT)),)
 $(error Undefined YAUL_INSTALL_ROOT (install root directory))
@@ -23,6 +23,21 @@ E0_PHASES ?= 0
 E0_FAST_CULL ?= 1
 # Coarse road tiers reach 2^N times nearer (0 = as legacy). Owner 2026-11-19: "go with shift 2".
 E0_LOD_SHIFT ?= 2
+# 1: VBlank callbacks keep MACH/MACL (the BIOS dispatcher does not); 0 is the control.
+E0_ISR_MAC_SAVE ?= 1
+# Diagnostic: per-frame check for multiply registers changed under the VBlank interrupt.
+E0_MAC_PROBE ?= 0
+# 1: wait for a due floor/cloud present before queueing the next bank; 0 is the control.
+E0_PRESENT_WAIT ?= 1
+# E1 drive slice (engine_drive.c): native physics, chase camera, sprite player, HUD.
+# Needs generated/physics (tools/engine_drive_assets.py, local only) and
+# generated/racer_sprites (tools/racer_sprites.py), and an SH2ZAM pin with
+# vehicle-dynamics-1 and rotation-sprites-1 (claude/e1-train).
+FZX_E1_DRIVE ?= 0
+# 1: the R01 test driver steers from boot (captures); 0: the pad (owner).
+E1_DRIVER ?= 0
+# Test driver boost period in ticks (0 = R01; 240 = R02).
+E1_DRIVER_BOOST ?= 0
 # Skip zero-area fan pieces of clipped road polygons (the tick-3000 seam).
 E0_FAN_FIX ?= 1
 # Floor/cloud fog bands: near/far 3D clip + 2D clip at the view, no diagnostic hash.
@@ -47,7 +62,7 @@ E0_CLUSTER_AUDIT ?= 0
 ifeq ($(filter 0 1,$(FZX_VDP1_DBANK)),)
 $(error FZX_VDP1_DBANK must be 0 or 1)
 endif
-SH_OUTPUT_DIR := build-e0-bank$(FZX_VDP1_DBANK)$(if $(filter 1,$(FZX_VDP1_DBANK_STALE)),-stale,)-g$(E0_GUARD_MARGIN)-c$(E0_FAST_CULL)-l$(E0_LOD_SHIFT)-f$(E0_FAN_FIX)-r$(E0_RBG_LEAN)-k$(E0_CLUSTERS)-w$(E0_WORK_HIGH)$(if $(filter-out 0,$(E0_CHUNK_CAP)),-cap$(E0_CHUNK_CAP),)-n$(E0_LEAN_CLIP)-e$(E0_FOG_EARLY)$(if $(filter 1,$(E0_HW_COUNTER)),-hw,)$(if $(filter 1,$(E0_VDP2_MAP)),-map,)$(if $(filter 1,$(E0_SENTINEL_CONTROL)),-sentinel,)$(if $(filter 1,$(E0_CLUSTER_AUDIT)),-audit,)$(if $(filter 1,$(E0_PHASES)),-phases,)
+SH_OUTPUT_DIR := build-$(if $(filter 1,$(FZX_E1_DRIVE)),e1-d$(E1_DRIVER)$(if $(filter-out 0,$(E1_DRIVER_BOOST)),-b$(E1_DRIVER_BOOST),)-,e0-)bank$(FZX_VDP1_DBANK)$(if $(filter 1,$(FZX_VDP1_DBANK_STALE)),-stale,)-g$(E0_GUARD_MARGIN)-c$(E0_FAST_CULL)-l$(E0_LOD_SHIFT)-f$(E0_FAN_FIX)-r$(E0_RBG_LEAN)-k$(E0_CLUSTERS)-w$(E0_WORK_HIGH)$(if $(filter-out 0,$(E0_CHUNK_CAP)),-cap$(E0_CHUNK_CAP),)-n$(E0_LEAN_CLIP)-e$(E0_FOG_EARLY)$(if $(filter 1,$(E0_HW_COUNTER)),-hw,)$(if $(filter 1,$(E0_VDP2_MAP)),-map,)$(if $(filter 1,$(E0_SENTINEL_CONTROL)),-sentinel,)$(if $(filter 1,$(E0_CLUSTER_AUDIT)),-audit,)$(if $(filter 1,$(E0_PHASES)),-phases,)$(if $(filter 0,$(E0_ISR_MAC_SAVE)),-nomac,)$(if $(filter 1,$(E0_MAC_PROBE)),-macprobe,)$(if $(filter 0,$(E0_PRESENT_WAIT)),-nowait,)
 SH_BUILD_DIR := $(SH_OUTPUT_DIR)/yaul
 IMAGE_DIRECTORY := $(SH_OUTPUT_DIR)/cd
 IMAGE_1ST_READ_BIN := A.BIN
@@ -64,6 +79,15 @@ E0_RECEIPTS := engine_path/engine_path.receipt road_pack/road_pack.receipt road_
                skyline/skyline.receipt sky/sky.receipt planes_cloud/planes.receipt floor_rbg/floor_rbg.receipt \
                $(if $(filter 1,$(E0_CLUSTERS)),road_cluster/road_cluster.receipt,)
 E0_RECEIPT_CHECK := $(foreach R,$(E0_RECEIPTS),$(shell sh ../../tools/check_receipt.sh $(G)/$(R) >/dev/null 2>&1 || echo $(R)))
+ifeq ($(FZX_E1_DRIVE),1)
+E1_RECEIPT_CHECK := $(foreach R,physics/physics.receipt racer_sprites/racer_sprites.receipt,$(shell sh ../../tools/check_receipt.sh $(G)/$(R) >/dev/null 2>&1 || echo $(R)))
+ifneq ($(strip $(E1_RECEIPT_CHECK)),)
+$(error Missing or stale E1 assets; run their generators: $(E1_RECEIPT_CHECK))
+endif
+ifeq ($(wildcard $(SH2ZAM_ROOT)/saturn/include/sh2zam/vehicle_dynamics_experimental.h),)
+$(error FZX_E1_DRIVE=1 needs an SH2ZAM pin with vehicle-dynamics-1 (claude/e1-train))
+endif
+endif
 ifneq ($(strip $(E0_RECEIPT_CHECK)),)
 $(error Missing or stale assets; run their generators: $(E0_RECEIPT_CHECK))
 endif
@@ -72,7 +96,7 @@ SH2ZAM_UNITS := sh2zam.c sh2zam_angles.c sh2zam_batch_sh2.c sh2zam_box2.c sh2zam
     sh2zam_geometry.c sh2zam_m68k.c sh2zam_prepared.c sh2zam_reuse.c sh2zam_rotation_batch.c sh2zam_shade.c \
     sh2zam_spatial.c sh2zam_transform.c sh2zam_trig.c sh2zam_view.c sh2zam_view_center.c \
     sh2zam_view_guard_src.c sh2zam_view_guard_src_center.c sh2zam_view_round.c \
-    sh2zam_view_merge_tier.c sh2zam_shade_fused.c sh2zam_view_rails.c sh2zam_segmesh.c sh2zam_segmesh_cull.c sh2zam_vdp1_banks.c
+    sh2zam_view_merge_tier.c sh2zam_shade_fused.c sh2zam_view_rails.c sh2zam_segmesh.c sh2zam_segmesh_cull.c sh2zam_vdp1_banks.c \n    $(if $(filter 1,$(FZX_E1_DRIVE)),sh2zam_vehicle_dynamics.c sh2zam_unit30.c sh2zam_rotation_sprite.c sh2zam_sprite_cache.c sh2zam_vlc2.c,)
 
 SH_SRCS := engine_main.c engine_scene.c engine_path.c \
     ../sky_native.c ../skyline_native.c ../planes_native.c ../floor_rbg_native.c ../clouds_vdp2_native.c \
@@ -81,6 +105,7 @@ SH_SRCS := engine_main.c engine_scene.c engine_path.c \
     ../../src/fzx_floor_rbg.c ../../src/fzx_clouds_rbg.c ../../src/fzx_rbg_fast.c \
     ../../src/fzx_road_pack.c ../../src/fzx_road_stream.c ../../src/fzx_road_stream_draw.c \
     $(G)/course_record.c \
+    $(if $(filter 1,$(FZX_E1_DRIVE)),engine_drive.c ../physics_native.c,) \
     $(addprefix $(SH2ZAM_ROOT)/saturn/src/,$(sort $(SH2ZAM_UNITS)))
 
 SH_CFLAGS += -DFZX_ENGINE=1 -DFZX_FRAME_PROFILE=1 -DFZX_VDP1_DBANK=$(FZX_VDP1_DBANK) \
@@ -95,7 +120,9 @@ SH_CFLAGS += -DFZX_ENGINE=1 -DFZX_FRAME_PROFILE=1 -DFZX_VDP1_DBANK=$(FZX_VDP1_DB
     -DFZX_ROAD_STREAM_BUDGET=1 -DFZX_RBG_FAST=1 -DFZX_SLAVE_ROAD=1 -DFZX_ROAD_LOD=1 \
     -I$(G)/engine_path -DFZX_SH2_DIVU=1 -O2 -std=c11 -Wall -Wextra \
     -I. -I.. -I../../include -I../../ref -I$(SH2ZAM_ROOT)/saturn/include -DSH2Z_REQUIRE_SH2=1 \
-    -ffunction-sections -fdata-sections
+    -ffunction-sections -fdata-sections \
+    -DE0_ISR_MAC_SAVE=$(E0_ISR_MAC_SAVE) -DE0_MAC_PROBE=$(E0_MAC_PROBE) -DE0_PRESENT_WAIT=$(E0_PRESENT_WAIT) -DFZX_E1_DRIVE=$(FZX_E1_DRIVE) -DE1_DRIVER=$(E1_DRIVER) -DE1_DRIVER_BOOST=$(E1_DRIVER_BOOST) \
+    $(if $(filter 1,$(FZX_E1_DRIVE)),-I$(G)/physics -I$(G)/racer_sprites,)
 # As ../Makefile: these SH2ZAM units carry same-named assembler macros.
 SH_CFLAGS += $$(if $$(filter %/sh2zam_view.c %/sh2zam_view_center.c,$$<),-fno-lto,)
 
@@ -111,7 +138,7 @@ IP_VERSION := V0.001
 IP_RELEASE_DATE := 20261119
 IP_AREAS := JTUBKAEL
 IP_PERIPHERALS := J
-IP_TITLE := Engine E0 track flythrough
+IP_TITLE := $(if $(filter 1,$(FZX_E1_DRIVE)),Engine E1 drive,Engine E0 track flythrough)
 IP_MASTER_STACK_ADDR := 0x06100000
 # Slave stack: the 8 KB IP.BIN area 0x06002000..0x06004000, guarded (../slave_road.c).
 IP_SLAVE_STACK_ADDR := 0x06004000
@@ -129,3 +156,6 @@ stage-e0-packs:
 	   $(G)/skyline/SKYLINE.PAK $(G)/planes_cloud/PLANES.PAK \
 	   $(G)/floor_rbg/FLOORCHR.BIN $(G)/floor_rbg/FLOORMAP.BIN $(G)/floor_rbg/FLOORKOF.BIN "$(IMAGE_DIRECTORY)/"
 	$(if $(filter 1,$(E0_CLUSTERS)),cp $(G)/road_cluster/ROADCL.PAK "$(IMAGE_DIRECTORY)/",)
+ifeq ($(FZX_E1_DRIVE),1)
+	cp $(G)/physics/PHYS.PAK $(G)/racer_sprites/RSPRITE.PAK "$(IMAGE_DIRECTORY)/"
+endif

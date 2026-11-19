@@ -70,7 +70,8 @@ int main(int argc, char** argv) {
 
     static int lap_end[MAXR][4], finish_tick[MAXR], retire_tick[MAXR], grid_pos[MAXR], final_pos[MAXR], target_ms[MAXR], character[MAXR];
     static int prev_lap[MAXR], prev_pos[MAXR];
-    static float grid_dist[MAXR], grid_lat[MAXR], max_energy[MAXR];
+    static float grid_dist[MAXR], grid_lat[MAXR], max_energy[MAXR], last_dist[MAXR], last_energy[MAXR], top_speed[MAXR];
+    static int last_flags[MAXR];
     int start_tick = -1, rank_change_ticks = 0, rank_swaps = 0, ticks = 0, finished = 0, retired = 0;
     double spread_sum = 0, spread_max = 0; int spread_n = 0;
     static double spread_at[32]; int spread_marks = 0;
@@ -101,6 +102,7 @@ int main(int argc, char** argv) {
                 (void)min_lat_room;
             }
             prev_lap[i] = v[0]; prev_pos[i] = v[1];
+            last_dist[i] = f[0]; last_energy[i] = f[3]; last_flags[i] = v[2]; if (f[2] > top_speed[i]) top_speed[i] = f[2];
         }
         ticks = t + 1;
         if (start_tick >= 0) {
@@ -122,7 +124,8 @@ int main(int argc, char** argv) {
         fprintf(o, "  {\"id\": %d, \"character\": %d, \"grid\": %d, \"grid_dist\": %.2f, \"grid_lateral\": %.2f, \"target_lap_ms\": %d, \"max_energy\": %.2f,"
                    " \"lap_end_ticks\": [%d,%d,%d], \"finish_tick\": %d, \"final_pos\": %d, \"retire_tick\": %d, \"mean_speed\": %.3f}%s\n",
                 i, character[i], grid_pos[i], grid_dist[i], grid_lat[i], target_ms[i], max_energy[i], lap_end[i][0], lap_end[i][1], lap_end[i][2],
-                finish_tick[i], finish_tick[i] >= 0 ? final_pos[i] : -1, retire_tick[i], speed_n[i] ? speed_sum[i] / speed_n[i] : 0.0, i + 1 < MAXR ? "," : "");
+                finish_tick[i], finish_tick[i] >= 0 ? final_pos[i] : -1, retire_tick[i], speed_n[i] ? speed_sum[i] / speed_n[i] : 0.0,
+                last_dist[i], last_energy[i], (unsigned)last_flags[i], top_speed[i], i + 1 < MAXR ? "," : "");
     }
     fprintf(o, " ]\n}\n");
     fclose(o);

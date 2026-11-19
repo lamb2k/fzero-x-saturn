@@ -585,16 +585,16 @@ int main(void) {
         if (row != &scratch_row) { pending_row = row_index + 1u; ++row_index; fzx_e0_report[1] = row_index; }
         else pending_row = 0;
 #if E0_HW_COUNTER
-        {   /* Once a second (60 fields): the readout, top left, for a TV. */
+        {   /* Once a second (60 fields): the readout, inset from the top left for TV overscan. */
             const uint32_t frames = fzx_hw_frames, last = fzx_hw_last_field;
             if (frames > 1u && field >= hw_next) {
                 const uint32_t fields = last - fzx_hw_first_field, secs = (field - fzx_hw_first_field) / 60u;
                 const uint32_t mean10 = fields ? (frames - 1u) * 600u / fields : 0u;
-                dbgio_printf("\x1b[H E0 HW  %02lu:%02lu  LOOP %lu\n"
-                             " FRAMES %lu  FIELDS %lu\n"
-                             " FPS %lu  MEAN %lu.%lu\n"
-                             " WORST %luF  OVER2 %lu\n"
-                             " GAPS 1F %lu 2F %lu 3F %lu 4F+ %lu  \n",
+                dbgio_printf("\x1b[H\n\n    E0 HW  %02lu:%02lu  LOOP %lu\n"
+                             "    FRAMES %lu  FIELDS %lu\n"
+                             "    FPS %lu  MEAN %lu.%lu\n"
+                             "    WORST %luF  OVER2 %lu\n"
+                             "    GAPS 1F %lu 2F %lu 3F %lu 4F+ %lu  \n",
                              (unsigned long)(secs / 60u), (unsigned long)(secs % 60u), (unsigned long)hw_loops,
                              (unsigned long)frames, (unsigned long)fields,
                              (unsigned long)(frames - hw_mark_frames), (unsigned long)(mean10 / 10u), (unsigned long)(mean10 % 10u),

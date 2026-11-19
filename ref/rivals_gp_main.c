@@ -78,6 +78,7 @@ int main(int argc, char** argv) {
     P.attack_long = U(184); P.attack_lat = U(92);                        /* the source's 184 / 92 */
     P.boost_speed = U(6); P.boost_energy = U(10); P.boost_min_share = 19661; P.boost_min_cap = 0; P.boost_behind = U(150);
     P.cruise = U(40);
+    P.rank_lead = U(8);
     P.lod_near[0] = lod ? U(3000) : INT32_MAX; P.lod_near[1] = lod ? U(8000) : INT32_MAX; P.lod_near[2] = lod ? U(16000) : INT32_MAX;
     P.boost_ticks = 90; P.laps = 3; P.boost_from_lap = 1;
     /* Tuning overrides for HOST experiments only: --tune "name=value,..." (integers, the field's own units). */
@@ -87,7 +88,7 @@ int main(int argc, char** argv) {
             char* eq = strchr(tok, '='); if (!eq) die("--tune name=value"); *eq = 0; const int32_t val = (int32_t)atol(eq + 1);
             #define T(n) if (!strcmp(tok, #n)) { P.n = val; continue; }
             T(pace_gain) T(pace_max) T(chase_gain) T(steer_gain) T(avoid_long) T(avoid_lat) T(avoid_offset) T(avoid_ticks) T(pass_hold) T(contact_long) T(contact_lat)
-            T(bump_keep) T(hit_energy) T(side_energy) T(attack_energy) T(wall_energy) T(wall_keep) T(boost_speed) T(boost_energy) T(boost_behind) T(cruise)
+            T(bump_keep) T(hit_energy) T(side_energy) T(attack_energy) T(wall_energy) T(wall_keep) T(boost_speed) T(boost_energy) T(boost_behind) T(cruise) T(rank_lead)
             #undef T
             if (!strcmp(tok, "boost_ticks")) { P.boost_ticks = (int16_t)val; continue; }
             if (!strcmp(tok, "accel")) { tune_accel = val; continue; }

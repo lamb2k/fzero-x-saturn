@@ -190,14 +190,25 @@ def write_header(path: Path, table: list):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("--iso", type=Path, required=True)
+    ap.add_argument("--iso", type=Path, help="data track (the engine build's ISO); not needed with --header-only")
     ap.add_argument("--music", type=Path, required=True, help="bgm_cdda.py output directory")
     ap.add_argument("--ids", required=True, help="comma-separated music ids, in track order from track 2")
-    ap.add_argument("--output", type=Path, required=True)
+    ap.add_argument("--output", type=Path)
+    ap.add_argument("--header-only", action="store_true", help="write only --header (the engine needs it before its build)")
     ap.add_argument("--name", default="fzs-engine")
     ap.add_argument("--header", type=Path)
     args = ap.parse_args()
-    r = build(args.iso, args.music, [int(x) for x in args.ids.split(",")], args.output, args.name, args.header)
+    ids = [int(x) for x in args.ids.split(",")]
+    if args.header_only:
+        if not args.header:
+            raise DiscError("--header-only needs --header")
+        by_id = {t["music_id"]: t for t in json.loads((args.music / "manifest.json").read_text())["tracks"]}
+        write_header(args.header, [{"music_id": m, "track": k + 2, "sectors": by_id[m]["sectors"],
+                                    "loop_sector": by_id[m]["loop_sector"]} for k, m in enumerate(ids)])
+        return
+    if not args.iso or not args.output:
+        raise DiscError("--iso and --output are required")
+    r = build(args.iso, args.music, ids, args.output, args.name, args.header)
     print(json.dumps(r, indent=1))
 
 

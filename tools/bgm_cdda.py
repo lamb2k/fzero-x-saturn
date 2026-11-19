@@ -38,6 +38,7 @@ ROOT = Path(__file__).resolve().parents[1]
 # A worktree without the submodule can point FZX_DECOMP at a checkout of the pinned decomp.
 DECOMP = Path(os.environ.get("FZX_DECOMP", ROOT / "upstream/G-Diffuser/decomp"))
 SECTOR = 588                 # stereo frames per CD-DA sector (1/75 s)
+XFADE = 2048                 # frames of cross-fade into the loop-back point at a track's end (46 ms)
 CD_RATE = 44100
 SEQ_IO_NONE = -1
 
@@ -415,16 +416,22 @@ def halfband_upsample2(x: np.ndarray) -> np.ndarray:
 
 def render_track(pcm22: np.ndarray, loop_start: int, loop_end: int, loops_forever: bool, target_s: float) -> dict:
     """Lay one piece out as a CD track (44.1 kHz frames). Returns the mono buffer and its sector map."""
-    up = halfband_upsample2(pcm22)
     if not loops_forever:
+        up = halfband_upsample2(pcm22)
         lead = (-len(up)) % SECTOR
         body = np.concatenate([up, np.zeros(lead)])
         return {"pcm": body, "loop_sector": None, "loop_phase_error": 0, "intro_frames": len(up), "loop_frames": 0}
-    ls, le = 2 * loop_start, 2 * loop_end
-    L = le - ls
-    pad = (-ls) % SECTOR                                         # loop body starts on a sector boundary
-    intro = np.concatenate([np.zeros(pad), up[:ls]])
-    loop = up[ls:le]
+    # Upsample the loop as a cycle (its filter tails wrap), and the intro with the loop's start after it,
+    # so intro -> loop and loop -> loop joins are continuous.
+    tail = 160
+    loop22 = pcm22[loop_start:loop_end]
+    if len(loop22) <= 2 * tail:
+        raise BgmError("loop shorter than the resampling filter")
+    loop = halfband_upsample2(np.concatenate([loop22[-tail:], loop22, loop22[:tail]]))[2 * tail: 2 * tail + 2 * len(loop22)]
+    intro_up = halfband_upsample2(np.concatenate([pcm22[:loop_start], loop22[:tail]]))[:2 * loop_start]
+    L = len(loop)
+    pad = (-len(intro_up)) % SECTOR                              # loop body starts on a sector boundary
+    intro = np.concatenate([np.zeros(pad), intro_up])
     k = max(1, math.ceil((target_s * CD_RATE - len(intro)) / L))
     body = np.concatenate([intro] + [loop] * (k + 1))
     end = len(intro) + k * L
@@ -439,8 +446,17 @@ def render_track(pcm22: np.ndarray, loop_start: int, loop_end: int, loops_foreve
             best_m, best_err = m, e
             if e == 0:
                 break
-    return {"pcm": body[:end_sec], "loop_sector": len(intro) // SECTOR + best_m, "loop_phase_error": int(best_err),
-            "intro_frames": len(intro), "loop_frames": L, "pad_frames": pad}
+    # The drive resumes at the loop-back sector, whose loop phase is phase_jump. Cross-fade the last
+    # XFADE frames of the track into the music that leads up to phase_jump, so the join is continuous;
+    # the phase error becomes a sub-millisecond time shift inside the fade.
+    out = body[:end_sec].copy()
+    phase_jump = (best_m * SECTOR) % L
+    n = min(XFADE, end_sec - len(intro))
+    lead_in = loop[(np.arange(phase_jump - n, phase_jump)) % L]
+    w = 0.5 - 0.5 * np.cos(np.pi * (np.arange(n) + 1) / n)
+    out[end_sec - n:] = out[end_sec - n:] * (1 - w) + lead_in * w
+    return {"pcm": out, "loop_sector": len(intro) // SECTOR + best_m, "loop_phase_error": int(best_err),
+            "intro_frames": len(intro), "loop_frames": L, "pad_frames": pad, "loop": loop, "phase_jump": phase_jump}
 
 
 def write_wav(path: Path, mono: np.ndarray):
@@ -465,8 +481,8 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--output", type=Path, required=True)
     ap.add_argument("--ids", default="all", help="comma-separated music ids, or 'all'")
-    ap.add_argument("--course-seconds", type=float, default=240.0, help="minimum track length for course music")
-    ap.add_argument("--menu-seconds", type=float, default=120.0, help="minimum track length for other looping music")
+    ap.add_argument("--course-seconds", type=float, default=210.0, help="minimum track length for course music")
+    ap.add_argument("--menu-seconds", type=float, default=90.0, help="minimum track length for other looping music")
     ap.add_argument("--peak-dbfs", type=float, default=-1.0, help="peak of the loudest track after the shared gain")
     ap.add_argument("--list", action="store_true", help="print the music table and stop")
     ap.add_argument("--seam-test", action="store_true",

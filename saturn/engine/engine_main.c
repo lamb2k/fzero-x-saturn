@@ -395,7 +395,13 @@ void user_init(void) {
     vdp1_env_default_init(&env);
     env.erase_color = RGB1555(0, 0, 0, 0);
     vdp1_env_set(&env);
+#if ENG_PACE == 3
+    /* ENG_PACE=3 (probe): Yaul's fixed interval (ENG_VDP1_INTERVAL): VDP1 draws as soon as
+     * its list is put; the framebuffer change waits for the interval. */
+    vdp1_sync_interval_set(ENG_VDP1_INTERVAL);
+#else
     vdp1_sync_interval_set(-1); /* present when the list has been drawn */
+#endif
     vdp_sync_vblank_out_set(vblank_out, NULL);
     vdp2_tvmd_display_set();
 }
@@ -1193,7 +1199,7 @@ int main(void) {
 #endif
         const uint16_t w1 = cpu_frt_count_get();
         before_master();
-#if ENG_PACE
+#if ENG_PACE == 1 || ENG_PACE == 2
         {
 #if ENG_PACE == 2
             const uint32_t need = 1u; /* the lock is on the submit (below) */

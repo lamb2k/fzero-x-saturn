@@ -285,7 +285,7 @@ bool fzx_machine_load(void *vram){
         vdp1_cmdt_t mode_cmd;memset(&mode_cmd,0,sizeof(mode_cmd));
         const vdp1_cmdt_draw_mode_t mode={.end_code_disable=1,.user_clipping_mode=2,.color_mode=VDP1_CMDT_CM_CLUT_16};
         vdp1_cmdt_draw_mode_set(&mode_cmd,mode);racer_pmod=mode_cmd.cmd_pmod;
-        const vdp1_cmdt_draw_mode_t half={.end_code_disable=1,.user_clipping_mode=2,.color_mode=VDP1_CMDT_CM_CLUT_16,.cc_mode=VDP1_CMDT_CC_HALF_TRANS};
+        const vdp1_cmdt_draw_mode_t half={.end_code_disable=1,.user_clipping_mode=2,.color_mode=VDP1_CMDT_CM_CLUT_16,.cc_mode=VDP1_CMDT_CC_HALF_TRANSPARENT};
         vdp1_cmdt_draw_mode_set(&mode_cmd,half);shadow_pmod=mode_cmd.cmd_pmod;
     }
 #if FZX_RACER_SPRITE_SHADOW

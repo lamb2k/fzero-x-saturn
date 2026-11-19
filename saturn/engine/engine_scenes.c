@@ -54,6 +54,9 @@ volatile uint32_t fzx_scn_pad;        /* bit 16 set: use bits 0..15 as port 1 (c
 volatile uint32_t fzx_scn_force_end;  /* captures: nonzero ends the race now with this reason */
 volatile uint32_t fzx_scn_probe;      /* captures: 0x100 | machine id, tried in SELECT */
 volatile uint32_t fzx_scn_load_fields[8];
+/* Words the harness writes are read through the cache-through mirror (a debugger
+ * write does not reach a cached line). */
+#define POKED(w) (*(volatile uint32_t *)((uintptr_t)&(w) | CPU_CACHE_THROUGH))
 void (*volatile fzx_scn_vblank_hook)(void);
 fzx_session_t fzx_session;
 fzx_run_result_t fzx_scn_result;
@@ -101,7 +104,12 @@ static sh2z_scene_input_t input;
 static uint32_t frame_fields, steps_this_frame, chord_latched, own_frames, run_counter;
 static uint32_t resident_key;   /* 0: nothing resident; else family + 1 */
 static bool retry_pending, text_dirty;
-static uint16_t baseline_bgon; /* BGON at boot (dbgio's NBG3): the screens-off baseline */
+/* VDP2 registers at boot (dbgio's NBG3, black back screen): the baseline every scene's
+ * release returns to. RACE's own set is kept at its release so a retry, which loads
+ * nothing, gets the race's VDP2 state back unchanged (its VRAM and CRAM are untouched
+ * by the placeholder screens). */
+static vdp2_ioregs_t baseline_regs, race_regs;
+static bool race_regs_kept, retry_entering;
 static uint32_t snd_epoch_queue[8], snd_count;
 
 static void fault(uint32_t code, const char *text) {
@@ -120,7 +128,7 @@ static void apply_fade(uint32_t level) {
 }
 
 static uint32_t read_pad(bool *connected) {
-    const uint32_t o = fzx_scn_pad;
+    const uint32_t o = POKED(fzx_scn_pad);
     if (o & 0x10000u) { *connected = true; return o & 0xFFFFu; }
     smpc_peripheral_digital_t d;
     memset(&d, 0, sizeof(d));
@@ -191,7 +199,7 @@ static bool select_enter(void *u, uint32_t s) {
 }
 static void select_tick(void *u, uint32_t s) {
     (void)u; (void)s;
-    const uint32_t probe = fzx_scn_probe;
+    const uint32_t probe = POKED(fzx_scn_probe);
     if (probe & 0x100u) {
         /* Capture check: can identity `probe & 0xFF` be selected, and would LOAD admit it? */
         const uint32_t id = probe & 0xFFu;
@@ -201,7 +209,7 @@ static void select_tick(void *u, uint32_t s) {
         fzx_scn_report[14] = 0x100u | (sel ? 1u : 0u) | (id << 16);
         fzx_scn_report[15] = (machine_allowed(id) && fzx_closeup_has_family(id)) ? 1u : 0u;
         ++fzx_scn_report[31];
-        fzx_scn_probe = 0;
+        POKED(fzx_scn_probe) = 0;
     }
     uint32_t n = 0, visible[MACHINE_COUNT];
     for (unsigned i = 0; i < MACHINE_COUNT; ++i) if (machine_allowed(machines[i].id)) visible[n++] = i;
@@ -259,8 +267,8 @@ static void results_draw(void) {
 
 /* ---- LOAD ------------------------------------------------------------------ */
 #define NBG3_MAP 0x25E7E000u /* VDP2_MAP.md: NBG3 map, 64 x 64 one-word cells */
-#define SPIN_ROW 14u
-#define SPIN_COL 4u
+#define SPIN_ROW 13u
+#define SPIN_COL 3u
 static volatile uint16_t spin_words[4];
 static volatile uint32_t spin_fields, spin_phase;
 static bool load_done;
@@ -304,10 +312,12 @@ static void load_tick(void *u, uint32_t s) {
         /* Retry: everything is resident; only race-local state goes back to its start. */
         fzx_drive_reset();
         fzx_closeup_reset();
+        retry_entering = race_regs_kept;
         memset((void *)fzx_scn_load_fields, 0, sizeof(fzx_scn_load_fields));
         fzx_scn_report[11] = 2;
     } else {
         fzx_race_load();
+        race_regs_kept = false; retry_entering = false;
         resident_key = family + 1u;
         ++fzx_scn_report[8];
         fzx_scn_report[11] = 1;
@@ -329,6 +339,7 @@ static uint32_t end_reason, end_wait, max_kmh;
 static bool race_enter(void *u, uint32_t s) {
     (void)u; (void)s;
     (void)sh2z_arena_alloc(&race_arena, 256u, 16u);
+    if (retry_entering) { *vdp2_regs_get() = race_regs; retry_entering = false; }
     fzx_race_begin();
     end_reason = FZX_END_NONE; end_wait = 0; max_kmh = 0;
     ++run_counter;
@@ -362,8 +373,8 @@ static void race_tick(void *u, uint32_t s) {
     if (kmh > max_kmh) max_kmh = kmh;
     fzx_scn_report[28] = max_kmh;
     if (end_reason == FZX_END_NONE) {
-        const uint32_t forced = fzx_scn_force_end;
-        if (forced) { end_reason = forced & 3u; fzx_scn_force_end = 0; end_wait = 30u; }
+        const uint32_t forced = POKED(fzx_scn_force_end);
+        if (forced) { end_reason = forced & 3u; POKED(fzx_scn_force_end) = 0; end_wait = 30u; }
         else if (b->flags & SH2Z_VD_FINISHED) { end_reason = FZX_END_FINISH; end_wait = 120u; }
         else if (b->flags & (SH2Z_VD_SPINNING | SH2Z_VD_CRASHED | SH2Z_VD_FALLING)) { end_reason = FZX_END_RETIRE; end_wait = 120u; }
         if (end_reason != FZX_END_NONE) race_snapshot(end_reason);
@@ -374,10 +385,10 @@ static void race_tick(void *u, uint32_t s) {
 
 static void race_release(void *u, uint32_t s) {
     (void)u; (void)s;
-    /* RACE's VDP2 lease back to the baseline: the boot layer set (RBG0 off), the back
-     * screen black. */
-    vdp2_regs_get()->bgon = baseline_bgon;
-    vdp2_scrn_back_color_set(VDP2_VRAM_ADDR(3, 0x01FFFE), RGB1555(1, 0, 0, 0));
+    /* RACE's VDP2 lease back to the baseline (registers; RBG0 off, the back screen black). */
+    race_regs = *vdp2_regs_get();
+    race_regs_kept = true;
+    *vdp2_regs_get() = baseline_regs;
     dbgio_printf("\x1b[H\x1b[2J");
     dbgio_flush();
     vdp2_sync(); vdp2_sync_wait();
@@ -425,8 +436,9 @@ void fzx_scn_main(void) {
     sh2z_arena_init(&race_arena, race_heap, sizeof(race_heap));
     sh2z_scene_input_init(&input, PAD_UP | PAD_DOWN | PAD_LEFT | PAD_RIGHT, 20u, 6u);
     session_defaults();
-    baseline_bgon = vdp2_regs_get()->bgon;
     vdp2_scrn_back_color_set(VDP2_VRAM_ADDR(3, 0x01FFFE), RGB1555(1, 0, 0, 0));
+    vdp2_sync(); vdp2_sync_wait();
+    baseline_regs = *vdp2_regs_get();
     fzx_scn_report[0] = SCN_MAGIC;
     if (!sh2z_scene_init(&seq, table, FZX_SCN_COUNT, FZX_SCN_BOOT, FADE_FRAMES, RETIRE_MIN, RANK_RESET, NULL))
         fault(1, "INIT");

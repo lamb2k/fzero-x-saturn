@@ -10,28 +10,30 @@
 #endif
 #define FZX_RIVALS_MAX 29
 
-/* One rival's draw pose, in the race's world space.
- *   pos       world position, Q4 (1/16 unit), same axes as the course spline
- *   yaw       heading around world up, 65536 per turn, 0 = +Z, rising toward +X
- *   pitch     nose up (+) from the horizontal, 65536 per turn
- *   roll      bank, 65536 per turn, + = left side higher (the track's bank at that point)
- *   id        rival index 0..N-1 (grid order); rank = place among rivals, 0 = leader
- *   valid     1 once the rival exists (from race set-up), 0 otherwise */
+/* Hand-off to the sprite lane (agreed format for fzx_racer_sprites_draw16): one draw pose per rival.
+ *   pos     world position Q16.16, same axes as RefMachine.model_pos
+ *   basis   Q1.14 rows, orthonormal to about 1/1000: 0 forward (model z), 1 up (model y),
+ *           2 side (model x) = the source basis z, positive LEFT (as RefMachine.model_basis)
+ *   set     sprite set index (0 = the player's set for now)
+ *   flags   bit0 draw shadow */
 typedef struct {
     int32_t pos[3];
-    uint16_t yaw, pitch, roll;
-    uint8_t id, rank, valid, pad[3];
-} fzx_rival_pose_t; /* 24 bytes */
+    int16_t basis[3][3];
+    uint16_t set;
+    uint16_t flags;
+} fzx_racer_pose16_t; /* 32 bytes with alignment padding on SH-2 (28 bytes of fields) */
 
-/* Per-node baked pose (generated header). */
+/* Per-node baked pose in RIVALS.PAK: position Q4, unit rows Q1.14 (forward, up, left). */
 typedef struct {
     int32_t pos[3];
-    int16_t right[3], up[3];
-    uint16_t yaw, pitch, roll, pad;
-} fzx_rival_node_pose_t;
+    int16_t fwd[3], up[3], left[3];
+    uint16_t pad;
+} fzx_rival_node_pose_t; /* 32 bytes */
 
-/* Points into low WRAM once the pack is loaded (NULL before); fzx_rival_count entries. */
-extern fzx_rival_pose_t *fzx_rival_poses;
+/* Point into low WRAM once the pack is loaded (NULL before); fzx_rival_count entries each.
+ * fzx_rival_ranks[i] is rival i's place among the rivals (0 = leader). */
+extern fzx_racer_pose16_t *fzx_rival_poses;
+extern uint8_t *fzx_rival_ranks;
 extern volatile uint32_t fzx_rival_count;
 
 /* Counters for the diagnostic (FRT ticks at the frame profiler's clock). */

@@ -848,7 +848,7 @@ ifneq ($(FZX_DIAG_RIVALS),0)
 ifeq ($(wildcard ../generated/rivals/rivals_course.h),)
 $(error FZX_DIAG_RIVALS needs generated/rivals/rivals_course.h (ref/rivals_build.sh + fzx-rivals))
 endif
-FZX_SH2ZAM_UNITS += sh2zam_line_follower.c
+FZX_SH2ZAM_UNITS += sh2zam_line_follower.c sh2zam_unit30.c
 SH_CFLAGS += -DFZX_DIAG_RIVALS=$(FZX_DIAG_RIVALS) -I../generated/rivals
 FZX_DIAG_RIVALS_SRCS := rivals_diag.c
 $(SH_OUTPUT_PATH)/$(SH_PROGRAM).iso: ../generated/rivals/RIVALS.PAK

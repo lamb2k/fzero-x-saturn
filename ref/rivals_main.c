@@ -31,7 +31,7 @@ void rb_player(float out[3]);
 
 static void die(const char* m) { fprintf(stderr, "fzx-rivals: %s\n", m); exit(2); }
 
-typedef struct { int32_t pos[3]; int16_t right[3], up[3]; uint16_t yaw, pitch, roll, pad; } Pose;
+typedef struct { int32_t pos[3]; int16_t fwd[3], up[3], left[3]; uint16_t pad; } Pose;   /* 32 bytes */
 static sh2z_line_node_t nodes[MAX_NODES];
 static Pose poses[MAX_NODES];
 static double node_dist[MAX_NODES];
@@ -39,11 +39,11 @@ static int node_seg[MAX_NODES];
 static double node_t[MAX_NODES];
 static int node_count;
 static int16_t cpu_line[0x200];
+static double handed_sum;   /* sum over nodes of (forward x up) . left */
 
 typedef struct { float dist, lateral, speed; int race_time; } PlayerTick;
 static PlayerTick player[MAX_TICKS];
 
-static uint16_t ang16(double rad) { double t = rad / (2.0 * M_PI); t -= floor(t); return (uint16_t)lround(t * 65536.0) ; }
 static int16_t q14(double v) { long r = lround(v * 16384.0); if (r > 32767) r = 32767; if (r < -32768) r = -32768; return (int16_t)r; }
 
 static unsigned char* read_file(const char* path, size_t* n) {
@@ -83,14 +83,19 @@ static void bake(double speed_k) {
             const double hw = fmin(s[2], s[3]);
             nd->half_width = (uint16_t)(hw > 0 ? (hw > 65535 ? 65535 : hw) : 0);
             nd->flags = (uint16_t)s[4];
+            /* Basis rows as the source's: x forward, y up, z side (positive left), unit length. */
+            const double fl = sqrt(p[3]*p[3]+p[4]*p[4]+p[5]*p[5]), ul = sqrt(p[6]*p[6]+p[7]*p[7]+p[8]*p[8]);
+            const double ll = sqrt(p[9]*p[9]+p[10]*p[10]+p[11]*p[11]);
+            if (fl <= 0 || ul <= 0 || ll <= 0) die("degenerate course basis");
             for (int a = 0; a < 3; ++a) {
                 ps->pos[a] = (int32_t)lround(p[a] * 16.0);
-                ps->right[a] = q14(-p[9 + a]);
-                ps->up[a] = q14(p[6 + a]);
+                ps->fwd[a] = q14(p[3 + a] / fl);
+                ps->up[a] = q14(p[6 + a] / ul);
+                ps->left[a] = q14(p[9 + a] / ll);
             }
-            ps->yaw = ang16(atan2(p[3], p[5]));
-            ps->pitch = ang16(atan2(p[4], hypot(p[3], p[5])));
-            ps->roll = ang16(atan2(p[10], p[7]));   /* + = left side higher */
+            /* Handedness: (forward x up) . left, summed (recorded in the report). */
+            const double cx = (p[4]*p[8]-p[5]*p[7])/(fl*ul), cy = (p[5]*p[6]-p[3]*p[8])/(fl*ul), cz = (p[3]*p[7]-p[4]*p[6])/(fl*ul);
+            handed_sum += (cx*p[9]+cy*p[10]+cz*p[11])/ll;
             ps->pad = 0;
             node_count++;
         }
@@ -122,9 +127,10 @@ static void write_pack(const char* header_path, int32_t len_q8, const int32_t* l
     for (int i = 0; i < node_count; ++i) {
         const Pose* p = &poses[i];
         for (int a = 0; a < 3; ++a) put32(f, (uint32_t)p->pos[a]);
-        for (int a = 0; a < 3; ++a) put16(f, (uint16_t)p->right[a]);
+        for (int a = 0; a < 3; ++a) put16(f, (uint16_t)p->fwd[a]);
         for (int a = 0; a < 3; ++a) put16(f, (uint16_t)p->up[a]);
-        put16(f, p->yaw); put16(f, p->pitch); put16(f, p->roll); put16(f, 0);
+        for (int a = 0; a < 3; ++a) put16(f, (uint16_t)p->left[a]);
+        put16(f, 0);
     }
     fclose(f);
     size_t n;
@@ -139,6 +145,9 @@ static void write_pack(const char* header_path, int32_t len_q8, const int32_t* l
     fprintf(o, "#define FZX_RIVALS_LINE_LENGTH %ld\n#define FZX_RIVALS_NODE_COUNT %du\n#define FZX_RIVALS_PACK_BYTES %luu\n"
                "#define FZX_RIVALS_PACK_HASH 0x%08lxu\n#define FZX_RIVALS_PACE \"%s\"\n",
             (long)len_q8, node_count, (unsigned long)n, (unsigned long)h, pace);
+    const double hand = handed_sum / node_count;
+    if (fabs(fabs(hand) - 1.0) > 0.01) die("course basis is not orthonormal enough to fix the side sign");
+    fprintf(o, "#define FZX_RIVALS_LEFT_SIGN (%d) /* left = sign * (forward x up), from the bake */\n", hand > 0 ? 1 : -1);
     fprintf(o, "static const int32_t fzx_rivals_lap_ticks[%d] = {", nrivals);
     for (int i = 0; i < nrivals; ++i) fprintf(o, "%ld,", (long)lap_ticks[i]);
     fprintf(o, "};\n#endif\n");
@@ -263,7 +272,7 @@ int main(int argc, char** argv) {
     FILE* o = fopen(report, "w");
     if (!o) die("cannot write report");
     fprintf(o, "{\n \"tier\": \"HOST\", \"rivals\": %d, \"ticks\": %d, \"race_start_tick\": %d,\n", nriv, ticks, start_tick);
-    fprintf(o, " \"course_length\": %.3f, \"nodes\": %d, \"speed_units_to_distance_per_tick\": %.6f,\n", length, node_count, speed_k);
+    fprintf(o, " \"course_length\": %.3f, \"nodes\": %d, \"speed_units_to_distance_per_tick\": %.6f, \"basis_handedness_mean\": %.6f,\n", length, node_count, speed_k, handed_sum / node_count);
     fprintf(o, " \"host_ns_per_tick\": %.1f, \"rank_changes_ticks\": %d, \"player_passes_rivals\": %d, \"rivals_pass_player\": %d,\n",
             host_ns / (ticks - start_tick), rank_changes, passes_by_player, passes_of_player);
     fprintf(o, " \"max_lateral_beyond_half_width_q8\": %ld, \"min_speed_while_racing_q8\": %ld,\n", (long)max_lat_excess,

@@ -4,13 +4,15 @@
 #include <string.h>
 #include "sh2zam/line_follower_experimental.h"
 #include "texture_cd.h"
+#include "sh2zam/unit30_experimental.h"
 #include "rivals_course.h"   /* generated from the owner's ROM; never committed */
 
 #if FZX_DIAG_RIVALS < 1 || FZX_DIAG_RIVALS > FZX_RIVALS_MAX
 #error FZX_DIAG_RIVALS must be 1..29 when built
 #endif
 
-fzx_rival_pose_t *fzx_rival_poses;
+fzx_racer_pose16_t *fzx_rival_poses;
+uint8_t *fzx_rival_ranks;
 volatile uint32_t fzx_rival_count = FZX_DIAG_RIVALS;
 volatile uint32_t fzx_rivals_prof[8];
 
@@ -26,7 +28,8 @@ typedef struct {
     sh2z_track_state_t rv[FZX_DIAG_RIVALS];
     int32_t expect[FZX_DIAG_RIVALS], lane[FZX_DIAG_RIVALS], pace_v[FZX_DIAG_RIVALS];
     uint8_t order[(FZX_DIAG_RIVALS + 3) & ~3];
-    fzx_rival_pose_t poses[FZX_DIAG_RIVALS];
+    fzx_racer_pose16_t poses[FZX_DIAG_RIVALS];
+    uint8_t ranks[(FZX_DIAG_RIVALS + 3) & ~3];
 } rivals_work_t;
 static rivals_work_t *w;
 #define rv (w->rv)
@@ -54,6 +57,7 @@ uint32_t fzx_rivals_diag_load(uint32_t low_end) {
     w = (rivals_work_t *)work;
     memset(w, 0, sizeof *w);
     fzx_rival_poses = w->poses;
+    fzx_rival_ranks = w->ranks;
     fzx_rivals_nodes = (const sh2z_line_node_t *)base;
     fzx_rivals_poses = (const fzx_rival_node_pose_t *)(base + FZX_RIVALS_NODE_COUNT * sizeof(sh2z_line_node_t));
     line.nodes = fzx_rivals_nodes; line.count = FZX_RIVALS_NODE_COUNT; line.length = FZX_RIVALS_LINE_LENGTH;
@@ -78,8 +82,8 @@ void fzx_rivals_diag_reset(void) {
         rv[i].node = sh2z_line_locate(&line, rv[i].dist, 0);
         expect[i] = -back;
         order[i] = (uint8_t)i;
-        fzx_rival_poses[i].valid = 1;
-        fzx_rival_poses[i].id = (uint8_t)i;
+        fzx_rival_poses[i].set = 0;
+        fzx_rival_poses[i].flags = 1;
     }
     started = 0;
 }
@@ -111,9 +115,24 @@ void fzx_rivals_diag_ticks(uint32_t ticks, int32_t race_time) {
 }
 
 static int32_t lerp_q16(int32_t a, int32_t b, int32_t f) { return a + (int32_t)(((int64_t)(b - a) * f) >> 16); }
-static uint16_t lerp_angle(uint16_t a, uint16_t b, int32_t f) {
-    const int32_t d = (int16_t)(uint16_t)(b - a);
-    return (uint16_t)(a + ((d * f) >> 16));
+/* Q1.14 row from a Q2.30 unit vector, rounded. */
+static void row14(int16_t out[3], const int32_t u[3]) {
+    for (int c = 0; c < 3; ++c) out[c] = (int16_t)((u[c] + (1 << 15)) >> 16);
+}
+/* Orthonormal basis from interpolated forward and up (Q1.14 inputs), Gram-Schmidt in Q2.30:
+ * forward = n(f); up = n(u - (u.f) f); left = up x forward (the source basis is right-handed
+ * with z = x cross y when the bake reports a negative handedness; see RIVALS-NATIVE-PLAN.md). */
+static void basis16(int16_t out[3][3], const int32_t f14[3], const int32_t u14[3]) {
+    int32_t f[3], u[3], l[3], t[3];
+    if (!sh2z_vec3_normalize_u30(f, f14)) { f[0] = 0; f[1] = 0; f[2] = 1 << 30; }
+    const int64_t dot = ((int64_t)u14[0] * f[0] + (int64_t)u14[1] * f[1] + (int64_t)u14[2] * f[2]) >> 30; /* Q14 */
+    for (int c = 0; c < 3; ++c) t[c] = (u14[c] << 16) - (int32_t)((dot * f[c]) >> 14);
+    if (!sh2z_vec3_normalize_u30(u, t)) { u[0] = 0; u[1] = 1 << 30; u[2] = 0; }
+    /* left = FZX_RIVALS_LEFT_SIGN * (forward x up), Q2.30 x Q2.30 -> Q2.30 */
+    l[0] = (int32_t)((((int64_t)f[1] * u[2] - (int64_t)f[2] * u[1]) >> 30) * FZX_RIVALS_LEFT_SIGN);
+    l[1] = (int32_t)((((int64_t)f[2] * u[0] - (int64_t)f[0] * u[2]) >> 30) * FZX_RIVALS_LEFT_SIGN);
+    l[2] = (int32_t)((((int64_t)f[0] * u[1] - (int64_t)f[1] * u[0]) >> 30) * FZX_RIVALS_LEFT_SIGN);
+    row14(out[0], f); row14(out[1], u); row14(out[2], l);
 }
 
 void fzx_rivals_diag_poses(void) {
@@ -126,16 +145,18 @@ void fzx_rivals_diag_poses(void) {
         const int32_t d = rv[r].dist - fzx_rivals_nodes[n].start;
         int32_t f = (int32_t)(((uint64_t)(uint32_t)(d < 0 ? 0 : d) * fzx_rivals_nodes[n].inv_span) >> 16);
         if (f > 65535) f = 65535;
-        fzx_rival_pose_t *p = &fzx_rival_poses[r];
+        fzx_racer_pose16_t *p = &fzx_rival_poses[r];
+        int32_t fw[3], up[3];
         for (int c = 0; c < 3; ++c) {
-            /* right (Q14) * lateral (Q8) -> Q4: >> 18 */
-            p->pos[c] = lerp_q16(a->pos[c], b->pos[c], f) + (int32_t)(((int64_t)a->right[c] * rv[r].lateral) >> 18);
+            /* lateral is + right = - left: left (Q14) * lateral (Q8) -> Q4 is >> 18 */
+            const int32_t q4 = lerp_q16(a->pos[c], b->pos[c], f) - (int32_t)(((int64_t)a->left[c] * rv[r].lateral) >> 18);
+            p->pos[c] = q4 * 4096;   /* Q4 -> Q16.16 */
+            fw[c] = lerp_q16(a->fwd[c], b->fwd[c], f);
+            up[c] = lerp_q16(a->up[c], b->up[c], f);
         }
-        p->yaw = lerp_angle(a->yaw, b->yaw, f);
-        p->pitch = lerp_angle(a->pitch, b->pitch, f);
-        p->roll = lerp_angle(a->roll, b->roll, f);
+        basis16(p->basis, fw, up);
     }
-    for (uint32_t k = 0; k < FZX_DIAG_RIVALS; ++k) fzx_rival_poses[order[k]].rank = (uint8_t)k;
+    for (uint32_t k = 0; k < FZX_DIAG_RIVALS; ++k) fzx_rival_ranks[order[k]] = (uint8_t)k;
     const uint16_t dt = (uint16_t)(cpu_frt_count_get() - t0);
     fzx_rivals_prof[3]++;
     fzx_rivals_prof[4] += dt;

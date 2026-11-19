@@ -25,7 +25,7 @@ import sys
 from pathlib import Path
 
 MAGIC = 0x465A5850  # "FZXP"
-VERSION = 1
+VERSION = 2
 ZONES_BY_SIDE = 0x8000000
 SHAPE_MASK = 0x1C0
 
@@ -98,6 +98,15 @@ def build(src, laps=3):
     # t prop fwd_mag height half_left half_right lap_dist laps_dist race_dist speed energy hover accel spin_steer
     w += [fx(s[0], 30), fx(s[1], 30)] + [fx(x, 16) for x in s[2:6]] + [fx(x, 12) for x in s[6:9]]
     w += [fx(x, 16) for x in s[9:14]]
+    w += [int(_boost)]
+    d = src.get("dynamics", (0, 0, [0.0] * 21))[2]
+    # spin, attack, attack direction (left +1, right -1), attack angle and rate, tap
+    # timers L and R, free, hit, slide count, tap window, lap times x3, done time
+    w += [int(d[0]), int(d[1]), 1 if int(d[2]) == 0 else -1] + [int(x) for x in d[3:15]]
+    # slide boost, lean force, ramp boost, spring, wall bounce (Q16); pitch input (Q30)
+    w += [fx(x, 16) for x in d[15:20]] + [fx(d[20], 30)]
+    # N64 buttons applied on the tick the state follows (0 at the start): restart edges.
+    w += [src["input"][0] if "input" in src else 0]
     return struct.pack(">%di" % len(w), *[x - (1 << 32) if x >= (1 << 31) else x for x in w])
 
 

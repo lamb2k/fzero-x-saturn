@@ -16,7 +16,7 @@
 #include "sh2zam/vehicle_dynamics_experimental.h"
 
 #define FZX_PHYS_MAGIC 0x465A5850u /* "FZXP" */
-#define FZX_PHYS_VERSION 1u
+#define FZX_PHYS_VERSION 2u
 
 #define FZX_PHYS_MAX_NODES 128
 #define FZX_PHYS_MAX_ZONES 128
@@ -31,6 +31,8 @@ typedef struct {
     sh2z_vd_zone_t zones[FZX_PHYS_MAX_ZONES];
     sh2z_vd_ramp_t ramps[FZX_PHYS_MAX_RAMPS];
     sh2z_vd_mine_t mines[FZX_PHYS_MAX_MINES];
+    uint32_t state_offset;   /* byte offset of the starting state in the pack */
+    uint16_t prev_buttons;   /* N64 buttons applied on the tick the state follows (restarts) */
 } FzxPhysCourse;
 
 extern const sh2z_vd_rules_t fzx_phys_rules;
@@ -38,6 +40,12 @@ extern const sh2z_vd_rules_t fzx_phys_rules;
 /* Loads a pack image (big-endian words). zones == 0 drops surface zones, jumps and
  * mines (the legacy bridge's races). Returns 0, or a negative error. */
 int fzx_phys_load(FzxPhysCourse* c, const uint8_t* data, size_t size, int zones);
+
+/* Writes a pack whose starting state is b: the course part of image (the pack c was
+ * loaded from), then b and the buttons applied on b's last tick. Returns the size, or 0
+ * if out is too small. A run restored from it continues bit for bit (state restore). */
+size_t fzx_phys_save(const FzxPhysCourse* c, const uint8_t* image, const sh2z_vd_body_t* b, uint16_t prev_buttons,
+                     uint8_t* out, size_t cap);
 
 /* N64 button word (A 0x8000, B 0x4000, Z 0x2000, R 0x10, C-down 0x4, ...) to the
  * model's buttons. HOST qualification feeds the reference's inputs through this. */

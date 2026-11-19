@@ -39,6 +39,7 @@ WALLED = 0x40
 SIDE_ZONES = 0x8000000  # surface zones bound by side offset, as on every retail road segment
 INTRO = 460            # ticks before the race starts
 BOOST_TURN = 4100      # corridor tick after boost unlocks, on the straight
+GRIP_BREAK = 3160      # skid-pad tick after boost unlocks (second crossing at 3138)
 KMH = 21.6
 FEATURE_OFFSETS = {"pit": 0x5A0, "dash": 0x5E0, "dirt": 0x620, "ice": 0x660, "jump": 0x6A0, "landmine": 0x6E0,
                    "gate": 0x720, "building": 0x760, "sign": 0x7A0}
@@ -97,6 +98,18 @@ def corridor_course() -> bytes:
     return course_record([(x, y, z, 300, 300, 0) for x, y, z in pts], feats, name=b"E1 CORRIDOR", side_zones=True)
 
 
+def straight_course() -> bytes:
+    """The corridor's shape without its features, for the launch (C-057): about 35,000 units of
+    straight ahead of the grid, so 600 ticks of acceleration meet no wall."""
+    half, r, step = 20000.0, 6000.0, 5000.0
+    pts = [(-half + step * i, 0.0, -r) for i in range(9)]
+    pts += [(half + r * math.cos(a), 0.0, r * math.sin(a)) for a in (-math.pi / 4, 0.0, math.pi / 4)]
+    pts += [(half - step * i, 0.0, r) for i in range(9)]
+    pts += [(-half - r * math.cos(a), 0.0, -r * math.sin(a)) for a in (-math.pi / 4, 0.0, math.pi / 4)]
+    pts = pts[1:] + pts[:1]
+    return course_record([(x, y, z, 300, 300, 0) for x, y, z in pts], {}, name=b"E1 STRAIGHT", side_zones=True)
+
+
 def script(lines) -> str:
     return "".join("%d %s %d %d\n" % (ticks, buttons, sx, 0) for ticks, buttons, sx in lines if ticks > 0)
 
@@ -104,7 +117,7 @@ def script(lines) -> str:
 def fixtures():
     """name -> (course, lines, action tick, analysis). Stick +63 is full right."""
     fx = {}
-    fx["P01_launch"] = ("pad", [(INTRO, "-", 0), (600, "A", 0)], INTRO, "launch", None)
+    fx["P01_launch"] = ("straight", [(INTRO, "-", 0), (600, "A", 0)], INTRO, "launch", None)
     fx["P02_coast"] = ("pad", [(INTRO, "-", 0), (300, "A", 0), (600, "-", 0)], INTRO + 300, "decay", None)
     fx["P03_brake"] = ("pad", [(INTRO, "-", 0), (300, "A", 0), (240, "CD", 0)], INTRO + 300, "decay", None)
     for stick in (16, 32, 48, 64, 80):
@@ -136,6 +149,12 @@ def fixtures():
                                          (99, "A", 0), (1, "A+B", 0), (39, "A", 0), (40, "A", 64),
                                          (60, "A", 0)], BOOST_TURN + 140,
                             "boost_turn", "0.004,2.5,0,0,0,%d" % (BOOST_TURN + 140))
+    # Grip break (C-056 matrix): on the skid pad, full right lock with A held from cruise, and four
+    # boosts back to back (the heaviest stock machine breaks near 51 units a tick). The speed rises until the side speed a grip turn adds each tick passes
+    # the grip limit; the speed where grip first breaks measures the limit for any machine.
+    fx["P11_grip_break"] = ("pad", [(INTRO, "-", 0), (GRIP_BREAK - INTRO, "A", 0)] +
+                            [(1, "A+B", 64), (99, "A", 64)] * 4 + [(100, "A", 64)], GRIP_BREAK,
+                            "grip_break", "0.004,2.5,0,0,0,%d" % GRIP_BREAK)
     return fx
 
 
@@ -208,6 +227,11 @@ def analyse(kind, rows, action):
         m["ticks_to_90pct"] = first(rows, action, lambda r: r["speed"] >= 0.9 * top) - action
         m["accel_peak"] = max(r["accel_force"] for r in rows[action:])
         m["hover_height"] = rows[-1]["height"]
+        # Wall contacts: ticks with the wall response's recoil flag, and the closest edge.
+        m["wall_contact_ticks"] = sum(1 for r in rows[action:] if r["flags"] & (1 << 13))
+        if all(k in rows[action] for k in ("radius_left", "radius_right", "lateral")):
+            m["edge_margin_min"] = min(min(r["radius_left"] - r["lateral"], r["radius_right"] + r["lateral"])
+                                       for r in rows[action:])
     elif kind == "decay":
         m["v_at_release"] = at(-1)["speed"]
         for o in (30, 60, 120, 240):
@@ -286,6 +310,14 @@ def analyse(kind, rows, action):
         m["yaw_rate_15_deg_per_tick"] = sum(unwrap(yaw(rows[i + 1]) - yaw(rows[i]))
                                             for i in range(action, action + 15)) / 15
         m["speed_ratio_15"] = rows[action + 15]["speed"] / m["speed_before"]
+    elif kind == "grip_break":
+        brk = first(rows, action + 1, lambda r: not (r["flags"] & F_GRIP))
+        m["speed_before"] = at(-1)["speed"]
+        m["grip_break_tick"] = None if brk is None else brk - action
+        m["grip_break_speed"] = None if brk is None else rows[brk - 1]["speed"]
+        m["grip_share_500"] = sum(1 for r in rows[action:action + 500] if r["flags"] & F_GRIP) / 500
+        m["yaw_rate_10_deg_per_tick"] = sum(unwrap(yaw(rows[i + 1]) - yaw(rows[i]))
+                                            for i in range(action, action + 10)) / 10
     elif kind == "features":
         def span(test):
             ticks = [i for i in range(action, len(rows)) if test(rows[i])]
@@ -411,8 +443,10 @@ def main():
     args = ap.parse_args()
     out = args.out
     out.mkdir(parents=True, exist_ok=True)
-    courses = {"pad": out / "course-pad.bin", "corridor": out / "course-corridor.bin"}
+    courses = {"pad": out / "course-pad.bin", "corridor": out / "course-corridor.bin",
+               "straight": out / "course-straight.bin"}
     courses["pad"].write_bytes(pad_course())
+    courses["straight"].write_bytes(straight_course())
     courses["corridor"].write_bytes(corridor_course())
     only = [p for p in args.only.split(",") if p]
     want = lambda name: not only or any(name.startswith(p) for p in only)

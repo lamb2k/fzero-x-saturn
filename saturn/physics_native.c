@@ -186,6 +186,7 @@ int fzx_phys_load(FzxPhysCourse* c, const uint8_t* data, size_t size, int zones)
     }
     for (i = 0; i < nm; i++) words(&r, c->mines[i].pos, 3);
     /* Starting state. */
+    c->state_offset = (uint32_t) (r.p - data);
     b->flags = (uint32_t) word(&r);
     b->node = (uint32_t) word(&r);
     b->intro = word(&r);
@@ -219,7 +220,27 @@ int fzx_phys_load(FzxPhysCourse* c, const uint8_t* data, size_t size, int zones)
     b->hover = word(&r);
     b->accel_force = word(&r);
     b->spin_steer = word(&r);
-    b->wall_bounce = v->wall_bounce;
+    b->boost_timer = word(&r);
+    b->spin_timer = word(&r);
+    b->attack = word(&r);
+    b->attack_dir = word(&r);
+    b->attack_angle = word(&r);
+    b->attack_rate = word(&r);
+    b->tap_l = word(&r);
+    b->tap_r = word(&r);
+    b->free_timer = word(&r);
+    b->hit_timer = word(&r);
+    b->slide_count = word(&r);
+    b->tap_timer = word(&r);
+    words(&r, b->lap_times, 3);
+    b->done_time = word(&r);
+    b->slide_boost = word(&r);
+    b->lean_force = word(&r);
+    b->ramp_boost = word(&r);
+    b->spring = word(&r);
+    b->wall_bounce = word(&r);
+    b->tilt_in = word(&r);
+    c->prev_buttons = (uint16_t) word(&r);
     if (r.bad || r.p != r.end || b->node >= nn) return -4;
     c->track.nodes = c->nodes;
     c->track.zones = c->zones;
@@ -227,6 +248,84 @@ int fzx_phys_load(FzxPhysCourse* c, const uint8_t* data, size_t size, int zones)
     c->track.mines = c->mines;
     c->track.count = nn;
     return 0;
+}
+
+static void put(uint8_t** p, int32_t v) {
+    uint32_t u = (uint32_t) v;
+    (*p)[0] = (uint8_t) (u >> 24);
+    (*p)[1] = (uint8_t) (u >> 16);
+    (*p)[2] = (uint8_t) (u >> 8);
+    (*p)[3] = (uint8_t) u;
+    *p += 4;
+}
+
+static void puts_n(uint8_t** p, const int32_t* v, int n) {
+    int i;
+    for (i = 0; i < n; i++) put(p, v[i]);
+}
+
+size_t fzx_phys_save(const FzxPhysCourse* c, const uint8_t* image, const sh2z_vd_body_t* b, uint16_t prev_buttons,
+                     uint8_t* out, size_t cap) {
+    uint8_t* p = out;
+    size_t i;
+    if (c->state_offset + 4u * 96u > cap) return 0;
+    for (i = 0; i < c->state_offset; i++) out[i] = image[i];
+    p = out + c->state_offset;
+    put(&p, (int32_t) b->flags);
+    put(&p, (int32_t) b->node);
+    put(&p, b->intro);
+    put(&p, b->lap);
+    put(&p, b->laps_done);
+    put(&p, b->race_ticks);
+    put(&p, b->race_time);
+    puts_n(&p, b->pos, 3);
+    puts_n(&p, b->vel, 3);
+    puts_n(&p, &b->body[0][0], 9);
+    puts_n(&p, &b->road[0][0], 9);
+    puts_n(&p, b->gravity_up, 3);
+    puts_n(&p, b->tilt_up, 3);
+    puts_n(&p, b->ground_up, 3);
+    puts_n(&p, b->fwd, 3);
+    puts_n(&p, b->spos, 3);
+    puts_n(&p, b->disp, 3);
+    puts_n(&p, b->ground, 3);
+    puts_n(&p, b->bvel, 3);
+    put(&p, b->t);
+    put(&p, b->prop);
+    put(&p, b->fwd_mag);
+    put(&p, b->height);
+    put(&p, b->half_left);
+    put(&p, b->half_right);
+    put(&p, b->lap_dist);
+    put(&p, b->laps_dist);
+    put(&p, b->race_dist);
+    put(&p, b->speed);
+    put(&p, b->energy);
+    put(&p, b->hover);
+    put(&p, b->accel_force);
+    put(&p, b->spin_steer);
+    put(&p, b->boost_timer);
+    put(&p, b->spin_timer);
+    put(&p, b->attack);
+    put(&p, b->attack_dir);
+    put(&p, b->attack_angle);
+    put(&p, b->attack_rate);
+    put(&p, b->tap_l);
+    put(&p, b->tap_r);
+    put(&p, b->free_timer);
+    put(&p, b->hit_timer);
+    put(&p, b->slide_count);
+    put(&p, b->tap_timer);
+    puts_n(&p, b->lap_times, 3);
+    put(&p, b->done_time);
+    put(&p, b->slide_boost);
+    put(&p, b->lean_force);
+    put(&p, b->ramp_boost);
+    put(&p, b->spring);
+    put(&p, b->wall_bounce);
+    put(&p, b->tilt_in);
+    put(&p, prev_buttons);
+    return (size_t) (p - out);
 }
 
 uint16_t fzx_phys_buttons_n64(uint16_t n64) {

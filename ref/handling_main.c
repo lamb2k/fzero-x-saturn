@@ -4,7 +4,7 @@
  *
  *   fzx-ref --course RECORD --inputs SCRIPT [--rom ROM] [--out TRACE.tsv] [--zones 0|1]
  *           [--driver kl,kh[,boost_period[,start_tick[,target[,end_tick]]]]] [--selection skin,engine] [--bake SOURCE]
- *           [--line STATIONS]
+ *           [--line STATIONS] [--machine CHARACTER,ENGINE]
  *
  * SCRIPT lines are "<ticks> <buttons> [stick_x stick_y]" as for main.c. RECORD is a
  * big-endian 0x7E0 course record. --zones 1 (default) sets up surface effects, jumps
@@ -19,7 +19,11 @@
  * end_tick on, the stick comes from the script.
  *
  * --bake writes the physics pack source (ref_handling_bake) after set-up and before the
- * first tick: local only, since it is derived from the course record and the ROM.
+ * first tick, or with --bake-at T after tick T (state resync for a native run that starts
+ * there): local only, since it is derived from the course record and the ROM.
+ * --boost-reserve R (C-059): the driver's scheduled B only when the previous tick's energy
+ * is at least R of the maximum (10 x energy >= 10R x max; R = 0.3 is the candidate).
+ * --machine re-initialises racer 0 as stock machine CHARACTER (0-29) at ENGINE (0-1).
  * --line writes the shared course-line stations (ref/course_line.h): a header line
  * "course-line-1 length_q12 count hash" and one "dist_q12 segment t_q16 t" per station.
  *
@@ -104,7 +108,9 @@ static int load_script(const char* path, Step* steps, int capacity) {
 }
 
 int main(int argc, char** argv) {
-    const char *course = NULL, *inputs = NULL, *rom = NULL, *out_path = NULL, *driver = NULL, *selection = NULL, *bake = NULL, *line = NULL;
+    const char *course = NULL, *inputs = NULL, *rom = NULL, *out_path = NULL, *driver = NULL, *selection = NULL, *bake = NULL, *line = NULL, *machine = NULL;
+    int bake_at = -1;
+    int reserve_tenths = 0;
     static Step steps[32768];
     static unsigned char record[REF_COURSE_RECORD_SIZE];
     int nsteps, i, tick = 0, zones = 1, driver_boost = 0, driver_start = 0;
@@ -123,6 +129,9 @@ int main(int argc, char** argv) {
         else if (strcmp(argv[i], "--selection") == 0) selection = argv[i + 1];
         else if (strcmp(argv[i], "--bake") == 0) bake = argv[i + 1];
         else if (strcmp(argv[i], "--line") == 0) line = argv[i + 1];
+        else if (strcmp(argv[i], "--machine") == 0) machine = argv[i + 1];
+        else if (strcmp(argv[i], "--bake-at") == 0) bake_at = atoi(argv[i + 1]);
+        else if (strcmp(argv[i], "--boost-reserve") == 0) reserve_tenths = (int) (atof(argv[i + 1]) * 10.0 + 0.5);
         else die("unknown option");
     }
     if (course == NULL || inputs == NULL) die("usage: fzx-ref --course RECORD --inputs SCRIPT [--rom ROM] [--out TRACE]");
@@ -162,8 +171,14 @@ int main(int argc, char** argv) {
             die("--selection needs skin,engine and a machine-menu build");
     }
     if (ref_load_course(record, 1) != 0 || ref_race_init() != 0) die("race set-up failed");
+    if (machine != NULL) {
+        int character;
+        float engine;
+        if (sscanf(machine, "%d,%f", &character, &engine) != 2 || ref_handling_select_machine(character, engine))
+            die("--machine is CHARACTER,ENGINE with 0 <= CHARACTER < 30 and 0 <= ENGINE <= 1");
+    }
     if (zones) ref_handling_race_features();
-    if (bake != NULL) {
+    if (bake != NULL && bake_at < 0) {
         if ((bake_out = fopen(bake, "w")) == NULL) die("cannot write the bake source");
         fprintf(bake_out, "# fzx-physics-source v1\n");
         ref_handling_bake(bake_emit);
@@ -202,7 +217,11 @@ int main(int argc, char** argv) {
                     if (steer > 1.0f) steer = 1.0f;
                     if (steer < -1.0f) steer = -1.0f;
                     sx = (signed char) (steer >= 0.0f ? (int) (steer * 63.0f + 0.5f) : -(int) (-steer * 63.0f + 0.5f));
-                    if (driver_boost > 0 && tick % driver_boost == 0) button |= 0x4000;
+                    /* C-059 energy-aware driver: a scheduled B only when the previous tick's
+                     * energy is at least boost_reserve of the maximum. */
+                    if (driver_boost > 0 && tick % driver_boost == 0 &&
+                        (reserve_tenths <= 0 || 10.0f * h.energy >= (float) reserve_tenths * h.max_energy))
+                        button |= 0x4000;
                 }
             }
             ref_tick(button, sx, steps[i].sy);
@@ -224,6 +243,13 @@ int main(int argc, char** argv) {
                         h.boost_timer, h.spin_timer, h.attack_state, h.grip_a, h.grip_b, h.slide_count, h.a_tap,
                         h.segment, h.lap, h.laps_completed, h.race_time, h.lap_times[0], h.lap_times[1],
                         h.lap_times[2], h.v_lateral);
+            }
+            if (bake != NULL && tick == bake_at) {
+                if ((bake_out = fopen(bake, "w")) == NULL) die("cannot write the bake source");
+                fprintf(bake_out, "# fzx-physics-source v1 after tick %d\n", tick);
+                ref_handling_bake(bake_emit);
+                bake_emit("input", button, 0, NULL, 0);
+                fclose(bake_out);
             }
             tick++;
         }

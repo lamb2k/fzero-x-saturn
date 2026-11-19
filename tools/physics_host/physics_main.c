@@ -9,6 +9,10 @@
  * times per tick on a copy (timing only; the trace is unchanged). --dump writes each
  * tick's model input and the running state hash, for the SH-2 bit-exact check
  * (tools/physics_sh2).
+ * --from T starts at tick T + 1 from a pack baked with fzx-ref --bake-at T (state
+ * resync); script ticks up to T are skipped but set the button edge state.
+ * --save-at T --save PACK writes the native state after tick T as a pack (state restore check).
+ * --boost-reserve R: the C-059 energy-aware driver, as in the reference driver.
  * --mutate NAME plants one model mutation for the controls: grip+5%, turn+2%, damp0.9968,
  * wall1.6, boost99, zones-off, stick+1 (a one-unit stick offset on non-zero input).
  * Output: the fzx-handling v1 trace, and "ticks N hash H" with H = FNV-1a 64 over the
@@ -95,7 +99,9 @@ int main(int argc, char** argv) {
     static FzxPhysCourse course;
     sh2z_vd_rules_t rules = fzx_phys_rules;
     const char* mutate = NULL;
-    int stick_offset = 0;
+    int stick_offset = 0, from = -1, save_at = -1;
+    int reserve_tenths = 0;
+    const char* save_path = NULL;
     static uint8_t image[1 << 20];
     sh2z_vd_body_t b;
     int nsteps, i, tick = 0, zones = 1, driver_boost = 0, driver_start = 0, repeat = 0;
@@ -115,6 +121,10 @@ int main(int argc, char** argv) {
         else if (strcmp(argv[i], "--steps") == 0) repeat = atoi(argv[i + 1]);
         else if (strcmp(argv[i], "--dump") == 0) dump_path = argv[i + 1];
         else if (strcmp(argv[i], "--mutate") == 0) mutate = argv[i + 1];
+        else if (strcmp(argv[i], "--from") == 0) from = atoi(argv[i + 1]);
+        else if (strcmp(argv[i], "--boost-reserve") == 0) reserve_tenths = (int) (atof(argv[i + 1]) * 10.0 + 0.5);
+        else if (strcmp(argv[i], "--save-at") == 0) save_at = atoi(argv[i + 1]);
+        else if (strcmp(argv[i], "--save") == 0) save_path = argv[i + 1];
         else die("unknown option");
     }
     if (pack == NULL || inputs == NULL) die("usage: fzx-phys --pack PACK --inputs SCRIPT [--out TRACE]");
@@ -159,6 +169,11 @@ int main(int argc, char** argv) {
             unsigned short button = steps[i].button;
             signed char sx = steps[i].sx;
             int k;
+            if (tick <= from) {
+                prev = course.prev_buttons; /* the buttons actually applied on tick `from` */
+                tick++;
+                continue;
+            }
             if (driver != NULL && tick >= driver_start && tick < driver_end && b.intro == 0) {
                 float lateral = (float) q16(sh2z_vd_body_lateral(&b));
                 float heading = (float) dot30(b.body[0], b.road[2]);
@@ -166,7 +181,9 @@ int main(int argc, char** argv) {
                 if (steer > 1.0f) steer = 1.0f;
                 if (steer < -1.0f) steer = -1.0f;
                 sx = (signed char) (steer >= 0.0f ? (int) (steer * 63.0f + 0.5f) : -(int) (-steer * 63.0f + 0.5f));
-                if (driver_boost > 0 && tick % driver_boost == 0) button |= 0x4000;
+                if (driver_boost > 0 && tick % driver_boost == 0 &&
+                    (reserve_tenths <= 0 || 10 * (int64_t) b.energy >= (int64_t) reserve_tenths * course.vehicle.max_energy))
+                    button |= 0x4000;
             }
             in.held = fzx_phys_buttons_n64(button);
             in.pressed = fzx_phys_buttons_n64((unsigned short) ((prev ^ button) & button));
@@ -207,11 +224,30 @@ int main(int argc, char** argv) {
                         (int) b.node, b.lap, b.laps_done, b.race_time, b.lap_times[0], b.lap_times[1], b.lap_times[2],
                         q16(dotu16(b.road[2], b.vel)));
             }
+            if (save_path != NULL && tick == save_at) {
+                static uint8_t saved[1 << 20];
+                size_t n = fzx_phys_save(&course, image, &b, button, saved, sizeof(saved));
+                FILE* s = fopen(save_path, "wb");
+                if (n == 0 || s == NULL || fwrite(saved, 1, n, s) != n) die("cannot save the state");
+                fclose(s);
+            }
             tick++;
         }
     }
     if (out != NULL) fclose(out);
     if (dump != NULL) fclose(dump);
-    printf("ticks %d hash %016llx\n", tick, (unsigned long long) hash);
+    {
+        /* The final state alone, so a restored run can be compared with an uninterrupted one. */
+        uint64_t keep = hash;
+        const uint32_t* w = (const uint32_t*) (const void*) &b;
+        size_t n;
+        hash = 0xCBF29CE484222325ull;
+        for (n = 0; n < sizeof(b) / 4; n++) {
+            unsigned char be[4] = { (unsigned char) (w[n] >> 24), (unsigned char) (w[n] >> 16),
+                                    (unsigned char) (w[n] >> 8), (unsigned char) w[n] };
+            mix(be, 4);
+        }
+        printf("ticks %d final %016llx hash %016llx\n", tick, (unsigned long long) hash, (unsigned long long) keep);
+    }
     return 0;
 }

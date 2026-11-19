@@ -24,6 +24,7 @@ typedef struct {
 void ref_handling(RefHandling* out);
 /* Surface effects, jumps and landmines as Race_Init sets them up (see handling_probe.c). */
 void ref_handling_race_features(void);
+int ref_handling_select_machine(int character, float engine);
 typedef void (*RefBakeEmit)(const char* key, int a, int b, const float* v, int n);
 void ref_handling_bake(RefBakeEmit emit);
 

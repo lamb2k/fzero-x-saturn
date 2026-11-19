@@ -37,7 +37,7 @@ RACE = [("race_time_ms", "rel", 0.005), ("speed_mean", "rel", 0.005), ("speed_ma
 TOLERANCES = {
     "P01_launch": [("v_plus_10", "rel", 0.02), ("v_plus_30", "rel", 0.02), ("v_plus_60", "rel", 0.02),
                    ("ticks_to_50pct", "abs", 1), ("ticks_to_90pct", "abs", 1), ("v_top", "rel", 0.005),
-                   ("hover_height", "abs", 0.05)],
+                   ("hover_height", "abs", 0.05), ("wall_contact_ticks", "exact", 0)],
     "P02_coast": [("v_plus_60", "rel", 0.01), ("v_plus_120", "rel", 0.01), ("v_plus_240", "rel", 0.01),
                   ("ticks_to_half", "abs", 3)],
     "P03_brake": [("v_plus_30", "rel", 0.02), ("v_plus_60", "rel", 0.02), ("v_plus_120", "rel", 0.02),
@@ -52,8 +52,11 @@ TOLERANCES = {
                         ("side_speed_peak", "rel", 0.02)],
     "P08_spin_attack": [("attack_ticks", "exact", 0), ("speed_after_60", "rel", 0.01)],
     # C-056 boosted grip turn (proposed bands).
-    "P10_boost_turn": [("boosting", "exact", 0), ("grip_share_15", "abs", 0.1), ("side_speed_peak_15", "rel", 0.05),
+    "P10_boost_turn": [("boosting", "exact", 0), ("grip_share_15", "abs", 0.1), ("side_speed_peak_15", "relf", 0.05),
                        ("yaw_rate_15_deg_per_tick", "rel", 0.02), ("speed_ratio_15", "abs", 0.01)],
+    # C-056 machine matrix grip break (proposed bands).
+    "P11_grip_break": [("grip_break_speed", "rel", 0.01), ("grip_break_tick", "abs", 2),
+                       ("yaw_rate_10_deg_per_tick", "rel", 0.01)],
     "P09_slalom": [("side_swing_peak_to_peak", "rel", 0.02), ("speed_min", "rel", 0.02), ("speed_end", "rel", 0.03)],
     "W01_wall_04": WALL, "W01_wall_08": WALL, "W01_wall_16": WALL, "W01_wall_24": WALL,
     "C01_features": [("dash_boost_ticks", "exact", 0), ("dash_speed_peak", "rel", 0.01),
@@ -92,6 +95,9 @@ def score(rule, ref, got, tol):
         return ref == got, "exact"
     if rule == "rel":
         return abs(got - ref) <= tol * abs(ref), "±%g%%" % (tol * 100)
+    if rule == "relf":  # relative, with a 0.01 floor for references near zero
+        band = max(tol * abs(ref), 0.01)
+        return abs(got - ref) <= band, "±%.3g" % band
     if rule == "wall":
         band = max(tol * abs(ref), 0.1)
         return abs(got - ref) <= band, "±%.3g" % band
@@ -130,8 +136,10 @@ def main():
     out = args.out
     out.mkdir(parents=True, exist_ok=True)
     reference = json.loads(args.reference.read_text())["fixtures"]
-    courses = {"pad": out / "course-pad.bin", "corridor": out / "course-corridor.bin"}
+    courses = {"pad": out / "course-pad.bin", "corridor": out / "course-corridor.bin",
+               "straight": out / "course-straight.bin"}
     courses["pad"].write_bytes(hf.pad_course())
+    courses["straight"].write_bytes(hf.straight_course())
     courses["corridor"].write_bytes(hf.corridor_course())
     if args.retail_course:
         courses["retail"] = args.retail_course

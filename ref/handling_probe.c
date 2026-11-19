@@ -65,6 +65,27 @@ void Course_LandminesViewInteractDataInit(void);
 void Course_JumpsViewInteractDataInit(void);
 void Course_EffectsViewInteractDataInit(bool arg0);
 
+/* Re-initialise racer 0 as another stock machine at another engine setting, the way
+ * leaving the machine settings does (func_8008969C / func_80089724), then Racer_Init
+ * through ref_race_restart. Call after ref_race_init, before the zone set-up. */
+extern s16 gPlayerCharacters[];
+extern s16 gPlayerMachineSkins[];
+extern f32 gPlayerEngine[];
+void func_8008969C(void);
+void func_80089724(void);
+void ref_race_restart(void);
+
+int ref_handling_select_machine(int character, float engine) {
+    if (character < 0 || character >= 30 || !(engine >= 0.0f && engine <= 1.0f)) return 1;
+    gPlayerCharacters[0] = (s16) character;
+    gPlayerMachineSkins[0] = 0;
+    gPlayerEngine[0] = engine;
+    func_8008969C();
+    func_80089724();
+    ref_race_restart();
+    return 0;
+}
+
 void ref_handling_race_features(void) {
     Course_LandminesViewInteractDataInit();
     Course_JumpsViewInteractDataInit();
@@ -159,5 +180,16 @@ void ref_handling_bake(RefBakeEmit emit) {
                       r->currentRadiusLeft, r->currentRadiusRight, r->lapDistance, r->lapsCompletedDistance,
                       r->raceDistance, r->speed, r->energy, r->unk_17C, r->accelerationForce, r->unk_238 };
         emit("scalars", 0, 0, w, (int) (sizeof(w) / sizeof(w[0])));
+    }
+    {
+        /* Everything else the step carries from tick to tick, so a native run can start
+         * from any reference tick (state resync). Integers are exact as floats. */
+        float w[] = { (float) r->spinOutTimer, (float) r->attackState, (float) r->driftAttackDirection,
+                      (float) r->unk_27C, (float) r->unk_280, (float) r->zButtonTimer, (float) r->rButtonTimer,
+                      (float) r->unk_204, (float) r->unk_208, (float) r->unk_20C, (float) r->unk_214,
+                      (float) r->lapTimes[0], (float) r->lapTimes[1], (float) r->lapTimes[2],
+                      (float) r->completedLapsTime, r->unk_200, r->driftAttackForce, r->jumpBoost, r->unk_198,
+                      r->unk_234, r->tiltUpInput };
+        emit("dynamics", 0, 0, w, (int) (sizeof(w) / sizeof(w[0])));
     }
 }

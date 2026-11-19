@@ -28,7 +28,7 @@ class ScriptTests(unittest.TestCase):
         for name, (course, lines, action, kind, driver) in H.fixtures().items():
             starts = [sum(t for t, _, _ in lines[:i]) for i in range(len(lines))]
             self.assertIn(action, starts, name)
-            self.assertIn(course, ("pad", "corridor"), name)
+            self.assertIn(course, ("pad", "corridor", "straight"), name)
             later = H.delayed(lines, action)
             self.assertEqual(sum(t for t, _, _ in later), sum(t for t, _, _ in lines) + 1, name)
 

@@ -12,7 +12,7 @@ import physics_qualify  # noqa: E402
 
 NODE_WORDS = 3 + 3 + 1 + 2 + 2 + 9 + 3 + 4
 HEADER_WORDS = 8 + 25
-BODY_WORDS = 7 + 6 + 27 + 15 + 14
+BODY_WORDS = 7 + 6 + 27 + 15 + 14 + 1 + 15 + 6 + 1
 
 
 def synthetic_source(segments=4, zones=1):

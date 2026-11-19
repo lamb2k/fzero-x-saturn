@@ -15,6 +15,7 @@
 #include "texture_cd.h"
 #include "engine_scenes.h"
 #include "engine_closeup.h"
+#include "engine_records.h"
 #include "engine_drive.h"
 #include "sh2zam/scene_experimental.h"
 #include "sh2zam/vehicle_dynamics_experimental.h"
@@ -150,10 +151,37 @@ static void snd_event(uint32_t id) {
 }
 static void snd_deliver(void) { fzx_scn_report[26] += snd_count; snd_count = 0; }
 
-/* The manager's VDP1 list for frames RACE doesn't draw: system clip, local origin and
- * END (menu scenes will add their commands between the prelude and END). */
-static vdp1_cmdt_t menu_cmds[4];
-static vdp1_cmdt_list_t menu_list;
+/* The manager's VDP1 lists for frames RACE doesn't draw (SCENES.md section 8):
+ * - menu_list: system clip, local origin, black erase, the scene's span (up to
+ *   FZX_SCN_MENU_SPAN commands), END;
+ * - bare_list: system clip, local origin, black erase, END (no art): the retirement
+ *   frames, so a list that replaces a scene never references any scene's VRAM. */
+enum { SPAN_FIRST = 3u };
+static vdp1_cmdt_t menu_cmds[SPAN_FIRST + FZX_SCN_MENU_SPAN + 1u];
+static vdp1_cmdt_t bare_cmds[SPAN_FIRST + 1u];
+static vdp1_cmdt_list_t menu_list, bare_list;
+/* Menu hook counters: [0] span refusals, [1] preload deferrals (lease still referenced),
+ * [2] preload steps, [3] preload cancels, [4] preloads completed, [5] longest preload (frames). */
+volatile uint32_t fzx_scn_ctl[8];
+static unsigned span_count;
+static bool span_open;
+static fzx_scn_menu_hooks_t hooks[FZX_SCN_COUNT];
+/* The lease: the scene whose commands the last displayed menu list may reference
+ * (FZX_SCN_COUNT = none). Set by a drawing frame with a span; cleared by a bare frame
+ * that has been drawn and shown (the retirement confirmation). */
+static uint32_t lease_owner = FZX_SCN_COUNT;
+static uint32_t preloading = FZX_SCN_COUNT; /* the scene whose preload is in progress */
+
+void fzx_scn_menu_hooks_set(uint32_t scene, const fzx_scn_menu_hooks_t *h) {
+    if (scene < FZX_SCN_COUNT && h) hooks[scene] = *h;
+}
+bool fzx_scn_span_append(const vdp1_cmdt_t *cmds, unsigned n) {
+    if (!span_open || !cmds || n > FZX_SCN_MENU_SPAN - span_count) { ++fzx_scn_ctl[0]; return false; }
+    memcpy(&menu_cmds[SPAN_FIRST + span_count], cmds, n * sizeof(vdp1_cmdt_t));
+    span_count += n;
+    return true;
+}
+bool fzx_scn_lease_free(void) { return lease_owner == FZX_SCN_COUNT; }
 static void menu_list_init(void) {
     const int16_vec2_t clip = INT16_VEC2_INITIALIZER(319, 223);
     const int16_vec2_t origin = INT16_VEC2_INITIALIZER(0, 0);
@@ -172,27 +200,53 @@ static void menu_list_init(void) {
     }
     vdp1_cmdt_end_set(&menu_cmds[3]);
     menu_list.cmdts = menu_cmds; menu_list.count = 4;
+    memcpy(bare_cmds, menu_cmds, sizeof(bare_cmds));
+    bare_list.cmdts = bare_cmds; bare_list.count = SPAN_FIRST + 1u;
+}
+
+/* The drawing frame's span: the scene's draw hook, bounded; END after it. */
+static void span_build(uint32_t scene) {
+    span_count = 0;
+    span_open = true;
+    const fzx_scn_menu_hooks_t *h = scene < FZX_SCN_COUNT ? &hooks[scene] : NULL;
+    if (h && h->draw) {
+        const unsigned n = h->draw(&menu_cmds[SPAN_FIRST + span_count], FZX_SCN_MENU_SPAN - span_count);
+        if (n > FZX_SCN_MENU_SPAN - span_count) ++fzx_scn_ctl[0]; /* refused: the frame draws none */
+        else span_count += n;
+    }
+    if (POKED(fzx_scn_probe) & 0x400u) { /* control: an append past the bound is refused */
+        (void)fzx_scn_span_append(menu_cmds, FZX_SCN_MENU_SPAN + 1u);
+        POKED(fzx_scn_probe) = 0;
+    }
+    span_open = false;
+    vdp1_cmdt_end_set(&menu_cmds[SPAN_FIRST + span_count]);
+    menu_list.count = (uint16_t)(SPAN_FIRST + span_count + 1u);
+    if (span_count) lease_owner = scene;
 }
 /* A frame of the manager's (menus, loading, transitions): its VDP1 list (menu scenes
  * add their commands between the prelude and END) and the VDP2 commit.
  * Each list waits for the previous VDP1 frame to complete (vdp1_sync_wait), as the
  * race's serial frames do: a put while Yaul's previous sync is still pending stalls in
  * vdp1_sync_cmdt_put (2026-11-19, Ymir; the cause of the earlier menu-list hang). */
-static void own_frame(void) {
+static void list_frame(const vdp1_cmdt_list_t *list) {
     vdp2_sync_wait();
     vdp1_sync_put_wait();
     vdp1_sync_wait();
-    vdp1_sync_cmdt_list_put(&menu_list, 0);
+    vdp1_sync_cmdt_list_put(list, 0);
     vdp1_sync_render();
     vdp1_sync();
     vdp2_sync();
 }
 
-/* NBG3 text goes to VRAM only on the frames that printed (a flush each frame next to
- * the VDP1 list hand-over stalls Yaul's sync in this image). */
+/* A frame without scene art (loading card, transitions, retirement). */
+static void own_frame(void) { list_frame(&bare_list); }
+
+/* A menu scene's drawing frame: its span, then the list. NBG3 text goes to VRAM only on
+ * the frames that printed. */
 static void text_frame(bool printed) {
     if (printed) dbgio_flush();
-    own_frame();
+    span_build(seq.current);
+    list_frame(&menu_list);
 }
 
 static bool request(uint32_t target, uint32_t rank) {
@@ -277,9 +331,23 @@ static void records_draw(void) {
     dbgio_printf("\x1b[H\x1b[2J\n\n   [PLACEHOLDER RECORDS]\n\n   (records service not linked yet)\n\n   B: BACK\n");
 }
 
-static bool results_enter(void *u, uint32_t s) { (void)u; (void)s; (void)sh2z_arena_alloc(&menu_arena, 768u, 16u); text_dirty = true; return true; }
+/* Placeholder RESULTS: ranks the run and commits it with the name "SAT" (the C8 screen
+ * asks for the name only for a top-5 place). */
+static fzx_rank_t results_rank;
+static fzx_rec_result_t results_commit;
+static bool results_enter(void *u, uint32_t s) {
+    (void)u; (void)s; (void)sh2z_arena_alloc(&menu_arena, 768u, 16u);
+    fzx_records_rank(&fzx_scn_result, &results_rank);
+    results_commit = fzx_records_commit(&fzx_scn_result, results_rank.place ? "SAT" : NULL);
+    text_dirty = true;
+    return true;
+}
 static void results_tick(void *u, uint32_t s) {
     (void)u; (void)s;
+    if (POKED(fzx_scn_probe) & 0x200u) { /* captures: commit the same run again */
+        { const fzx_rec_result_t again = fzx_records_commit(&fzx_scn_result, "SAT"); fzx_scn_report[14] = 0x200u | (uint32_t)again; }
+        POKED(fzx_scn_probe) = 0;
+    }
     if (input.edges & PAD_A) { snd_event(3); retry_pending = true; ++fzx_scn_report[7]; (void)request(FZX_SCN_LOAD, RANK_GOTO); }
     else if (input.edges & PAD_B) (void)request(FZX_SCN_TITLE, RANK_GOTO);
 }
@@ -294,7 +362,18 @@ static void results_draw(void) {
     for (unsigned i = 0; i < r->laps_done && i < 3u; ++i)
         dbgio_printf("   LAP %u %lu'%02lu\"%02lu\n", i + 1u, (unsigned long)(r->lap_ms[i] / 60000u),
                      (unsigned long)((r->lap_ms[i] / 1000u) % 60u), (unsigned long)((r->lap_ms[i] / 10u) % 100u));
-    dbgio_printf("   MAX SPEED %lu KM/H\n\n   A: RETRY   B: TITLE\n", (unsigned long)r->max_speed);
+    dbgio_printf("   MAX SPEED %lu KM/H\n", (unsigned long)r->max_speed);
+    static const char *const rec[5] = { "SAVED", "SAVED (NEW)", "NOT SAVED: FULL", "NOT SAVED: FAILED", "ALREADY" };
+    const fzx_rec_course_t *c = fzx_records_course(r->course);
+    dbgio_printf("\n   RECORD: PLACE %u%s%s  %s\n", (unsigned)results_rank.place, results_rank.best_lap ? " LAP" : "",
+                 results_rank.max_speed ? " SPEED" : "", rec[results_commit < 5 ? results_commit : 3]);
+    if (c) for (unsigned i = 0; i < FZX_REC_TOP; ++i) {
+        const uint32_t ms = c->top[i].ms;
+        if (ms >= FZX_REC_MAX_TIMER) dbgio_printf("   %u --------\n", i + 1u);
+        else dbgio_printf("   %u %lu'%02lu\"%02lu %s\n", i + 1u, (unsigned long)(ms / 60000u),
+                          (unsigned long)((ms / 1000u) % 60u), (unsigned long)((ms / 10u) % 100u), c->top[i].name);
+    }
+    dbgio_printf("\n   A: RETRY   B: TITLE\n");
 }
 
 /* ---- LOAD ------------------------------------------------------------------ */
@@ -461,7 +540,7 @@ static bool race_enter(void *u, uint32_t s) {
     fzx_race_begin();
     end_reason = FZX_END_NONE; end_wait = 0; max_kmh = 0;
     ++run_counter;
-    fzx_scn_report[12] = run_counter;
+    fzx_scn_report[12] = (fzx_records_boot_id() << 16) | (run_counter & 0xFFFFu);
     dbgio_printf("\x1b[H\x1b[2J");
     return true;
 }
@@ -470,7 +549,7 @@ static void race_snapshot(uint32_t reason) {
     const sh2z_vd_body_t *b = fzx_drive_state();
     fzx_run_result_t *r = &fzx_scn_result;
     memset(r, 0, sizeof(*r));
-    r->run_id = run_counter; r->reason = (uint8_t)reason;
+    r->run_id = (fzx_records_boot_id() << 16) | (run_counter & 0xFFFFu); r->reason = (uint8_t)reason;
     r->menu_mode = fzx_session.menu_mode; r->course = fzx_session.course; r->skin = fzx_session.skin;
     r->machine_id = fzx_session.machine_id; r->slider_bits = fzx_session.slider_bits;
     r->laps_done = (uint8_t)(b->laps_done > 0 ? b->laps_done : 0);
@@ -514,9 +593,46 @@ static void race_release(void *u, uint32_t s) {
 }
 
 /* ---- the table ----------------------------------------------------------- */
-static bool boot_enter(void *u, uint32_t s) { (void)u; (void)s; return true; }
+static bool boot_enter(void *u, uint32_t s) {
+    (void)u; (void)s;
+    (void)fzx_records_load(); /* SCENES.md section 5: the saved tables and a new boot id */
+    return true;
+}
 static void boot_tick(void *u, uint32_t s) { (void)u; (void)s; (void)request(FZX_SCN_TITLE, RANK_GOTO); }
 static void common_leave(void *u, uint32_t s) { (void)u; (void)s; leaving = true; }
+
+/* ---- menu preload dispatch (SCENES.md section 2; C-070) ----------------------------- */
+#define PRELOAD_BUDGET_FRT 7000u /* about 7.8 ms a frame (FRT at master clock / 32) */
+static uint32_t preload_frames;
+static void preload_cancel(void) {
+    if (preloading < FZX_SCN_COUNT && hooks[preloading].preload_cancel) hooks[preloading].preload_cancel();
+    if (preloading < FZX_SCN_COUNT) ++fzx_scn_ctl[3];
+    preloading = FZX_SCN_COUNT;
+}
+/* scene-1 calls this once per frame in PRELOAD, after the previous scene's release. */
+static bool menu_preload(void *u, uint32_t scene) {
+    (void)u;
+    if (preloading != scene) { preload_cancel(); preloading = scene; preload_frames = 0; }
+    /* Never write VRAM a displayed list may still read: defer until the lease is free. */
+    if (!fzx_scn_lease_free()) { ++fzx_scn_ctl[1]; return false; }
+    const fzx_scn_menu_hooks_t *h = &hooks[scene];
+    if (!h->preload_step) { preloading = FZX_SCN_COUNT; return true; }
+    ++fzx_scn_ctl[2];
+    if (++preload_frames > fzx_scn_ctl[5]) fzx_scn_ctl[5] = preload_frames;
+    if (h->preload_step(PRELOAD_BUDGET_FRT)) { preloading = FZX_SCN_COUNT; ++fzx_scn_ctl[4]; return true; }
+    return false;
+}
+
+/* Capture-only test hooks (probe 0x1000): a one-command span and a 30-frame preload, to
+ * exercise the span, the lease and the stepped preload before the C8 screens bind. */
+static uint32_t test_steps;
+static unsigned test_draw(vdp1_cmdt_t *span, unsigned capacity) {
+    if (!capacity) return 0;
+    span[0] = menu_cmds[2];
+    return 1;
+}
+static bool test_preload(uint32_t budget) { (void)budget; return ++test_steps >= 30u; }
+static void test_cancel(void) { test_steps = 0; }
 static void common_release(void *u, uint32_t s) {
     (void)u; (void)s;
     dbgio_printf("\x1b[H\x1b[2J");
@@ -530,12 +646,12 @@ static void title_release(void *u, uint32_t s) {
 
 static const sh2z_scene_t table[FZX_SCN_COUNT] = {
     [FZX_SCN_BOOT]    = { NULL, boot_enter, boot_tick, common_leave, common_release, NULL, 0 },
-    [FZX_SCN_TITLE]   = { NULL, title_enter, title_tick, common_leave, title_release, menu_arenas, 1 },
-    [FZX_SCN_SELECT]  = { NULL, select_enter, select_tick, common_leave, common_release, menu_arenas, 1 },
+    [FZX_SCN_TITLE]   = { menu_preload, title_enter, title_tick, common_leave, title_release, menu_arenas, 1 },
+    [FZX_SCN_SELECT]  = { menu_preload, select_enter, select_tick, common_leave, common_release, menu_arenas, 1 },
     [FZX_SCN_LOAD]    = { NULL, load_enter, load_tick, common_leave, common_release, NULL, 0 },
     [FZX_SCN_RACE]    = { NULL, race_enter, race_tick, common_leave, race_release, race_arenas, 1 },
-    [FZX_SCN_RESULTS] = { NULL, results_enter, results_tick, common_leave, common_release, menu_arenas, 1 },
-    [FZX_SCN_RECORDS] = { NULL, records_enter, records_tick, common_leave, common_release, menu_arenas, 1 },
+    [FZX_SCN_RESULTS] = { menu_preload, results_enter, results_tick, common_leave, common_release, menu_arenas, 1 },
+    [FZX_SCN_RECORDS] = { menu_preload, records_enter, records_tick, common_leave, common_release, menu_arenas, 1 },
 };
 
 static void draw_current(void) {
@@ -582,11 +698,32 @@ void fzx_scn_main(void) {
         bool connected = false;
         const uint32_t pad = read_pad(&connected);
         fzx_scn_report[31] = pad | (connected ? 0x10000u : 0u);
+        {   /* Captures: the menu hook controls. */
+            const uint32_t probe = POKED(fzx_scn_probe);
+            if (probe & 0x1000u) {
+                static const fzx_scn_menu_hooks_t t = { test_preload, test_cancel, test_draw };
+                fzx_scn_menu_hooks_set(FZX_SCN_TITLE, &t);
+                fzx_scn_menu_hooks_set(FZX_SCN_SELECT, &t);
+                POKED(fzx_scn_probe) = 0;
+            } else if (probe & 0x2000u) {
+                (void)fzx_records_rewrite();
+                POKED(fzx_scn_probe) = 0;
+            } else if (probe & 0x800u) {
+                /* Control: a preload that starts while the current scene's lease is still
+                 * referenced must defer. */
+                const uint32_t before = fzx_scn_ctl[1];
+                (void)menu_preload(NULL, FZX_SCN_SELECT);
+                fzx_scn_report[14] = 0x800u | (fzx_scn_ctl[1] - before);
+                preload_cancel();
+                POKED(fzx_scn_probe) = 0;
+            }
+        }
         /* Soft reset: the chord fires once, then stays latched until all four are released. */
         if ((pad & PAD_CHORD) == PAD_CHORD) {
             if (!chord_latched) {
                 chord_latched = 1;
                 if (seq.current != FZX_SCN_BOOT && sh2z_scene_request(&seq, FZX_SCN_TITLE, RANK_RESET)) {
+                    preload_cancel(); /* a preload in progress is abandoned */
                     ++fzx_scn_report[9];
                     ++fzx_scn_report[21];
                     session_defaults();
@@ -622,7 +759,10 @@ void fzx_scn_main(void) {
              * one. own_frame waits for the previous VDP1 frame (vdp1_sync_wait) before it
              * puts its list, so at the second own frame the first manager list has been
              * drawn and shown: nothing VDP1 reads or shows still references the scene. */
-            if (seq.phase == SH2Z_SCENE_RETIRE && own_frames >= 2u) sh2z_scene_retired(&seq);
+            if (seq.phase == SH2Z_SCENE_RETIRE && own_frames >= 2u) {
+                lease_owner = FZX_SCN_COUNT; /* the bare list has replaced every span */
+                sh2z_scene_retired(&seq);
+            }
         }
         fzx_scn_report[1] = seq.current; fzx_scn_report[2] = seq.phase; fzx_scn_report[3] = level;
         fzx_scn_report[4] = seq.epoch; fzx_scn_report[5] = seq.frames; fzx_scn_report[6] = seq.switches;

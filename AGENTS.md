@@ -1,17 +1,35 @@
 # Agent rules
 
-This file is the one agent file for this repository. The plan is
-[docs/POC_PLAN.md](docs/POC_PLAN.md); its section 8 has the full operating
-rules and the reasons for them. This page is the short form.
+This file is the one agent file for this repository. [CLAUDE.md](CLAUDE.md)
+and [CODEX.md](CODEX.md) only add each agent's role. The plan for new work is
+[docs/ENGINE_PLAN.md](docs/ENGINE_PLAN.md). [docs/POC_PLAN.md](docs/POC_PLAN.md)
+is the record of the legacy line; its memory, evidence and source-art rules
+still apply.
+
+## Two lines
+
+Owner decision, 2026-11-19: the game becomes a hybrid sprite and native
+Saturn engine built from the original assets, Saturn exclusive, with 30
+frames per second as the floor.
+
+| | `engine` line | `gate1` legacy line |
+| --- | --- | --- |
+| What it is | its own Saturn image and main loop; links no original game code | the original race code with native presentation |
+| Role | the game we ship; all new work | frozen fallback, HOST reference, front end until E3 |
+| Physics gate | plays-right checks against the HOST reference | exact replay, finish at tick 7059 |
+| Change gate | engine gates, ENGINE_PLAN section 5 | switch-off binary identity |
+
+Do not add engine features as switches inside the legacy image, and do not
+tune the legacy image for speed. If a task asks for either, stop and say so.
 
 ## Boot set
 
 At the start of every session read, in this order, and nothing else first:
 
-1. this file;
-2. [docs/STATUS.md](docs/STATUS.md): where the work stands;
-3. [docs/HANDOFF.md](docs/HANDOFF.md): what the last session left;
-4. the one gate section of the plan you are working in.
+1. this file, then your role file (CLAUDE.md or CODEX.md);
+2. [docs/ENGINE_PLAN.md](docs/ENGINE_PLAN.md): the plan and the current milestone;
+3. [docs/STATUS.md](docs/STATUS.md): where the work stands;
+4. [docs/HANDOFF.md](docs/HANDOFF.md): what the last session left.
 
 Read source files when a card needs them. Old checkpoint prose reads like
 instructions and pulls work off course.
@@ -33,17 +51,65 @@ instructions and pulls work off course.
   art is for synthetic tests only and cannot satisfy a playable-port milestone.
   Preserve source appearance and behavior through native conversion; do not
   replace them with newly designed assets. See POC_PLAN section 4.7.
-- One card at a time, to done. Done means committed, pushed and gated, with
-  the card's control shown failing. "Coded, unrun" is a valid status; write it.
+- **Owner direction, 2026-11-19: plays right, Saturn exclusive, everything in SH2ZAM.**
+  Native systems are judged on playing right against the HOST reference, not
+  on bit-exact replays. Use the Saturn's hardware directly: VDP1 sprites, VDP2
+  layers, both SH-2s, the SCU DSP, the 4 MB cartridge. All engine code is an
+  SH2ZAM component with a generic name; this repository keeps glue, game data
+  and the asset bakers.
+- Work in vertical slices. A milestone in ENGINE_PLAN section 4 is done when
+  it runs, its gates pass with each control shown failing, and the owner has
+  seen stills, a clip and frame numbers. "Coded, unrun" is a valid status;
+  write it.
+- Judge every change on the whole presented frame against the floor: at most
+  two 60 Hz fields between new frames, across a 30-racer race. Report mean,
+  p99, worst interval and the count over budget.
+- Measure before optimising. Prefer removing work, baking it offline or
+  moving it to idle hardware over making slow code faster.
 - A failing gate gets two distinct hypotheses tested. Then record the blocker
   and its exact unblock condition in STATUS and move to the next
   dependency-safe card. Never loosen a tolerance to pass.
 - Divergence: find the first divergent tick and field, then the function
   that wrote it. Fix there.
-- Source owns simulation and state; the native layer owns presentation.
-  Optimisations land behind a knob that defaults off, with knob-off identity.
-- No general engine: no libultra layer, no display-list interpreter, no
-  general float-to-fixed translator.
+- Engine line: the engine owns simulation, state and presentation. The
+  original code is the HOST reference that the engine is tested against, and
+  the source of data and tuning values. It does not run on the Saturn.
+- Legacy line only: source owns simulation and state, the native layer owns
+  presentation, and any change lands behind a knob that defaults off with
+  knob-off identity. The legacy recipe BIN must keep building byte-identical.
+- No emulation layer: no libultra layer, no display-list interpreter, no
+  general float-to-fixed translator. Write the Saturn form directly.
+
+## Workflow
+
+- **Lanes.** One owner per lane, one branch per lane, isolated build stages,
+  builds one after another inside a stage. A lane never edits another lane's
+  code; it asks through the coordinator. Lanes: track, racers, physics,
+  rivals, frame (VDP1 banks, VDP2), build and memory, audio, front end (C8),
+  cars.
+- **Merging.** Lane branches merge into `engine` when the lane's own gates
+  pass in CI and locally. The engine integrator merges; no review round is
+  needed per change. `gate1` and the release recipe stay with Codex.
+- **Review.** One independent audit per milestone, by the agent that did not
+  write the code, against ENGINE_PLAN section 5. Findings become cards fixed
+  before the next milestone. A finding that breaks a gate blocks the
+  milestone; a tooling or wording finding does not block a merge.
+- **Tools.** Diagnostic scripts and checkers need a failing control, not a
+  review round, before use.
+- **Hand-overs.** One message per milestone or per blocking question, with
+  the commit, the image hashes, the numbers and the evidence path. Number
+  them. A message with no reply is not agreement.
+- **Budgets.** Every hand-over states the lane's work RAM, VRAM, cartridge
+  and stack use. The shared floors are in ENGINE_PLAN section 5; a lane that
+  would cross one frees the space first.
+- **SH2ZAM.** Components land on `claude/<topic>` or `codex/<topic>` branches
+  with a pull request, an `*_experimental.h` contract tag, host tests in CI
+  and upstream SH4ZAM style. The engine pins a commit. Merge trains run once
+  per milestone.
+- **Demos.** Every milestone ships labelled emulator stills, a short clip and
+  the frame table. Say what looks wrong.
+- **Hardware.** Each milestone's disc goes to the owner with the sheet in
+  docs/HARDWARE_TEST.md. No frame-rate claim without a hardware run.
 
 ## Evidence
 
@@ -65,6 +131,7 @@ This repository is public: every push is a publication.
 Owner authorization (2026-11-15): push completed, evidenced source-only changes to
 `origin/gate1` regularly. This authorizes routine pushes after the gates and hygiene
 scan; it does not authorize publishing ROM-derived content or releases.
+The same rule covers `engine` and lane branches (2026-11-19).
 
 - Run `python3 tools/hygiene_scan.py` before every push. CI runs it too.
 - Never commit ROMs, extracted course, model or texture data, retail-course
@@ -75,8 +142,8 @@ scan; it does not authorize publishing ROM-derived content or releases.
 ## Ask the owner only for
 
 The three touchpoints in plan section 7, a missing ROM path when no ROM-free
-card remains, anything outward-facing, and an architecture choice the Gate 1
-rules do not already decide.
+card remains, anything outward-facing, look and feel acceptance at each milestone, a
+hardware run, and an architecture choice ENGINE_PLAN does not already decide.
 
 ## Keep the state small
 

@@ -28,6 +28,42 @@ static fzx_clouds_rbg_t *clouds_stage[2]={&fzx_clouds_rbg,0};
 static uint16_t *sky_stage[2]={sky_lines,0};
 static unsigned clouds_bank;
 static sh2z_vdp1_queue_t clouds_queue;
+#if FZX_VDP1_DBANK
+/* The VBlank-In present pops this queue inside the interrupt while the build
+ * pushes from the main loop. sh2z_vdp1_queue_push is a read-modify-write of the
+ * count and both slots, so a pop landing inside it loses an update: the count
+ * drifts from the entries and a later build finds its bank "queued" (E1 fault 25
+ * status 1 at tick 6095; E2's status 23). The push runs with interrupts masked.
+ * FZX_DBANK_QUEUE_ATOMIC=0 is the control. */
+#ifndef FZX_DBANK_QUEUE_ATOMIC
+#define FZX_DBANK_QUEUE_ATOMIC 1
+#endif
+/* FZX_DBANK_QUEUE_WIDEN=N (control only): the same push, with N spins between
+ * reading the count and storing it, so the race window is wide enough to hit in
+ * seconds instead of once a race. */
+#ifndef FZX_DBANK_QUEUE_WIDEN
+#define FZX_DBANK_QUEUE_WIDEN 0
+#endif
+static bool queue_push(sh2z_vdp1_queue_t *q,uint32_t bank,uint32_t tag) {
+#if FZX_DBANK_QUEUE_ATOMIC
+    const uint8_t mask=cpu_intc_mask_get();cpu_intc_mask_set(15);
+#endif
+#if FZX_DBANK_QUEUE_WIDEN
+    bool ok=false;
+    if(tag && sh2z_vdp1_queue_free(q,bank)) {
+        const uint32_t c=q->count;
+        for(volatile uint32_t spin=FZX_DBANK_QUEUE_WIDEN;spin;--spin){}
+        q->bank[c]=bank;q->tag[c]=tag;q->count=c+1u;ok=true;
+    }
+#else
+    const bool ok=sh2z_vdp1_queue_push(q,bank,tag);
+#endif
+#if FZX_DBANK_QUEUE_ATOMIC
+    cpu_intc_mask_set(mask);
+#endif
+    return ok;
+}
+#endif
 void fzx_clouds_dbank(void *clouds_bank1,void *sky_bank1){clouds_stage[1]=clouds_bank1;sky_stage[1]=sky_bank1;sh2z_vdp1_queue_init(&clouds_queue);}
 void fzx_clouds_dbank_select(unsigned bank){clouds_bank=bank&1u;}
 #define SKY_LINES (sky_stage[clouds_bank])
@@ -150,79 +186,7 @@ bool fzx_clouds_vdp2_load(const void *planes_vram) {
     fzx_clouds_status=1;return true;
 }
 
-typedef struct {uint8_t set[224];int center;} lines_t;
-static uint16_t blend(uint16_t a,uint16_t b,int32_t t) {
-    uint16_t out=0x8000;
-    for(unsigned shift=0;shift<15;shift+=5) {
-        const int32_t ca=(a>>shift)&31,cb=(b>>shift)&31;
-        int32_t c=ca+(int32_t)(((int64_t)(cb-ca)*t+32768)>>16);
-        if(c<0)c=0;
-        if(c>31)c=31;
-        out|=(uint16_t)(c<<shift);
-    }
-    return out;
-}
-static bool line_emit(void *context,const fzx_sky_polygon_t *p) {
-    /* The polygon's span on the centre column: intersect its edges with
-     * x = centre once, then step the colour down the lines (no divide per line). */
-    lines_t *l=context;
-    const int32_t cx=l->center;
-    int32_t ya=INT32_MAX,yb=INT32_MIN;uint16_t ca=0,cb=0;
-    for(unsigned i=0;i<4;++i) {
-        const unsigned j=(i+1)&3;
-        const int32_t x0=p->x[i],x1=p->x[j];
-        if((cx<x0 && cx<x1) || (cx>x0 && cx>x1))continue;
-        int32_t y;uint16_t c;
-        if(x0==x1) {
-            for(unsigned k=0;k<2;++k){const unsigned v=k?j:i;
-                if(p->y[v]<ya){ya=p->y[v];ca=p->color[v];}
-                if(p->y[v]>yb){yb=p->y[v];cb=p->color[v];}}
-            continue;
-        }
-        const int32_t t=(int32_t)(((cx-x0)*65536)/(x1-x0));
-        y=p->y[i]+(int32_t)(((int64_t)(p->y[j]-p->y[i])*t+32768)>>16);c=blend(p->color[i],p->color[j],t);
-        if(y<ya){ya=y;ca=c;}
-        if(y>yb){yb=y;cb=c;}
-    }
-    if(ya>yb)return true;
-    int32_t rgb[3],step[3];
-    const int32_t span=yb>ya?yb-ya:1;
-    for(unsigned k=0;k<3;++k){rgb[k]=((ca>>(k*5))&31)<<16;step[k]=((((cb>>(k*5))&31)<<16)-rgb[k])/span;}
-    for(int32_t y=ya;y<=yb;++y) {
-        if(y>=0 && y<224) {
-            uint16_t c=0x8000;
-            for(unsigned k=0;k<3;++k){int32_t v=(rgb[k]+32768)>>16;if(v<0)v=0;if(v>31)v=31;c|=(uint16_t)(v<<(k*5));}
-            SKY_LINES[y]=c;l->set[y]=1;
-        }
-        for(unsigned k=0;k<3;++k)rgb[k]+=step[k];
-    }
-    return true;
-}
-bool fzx_clouds_sky_lines(const fzx_view_t *view,const RefBackdrop *source) {
-    if(!view || !source || fzx_clouds_status!=1)return false;
-    lines_t l;memset(&l,0,sizeof(l));l.center=(view->clip[0]+view->clip[2])/2;
-    if(!fzx_sky_draw_bands(view,&source->vertices[8],fzx_sky_colors,
-#if FZX_SKY_SIMPLIFY
-                     fzx_sky_breaks,sizeof(fzx_sky_breaks),
-#else
-                     NULL,0,
-#endif
-                     FZX_SKY_MAX_COMMANDS,line_emit,&l,&fzx_sky_stats)){fzx_clouds_status=4;return false;}
-    /* Lines the sky does not reach (behind the floor) take the nearest sky line. */
-    int last=-1;unsigned set=0;
-    for(int y=0;y<224;++y)if(l.set[y]){
-        ++set;
-        if(last<0)for(int k=0;k<y;++k)SKY_LINES[k]=SKY_LINES[y];
-        else for(int k=last+1;k<y;++k)SKY_LINES[k]=SKY_LINES[last];
-        last=y;
-    }
-    if(last<0)for(int y=0;y<224;++y)SKY_LINES[y]=fzx_sky_colors[63];
-    else for(int y=last+1;y<224;++y)SKY_LINES[y]=SKY_LINES[last];
-    /* Outside the view the screen stays black, as with the VDP1 sky. */
-    for(int y=0;y<224;++y)if(y<view->clip[1] || y>=view->clip[3])SKY_LINES[y]=0;
-    fzx_clouds_sky_line_count=set;
-    return true;
-}
+#include "fzx_sky_lines_body.h"
 
 typedef struct {vdp1_cmdt_t *commands;unsigned capacity,count;} submit_t;
 static bool emit(void *context,const fzx_floor_polygon_t *q) {
@@ -293,7 +257,7 @@ bool fzx_clouds_native(vdp1_cmdt_t *commands,unsigned capacity,const fzx_view_t 
     fzx_plane_stats.draws=submit.count;fzx_plane_stats.hash=CLOUDS_STAGE.hash;fzx_plane_busy=0;
     fzx_clouds_degenerate+=CLOUDS_STAGE.degenerate;fzx_clouds_bands=submit.count;
 #if FZX_VDP1_DBANK
-    (void)sh2z_vdp1_queue_push(&clouds_queue,clouds_bank,fzx_input_count?fzx_input_count:1u);
+    (void)queue_push(&clouds_queue,clouds_bank,fzx_input_count?fzx_input_count:1u);
 #endif
     *count=submit.count+1+borders;fzx_clouds_pending=fzx_input_count?fzx_input_count:1;return true;
 }

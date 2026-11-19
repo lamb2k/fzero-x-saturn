@@ -205,12 +205,61 @@ static void fail(uint32_t code, const char *text, uint32_t detail) {
     for (;;) {}
 }
 
+/* Interrupt callbacks and the multiply registers. The BIOS SCU interrupt dispatcher
+ * (0x06000840..0x0600094A) saves r0-r7, PR and GBR but not MACH/MACL, and Yaul calls
+ * the VBlank callbacks as plain functions. A callback that multiplies (with E1's
+ * 44-byte frame row, fzx_fp_present indexes rows with mul.l) overwrites MACL under
+ * whatever master code the interrupt lands in: wrong products and quotients in the
+ * floor and view maths after the field wait (fault 2 refusals, status 23 in the
+ * probe control). Every engine callback runs inside these wrappers. E0_ISR_MAC_SAVE=0
+ * is the control. */
+#ifndef E0_ISR_MAC_SAVE
+#define E0_ISR_MAC_SAVE 1
+#endif
+#if E0_ISR_MAC_SAVE
+#define MAC_SAVE() uint32_t mac_h_, mac_l_; __asm__ volatile("sts mach,%0\n\tsts macl,%1" : "=r"(mac_h_), "=r"(mac_l_))
+#define MAC_RESTORE() __asm__ volatile("lds %0,mach\n\tlds %1,macl" : : "r"(mac_h_), "r"(mac_l_) : "mach", "macl")
+#else
+#define MAC_SAVE() do {} while (0)
+#define MAC_RESTORE() do {} while (0)
+#endif
+static void render_end(void *work) {
+    MAC_SAVE();
+    fzx_floor_present(work);
+    MAC_RESTORE();
+}
+/* Control probe (E0_MAC_PROBE=1, diagnostic only): for one field before the VBlank
+ * wait, check 32x32->64 products for a changed MACH/MACL. [0] products, [1] wrong. */
+#ifndef E0_MAC_PROBE
+#define E0_MAC_PROBE 0
+#endif
+volatile uint32_t fzx_e0_mac_probe[2];
+#if E0_MAC_PROBE
+static uint32_t probe_seed = 0x2545f491u;
+static void mac_probe(void) {
+    const uint16_t t0 = cpu_frt_count_get();
+    uint32_t n = 0, bad = 0;
+    while ((uint16_t)(cpu_frt_count_get() - t0) < field_frt) {
+        probe_seed = probe_seed * 1664525u + 1013904223u;
+        const int32_t a = (int32_t)probe_seed, b = (int32_t)(probe_seed * 2654435761u);
+        int64_t p, q;
+        __asm__ volatile("dmuls.l %1,%2\n\tnop\n\tnop\n\tnop\n\tnop\n\tnop\n\tnop\n\tsts mach,%S0\n\tsts macl,%R0"
+                         : "=&r"(p) : "r"(a), "r"(b) : "mach", "macl");
+        __asm__ volatile("dmuls.l %1,%2\n\tsts mach,%S0\n\tsts macl,%R0" : "=&r"(q) : "r"(a), "r"(b) : "mach", "macl");
+        ++n; if (p != q) ++bad;
+    }
+    fzx_e0_mac_probe[0] += n; fzx_e0_mac_probe[1] += bad;
+}
+#endif
+
 static void vblank_out(void *work) {
     (void)work;
+    MAC_SAVE();
     const uint16_t now = cpu_frt_count_get();
     field_frt = (uint16_t)(now - vblank_frt);
     vblank_frt = now;
     ++video_fields;
+    MAC_RESTORE();
 }
 
 void user_init(void) {
@@ -509,6 +558,9 @@ volatile uint16_t fzx_e0_vdp2_regs[0x120 / 2], fzx_e0_cram[0x1000 / 2];
 #endif
 
 static void before_master(void) {
+#if E0_MAC_PROBE
+    mac_probe();
+#endif
 #if FZX_VDP1_DBANK
     vdp2_sync_wait();
     const uint32_t bank = sh2z_vdp1_banks_bank(&fzx_dbank_banks);
@@ -525,6 +577,9 @@ static void before_master(void) {
 }
 
 /* The view, then the slave's job: pick the visible track and build it at a fixed slot. */
+#ifndef E0_QUEUE_STRESS
+#define E0_QUEUE_STRESS 0
+#endif
 static void kick(const fzx_engine_cam_t *cam, uint32_t tick) {
     vdp1_cmdt_t *const commands = commands_buf;
     const fzx_engine_consts_t *k = &path.consts;
@@ -542,7 +597,11 @@ static void kick(const fzx_engine_cam_t *cam, uint32_t tick) {
 #else
     job.shades = road_shades[0];
 #endif
+#if E0_QUEUE_STRESS
+    (void)job; /* control: no track, so every frame fits one field */
+#else
     fzx_slave_road_start(&job);
+#endif
 }
 
 static void build(row_t *row, const fzx_engine_cam_t *cam, uint32_t tick, uint16_t kicked) {
@@ -550,6 +609,16 @@ static void build(row_t *row, const fzx_engine_cam_t *cam, uint32_t tick, uint16
     const fzx_engine_consts_t *k = &path.consts;
     uint32_t first = 0, n = 0, road_count = 0;
     const uint16_t t0 = cpu_frt_count_get();
+#if E0_QUEUE_STRESS
+    {
+        /* Control: a pseudo-random wait (0..1 field) so the queue pushes land at every
+         * phase of the field, including the VBlank-In present. */
+        static uint32_t seed = 1u;
+        seed = seed * 1664525u + 1013904223u;
+        const uint16_t w = (uint16_t)((seed >> 16) % (field_frt ? field_frt : 14000u)), s0 = cpu_frt_count_get();
+        while ((uint16_t)(cpu_frt_count_get() - s0) < w) {}
+    }
+#endif
 
     if (!fzx_engine_backdrop(&fzx_source_backdrop, cam, k, tick)) fail(20, "BACKDROP", tick);
     if (!fzx_engine_skyline(&fzx_source_skyline, cam)) fail(21, "SKYLINE", tick);
@@ -572,8 +641,12 @@ static void build(row_t *row, const fzx_engine_cam_t *cam, uint32_t tick, uint16
     row->master_ticks = (uint16_t)(cpu_frt_count_get() - t0);
 
     const uint16_t t1 = cpu_frt_count_get();
+#if E0_QUEUE_STRESS
+    road_count = 0;
+#else
     if (!fzx_slave_road_finish(&video_fields, &road_count))
         fail(27, "TRACK", fzx_road_stream_stats.fault * 100u + fzx_slave_road_status);
+#endif
     row->wait_road_ticks = (uint16_t)(cpu_frt_count_get() - t1);
 #if FZX_ROAD_STREAM_PHASES
     for (unsigned i = 0; i < FZX_RSPC_COUNTERS; ++i)
@@ -626,6 +699,7 @@ int main(void) {
     if (offset + FZX_PLANE_RESIDENT_BYTES + FZX_PLANE_SHADE_BYTES > partitions.texture_size || !fzx_planes_load(planes_vram))
         fail(31, "CLOUD TEXTURE LOAD", fzx_plane_status);
     if (!fzx_floor_load()) fail(32, "FLOOR LOAD", fzx_floor_status);
+    vdp1_sync_render_set(render_end, NULL); /* the floor's present, inside the MAC wrapper */
     if (!fzx_clouds_vdp2_load(planes_vram)) fail(33, "CLOUDS LOAD", fzx_clouds_status);
     planes_vram = NULL;
     commands_init();

@@ -16,7 +16,7 @@ FZX_VDP1_DBANK ?= 1
 FZX_VDP1_DBANK_STALE ?= 0
 # Road guard band: pieces reaching more than this many pixels past the view
 # are clipped on the CPU instead of rasterised off screen by VDP1.
-E0_GUARD_MARGIN ?= 32
+E0_GUARD_MARGIN ?= 256
 # Diagnostic: per-phase totals of the track build (changes timing; never measured for the floor).
 E0_PHASES ?= 0
 ifeq ($(filter 0 1,$(FZX_VDP1_DBANK)),)

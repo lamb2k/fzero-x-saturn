@@ -290,11 +290,21 @@ static bool dbank_guards(void) {
 
 /* Before a build: VDP2's previous sync and the previous list's transfer are
  * done. With banks, VDP1 may still be drawing the previous frame. */
-static void before_build(void) {
+/* Early kick: the slave's track job only needs the previous command list to
+ * have been transferred (and, serial, the previous draw to be done), so it
+ * starts before the master waits for VDP2's sync at the field boundary. */
+static void before_slave(void) {
 #if FZX_VDP1_DBANK
-    vdp2_sync_wait();
     vdp1_sync_put_wait();
     if (sh2z_vdp1_banks_begin(&fzx_dbank_banks, false, vdp1_sync_busy())) vdp1_sync_wait();
+#else
+    vdp1_sync_wait();
+#endif
+}
+
+static void before_master(void) {
+#if FZX_VDP1_DBANK
+    vdp2_sync_wait();
     const uint32_t bank = sh2z_vdp1_banks_bank(&fzx_dbank_banks);
     fzx_floor_dbank_select(bank);
     fzx_clouds_dbank_select(bank);
@@ -302,23 +312,15 @@ static void before_build(void) {
     /* A build that would write the bank VDP1 is still drawing must never run. */
     if (fzx_dbank_banks.conflicts) { fzx_dbank_status = 4; fail(43, "DBANK STALE BANK", fzx_dbank_banks.conflicts); }
 #else
-    vdp1_sync_wait();
     vdp2_sync_wait();
 #endif
 }
 
-static void build(row_t *row, const fzx_engine_cam_t *cam, uint32_t tick) {
+/* The view, then the slave's job: pick the visible track and build it at a fixed slot. */
+static void kick(const fzx_engine_cam_t *cam, uint32_t tick) {
     vdp1_cmdt_t *const commands = commands_buf;
     const fzx_engine_consts_t *k = &path.consts;
-    uint32_t first = 0, n = 0, road_count = 0;
-    const uint16_t t0 = cpu_frt_count_get();
-
     fzx_engine_view(&fzx_native_view, cam, k);
-    if (!fzx_engine_backdrop(&fzx_source_backdrop, cam, k, tick)) fail(20, "BACKDROP", tick);
-    if (!fzx_engine_skyline(&fzx_source_skyline, cam)) fail(21, "SKYLINE", tick);
-    fzx_sky_status = 1; fzx_skyline_status = 1;
-
-    /* The slave picks the visible track and builds it at a fixed slot. */
     job_cam = cam; job_tick = tick;
     fzx_slave_road_args_t job;
     job.pa = k->pa; job.pb = k->pb;
@@ -333,6 +335,17 @@ static void build(row_t *row, const fzx_engine_cam_t *cam, uint32_t tick) {
     job.shades = road_shades[0];
 #endif
     fzx_slave_road_start(&job);
+}
+
+static void build(row_t *row, const fzx_engine_cam_t *cam, uint32_t tick, uint16_t kicked) {
+    vdp1_cmdt_t *const commands = commands_buf;
+    const fzx_engine_consts_t *k = &path.consts;
+    uint32_t first = 0, n = 0, road_count = 0;
+    const uint16_t t0 = cpu_frt_count_get();
+
+    if (!fzx_engine_backdrop(&fzx_source_backdrop, cam, k, tick)) fail(20, "BACKDROP", tick);
+    if (!fzx_engine_skyline(&fzx_source_skyline, cam)) fail(21, "SKYLINE", tick);
+    fzx_sky_status = 1; fzx_skyline_status = 1;
 
     /* The master's prelude: sky lines and cloud fade bands, skyline, floor. */
     if (!fzx_clouds_sky_lines(&fzx_native_view, &fzx_source_backdrop)) fail(22, "SKY LINES", fzx_sky_stats.fault);
@@ -365,7 +378,7 @@ static void build(row_t *row, const fzx_engine_cam_t *cam, uint32_t tick) {
     const uint32_t groups = SLAVE32(fzx_source_road_plan.count), visible = SLAVE32(fzx_source_road_plan.visible_chunks);
     row->groups = (uint16_t)groups;
     row->pick_ticks = (uint16_t)SLAVE32(fzx_e0_pick[4]); /* slave timer units (divider 128) */
-    row->build_ticks = (uint16_t)(cpu_frt_count_get() - t0);
+    row->build_ticks = (uint16_t)(cpu_frt_count_get() - kicked); /* slave kick to list ready */
     if (groups > fzx_e0_report[8]) fzx_e0_report[8] = groups;
     if (road_count > fzx_e0_report[9]) fzx_e0_report[9] = road_count;
     if (first > fzx_e0_report[10]) fzx_e0_report[10] = first;
@@ -469,16 +482,20 @@ int main(void) {
         memset(row, 0, sizeof(*row));
         row->tick = shown; row->build_field = field;
         const uint16_t w0 = cpu_frt_count_get();
-        before_build();
-        row->wait_prev_ticks = (uint16_t)(cpu_frt_count_get() - w0);
-        build(row, &path.cams[shown - 1u], shown);
+        before_slave();
+        const uint16_t kicked = cpu_frt_count_get();
+        kick(&path.cams[shown - 1u], shown);
+        const uint16_t w1 = cpu_frt_count_get();
+        before_master();
+        row->wait_prev_ticks = (uint16_t)((uint16_t)(kicked - w0) + (uint16_t)(cpu_frt_count_get() - w1));
+        build(row, &path.cams[shown - 1u], shown, kicked);
 #if FZX_VDP1_DBANK
         {
             /* The previous frame must be drawn and swapped before this one is sent. */
-            const uint16_t w1 = cpu_frt_count_get();
+            const uint16_t w2 = cpu_frt_count_get();
             vdp1_sync_wait();
             vdp2_sync_wait();
-            row->wait_prev_ticks = (uint16_t)(row->wait_prev_ticks + (uint16_t)(cpu_frt_count_get() - w1));
+            row->wait_prev_ticks = (uint16_t)(row->wait_prev_ticks + (uint16_t)(cpu_frt_count_get() - w2));
         }
 #endif
         row->slave_ticks = (uint16_t)(fzx_slave_road_busy_sum - fzx_e0_report[11]); /* this frame's slave job */

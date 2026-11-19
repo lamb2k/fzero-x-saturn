@@ -94,7 +94,11 @@ bool fzx_simpipe_dual_collect(const volatile uint32_t *video_fields){
     }
     BARRIER(); /* the slave's results are read after done */
     job.outstanding=0;
+#if FZX_SIM_PIPELINE_CTL == 3
+    /* Control: the master skips its purge after collecting. */
+#else
     cpu_cache_purge(); /* the master's cached lines of slave-written memory are stale */
+#endif
     const uint32_t waited=(uint16_t)(cpu_frt_count_get()-w0);
     const uint32_t busy=job.ticks*job.ratio;
     ++fzx_simpipe_dual_jobs;

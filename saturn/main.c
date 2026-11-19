@@ -187,11 +187,17 @@ extern const unsigned char fzx_rom_boot[REF_ROM_BOOT_SIZE];
 extern unsigned char sat_stub_data_end[];
 #endif
 
+#if FZX_SIM_PIPELINE
+/* Presentation evidence: a system clip and a one-pixel tag end every list. */
+#define SIMPIPE_TAG_COMMANDS 2u
+#else
+#define SIMPIPE_TAG_COMMANDS 0u
+#endif
 enum {
     COMMAND_SYSTEM_CLIP = 0,
     COMMAND_LOCAL_COORD = 1,
     COMMAND_FIRST_POLYGON = 2,
-    COMMAND_CAPACITY = FZX_SCENE_CAPACITY + 3u
+    COMMAND_CAPACITY = FZX_SCENE_CAPACITY + 3u + SIMPIPE_TAG_COMMANDS
 #if FZX_SOURCE_COUNTDOWN
         + FZX_COUNTDOWN_NATIVE_COMMANDS
 #endif
@@ -257,6 +263,9 @@ volatile fzx_timing_t fzx_timing;
 /* Debugger stand-in for holding X+Z (tools/emu/orig_drive.ps1 -Overload). */
 volatile uint32_t fzx_debug_overload;
 static volatile uint16_t vblank_frt;
+#if FZX_SIM_PIPELINE
+static void simpipe_present_field(void);
+#endif
 
 static void
 vblank_out(void *work)
@@ -268,6 +277,10 @@ vblank_out(void *work)
     ++video_fields;
 #if FZX_FRAME_PROFILE
     fzx_fp_vblank(now,video_fields);
+#endif
+#if FZX_SIM_PIPELINE
+    /* C-040 presentation hook: this field's swap evidence. */
+    simpipe_present_field();
 #endif
     smpc_peripheral_intback_issue();
 }
@@ -919,9 +932,18 @@ static volatile uint32_t *simpipe_pl_guard[4];
 volatile uint32_t fzx_simpipe_draw_tick;     /* the drawn publication's log index (floor/clouds stamp it) */
 static fzx_hud_clock_t simpipe_draw_hud;     /* the drawn publication's HUD clock */
 static uint32_t simpipe_draw_results;        /* the drawn publication would draw results */
+static int simpipe_draw_machine;             /* its machine snapshot flag (each draw consumes it) */
 static bool simpipe_frame_pipelined;         /* this loop dispatches a job */
 static bool simpipe_last_serial = true;      /* the globals hold a serial publication */
 static bool simpipe_collected_unapplied;
+/* The finish cut, as C-040 asks it reported: generation, the log index after
+ * the cut tick's input (consumed input), the cut tick's batch index, and the
+ * unused tail the master then runs in order. */
+volatile uint32_t fzx_simpipe_cut[4];
+/* State ownership (fzx_simpipe_logic: drain before any serial mutation; resume
+ * only on the new state's first serial publication). */
+static fzx_simpipe_owner_t simpipe_owner;
+volatile uint32_t fzx_simpipe_own[4];   /* drains, resumes, owner errors, last error */
 #define SIMPIPE_PL_GUARD 0x5a17c3e9u
 #define SIMPIPE_PUB_BYTES ((sizeof(fzx_pub_t) + 31u) & ~31u)
 #define SIMPIPE_JOB_BYTES2 ((sizeof(simpipe_job_t) + 31u) & ~31u)
@@ -1090,6 +1112,7 @@ simpipe_draw_from_live(void)
     fzx_simpipe_draw_tick = fzx_input_count; simpipe_draw_hud = hud_clock;
     /* The master owns the results state here: if they draw, stay serial. */
     simpipe_draw_results = fzx_results_draw_pending(); simpipe_last_serial = true;
+    simpipe_draw_machine = fzx_machine_published;
 }
 
 /* Master: wait for the outstanding job (bounded); C-009 site 4's drain. */
@@ -1100,6 +1123,50 @@ simpipe_pl_collect(void)
     if (!fzx_simpipe_dual_collect(&video_fields)) simpipe_pl_stop(6, fzx_simpipe_dual_status);
     simpipe_pl_guards();
     simpipe_collected_unapplied = true;
+    fzx_simpipe_owner_collected(&simpipe_owner, fzx_simpipe_pl[9]);
+}
+
+/* Owner hooks: the master's bounded wait is the ordinary collect; the
+ * collect already purged; the master check is the stack (the slave's lies in
+ * the 0x06002000..0x06004000 reservation). */
+static bool
+simpipe_owner_wait(void *context, uint32_t *completed)
+{
+    (void)context;
+    if (fzx_simpipe_dual_outstanding()) {
+        if (!fzx_simpipe_dual_collect(&video_fields)) return false;
+        simpipe_pl_guards();
+        simpipe_collected_unapplied = true;
+    }
+    *completed = fzx_simpipe_pl[9];
+    return true;
+}
+static void simpipe_owner_purge(void *context) { (void)context; }
+static bool
+simpipe_owner_master(void *context)
+{
+    (void)context;
+    uintptr_t sp;
+    __asm__ volatile("mov r15,%0" : "=r"(sp));
+    return sp > 0x06004000u;
+}
+static const fzx_simpipe_owner_hooks_t simpipe_owner_hooks = {
+    simpipe_owner_wait, simpipe_owner_purge, simpipe_owner_master, NULL
+};
+static void
+simpipe_owner_fail(uint32_t e)
+{
+    ++fzx_simpipe_own[2]; fzx_simpipe_own[3] = e;
+    simpipe_pl_stop(9, e);
+}
+/* Master, before a serial loop mutates the state. */
+static void
+simpipe_owner_serial(void)
+{
+    const uint32_t was = simpipe_owner.state;
+    const uint32_t e = fzx_simpipe_owner_drain(&simpipe_owner, &simpipe_owner_hooks, fzx_simpipe_pl[14]);
+    if (e) simpipe_owner_fail(e);
+    if (was != FZX_SIMPIPE_DRAINED) ++fzx_simpipe_own[0];
 }
 
 /* Master, loop start: take over the collected job. A finish cut is completed
@@ -1119,6 +1186,8 @@ simpipe_pl_apply(void)
     if (check) { ++fzx_simpipe_pl[5]; simpipe_pl_stop(3, check); }
     if (j->cut) {
         ++fzx_simpipe_pl[4];
+        fzx_simpipe_cut[0] = j->generation; fzx_simpipe_cut[1] = fzx_input_count;
+        fzx_simpipe_cut[2] = j->executed; fzx_simpipe_cut[3] = j->ticks - j->executed - 1u;
         const uint32_t e = simpipe_tick_tail(j->connected[j->executed] != 0);
         if (e) simpipe_pl_stop(4, e);
 #if FZX_SIMPIPE_PROFILE
@@ -1141,6 +1210,10 @@ simpipe_pl_apply(void)
         return;
     }
     const fzx_pub_t *s = simpipe_pub[j->slot];
+#if FZX_SIM_PIPELINE_CTL == 2
+    /* Control: one frame applies the other (older) slot. */
+    if (j->sequence == 300u) { s = simpipe_pub[j->slot ^ 1u]; ++fzx_simpipe_present[15]; }
+#endif
     if (s->magic != 0x53505542u || s->sequence != j->sequence || s->generation != j->generation)
         simpipe_pl_stop(3, 10);
     orig_pose = s->pose; fzx_source_camera = s->camera; fzx_native_view = s->view;
@@ -1153,6 +1226,7 @@ simpipe_pl_apply(void)
     memcpy(fzx_simpipe_area->dynamic[0].address, &s->countdown_phase, sizeof(s->countdown_phase));
     memcpy(fzx_simpipe_area->dynamic[1].address, &s->countdown_published, sizeof(s->countdown_published));
     fzx_simpipe_draw_tick = s->ticks; simpipe_draw_hud = s->hud_clock; simpipe_draw_results = s->results_draw;
+    simpipe_draw_machine = s->machine_pub;
     simpipe_last_serial = false;
     /* Results would draw: the live results state equals this publication's
      * (the slave is idle), and this loop runs serially so the master owns it. */
@@ -1186,6 +1260,12 @@ simpipe_pl_dispatch(uint32_t expected)
         j->words[i] = replay ? fzx_input_log[n + i] : simpipe_live_word();
         j->connected[i] = connected;
     }
+    if (simpipe_owner.state != FZX_SIMPIPE_RUNNING) {
+        const uint32_t e = fzx_simpipe_owner_resume(&simpipe_owner, &simpipe_owner_hooks, simpipe_last_serial);
+        if (e) simpipe_owner_fail(e);
+        ++fzx_simpipe_own[1];
+    }
+    { const uint32_t e = fzx_simpipe_owner_dispatch(&simpipe_owner); if (e) simpipe_owner_fail(0x10u | e); }
     j->ticks = expected; j->seed = simpipe_last_serial;
     if (simpipe_last_serial) ++fzx_simpipe_pl[11];
     j->sequence = ++fzx_simpipe_pl[9]; j->slot = j->sequence & 1u;
@@ -1193,6 +1273,178 @@ simpipe_pl_dispatch(uint32_t expected)
     simpipe_pl_guards();
     if (!fzx_simpipe_dual_start(simpipe_slave_job, j)) simpipe_pl_stop(6, fzx_simpipe_dual_status);
     ++fzx_simpipe_pl[1];
+}
+
+/* ---- Presentation evidence (C-039/C-040) ---------------------------------
+ * Every submitted list ends by drawing its tag {generation parity, sequence}
+ * as one pixel outside the display and the erase window. The CPU can read only
+ * the back framebuffer, and after a swap that is the bank which was on screen.
+ * So at every field (vblank_out) the pixel independently names the frame just
+ * replaced:
+ *  - the frame believed on screen: a swap. It verifies that frame, then
+ *    consumes exactly the next pending submission (FIFO rules: order,
+ *    generation, the observed bank parity, ticks never backwards);
+ *  - unchanged, or the oldest pending submission's own tag (its draw finished,
+ *    not yet swapped): a repeat field, consuming nothing;
+ *  - anything else: an error, on which the master stops.
+ * Report: 0 swaps, 1 repeat fields, 2 errors, 3 last error, 4 presented
+ * sequence, 5 presented tick, 6 presented generation, 7 draw-finished fields,
+ * 8 most pending, 9 most pending at a restart, 10 unknown pixels,
+ * 11 submissions, 12 unverified first swaps, 13 restart drains, 14 last pixel,
+ * 15 controls fired. */
+#define SIMPIPE_TAG_X 504
+#define SIMPIPE_TAG_Y 250
+#define SIMPIPE_TAG_PIXEL \
+    ((volatile uint16_t *)(0x25C80000u + 2u * ((uint32_t)SIMPIPE_TAG_Y * 512u + (uint32_t)SIMPIPE_TAG_X)))
+#ifndef FZX_SIM_PIPELINE_CTL
+#define FZX_SIM_PIPELINE_CTL 0
+#endif
+volatile uint32_t fzx_simpipe_present[16];
+#if FZX_SIM_PIPELINE_TRACE
+/* Debug only: the first 128 field and submit events {kind<<28|field, pixel<<16|head, count, swaps}. */
+volatile uint32_t fzx_simpipe_ptrace[128][4];
+static uint32_t simpipe_ptrace_n;
+static void simpipe_ptrace(uint32_t kind, uint32_t x, uint32_t head, uint32_t count)
+{
+    if (simpipe_ptrace_n >= 128u) return;
+    volatile uint32_t *r = fzx_simpipe_ptrace[simpipe_ptrace_n++];
+    r[0] = kind << 28 | (video_fields & 0x0fffffffu); r[1] = x << 16 | head; r[2] = count; r[3] = fzx_simpipe_present[0];
+}
+#else
+#define simpipe_ptrace(kind, x, head, count) ((void)0)
+#endif
+static fzx_simpipe_fifo_t simpipe_fifo;
+static uint32_t simpipe_displayed_code;   /* the frame believed on screen; 0 unknown */
+static uint32_t simpipe_tag_last;         /* the back-buffer pixel at the previous field */
+static uint32_t simpipe_submissions;      /* since boot: the bank parity */
+static volatile bool simpipe_present_on;
+
+static uint32_t
+simpipe_tag_code(uint32_t generation, uint32_t sequence)
+{
+    return 0x8000u | (generation & 1u) << 14 | (sequence & 0x3fffu);
+}
+
+static void
+simpipe_present_error(uint32_t e)
+{
+    ++fzx_simpipe_present[2]; fzx_simpipe_present[3] = e;
+}
+
+/* vblank_out (interrupt). */
+static void
+simpipe_present_field(void)
+{
+    if (!simpipe_present_on) return;
+    fzx_simpipe_fifo_t *f = &simpipe_fifo;
+    const uint32_t x = *SIMPIPE_TAG_PIXEL;
+    fzx_simpipe_present[14] = x;
+    const uint32_t head = f->count ? simpipe_tag_code(f->generation, f->pending[f->head].sequence) : 0;
+#if FZX_SIM_PIPELINE_TRACE
+    if (x != simpipe_tag_last || simpipe_ptrace_n < 24u) simpipe_ptrace(1, x, head, f->count);
+#endif
+    bool swapped = false;
+    if (x != simpipe_tag_last) {
+        if (simpipe_displayed_code ? x == simpipe_displayed_code : x != head) swapped = true;
+        else if (x == head) ++fzx_simpipe_present[7];
+        else { ++fzx_simpipe_present[10]; simpipe_present_error(16); }
+    }
+#if FZX_SIM_PIPELINE_CTL == 5
+    /* Control: one repeat field taken for a swap. */
+    if (!swapped && fzx_simpipe_present[0] == 400u && !fzx_simpipe_present[15]) { swapped = true; ++fzx_simpipe_present[15]; }
+#endif
+    simpipe_tag_last = x;
+    if (!swapped) { (void)fzx_simpipe_fifo_observe(f, false, NULL); ++fzx_simpipe_present[1]; return; }
+    if (!simpipe_displayed_code) ++fzx_simpipe_present[12];
+    if (!f->count) { simpipe_present_error(FZX_SIMPIPE_FIFO_EMPTY); return; }
+    fzx_simpipe_tag_t seen = f->pending[f->head];
+    seen.bank = fzx_simpipe_present[0] & 1u;   /* the observed swap's bank */
+    const uint32_t e = fzx_simpipe_fifo_observe(f, true, &seen);
+    if (e) { simpipe_present_error(e); return; }
+    ++fzx_simpipe_present[0];
+    simpipe_displayed_code = simpipe_tag_code(f->presented.generation, f->presented.sequence);
+    fzx_simpipe_present[4] = f->presented.sequence; fzx_simpipe_present[5] = f->presented.tick;
+    fzx_simpipe_present[6] = f->presented.generation;
+}
+
+/* Master, before the list is handed over: the tag commands. */
+static void
+simpipe_tag_commands(vdp1_cmdt_t *c)
+{
+    const int16_vec2_t full = INT16_VEC2_INITIALIZER(511, 255);
+    memset(c, 0, 2u * sizeof(*c));
+    vdp1_cmdt_system_clip_coord_set(&c[0]);
+    vdp1_cmdt_vtx_system_clip_coord_set(&c[0], full);
+#if FZX_SIM_PIPELINE_CTL == 4
+    /* Control: one list without its tag leaves that bank's stale tag. */
+    if (simpipe_fifo.next_sequence == 500u && !fzx_simpipe_present[15]) { ++fzx_simpipe_present[15]; vdp1_cmdt_end_set(&c[0]); return; }
+#endif
+    vdp1_cmdt_polygon_set(&c[1]);
+    const vdp1_cmdt_draw_mode_t mode = {.end_code_disable = 1, .trans_pixel_disable = 1,
+        .color_mode = VDP1_CMDT_CM_RGB_32768, .cc_mode = VDP1_CMDT_CC_REPLACE};
+    vdp1_cmdt_draw_mode_set(&c[1], mode);
+    c[1].cmd_colr = (uint16_t)simpipe_tag_code(simpipe_fifo.generation, simpipe_fifo.next_sequence);
+    c[1].cmd_xa = c[1].cmd_xb = c[1].cmd_xc = c[1].cmd_xd = SIMPIPE_TAG_X;
+    c[1].cmd_ya = c[1].cmd_yb = c[1].cmd_yc = c[1].cmd_yd = SIMPIPE_TAG_Y;
+}
+
+/* Master, as the list is handed over: record the intended submission. */
+static void
+simpipe_present_submit(uint32_t tick)
+{
+    fzx_simpipe_fifo_t *f = &simpipe_fifo;
+    const uint8_t mask = cpu_intc_mask_get();
+    cpu_intc_mask_set(15);
+    __asm__ volatile("" ::: "memory");   /* the observer's updates are read after masking */
+    const fzx_simpipe_tag_t t = { f->generation, simpipe_submissions & 1u, f->next_sequence, tick };
+    simpipe_ptrace(2, *SIMPIPE_TAG_PIXEL, simpipe_tag_code(f->generation, f->next_sequence), f->count);
+    const uint32_t e = fzx_simpipe_fifo_submit(f, &t);
+    if (!e) {
+        ++simpipe_submissions; ++fzx_simpipe_present[11];
+        if (f->count > fzx_simpipe_present[8]) fzx_simpipe_present[8] = f->count;
+    }
+    __asm__ volatile("" ::: "memory");   /* and the submission is stored before unmasking */
+    cpu_intc_mask_set(mask);
+    if (e) simpipe_pl_stop(8, e);
+}
+
+/* Master, at boot and at each restart: no tag crosses into the new
+ * generation, so first let every pending submission be presented (bounded). */
+static void
+simpipe_present_reset(uint32_t generation)
+{
+    fzx_simpipe_fifo_t *f = &simpipe_fifo;
+    if (simpipe_present_on) {
+        if (f->count > fzx_simpipe_present[9]) fzx_simpipe_present[9] = f->count;
+#if FZX_SIM_PIPELINE_CTL != 6
+        const uint32_t f0 = video_fields;
+        /* The observer (vblank_out) consumes them: read the count from memory. */
+        while (*(volatile uint32_t *)&f->count) if (video_fields - f0 > 16u) simpipe_pl_stop(8, 20);
+#else
+        if (f->count) ++fzx_simpipe_present[15];   /* control: reset with a pending frame */
+#endif
+        ++fzx_simpipe_present[13];
+    }
+    const uint8_t mask = cpu_intc_mask_get();
+    cpu_intc_mask_set(15);
+    __asm__ volatile("" ::: "memory");
+    fzx_simpipe_fifo_reset(f, generation);
+    if (!simpipe_present_on) {
+        /* First enable: a sentinel (no tag has bit 15 clear) in the back bank,
+         * so the first swap shows a change even if the other bank's pixel
+         * equals what was last seen here. */
+        *SIMPIPE_TAG_PIXEL = 0x0001u;
+        simpipe_tag_last = 0x0001u;
+    }
+    simpipe_present_on = true;
+    __asm__ volatile("" ::: "memory");
+    cpu_intc_mask_set(mask);
+}
+
+static void
+simpipe_present_check(void)
+{
+    if (fzx_simpipe_present[2]) simpipe_pl_stop(8, 0x100u | fzx_simpipe_present[3]);
 }
 /* The draw side reads the drawn publication's log index and HUD clock. */
 #define SIMPIPE_DRAW_TICKS fzx_simpipe_draw_tick
@@ -1463,13 +1715,17 @@ commands_build(const fzx_frame_t *frame)
         fzx_results_command_start=0;fzx_results_command_count=0;
     } else
 #endif
-    if(draw_count>=COMMAND_CAPACITY-COMMAND_FIRST_POLYGON-1u ||
+    if(draw_count>=COMMAND_CAPACITY-COMMAND_FIRST_POLYGON-1u-SIMPIPE_TAG_COMMANDS ||
        !fzx_results_native(&commands[COMMAND_FIRST_POLYGON+draw_count],
-            COMMAND_CAPACITY-COMMAND_FIRST_POLYGON-draw_count-1u,&results_count)) {
+            COMMAND_CAPACITY-COMMAND_FIRST_POLYGON-draw_count-1u-SIMPIPE_TAG_COMMANDS,&results_count)) {
         dbgio_printf("SOURCE RESULTS DRAW FAILED %lu",(unsigned long)fzx_results_status);
         dbgio_flush();vdp2_sync();for(;;){}
     }
     draw_count+=results_count;
+#endif
+#if FZX_SIM_PIPELINE
+    simpipe_tag_commands(&commands[COMMAND_FIRST_POLYGON + draw_count]);
+    draw_count += SIMPIPE_TAG_COMMANDS;
 #endif
     vdp1_cmdt_t *end = &commands[COMMAND_FIRST_POLYGON + draw_count];
     memset(end, 0, sizeof(*end));
@@ -1747,6 +2003,10 @@ main(void)
     }
 #endif
     uint32_t warmup = 2; /* the first loops still carry the course load */
+#if FZX_SIM_PIPELINE
+    fzx_simpipe_owner_init(&simpipe_owner, fzx_simpipe_pl[14]);
+    simpipe_present_reset(fzx_simpipe_pl[14]);
+#endif
 
     while (true) {
 #if FZX_SIMPIPE_PROFILE
@@ -1766,9 +2026,17 @@ main(void)
 #endif
         /* The previous loop's job retires here; its publication (or a finish
          * cut completed on the master) becomes this loop's draw state. */
-        simpipe_pl_collect();
-        simpipe_pl_apply();
+#if FZX_SIM_PIPELINE_CTL == 1
+        /* Control: no drain on the loop that restarts. */
+        if (fzx_debug_restart && fzx_simpipe_dual_outstanding()) ++fzx_simpipe_present[15];
+        else
+#endif
+        { simpipe_pl_collect(); simpipe_pl_apply(); }
+        /* A loop that re-presents the drawn publication (nothing new applied)
+         * draws its machine snapshot again: the draw consumes the flag. */
+        fzx_machine_published = simpipe_draw_machine;
         simpipe_frame_pipelined = false;
+        simpipe_present_check();
 #elif FZX_FRAME_PROFILE
         fzx_fp_begin(fzx_input_count);
 #endif
@@ -1816,6 +2084,12 @@ main(void)
 #endif
             }
         }
+        /* Drain rule (C-040): the master mutates the state serially only when
+         * no job is outstanding. */
+#if FZX_SIM_PIPELINE_CTL != 1
+        if (!simpipe_frame_pipelined) simpipe_owner_serial();
+#endif
+        if (!simpipe_frame_pipelined && fzx_simpipe_dual_outstanding()) simpipe_pl_stop(7, fzx_simpipe_pl[9]);
         if (!simpipe_frame_pipelined)
 #endif
         while (tick_remainder >= fields_per_second) {
@@ -1834,6 +2108,7 @@ main(void)
 #endif
 #if FZX_SIM_PIPELINE
                 ++fzx_simpipe_pl[14];  /* a new generation: serial until its first job */
+                simpipe_present_reset(fzx_simpipe_pl[14]);
 #endif
                 orig_restart();
 #if FZX_FRAME_PROFILE
@@ -1971,6 +2246,9 @@ main(void)
         fzx_timing.hud = (uint16_t)(cpu_frt_count_get() - hud_start);
 #if FZX_FRAME_PROFILE
         fzx_fp_submit(SIMPIPE_DRAW_TICKS);
+#endif
+#if FZX_SIM_PIPELINE
+        simpipe_present_submit(SIMPIPE_DRAW_TICKS);
 #endif
         vdp1_sync_cmdt_list_put(command_list, 0);
         vdp1_sync_render();

@@ -744,6 +744,16 @@ $(error the FZX_SIMPIPE_DBUF stale controls apply to the serial copy, not FZX_SI
 endif
 SH_CFLAGS += -DFZX_SIM_PIPELINE=1
 FZX_SKY_SRCS += simpipe_dual.c ../src/fzx_simpipe_logic.c
+# Negative controls only (each must be caught): 1 missing drain at a restart,
+# 2 stale slot, 3 missing master purge, 4 same-bank stale tag, 5 repeat field
+# taken as a swap, 6 restart with a pending frame.
+FZX_SIM_PIPELINE_CTL ?= 0
+ifneq ($(filter-out 0 1 2 3 4 5 6,$(FZX_SIM_PIPELINE_CTL)),)
+$(error FZX_SIM_PIPELINE_CTL must be 0..6)
+endif
+ifneq ($(FZX_SIM_PIPELINE_CTL),0)
+SH_CFLAGS += -DFZX_SIM_PIPELINE_CTL=$(FZX_SIM_PIPELINE_CTL)
+endif
 else ifneq ($(FZX_SIM_PIPELINE),0)
 $(error FZX_SIM_PIPELINE must be 0 or 1)
 endif

@@ -27,6 +27,9 @@ enum {STACK_TOP=0x06004000u,STACK_FLOOR=0x06002000u,GUARD_BYTES=32u,
       STACK_PAINT_END=0x06003E00u,PAINT=0x5a17c0deu,GUARD=0x51a7e5afu,
       LATE_FIELDS=4u,TIMEOUT_FIELDS=120u};
 #define UNCACHED32(a) ((volatile uint32_t *)(0x20000000u|(uintptr_t)(a)))
+/* Compiler barrier: no memory access moves across it. The SH-2 itself retires
+ * loads and stores in program order, and both CPUs see the job record uncached. */
+#define BARRIER() __asm__ volatile("" ::: "memory")
 #ifndef FZX_SLAVE_ROAD_STACK_PROBE
 #define FZX_SLAVE_ROAD_STACK_PROBE 0
 #endif
@@ -42,7 +45,8 @@ static void __attribute__((noinline)) stack_probe(void){
 static void slave_entry(void){
     cpu_cache_purge();
     if(!job.frt_ready){cpu_frt_init(CPU_FRT_CLOCK_DIV_128);job.frt_ready=1;}
-    const fzx_slave_road_args_t a=*(const fzx_slave_road_args_t *)&job.args;
+    BARRIER(); /* the payload is read after the notification */
+    const fzx_slave_road_args_t a=job.args;
     uint32_t n=0;
     job.sp=(uint32_t)(uintptr_t)&n;
 #if FZX_SLAVE_ROAD_STACK_PROBE
@@ -52,6 +56,7 @@ static void slave_entry(void){
     const bool ok=fzx_road_stream_native(a.commands,a.capacity,a.view,a.eye,a.plan,a.pa,a.pb,a.pixels,a.shades,&n);
     job.ticks=(uint16_t)(cpu_frt_count_get()-t0);
     job.count=n;job.ok=ok;
+    BARRIER(); /* road output, count and result are stored before done */
     job.done=job.seq;
 }
 
@@ -86,8 +91,10 @@ void fzx_slave_road_init(void){
 }
 
 void fzx_slave_road_start(const fzx_slave_road_args_t *args){
-    *(fzx_slave_road_args_t *)&job.args=*args;
+    job.args=*args;
+    BARRIER(); /* the complete payload is stored before the sequence number */
     job.seq=job.seq+1u;
+    BARRIER(); /* and the sequence number before the notification */
     cpu_dual_slave_notify();
 }
 
@@ -100,6 +107,7 @@ bool fzx_slave_road_finish(const volatile uint32_t *video_fields,uint32_t *count
         if(e>LATE_FIELDS && !late){late=true;++fzx_slave_road_late;}
         if(e>TIMEOUT_FIELDS){fzx_slave_road_status=9;return false;}
     }
+    BARRIER(); /* the slave's results are read after done */
     const uint32_t waited=(uint16_t)(cpu_frt_count_get()-w0);
     const uint32_t busy=job.ticks*job.ratio;
     ++fzx_slave_road_jobs;

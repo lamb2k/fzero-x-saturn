@@ -29,6 +29,9 @@
 #define FZX_MEM_LOW_TOP 0x00300000u
 #define FZX_MEM_ROADLIST_RESERVE_BYTES (32u + 7168u + 32u)
 #define FZX_MEM_ROADLIST_RESERVE_BASE (FZX_MEM_LOW_TOP - FZX_MEM_ROADLIST_RESERVE_BYTES) /* 0x002FE3C0 */
+#define FZX_MEM_ROADLIST_BYTES 7168u
+#define FZX_MEM_ROADLIST (FZX_MEM_ROADLIST_RESERVE_BASE + 32u)
+#define FZX_MEM_ROADLIST_GUARD 0x5a17c3e9u /* the checkpoint-3 guard word, unchanged */
 
 #define FZX_MEM_GUARD 0x6d3a1c55u
 /* Payload room for the two arrays: 48,768 + 16,200 = 64,968 B, rounded up to

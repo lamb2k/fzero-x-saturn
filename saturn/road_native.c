@@ -26,14 +26,19 @@ enum { ROOT_ENTRIES=32 };
 enum { ROOT_ENTRIES=16 };
 #endif
 #if FZX_SIMPIPE_DBUF || FZX_MEM_ROADLIST_LOW
+/* The checkpoint-3 top reservation, by address only (saturn/mem_low.h; the
+ * same values simpipe.h uses, which FZX_SIMPIPE_DBUF images check). */
+#if FZX_SIMPIPE_DBUF
 #include "simpipe.h"
-_Static_assert(FZX_SIMPIPE_TOP_RESERVE_BASE==FZX_MEM_ROADLIST_RESERVE_BASE,"one road-list reservation");
-_Static_assert(ROOT_ENTRIES*sizeof(cdfs_filelist_entry_t)==FZX_SIMPIPE_ROAD_LIST_BYTES,"road file list reservation");
-#define entries ((cdfs_filelist_entry_t *)(uintptr_t)FZX_SIMPIPE_ROAD_LIST)
+_Static_assert(FZX_SIMPIPE_TOP_RESERVE_BASE==FZX_MEM_ROADLIST_RESERVE_BASE&&FZX_SIMPIPE_ROAD_LIST==FZX_MEM_ROADLIST&&
+               FZX_SIMPIPE_ROAD_LIST_BYTES==FZX_MEM_ROADLIST_BYTES&&FZX_SIMPIPE_GUARD==FZX_MEM_ROADLIST_GUARD,"one road-list reservation");
+#endif
+_Static_assert(ROOT_ENTRIES*sizeof(cdfs_filelist_entry_t)==FZX_MEM_ROADLIST_BYTES,"road file list reservation");
+#define entries ((cdfs_filelist_entry_t *)(uintptr_t)FZX_MEM_ROADLIST)
 static void road_list_guards(void){
-    volatile uint32_t *g=(volatile uint32_t *)(uintptr_t)FZX_SIMPIPE_TOP_RESERVE_BASE;
-    volatile uint32_t *h=(volatile uint32_t *)(uintptr_t)(FZX_SIMPIPE_ROAD_LIST+FZX_SIMPIPE_ROAD_LIST_BYTES);
-    for(unsigned i=0;i<8u;++i){g[i]=FZX_SIMPIPE_GUARD;h[i]=FZX_SIMPIPE_GUARD;}
+    volatile uint32_t *g=(volatile uint32_t *)(uintptr_t)FZX_MEM_ROADLIST_RESERVE_BASE;
+    volatile uint32_t *h=(volatile uint32_t *)(uintptr_t)(FZX_MEM_ROADLIST+FZX_MEM_ROADLIST_BYTES);
+    for(unsigned i=0;i<8u;++i){g[i]=FZX_MEM_ROADLIST_GUARD;h[i]=FZX_MEM_ROADLIST_GUARD;}
 }
 #else
 static cdfs_filelist_entry_t entries[ROOT_ENTRIES];

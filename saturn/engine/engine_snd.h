@@ -28,6 +28,8 @@
  * [11] nearest rival distance (units), [12] second rival distance, [13] boosts, [14] walls,
  * [15] laps announced. */
 extern volatile uint32_t engine_snd_report[16];
+/* Cost counters (master FRT ticks), see engine_snd.c. */
+extern volatile uint32_t engine_snd_prof[10];
 
 void engine_snd_power(void);
 bool engine_snd_load(void *scratch, uint32_t scratch_bytes);

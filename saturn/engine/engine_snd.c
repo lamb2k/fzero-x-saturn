@@ -31,6 +31,15 @@
 #define LAP_SPEECH_PRIORITY 3u
 
 volatile uint32_t engine_snd_report[16];
+/* Master FRT ticks (clock/32), for the cost table: [0] build max, [1] build sum, [2] VBlank-In max,
+ * [3] VBlank-In sum, [4] cars max, [5] cars sum, [6] tick-hook sum, [7] frames built,
+ * [8] register writes skipped as unchanged, [9] register writes made. */
+volatile uint32_t engine_snd_prof[10];
+static void prof_add(unsigned i, uint16_t t0) {
+    const uint32_t d = (uint16_t)(cpu_frt_count_get() - t0);
+    engine_snd_prof[i + 1u] += d;
+    if (d > engine_snd_prof[i]) engine_snd_prof[i] = d;
+}
 
 static sh2z_snd_t snd;
 static sh2z_cdda_t cd;
@@ -92,6 +101,9 @@ static uint16_t clip_frames(uint32_t samples, int8_t oct, uint16_t fns) {
     return (uint16_t)(f > 0xFFFFu ? 0xFFFFu : f);
 }
 
+static uint32_t music_fad, music_sectors, music_loop;
+static uint32_t read_toc(uint32_t *toc);
+
 bool engine_snd_load(void *scratch, uint32_t scratch_bytes) {
     if (!fzx_texture_cd_load("SNDRACE.PAK", SND_RACE_PAK_BYTES, SND_RACE_PAK_HASH,
                              (void *)((uintptr_t)SCSP_RAM + SND_RACE_CLIPS_BASE), scratch, scratch_bytes)) {
@@ -115,13 +127,27 @@ bool engine_snd_load(void *scratch, uint32_t scratch_bytes) {
             k->frames = c->loop ? 0u : clip_frames(c->samples, part->oct, part->fns);
             ev_level[e][p] = part->level;
         }
+    /* The TOC now, while the disc is in use anyway: the race start only sends commands. */
+    uint32_t toc[102];
+    if (!read_toc(toc)) { engine_snd_report[0] = 3u; return true; }
+    for (unsigned i = 0; i < FZX_CDDA_TRACK_COUNT; ++i) {
+        const fzx_cdda_track_t *t = &fzx_cdda_tracks[i];
+        if (t->music_id != ENG_SND_MUSIC) continue;
+        music_fad = sh2z_cdda_track_fad(toc, t->track);
+        music_sectors = t->sectors;
+        music_loop = t->loop_sector;
+        break;
+    }
+    if (!music_fad) engine_snd_report[0] = 4u;
     return true;
 }
 
+static uint8_t last_valid[SH2Z_SND_SLOTS];
 static void play_event(unsigned ev, uint32_t first, uint32_t count, uint8_t priority, int8_t *slots) {
     for (unsigned p = 0; p < SND_RACE_EVENT_PARTS; ++p) {
         if (snd_race_events[ev][p].clip == 0xFFu) continue;
         const int32_t s = sh2z_snd_play(&snd, &ev_clip[ev][p], first, count, priority, ev_level[ev][p], 0);
+        if (s >= 0) last_valid[s] = 0u;
         if (slots) slots[p] = (int8_t)s;
     }
 }
@@ -149,7 +175,6 @@ static void post(uint16_t ev) {
 
 static uint32_t read_toc(uint32_t *toc) {
     uint8_t status; uint16_t words;
-    if (cd_block_cmd_cd_dev_connection_set(0xFFu)) return 0u;   /* audio sectors must not fill data buffers */
     if (cd_block_cmd_toc_get(&status, &words) || words < 204u) return 0u;
     uint16_t last = cpu_frt_count_get(); uint32_t elapsed = 0;
     while (!(CD_REGS[4] & 0x0002u)) {
@@ -174,22 +199,20 @@ void engine_snd_start(uint32_t epoch) {
             if (rival_slot[r][p] >= 0 && snd_race_events[SND_RACE_EV_ENGINE_RIVAL][p].clip != 0xFFu)
                 sh2z_snd_set_level(&snd, (uint32_t)rival_slot[r][p], 0u);
     cpu_intc_mask_set(mask);
-    uint32_t toc[102];
-    if (!read_toc(toc)) { engine_snd_report[0] = 3u; return; }
-    for (unsigned i = 0; i < FZX_CDDA_TRACK_COUNT; ++i) {
-        const fzx_cdda_track_t *t = &fzx_cdda_tracks[i];
-        if (t->music_id != ENG_SND_MUSIC) continue;
-        const uint32_t fad = sh2z_cdda_track_fad(toc, t->track);
-        if (!fad) break;
-        if (t->loop_sector == FZX_CDDA_NO_LOOP) sh2z_cdda_play(&cd, fad, t->sectors, 0u, 0u);
-        else sh2z_cdda_play(&cd, fad, t->sectors, fad + t->loop_sector, t->sectors - t->loop_sector);
-        engine_snd_report[0] = 1u;
-        return;
+    if (!music_fad) return;
+    /* Set CD Device Connection to none (audio sectors must not fill the data buffers), without
+     * waiting: the Play follows at a later frame, once the block reports CMOK. */
+    if (CD_REGS[4] & 0x0001u) {
+        CD_REGS[4] = (uint16_t)~0x0001u;
+        CD_REGS[12] = 0x3000u; CD_REGS[14] = 0u; CD_REGS[16] = 0xFF00u; CD_REGS[18] = 0u;
     }
-    engine_snd_report[0] = 4u;
+    if (music_loop == FZX_CDDA_NO_LOOP) sh2z_cdda_play(&cd, music_fad, music_sectors, 0u, 0u);
+    else sh2z_cdda_play(&cd, music_fad, music_sectors, music_fad + music_loop, music_sectors - music_loop);
+    engine_snd_report[0] = 1u;
 }
 
 void engine_snd_tick(const sh2z_vd_body_t *body, const sh2z_vd_vehicle_t *vehicle, int32_t laps) {
+    const uint16_t t0 = cpu_frt_count_get();
     ++ticks;
     player_speed = body->speed;
     if (body->boost_timer > 0 && prev_boost <= 0) { post(SND_RACE_EV_BOOST); ++engine_snd_report[13]; }
@@ -205,25 +228,26 @@ void engine_snd_tick(const sh2z_vd_body_t *body, const sh2z_vd_vehicle_t *vehicl
     prev_laps = body->laps_done;
     /* The low-energy beep: under 30 %, faster under 20 % and 10 % (racer.c), not while spinning. */
     if (vehicle->max_energy > 0 && body->spin_timer == 0 && !(body->flags & (SH2Z_VD_CRASHED | SH2Z_VD_FINISHED))) {
-        const int64_t e10 = (int64_t)body->energy * 10;
-        const int64_t m = vehicle->max_energy;
+        const int32_t e10 = (body->energy >> 4) * 10;           /* 32-bit: energies are Q16, well under 2^27 */
+        const int32_t m = vehicle->max_energy >> 4;
         if (e10 < 3 * m) {
             if (e10 >= 2 * m) { if (!(ticks & 0x1Fu)) post(SND_RACE_EV_ENERGY_SLOW); }
             else if (e10 >= m) { if (!(ticks & 0xFu)) post(SND_RACE_EV_ENERGY_MEDIUM); }
             else if (!(ticks & 7u)) post(SND_RACE_EV_ENERGY_FAST);
         }
     }
+    engine_snd_prof[6] += (uint16_t)(cpu_frt_count_get() - t0);
 }
 
 #if E1_FIELD
-static uint32_t isqrt64(uint64_t v) {
-    uint64_t r = 0, bit = (uint64_t)1 << 62;
+static uint32_t isqrt32(uint32_t v) {
+    uint32_t r = 0, bit = 1u << 30;
     while (bit > v) bit >>= 2;
     while (bit) {
         if (v >= r + bit) { v -= r + bit; r = (r >> 1) + bit; } else r >>= 1;
         bit >>= 2;
     }
-    return (uint32_t)r;
+    return r;
 }
 
 #endif
@@ -236,42 +260,47 @@ static uint32_t engine_ratio(int32_t speed_q16) {
 }
 
 #if E1_FIELD
+/* The two nearest rivals by squared distance in 32 bits (coordinates in 4-unit steps); the square
+ * root, the pan and the speed only for those two. */
 void engine_snd_cars(const sh2z_vd_body_t *body, const fzx_field_car_t *cars, unsigned n) {
+    const uint16_t t0 = cpu_frt_count_get();
     const uint32_t dt = ticks - last_cars_tick;
     last_cars_tick = ticks;
-    uint32_t best_d[2] = { 0xFFFFFFFFu, 0xFFFFFFFFu };
+    uint32_t best_d2[2] = { 0xFFFFFFFFu, 0xFFFFFFFFu };
     int best[2] = { -1, -1 };
+    const int32_t px = body->pos[0] >> 18, py = body->pos[1] >> 18, pz = body->pos[2] >> 18;
     for (unsigned i = 0; i < n; ++i) {
         const fzx_field_car_t *c = &cars[i];
         if (c->id == 0u || c->id > FZX_FIELD_CARS) continue;
-        int64_t d2 = 0;
-        for (unsigned k = 0; k < 3u; ++k) { const int64_t d = (int64_t)(c->pos[k] - body->pos[k]) >> 16; d2 += d * d; }
-        const uint32_t d = isqrt64((uint64_t)d2);
-        if (d < best_d[0]) { best_d[1] = best_d[0]; best[1] = best[0]; best_d[0] = d; best[0] = (int)i; }
-        else if (d < best_d[1]) { best_d[1] = d; best[1] = (int)i; }
+        const int32_t dx = (c->pos[0] >> 18) - px, dy = (c->pos[1] >> 18) - py, dz = (c->pos[2] >> 18) - pz;
+        const uint32_t d2 = (uint32_t)(dx * dx) + (uint32_t)(dy * dy) + (uint32_t)(dz * dz);
+        if (d2 < best_d2[0]) { best_d2[1] = best_d2[0]; best[1] = best[0]; best_d2[0] = d2; best[0] = (int)i; }
+        else if (d2 < best_d2[1]) { best_d2[1] = d2; best[1] = (int)i; }
     }
     for (unsigned r = 0; r < 2u; ++r) {
         rival[r].level = 0u;
-        engine_snd_report[11 + r] = best_d[r];
-        if (best[r] < 0) continue;
+        if (best[r] < 0) { engine_snd_report[11 + r] = 0xFFFFFFFFu; continue; }
         const fzx_field_car_t *c = &cars[best[r]];
+        const uint32_t d = isqrt32(best_d2[r]) << 2;               /* units */
+        engine_snd_report[11 + r] = d;
         /* Level as the game's nearest-enemy rule: 1 - 9/190000 * distance, silent below 0.3, at most 0.85. */
-        if (best_d[r] < 10000u) {
-            const int32_t v = 255 - (int32_t)((best_d[r] * 9u * 255u) / 190000u);
+        if (d < 10000u) {
+            const int32_t v = 255 - (int32_t)((d * 9u * 255u) / 190000u);
             if (v > 77) rival[r].level = (uint8_t)(v > 217 ? 217 : v);
         }
-        /* Pan from the car's offset along the player's left row (Q30). */
-        int64_t lat = 0;
-        for (unsigned k = 0; k < 3u; ++k) lat += ((int64_t)(c->pos[k] - body->pos[k]) >> 16) * (body->body[2][k] >> 14);
-        lat >>= 16;
-        int32_t pan = (int32_t)(-lat * 15 / 1500);
+        /* Pan from the car's offset along the player's left row (Q30 -> Q14). */
+        const int32_t lat = (((c->pos[0] >> 18) - px) * (body->body[2][0] >> 16) +
+                             ((c->pos[1] >> 18) - py) * (body->body[2][1] >> 16) +
+                             ((c->pos[2] >> 18) - pz) * (body->body[2][2] >> 16)) >> 12;   /* units */
+        const int32_t pan = -lat * 15 / 1500;
         rival[r].pan = (int8_t)(pan < -15 ? -15 : pan > 15 ? 15 : pan);
-        /* Its speed from the distance it moved since the last frame. */
+        /* Its speed from the distance it moved since the last frame (Q8 steps, 32-bit). */
         int32_t speed = player_speed;
         if (car_seen[c->id] && dt) {
-            int64_t m2 = 0;
-            for (unsigned k = 0; k < 3u; ++k) { const int64_t d = (int64_t)(c->pos[k] - car_prev[c->id][k]) >> 8; m2 += d * d; }
-            speed = (int32_t)(((uint64_t)isqrt64((uint64_t)m2) << 8) / dt);
+            const int32_t mx = (c->pos[0] - car_prev[c->id][0]) >> 8, my = (c->pos[1] - car_prev[c->id][1]) >> 8,
+                          mz = (c->pos[2] - car_prev[c->id][2]) >> 8;
+            const uint32_t m2 = (uint32_t)(mx * mx) + (uint32_t)(my * my) + (uint32_t)(mz * mz);
+            speed = (int32_t)((isqrt32(m2) << 8) / dt);
         }
         rival[r].ratio = engine_ratio(speed);
     }
@@ -281,6 +310,7 @@ void engine_snd_cars(const sh2z_vd_body_t *body, const fzx_field_car_t *cars, un
         car_prev[c->id][0] = c->pos[0]; car_prev[c->id][1] = c->pos[1]; car_prev[c->id][2] = c->pos[2];
         car_seen[c->id] = 1u;
     }
+    prof_add(4u, t0);
 }
 #endif
 
@@ -295,6 +325,7 @@ static void pitch_into(unsigned ev, uint32_t ratio, int8_t *oct, uint16_t *fns, 
 }
 
 void engine_snd_build(void) {
+    const uint16_t t0 = cpu_frt_count_get();
     stage_t *st = &stage[build_stage];
     st->count = 0u;
     sh2z_snd_queue_drain(&queue, collect, st);
@@ -308,11 +339,30 @@ void engine_snd_build(void) {
     sh2z_cdda_frame(&cd);
     engine_snd_report[2] = queue.delivered; engine_snd_report[3] = queue.rejected;
     engine_snd_report[7] = cd.commands; engine_snd_report[8] = cd.loop_backs; engine_snd_report[9] = cd.state;
+    ++engine_snd_prof[7];
+    prof_add(0u, t0);
 }
 
 void engine_snd_seal(void) {
     sealed = build_stage;
     build_stage ^= 1u;
+}
+
+/* What each slot was last given, so a frame writes only the registers that change. */
+static uint16_t last_pitch[SH2Z_SND_SLOTS];
+static uint8_t last_level[SH2Z_SND_SLOTS];
+
+static void pitch_if_changed(int8_t slot, int8_t oct, uint16_t fns) {
+    const uint16_t w = (uint16_t)(((uint32_t)(uint8_t)oct << 11) | fns);
+    if ((last_valid[slot] & 1u) && last_pitch[slot] == w) { ++engine_snd_prof[8]; return; }
+    sh2z_snd_set_pitch(&snd, (uint32_t)slot, oct, fns);
+    last_pitch[slot] = w; last_valid[slot] |= 1u; ++engine_snd_prof[9];
+}
+
+static void level_if_changed(int8_t slot, uint8_t level) {
+    if ((last_valid[slot] & 2u) && last_level[slot] == level) { ++engine_snd_prof[8]; return; }
+    sh2z_snd_set_level(&snd, (uint32_t)slot, level);
+    last_level[slot] = level; last_valid[slot] |= 2u; ++engine_snd_prof[9];
 }
 
 static void apply(const stage_t *st) {
@@ -322,21 +372,23 @@ static void apply(const stage_t *st) {
     }
     for (unsigned p = 0; p < SND_RACE_EVENT_PARTS; ++p) {
         if (st->pitch_ok[0][p] && player_slot[p] >= 0) {
-            sh2z_snd_set_pitch(&snd, (uint32_t)player_slot[p], st->player_oct[p], st->player_fns[p]);
+            pitch_if_changed(player_slot[p], st->player_oct[p], st->player_fns[p]);
             if (p == 0u) engine_snd_report[10] = st->player_fns[p] | (uint32_t)(uint8_t)st->player_oct[p] << 16;
         }
         for (unsigned r = 0; r < 2u; ++r)
             if (rival_slot[r][p] >= 0 && snd_race_events[SND_RACE_EV_ENGINE_RIVAL][p].clip != 0xFFu) {
-                if (st->pitch_ok[1 + r][p]) sh2z_snd_set_pitch(&snd, (uint32_t)rival_slot[r][p], st->rival_oct[r][p], st->rival_fns[r][p]);
-                sh2z_snd_set_level(&snd, (uint32_t)rival_slot[r][p], st->rival_level[r][p]);
+                if (st->pitch_ok[1 + r][p]) pitch_if_changed(rival_slot[r][p], st->rival_oct[r][p], st->rival_fns[r][p]);
+                level_if_changed(rival_slot[r][p], st->rival_level[r][p]);
             }
     }
     engine_snd_report[4] = snd.plays; engine_snd_report[5] = snd.refused; engine_snd_report[6] = snd.stolen;
 }
 
 void engine_snd_vblank(bool presented) {
+    const uint16_t t0 = cpu_frt_count_get();
     if (presented && sealed < 2u) { apply(&stage[sealed]); sealed = 0xFFu; }
     sh2z_snd_frame(&snd);   /* one-shot lengths count fields */
+    prof_add(2u, t0);
 }
 
 void engine_snd_frame(void) {

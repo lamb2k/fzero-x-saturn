@@ -73,8 +73,8 @@ Final appearance, pad retry and audio remain open; diagnostic text/HUD obscure t
 
 ## Preserved work and next
 
-Older hitch, clip-divider and software-road WIP remain local and unstaged.
-Use fixed-input replay for comparisons; live autopilot depends on render cadence.
+Older hitch/clip-divider/software-road WIP stay local; compare with fixed-input replay (live autopilot follows cadence).
+Engine line E0 (11-19, Ymir): 40.8 fps, 0 over two fields, slave p99 21.8 ms with the owner's stable cap 26; see ENGINE_PLAN §4.
 Finish-menu gates pass. Opus: C3, C4 including visual draw order, simulation, C5 and SH2ZAM
 (claude/c3-c4-perf, claude/c4-perf); Codex: C8 and gate1 merges;
 ordinary retry, audio/effects, pad-only race completion and soak remain.

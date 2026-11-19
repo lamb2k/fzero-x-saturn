@@ -31,8 +31,8 @@ E0_RBG_LEAN ?= 1
 E0_CLUSTERS ?= 0
 # Track build tables (work, projected vertices, native layout) in high work RAM.
 E0_WORK_HIGH ?= 1
-# Visible chunk cap: drop the farthest pick runs beyond N chunks (0 = off). Owner 2026-11-19: "cap 32".
-E0_CHUNK_CAP ?= 32
+# Visible chunk cap N (0 = off). Owner 2026-11-19: "Yes stable cap 26 should be the default" (was "cap 32").
+E0_CHUNK_CAP ?= 26
 # Road piece clip: near plane in 3D, then the guard rectangle in 2D.
 E0_LEAN_CLIP ?= 1
 # Exact fog early-out: pieces wholly before the first fog threshold reuse one shading result per image.
@@ -45,7 +45,7 @@ E0_SENTINEL_CONTROL ?= 0
 # Diagnostic: per-frame marked and drawn chunk maps (pop counting).
 E0_POP_LOG ?= 0
 # Stable chunk cap: rank by depth, keep the nearest E0_CHUNK_CAP with hysteresis.
-E0_CAP_STABLE ?= 0
+E0_CAP_STABLE ?= 1
 # Diagnostic (needs E0_PHASES=1): draw skipped quads anyway and count any that would draw.
 E0_CLUSTER_AUDIT ?= 0
 ifeq ($(filter 0 1,$(FZX_VDP1_DBANK)),)

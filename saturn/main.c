@@ -229,12 +229,16 @@ static smpc_peripheral_digital_t digital;
 #define DBANK_GUARD 0xdb4b5a17u
 #define DBANK_GUARD_WORDS 8u
 static void *dbank_road[2],*dbank_machine[2];
-static volatile uint32_t *dbank_guard_lo,*dbank_guard_hi;
+static volatile uint32_t *dbank_guard_lo,*dbank_guard_hi,*dbank_stage_lo,*dbank_stage_hi;
 static unsigned dbank_build,dbank_inflight=2u;
+/* The previous submitted frame prepared race tables and was overlapped or
+ * serial-race; a frame that prepared none forces the next build to wait, so
+ * the VDP2 table queue never pairs a present with a later frame's tables. */
+static bool dbank_prev_race;
 /* Status 1 ready; 2 the Gouraud partition is too small or misaligned;
  * 3 a bank guard changed. Counters cover race frames since boot. */
 volatile uint32_t fzx_dbank_status,fzx_dbank_frames,fzx_dbank_serial,fzx_dbank_overlap,fzx_dbank_conflicts;
-volatile uint32_t fzx_dbank_base,fzx_dbank_bytes;
+volatile uint32_t fzx_dbank_base,fzx_dbank_bytes,fzx_dbank_stage_base,fzx_dbank_stage_bytes;
 /* Post-build wait for the previous frame (FRT ticks): total, maximum and a
  * 64-bin histogram of 1/16-field bins (bin 63 holds the rest). */
 volatile uint32_t fzx_dbank_wait_total,fzx_dbank_wait_max,fzx_dbank_wait_hist[64];
@@ -942,11 +946,41 @@ static bool dbank_init(void) {
     memcpy(dbank_machine[1],dbank_machine[0],FZX_MACHINE_SHADE_BYTES);
     memcpy(dbank_road[1],dbank_road[0],FZX_ROAD_RENDER_SHADE_BYTES);
     fzx_machine_dbank(dbank_machine[0],dbank_machine[1]);
+#if FZX_SOURCE_FLOOR_RBG || FZX_CLOUDS_VDP2
+    /* Bank 1 of the VDP2 floor/cloud tables (uploaded at the end of each draw)
+     * in Yaul's CLUT partition, which nothing else uses: guard, floor tables,
+     * cloud tables, sky lines, guard. Bank 0 is the original WRAM tables. */
+    {
+        const uintptr_t clut=(uintptr_t)p.clut_base;
+        uintptr_t at=clut+guard;
+#if FZX_SOURCE_FLOOR_RBG
+        void *const floor1=(void *)at;at=(at+sizeof(fzx_floor_rbg_t)+3u)&~(uintptr_t)3u;
+#endif
+#if FZX_CLOUDS_VDP2
+        void *const clouds1=(void *)at;at=(at+sizeof(fzx_clouds_rbg_t)+3u)&~(uintptr_t)3u;
+        void *const sky1=(void *)at;at+=224u*sizeof(uint16_t);
+#endif
+        const uint32_t stage_bytes=(uint32_t)(at-clut)+guard;
+        fzx_dbank_stage_base=(uint32_t)clut;fzx_dbank_stage_bytes=stage_bytes;
+        if((clut&31u)||stage_bytes>p.clut_size||clut<base+p.gouraud_size){fzx_dbank_status=2;return false;}
+        dbank_stage_lo=(volatile uint32_t *)clut;dbank_stage_hi=(volatile uint32_t *)at;
+        for(unsigned i=0;i<DBANK_GUARD_WORDS;++i){dbank_stage_lo[i]=DBANK_GUARD^(i<<16);dbank_stage_hi[i]=DBANK_GUARD^(i<<24);}
+#if FZX_SOURCE_FLOOR_RBG
+        memset(floor1,0,sizeof(fzx_floor_rbg_t));fzx_floor_dbank(floor1);
+#endif
+#if FZX_CLOUDS_VDP2
+        memset(clouds1,0,sizeof(fzx_clouds_rbg_t));memset(sky1,0,224u*sizeof(uint16_t));fzx_clouds_dbank(clouds1,sky1);
+#endif
+    }
+#endif
     fzx_dbank_status=1;return true;
 }
 static bool dbank_guards(void) {
     for(unsigned i=0;i<DBANK_GUARD_WORDS;++i)
         if(dbank_guard_lo[i]!=(DBANK_GUARD^i)||dbank_guard_hi[i]!=(DBANK_GUARD^(i<<8)))return false;
+    if(dbank_stage_lo)
+        for(unsigned i=0;i<DBANK_GUARD_WORDS;++i)
+            if(dbank_stage_lo[i]!=(DBANK_GUARD^(i<<16))||dbank_stage_hi[i]!=(DBANK_GUARD^(i<<24)))return false;
     return true;
 }
 /* Before the scene build: VDP2's previous sync (the floor and cloud uploads)
@@ -960,6 +994,7 @@ static void dbank_before_build(void) {
 #if FZX_SOURCE_RECORDS
     serial=serial||fzx_records_active;
 #endif
+    serial=serial||!dbank_prev_race;
     vdp2_sync_wait();
     if(serial){vdp1_sync_wait();++fzx_dbank_serial;}
     else {
@@ -969,6 +1004,12 @@ static void dbank_before_build(void) {
             if(dbank_build==dbank_inflight)++fzx_dbank_conflicts;
         }
     }
+#if FZX_SOURCE_FLOOR_RBG
+    fzx_floor_dbank_select(dbank_build);
+#endif
+#if FZX_CLOUDS_VDP2
+    fzx_clouds_dbank_select(dbank_build);
+#endif
     if(!dbank_guards()) {
         fzx_dbank_status=3;
         dbgio_printf("VDP1 DBANK GUARD FAILED");dbgio_flush();vdp2_sync();for(;;) {}
@@ -982,6 +1023,7 @@ static void dbank_after_build(uint16_t ticks,uint32_t field_ticks) {
 }
 static void dbank_submitted(void) {
     dbank_inflight=dbank_build;
+    dbank_prev_race=fzx_input_count!=0;
 #if !FZX_VDP1_DBANK_STALE
     dbank_build^=1u;
 #endif

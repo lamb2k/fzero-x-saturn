@@ -125,9 +125,9 @@ int fzx_machine_published;
 static int machine_published;
 #endif
 bool fzx_machine_publish(void){
-    FZX_PUB(machine_published,machine_published)=0;
+    FZX_PUB(machine_pub,machine_published)=0;
     if(fzx_machine_status!=1)return false;
-    FZX_PUB(machine_published,machine_published)=ref_machine(&FZX_PUB(machine,fzx_source_machine),pack.data+51)?1:-1;
+    FZX_PUB(machine_pub,machine_published)=ref_machine(&FZX_PUB(machine,fzx_source_machine),pack.data+51)?1:-1;
     return true;
 }
 #endif

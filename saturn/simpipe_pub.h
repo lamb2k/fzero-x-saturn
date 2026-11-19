@@ -30,7 +30,7 @@ typedef struct {
     uint32_t executed;                             /* ticks executed in this generation */
     uint32_t camera_status, sky_status, skyline_status, road_plan_status, road_plan_sequence;
     uint32_t results_draw;                         /* results would draw: never in a pipelined frame */
-    int machine_published;                         /* vehicle/machine_native.c type */
+    int machine_pub;                               /* vehicle/machine_native.c type */
     fzx_countdown_phase_t countdown_phase;
     bool countdown_published;                      /* countdown scene_t type */
     RefPose pose;

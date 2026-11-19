@@ -1020,7 +1020,7 @@ simpipe_slave_job(void *arg)
         /* After serial frames the globals hold the latest publication: seed the
          * slot from them so cached producers carry their outputs forward. */
         out->pose = orig_pose; out->camera = fzx_source_camera; out->view = fzx_native_view;
-        out->machine = fzx_source_machine; out->machine_published = fzx_machine_published;
+        out->machine = fzx_source_machine; out->machine_pub = fzx_machine_published;
         out->countdown = fzx_source_countdown;
         out->skyline = fzx_source_skyline; out->backdrop = fzx_source_backdrop;
         out->road_plan = fzx_source_road_plan;
@@ -1144,7 +1144,7 @@ simpipe_pl_apply(void)
     if (s->magic != 0x53505542u || s->sequence != j->sequence || s->generation != j->generation)
         simpipe_pl_stop(3, 10);
     orig_pose = s->pose; fzx_source_camera = s->camera; fzx_native_view = s->view;
-    fzx_source_machine = s->machine; fzx_machine_published = s->machine_published;
+    fzx_source_machine = s->machine; fzx_machine_published = s->machine_pub;
     fzx_source_countdown = s->countdown;
     fzx_source_skyline = s->skyline; fzx_source_backdrop = s->backdrop; fzx_source_road_plan = s->road_plan;
     fzx_camera_status = s->camera_status; fzx_sky_status = s->sky_status;
@@ -1759,13 +1759,17 @@ main(void)
         }
 #endif
 #if FZX_SIM_PIPELINE
+#if FZX_FRAME_PROFILE
+        /* Rows run from the previously presented tick to this loop's (the
+         * slave wait below is inside the row). */
+        fzx_fp_begin(fzx_simpipe_draw_tick);
+#endif
         /* The previous loop's job retires here; its publication (or a finish
          * cut completed on the master) becomes this loop's draw state. */
         simpipe_pl_collect();
         simpipe_pl_apply();
         simpipe_frame_pipelined = false;
-#endif
-#if FZX_FRAME_PROFILE
+#elif FZX_FRAME_PROFILE
         fzx_fp_begin(fzx_input_count);
 #endif
         const uint16_t loop_start = cpu_frt_count_get();

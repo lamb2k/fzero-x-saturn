@@ -17,11 +17,14 @@ Use this sheet with the private E0 disc. The camera follows the racing line arou
    git submodule status --recursive
    ```
 
-2. In the pinned Yaul environment, run the asset bake and engine-disc command from this commit’s E0 build record using the owner’s private ROM. Verify the SH2ZAM commit actually linked by the engine. The legacy submodule and the engine library may have different pins. Retain the compiler version, build options, pack receipts, link map, BIN and loader-ready disc files. Verify the map identifies the engine entry point and contains no original race closure.
-3. From the private build output directory, produce the image manifest using the actual relative filenames. Include the game BIN, disc descriptor and every referenced track. If the image is a standalone ISO, include the BIN and ISO. Preserve the descriptor’s relative track paths when copying the disc. In the loader staging directory verify the same file set against the manifest. Record the SHA-256 and any existing Ymir packaging result from the E0 handoff.
+2. In the pinned Yaul environment, run the asset bake and engine-disc command from this commitâ€™s E0 build record using the ownerâ€™s private ROM. Verify the SH2ZAM commit actually linked by the engine. The legacy submodule and the engine library may have different pins. Retain the compiler version, build options, pack receipts, link map, BIN and loader-ready disc files. Verify the map identifies the engine entry point and contains no original race closure.
+3. From the private build output directory, produce the image manifest using the actual relative filenames. Include the game BIN, disc descriptor and every referenced track. If the image is a standalone ISO, include the BIN and ISO. Preserve the descriptorâ€™s relative track paths when copying the disc. In the loader staging directory verify the same file set against the manifest. Record the SHA-256 and any existing Ymir packaging result from the E0 handoff.
 
    ```sh
-   # In the build output directory, supply all the delivered filenames as arguments.
+   # Assign these variables the relative names from the E0 build record.
+   # For a cue with more tracks, append every track to the same command.
+   set -- "$E0_BIN" "$E0_CUE" "$E0_TRACK"
+   # For a standalone ISO instead, use: set -- "$E0_BIN" "$E0_ISO"
    sha256sum -- "$@" > SHA256SUMS
    # In the copy staged for the loader, with the same manifest and filenames.
    sha256sum --check SHA256SUMS

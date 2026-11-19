@@ -152,6 +152,19 @@ static bool emit(void *context,const fzx_vehicle_quad_t *q){
     cmd->cmd_xc=q->x[2];cmd->cmd_yc=q->y[2];cmd->cmd_xd=q->x[3];cmd->cmd_yd=q->y[3];++s->count;return true;
 }
 #endif
+#if FZX_VDP1_DBANK
+/* Two shade banks: a palette changed in either bank's absence is rewritten the
+ * next time that bank is drawn. Both start stale, so each bank's first use
+ * uploads every palette. */
+static uintptr_t dbank_shades[2];
+static uint8_t dbank_stale[2][FZX_VEHICLE_PALETTES];
+void fzx_machine_dbank(void *bank_a,void *bank_b){
+    dbank_shades[0]=(uintptr_t)bank_a;dbank_shades[1]=(uintptr_t)bank_b;
+    memset(dbank_stale,1,sizeof(dbank_stale));
+}
+#else
+void fzx_machine_dbank(void *bank_a,void *bank_b){(void)bank_a;(void)bank_b;}
+#endif
 bool fzx_machine_native(vdp1_cmdt_t *commands,unsigned capacity,const fzx_view_t *view,void *pixels,void *shades,uint32_t *count){
     if(!commands||capacity<2||!view||!pixels||!shades||!count||fzx_machine_status!=1)return false;
     const uint16_t start=cpu_frt_count_get();fzx_machine_busy=1;NATIVE_MARK(0,start);
@@ -187,6 +200,15 @@ bool fzx_machine_native(vdp1_cmdt_t *commands,unsigned capacity,const fzx_view_t
         .positions=fzx_vehicle_stats.positions,.normals=fzx_vehicle_stats.normals};
     if(!ok){fzx_machine_status=5;fzx_machine_busy=0;return false;}
     NATIVE_MARK(3,cpu_frt_count_get());
+#if FZX_VDP1_DBANK
+    if(dbank_shades[0]&&((uintptr_t)shades==dbank_shades[0]||(uintptr_t)shades==dbank_shades[1])) {
+        const unsigned bank=(uintptr_t)shades==dbank_shades[1]?1u:0u;
+        for(unsigned i=0;i<pack.palettes;++i) {
+            if(work->palette_dirty[i])dbank_stale[0][i]=dbank_stale[1][i]=1;
+            if(dbank_stale[bank][i]){memcpy((uint8_t *)shades+i*32u,work->palette[i],32);dbank_stale[bank][i]=0;}
+        }
+    } else
+#endif
     for(unsigned i=0;i<pack.palettes;++i)if(work->palette_dirty[i])memcpy((uint8_t *)shades+i*32u,work->palette[i],32);
     NATIVE_MARK(4,cpu_frt_count_get());
     *count=s.count+1;fzx_machine_ticks=(uint16_t)(cpu_frt_count_get()-start);fzx_machine_busy=0;

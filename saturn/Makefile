@@ -671,6 +671,28 @@ FZX_SKY_SRCS += slave_road.c
 else ifneq ($(FZX_SLAVE_ROAD),0)
 $(error FZX_SLAVE_ROAD must be 0 or 1)
 endif
+# FZX_VDP1_DBANK=1 (default 0): the race scene builds frame N+1 while VDP1
+# draws N (generated/VDP1-DBANK-PLAN.md). Road and machine shade tables get a
+# second bank in Yaul's Gouraud partition; C8 frames keep the serial wait.
+# FZX_VDP1_DBANK_STALE=1 is the negative control (the bank never alternates);
+# never a functional image.
+FZX_VDP1_DBANK ?= 0
+FZX_VDP1_DBANK_STALE ?= 0
+ifeq ($(FZX_VDP1_DBANK),1)
+ifneq ($(FZX_SIM):$(FZX_SOURCE_ROAD_TILES):$(FZX_SOURCE_MACHINE):$(FZX_MACHINE_REBAKE),orig:1:1:1)
+$(error FZX_VDP1_DBANK requires FZX_SIM=orig, FZX_SOURCE_ROAD_TILES=1, FZX_SOURCE_MACHINE=1 and FZX_MACHINE_REBAKE=1)
+endif
+SH_CFLAGS += -DFZX_VDP1_DBANK=1
+ifeq ($(FZX_VDP1_DBANK_STALE),1)
+SH_CFLAGS += -DFZX_VDP1_DBANK_STALE=1
+else ifneq ($(FZX_VDP1_DBANK_STALE),0)
+$(error FZX_VDP1_DBANK_STALE must be 0 or 1)
+endif
+else ifneq ($(FZX_VDP1_DBANK),0)
+$(error FZX_VDP1_DBANK must be 0 or 1)
+else ifneq ($(FZX_VDP1_DBANK_STALE),0)
+$(error FZX_VDP1_DBANK_STALE requires FZX_VDP1_DBANK=1)
+endif
 # FZX_SIMPIPE_PROFILE=1 (default 0, diagnostic only): sim-pipeline checkpoint 1
 # measurements. Per-phase master stack depths, tick-batch histogram and per-tick
 # RefState/input chains (generated/SIM-PIPELINE-PLAN.md, section 7).

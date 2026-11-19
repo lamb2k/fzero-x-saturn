@@ -215,6 +215,30 @@ static vdp1_cmdt_list_t command_lists[2];
 static vdp1_cmdt_t *commands = commands_buf[0];
 static vdp1_cmdt_list_t *command_list = &command_lists[0];
 static smpc_peripheral_digital_t digital;
+#ifndef FZX_VDP1_DBANK
+#define FZX_VDP1_DBANK 0
+#endif
+#if FZX_VDP1_DBANK
+/* FZX_VDP1_DBANK (generated/VDP1-DBANK-PLAN.md): the race scene builds frame
+ * N+1 while VDP1 still draws N. The only per-frame VDP1 VRAM the race build
+ * writes is the road and machine shade tables, so they get a second bank in
+ * Yaul's Gouraud partition, which nothing else uses; bank 0 is the original
+ * texture-partition tables. The WRAM command list is reused once its transfer
+ * is done (vdp1_sync_put_wait). While C8 (results, finish menu, records) draws,
+ * the build waits for the previous frame as before. */
+#define DBANK_GUARD 0xdb4b5a17u
+#define DBANK_GUARD_WORDS 8u
+static void *dbank_road[2],*dbank_machine[2];
+static volatile uint32_t *dbank_guard_lo,*dbank_guard_hi;
+static unsigned dbank_build,dbank_inflight=2u;
+/* Status 1 ready; 2 the Gouraud partition is too small or misaligned;
+ * 3 a bank guard changed. Counters cover race frames since boot. */
+volatile uint32_t fzx_dbank_status,fzx_dbank_frames,fzx_dbank_serial,fzx_dbank_overlap,fzx_dbank_conflicts;
+volatile uint32_t fzx_dbank_base,fzx_dbank_bytes;
+/* Post-build wait for the previous frame (FRT ticks): total, maximum and a
+ * 64-bin histogram of 1/16-field bins (bin 63 holds the rest). */
+volatile uint32_t fzx_dbank_wait_total,fzx_dbank_wait_max,fzx_dbank_wait_hist[64];
+#endif
 static volatile uint32_t video_fields;
 #if FZX_ROAD_TILE_PROFILE
 /* Pair the FRT and field clock inside one video field. This outer scope
@@ -895,6 +919,77 @@ simpipe_copy(bool out)
 #else
 #define FZX_PRELUDE_CAPACITY(f) (FZX_SCENE_CAPACITY-count-(f))
 #endif
+#if FZX_VDP1_DBANK
+#define DBANK_ROAD_SHADES dbank_road[dbank_build]
+#define DBANK_MACHINE_SHADES dbank_machine[dbank_build]
+/* Bank 1 in the Gouraud partition: guard, machine palettes and Gouraud,
+ * road Gouraud, guard. Bank 0 stays where the original tables are. */
+static bool dbank_init(void) {
+    vdp1_vram_partitions_t p;vdp1_vram_partitions_get(&p);
+    const uintptr_t base=(uintptr_t)p.gouraud_base,guard=DBANK_GUARD_WORDS*4u;
+    const uint32_t bytes=guard+FZX_MACHINE_SHADE_BYTES+FZX_ROAD_RENDER_SHADE_BYTES+guard;
+    fzx_dbank_base=(uint32_t)base;fzx_dbank_bytes=bytes;
+    if((base&31u)||(FZX_MACHINE_SHADE_BYTES&7u)||bytes>p.gouraud_size||
+       base<(uintptr_t)p.texture_base+p.texture_size||!road_tile_shades||!machine_shades) {
+        fzx_dbank_status=2;return false;
+    }
+    dbank_guard_lo=(volatile uint32_t *)base;
+    dbank_machine[0]=machine_shades;dbank_machine[1]=(void *)(base+guard);
+    dbank_road[0]=road_tile_shades;dbank_road[1]=(void *)(base+guard+FZX_MACHINE_SHADE_BYTES);
+    dbank_guard_hi=(volatile uint32_t *)(base+guard+FZX_MACHINE_SHADE_BYTES+FZX_ROAD_RENDER_SHADE_BYTES);
+    for(unsigned i=0;i<DBANK_GUARD_WORDS;++i){dbank_guard_lo[i]=DBANK_GUARD^i;dbank_guard_hi[i]=DBANK_GUARD^(i<<8);}
+    /* Bank 1's tables start as copies of bank 0's, as loaded. */
+    memcpy(dbank_machine[1],dbank_machine[0],FZX_MACHINE_SHADE_BYTES);
+    memcpy(dbank_road[1],dbank_road[0],FZX_ROAD_RENDER_SHADE_BYTES);
+    fzx_machine_dbank(dbank_machine[0],dbank_machine[1]);
+    fzx_dbank_status=1;return true;
+}
+static bool dbank_guards(void) {
+    for(unsigned i=0;i<DBANK_GUARD_WORDS;++i)
+        if(dbank_guard_lo[i]!=(DBANK_GUARD^i)||dbank_guard_hi[i]!=(DBANK_GUARD^(i<<8)))return false;
+    return true;
+}
+/* Before the scene build: VDP2's previous sync (the floor and cloud uploads)
+ * must be done and the previous command list transferred. VDP1 may still be
+ * drawing it from the other shade bank, except while C8 draws. */
+static void dbank_before_build(void) {
+    bool serial=false;
+#if FZX_SOURCE_RESULTS
+    serial=serial||fzx_results_texture_borrowed;
+#endif
+#if FZX_SOURCE_RECORDS
+    serial=serial||fzx_records_active;
+#endif
+    vdp2_sync_wait();
+    if(serial){vdp1_sync_wait();++fzx_dbank_serial;}
+    else {
+        vdp1_sync_put_wait();
+        if(vdp1_sync_busy()) {
+            ++fzx_dbank_overlap;
+            if(dbank_build==dbank_inflight)++fzx_dbank_conflicts;
+        }
+    }
+    if(!dbank_guards()) {
+        fzx_dbank_status=3;
+        dbgio_printf("VDP1 DBANK GUARD FAILED");dbgio_flush();vdp2_sync();for(;;) {}
+    }
+}
+static void dbank_after_build(uint16_t ticks,uint32_t field_ticks) {
+    ++fzx_dbank_frames;fzx_dbank_wait_total+=ticks;
+    if(ticks>fzx_dbank_wait_max)fzx_dbank_wait_max=ticks;
+    const uint32_t bin=(uint32_t)ticks*16u/(field_ticks?field_ticks:1u);
+    ++fzx_dbank_wait_hist[bin<63u?bin:63u];
+}
+static void dbank_submitted(void) {
+    dbank_inflight=dbank_build;
+#if !FZX_VDP1_DBANK_STALE
+    dbank_build^=1u;
+#endif
+}
+#else
+#define DBANK_ROAD_SHADES road_tile_shades
+#define DBANK_MACHINE_SHADES machine_shades
+#endif
 static void
 commands_build(const fzx_frame_t *frame)
 {
@@ -915,7 +1010,7 @@ commands_build(const fzx_frame_t *frame)
         road_job.commands=&commands[COMMAND_FIRST_POLYGON+FZX_SLAVE_ROAD_RESERVE];
         road_job.capacity=FZX_SCENE_CAPACITY-count-FZX_SLAVE_ROAD_RESERVE;
         road_job.view=&fzx_native_view;road_job.plan=&fzx_source_road_plan;
-        road_job.pixels=road_tile_pixels;road_job.shades=road_tile_shades;
+        road_job.pixels=road_tile_pixels;road_job.shades=DBANK_ROAD_SHADES;
         fzx_slave_road_start(&road_job);
     }
 #endif
@@ -1044,11 +1139,11 @@ commands_build(const fzx_frame_t *frame)
         const int32_t eye[3]={(int32_t)(fzx_source_camera.eye[0]*65536.0f),
             (int32_t)(fzx_source_camera.eye[1]*65536.0f),(int32_t)(fzx_source_camera.eye[2]*65536.0f)};
         if(!fzx_road_stream_native(&commands[COMMAND_FIRST_POLYGON+first],FZX_SCENE_CAPACITY-count-first,
-            &fzx_native_view,eye,&fzx_source_road_plan,pa,pb,road_tile_pixels,road_tile_shades,&road_count)) {
+            &fzx_native_view,eye,&fzx_source_road_plan,pa,pb,road_tile_pixels,DBANK_ROAD_SHADES,&road_count)) {
             dbgio_printf("SOURCE C3 ROAD STREAM FAILED %lu\n",(unsigned long)fzx_road_stream_stats.fault);
 #else
         if(!fzx_road_tiles_native(&commands[COMMAND_FIRST_POLYGON+first],FZX_SCENE_CAPACITY-count-first,
-            &fzx_native_view,&fzx_source_road_plan,pa,pb,road_tile_pixels,road_tile_shades,&road_count)) {
+            &fzx_native_view,&fzx_source_road_plan,pa,pb,road_tile_pixels,DBANK_ROAD_SHADES,&road_count)) {
             dbgio_printf("\x1b[H\x1b[2J SOURCE ROAD TILE DRAW FAILED %lu\n",(unsigned long)fzx_road_tile_stats.fault);
 #endif
             dbgio_flush();vdp2_sync();for(;;) {}
@@ -1076,7 +1171,7 @@ commands_build(const fzx_frame_t *frame)
         fzx_fp_scene_begin();
 #endif
         if(!fzx_machine_native(&commands[COMMAND_FIRST_POLYGON+first],FZX_SCENE_CAPACITY-count-first,
-            &fzx_native_view,machine_pixels,machine_shades,&machine_count)) {
+            &fzx_native_view,machine_pixels,DBANK_MACHINE_SHADES,&machine_count)) {
             dbgio_printf("\x1b[H\x1b[2J SOURCE MACHINE DRAW FAILED %lu/%lu\n",(unsigned long)fzx_machine_status,(unsigned long)fzx_machine_stats.fault);
             dbgio_flush();vdp2_sync();for(;;) {}
         }
@@ -1275,6 +1370,11 @@ main(void)
     if((uintptr_t)machine_shades+FZX_MACHINE_SHADE_BYTES>(uintptr_t)sky_partitions.texture_base+sky_partitions.texture_size ||
        !fzx_machine_load(machine_pixels)) {
         dbgio_printf("\x1b[H\x1b[2J SOURCE MACHINE LOAD FAILED\n");dbgio_flush();vdp2_sync();for(;;) {}
+    }
+#endif
+#if FZX_VDP1_DBANK
+    if(!dbank_init()) {
+        dbgio_printf("\x1b[H\x1b[2J VDP1 DBANK INIT FAILED %lu\n",(unsigned long)fzx_dbank_status);dbgio_flush();vdp2_sync();for(;;) {}
     }
 #endif
 #if FZX_SOURCE_HUD
@@ -1522,7 +1622,9 @@ main(void)
 #endif
         const uint16_t render_start = cpu_frt_count_get();
         fzx_timing.publish = (uint16_t)(render_start - publish_start);
-#if FZX_SOURCE_PLANES || FZX_SOURCE_ROAD_TILES
+#if FZX_VDP1_DBANK
+        dbank_before_build();
+#elif FZX_SOURCE_PLANES || FZX_SOURCE_ROAD_TILES
         vdp1_sync_wait();vdp2_sync_wait();
 #endif
 #if FZX_FRAME_PROFILE
@@ -1571,8 +1673,17 @@ main(void)
         /* Pipelined: this frame was built while VDP1 drew the previous one. Wait for that
          * sync (the previous list sent and drawn, the HUD transfer done), then send this one
          * and go straight on to the next frame. */
+#if FZX_VDP1_DBANK
+        {
+            const uint16_t wait_start=cpu_frt_count_get();
+            vdp1_sync_wait();
+            vdp2_sync_wait();
+            dbank_after_build((uint16_t)(cpu_frt_count_get()-wait_start),field_counts);
+        }
+#else
         vdp1_sync_wait();
         vdp2_sync_wait();
+#endif
 #if FZX_FRAME_PROFILE
         fzx_fp_mark(5);
 #endif
@@ -1611,6 +1722,9 @@ main(void)
         vdp1_sync_render();
         vdp1_sync();
         vdp2_sync();
+#if FZX_VDP1_DBANK
+        dbank_submitted();
+#endif
 #if FZX_FRAME_PROFILE
         fzx_fp_return();
 #endif

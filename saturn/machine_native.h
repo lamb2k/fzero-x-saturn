@@ -12,4 +12,8 @@ bool fzx_machine_native(vdp1_cmdt_t *,unsigned,const fzx_view_t *,void *,void *,
 bool fzx_machine_publish(void);
 /* FZX_SIMPIPE_DBUF: the published-snapshot flag travels with the slot. */
 extern int fzx_machine_published;
+/* FZX_VDP1_DBANK: the draw alternates between two shade banks (palettes +
+ * Gouraud). Palettes are uploaded only when changed, so each bank tracks its
+ * own staleness; register both banks once before the first draw. */
+void fzx_machine_dbank(void *bank_a,void *bank_b);
 #endif

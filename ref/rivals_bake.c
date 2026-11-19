@@ -79,8 +79,9 @@ int rb_gp_init(int difficulty, unsigned seed, const short* cpu_line) {
     return gTotalRacers;
 }
 
-/* Racer i: {raceDistance, lateral (+right), speed, energy, maxEnergy}, {lap, position, stateFlags, raceTime, character, unk_39C}. */
-void rb_racer(int i, float f[5], int n[6]) {
+/* Racer i: {raceDistance, lateral (+right), speed, energy, maxEnergy},
+ * {lap, position, stateFlags, raceTime, character, unk_39C (lap target ms), unk_352 (chase target, 255 none), unk_368 (pace rank)}. */
+void rb_racer(int i, float f[5], int n[8]) {
     const Racer* r = &gRacers[i];
     f[0] = r->raceDistance;
     f[1] = -(r->segmentBasis.z.x * r->segmentPositionInfo.segmentDisplacement.x +
@@ -95,6 +96,8 @@ void rb_racer(int i, float f[5], int n[6]) {
     n[3] = r->raceTime;
     n[4] = r->character;
     n[5] = r->unk_39C;
+    n[6] = r->unk_352;
+    n[7] = (int)r->unk_368;
 }
 
 /* The game loop's frame counter: CPU racers think on (id & 3) == (frame % 4). Call once per tick. */

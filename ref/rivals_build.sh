@@ -54,3 +54,6 @@ python3 "$ROOT/ref/gen_stubs.py" "$OUT/gp/stubs.c" "$OUT"/*.i -- $GP_OBJS "$OUT/
 $CC -m32 -fno-pic -O0 -w -c "$OUT/gp/stubs.c" -o "$OUT/gp/stubs.o"
 $CC -m32 -no-pie $GP_OBJS "$OUT/gp_ref_main.o" "$OUT/gp/stubs.o" -lm -o "$OUT/fzx-gp-ref"
 echo "built $OUT/fzx-gp-ref"
+# Native field on HOST: SH2ZAM only, no original game code.
+$CC -m32 -O2 -g -std=gnu11 -Wall -Wextra -Werror -I"$SZ/include" "$ROOT/ref/rivals_gp_main.c" "$SZ/src/sh2zam_line_follower.c" "$SZ/src/sh2zam_line_field.c" -o "$OUT/fzx-rivals-gp"
+echo "built $OUT/fzx-rivals-gp"

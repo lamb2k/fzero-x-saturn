@@ -17,7 +17,7 @@
 #include "ref.h"
 
 int rb_gp_init(int difficulty, unsigned seed, const short* cpu_line);
-void rb_racer(int i, float f[5], int n[6]);
+void rb_racer(int i, float f[5], int n[8]);
 float rb_course_length(void);
 void rb_gp_frame(void);
 
@@ -70,7 +70,7 @@ int main(int argc, char** argv) {
     const double length = rb_course_length();
 
     static int lap_end[MAXR][4], finish_tick[MAXR], retire_tick[MAXR], grid_pos[MAXR], final_pos[MAXR], target_ms[MAXR], character[MAXR];
-    static int prev_lap[MAXR], prev_pos[MAXR];
+    static int prev_lap[MAXR], prev_pos[MAXR], chase[MAXR], pace_rank[MAXR];
     static float grid_dist[MAXR], grid_lat[MAXR], max_energy[MAXR], last_dist[MAXR], last_energy[MAXR], top_speed[MAXR];
     static int last_flags[MAXR];
     int start_tick = -1, rank_change_ticks = 0, rank_swaps = 0, ticks = 0, finished = 0, retired = 0;
@@ -84,11 +84,11 @@ int main(int argc, char** argv) {
     for (int t = 0; t < max_ticks; ++t) {
         rb_gp_frame();
         ref_tick(0, 0, 0);
-        float f[5]; int v[6];
+        float f[5]; int v[8];
         double lead = -1e18, last = 1e18; int changed = 0;
         for (int i = 0; i < MAXR; ++i) {
             rb_racer(i, f, v);
-            if (t == 0) { grid_pos[i] = v[1]; grid_dist[i] = f[0]; grid_lat[i] = f[1]; max_energy[i] = f[4]; target_ms[i] = v[5]; character[i] = v[4]; prev_lap[i] = v[0]; prev_pos[i] = v[1]; }
+            if (t == 0) { grid_pos[i] = v[1]; grid_dist[i] = f[0]; grid_lat[i] = f[1]; max_energy[i] = f[4]; target_ms[i] = v[5]; character[i] = v[4]; chase[i] = v[6]; pace_rank[i] = v[7]; prev_lap[i] = v[0]; prev_pos[i] = v[1]; }
             if (i == 0 && start_tick < 0 && v[3] > 0) start_tick = t;
             if (i == 0 && tf) { float rec3[3] = { f[0], f[1], f[2] }; fwrite(rec3, sizeof rec3, 1, tf); }
             if (start_tick >= 0) {
@@ -123,10 +123,10 @@ int main(int argc, char** argv) {
     for (int i = 0; i < spread_marks; ++i) fprintf(o, "%s%.0f", i ? "," : "", spread_at[i]);
     fprintf(o, "],\n \"racers\": [\n");
     for (int i = 0; i < MAXR; ++i) {
-        fprintf(o, "  {\"id\": %d, \"character\": %d, \"grid\": %d, \"grid_dist\": %.2f, \"grid_lateral\": %.2f, \"target_lap_ms\": %d, \"max_energy\": %.2f,"
+        fprintf(o, "  {\"id\": %d, \"character\": %d, \"grid\": %d, \"grid_dist\": %.2f, \"grid_lateral\": %.2f, \"target_lap_ms\": %d, \"chase\": %d, \"pace_rank\": %d, \"max_energy\": %.2f,"
                    " \"lap_end_ticks\": [%d,%d,%d], \"finish_tick\": %d, \"final_pos\": %d, \"retire_tick\": %d, \"mean_speed\": %.3f,"
                    " \"last_dist\": %.1f, \"last_energy\": %.1f, \"last_flags\": \"%08x\", \"top_speed\": %.2f}%s\n",
-                i, character[i], grid_pos[i], grid_dist[i], grid_lat[i], target_ms[i], max_energy[i], lap_end[i][0], lap_end[i][1], lap_end[i][2],
+                i, character[i], grid_pos[i], grid_dist[i], grid_lat[i], target_ms[i], chase[i], pace_rank[i], max_energy[i], lap_end[i][0], lap_end[i][1], lap_end[i][2],
                 finish_tick[i], finish_tick[i] >= 0 ? final_pos[i] : -1, retire_tick[i], speed_n[i] ? speed_sum[i] / speed_n[i] : 0.0,
                 last_dist[i], last_energy[i], (unsigned)last_flags[i], top_speed[i], i + 1 < MAXR ? "," : "");
     }

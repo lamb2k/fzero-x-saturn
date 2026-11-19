@@ -2,6 +2,7 @@
 #include <limits.h>
 #include <string.h>
 #include "fzx_scene_phase.h"
+#include "fzx_band_corners.h"
 #ifndef FZX_RBG_LEAN
 #define FZX_RBG_LEAN 0
 #endif
@@ -194,6 +195,9 @@ bool fzx_clouds_rbg_prepare(const fzx_view_t *view,const RefBackdrop *source,
         int32_t p[3];for(unsigned j=0;j<3;++j)p[j]=(int32_t)c[i].position[j]*4096;
         if(!fzx_view_transform(view,p,positions[i]))return fail(out,2);
     }
+#if ENG_DSP_BANDS
+    {fzx_band_fractions_t bf;fzx_band_fractions_clouds(&bf,inner);fzx_band_begin(1,(const int32_t (*)[3])positions,&bf);}
+#endif
     static const unsigned corners[4]={0,1,7,6};
     for(unsigned i=0;i<4;++i)memcpy(outer[i],positions[corners[i]],12);
     FZX_SCP(OUTER);
@@ -230,10 +234,14 @@ bool fzx_clouds_rbg_prepare(const fzx_view_t *view,const RefBackdrop *source,
         if(low>=high)continue;
         const int32_t fractions[4]={low,low,high,high};
         const unsigned sides[4]={0,1,1,0};
+#if ENG_DSP_BANDS
+        (void)sides;fzx_band_corners(1,outer,(const int32_t (*)[3])positions,half,band,fractions);
+#else
         for(unsigned i=0;i<4;++i)for(unsigned j=0;j<3;++j) {
             const unsigned in_vertex=half?4+sides[i]:2+sides[i],edge=half?6+sides[i]:sides[i];
             outer[i][j]=positions[in_vertex][j]+(int32_t)(((int64_t)positions[edge][j]-positions[in_vertex][j])*fractions[i]/65536);
         }
+#endif
         if(!BAND_PROJECTED(view,(const int32_t (*)[3])outer,xy,&count))return fail(out,2);
         if(!polygon((const int32_t (*)[2])xy,count,band,out,emit,context))return false;
     }

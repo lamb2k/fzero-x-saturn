@@ -99,16 +99,21 @@ typedef struct {
     sh2z_vec3_t position, forward, up;
     uint32_t speed, lap;
 } fzx_pose_t;
+#if FZX_SIMPIPE_DBUF
+/* Sim-pipeline part descriptor (checkpoint 3): an ordinary, non-volatile
+ * object's address and size. */
+typedef struct fzx_part { void *address; uint32_t bytes; } fzx_part_t;
+#endif
 FZX_EXPORT void fzx_set_pose(const fzx_pose_t *pose);
 #if FZX_SOURCE_CAMERA
 /* Native view already converted from source camera matrices. NULL clears it. */
 void fzx_set_camera(const fzx_view_t *view);
 #if FZX_SIMPIPE_DBUF
 /* Sim-pipeline checkpoint 3: where the core keeps what fzx_set_pose and
- * fzx_set_camera leave behind, so a publication slot can carry it. */
-typedef struct { void *address; uint32_t bytes; } fzx_core_part_t;
+ * fzx_set_camera leave behind, so a publication slot can carry it. The one
+ * part-descriptor type: saturn/simpipe.h uses this same type. */
 #define FZX_CORE_PUBLICATION_PARTS 6u
-extern const fzx_core_part_t fzx_core_publication_parts[FZX_CORE_PUBLICATION_PARTS];
+extern const fzx_part_t fzx_core_publication_parts[FZX_CORE_PUBLICATION_PARTS];
 #endif
 #endif
 /* Test driver only (the Saturn image's debugger autopilot): a stick x in -63..63, negative to

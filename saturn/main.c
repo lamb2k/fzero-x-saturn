@@ -467,10 +467,11 @@ extern volatile uint32_t fzx_sky_stack_start;
 volatile uint32_t fzx_simpipe_prof[16];
 volatile uint32_t fzx_simpipe_k[8];
 volatile uint32_t fzx_simpipe_chain[128][4];
-/* Executed ticks (counted after orig_tick by the road tick counter, independent
- * of the 12,288-entry input log), race generation (restarts), diagnostic-replay
- * freezes (orig_tick calls that ran no tick). Rows: {generation, tick in
- * generation, state, input}; the input word is the bridge's pad state. */
+/* Executed ticks (counted after orig_tick by a pad sentinel the tick
+ * overwrites, independent of the sources and of the 12,288-entry input log),
+ * race generation (restarts), diagnostic-replay freezes (orig_tick calls that
+ * ran no tick). Rows: {generation, tick in generation, state, input}; the
+ * input word is the bridge's pad state. */
 volatile uint32_t fzx_simpipe_ticks[4];
 static uint32_t
 simpipe_fnv(uint32_t h, const volatile void *data, unsigned bytes)
@@ -754,9 +755,11 @@ static const fzx_simpipe_part_t simpipe_parts[] = {
     { &fzx_native_view, sizeof(fzx_native_view) }, { &fzx_source_machine, sizeof(fzx_source_machine) },
     { &fzx_source_countdown, sizeof(fzx_source_countdown) }, { &fzx_source_skyline, sizeof(fzx_source_skyline) },
     { &fzx_source_backdrop, sizeof(fzx_source_backdrop) }, { &fzx_source_road_plan, sizeof(fzx_source_road_plan) },
-    { &hud_clock, sizeof(hud_clock) }, { (void *)&fzx_camera_status, 4 }, { (void *)&fzx_sky_status, 4 },
-    { (void *)&fzx_skyline_status, 4 }, { (void *)&fzx_road_plan_status, 4 }, { (void *)&fzx_road_plan_sequence, 4 },
-    { &fzx_machine_published, sizeof(fzx_machine_published) },
+    { &hud_clock, sizeof(hud_clock) }, { &fzx_machine_published, sizeof(fzx_machine_published) },
+};
+/* Volatile publication words: typed volatile loads and stores only (C-037). */
+static volatile uint32_t *const simpipe_words[FZX_SIMPIPE_VOLATILE_WORDS] = {
+    &fzx_camera_status, &fzx_sky_status, &fzx_skyline_status, &fzx_road_plan_status, &fzx_road_plan_sequence,
 };
 #define SIMPIPE_A4(n) (((n) + 3u) & ~3u)
 /* Per-slot payload: every part 4-byte aligned. Core: pose, two flags, ring, view, flag. */
@@ -764,7 +767,7 @@ static const fzx_simpipe_part_t simpipe_parts[] = {
     SIMPIPE_A4(sizeof(fzx_native_view)) + SIMPIPE_A4(sizeof(fzx_source_machine)) + \
     SIMPIPE_A4(sizeof(fzx_source_countdown)) + SIMPIPE_A4(sizeof(fzx_source_skyline)) + \
     SIMPIPE_A4(sizeof(fzx_source_backdrop)) + SIMPIPE_A4(sizeof(fzx_source_road_plan)) + \
-    SIMPIPE_A4(sizeof(hud_clock)) + 5u * 4u + SIMPIPE_A4(sizeof(fzx_machine_published)) + \
+    SIMPIPE_A4(sizeof(hud_clock)) + SIMPIPE_A4(sizeof(fzx_machine_published)) + \
     SIMPIPE_A4(sizeof(fzx_pose_t)) + 4u + 4u + 4u + SIMPIPE_A4(sizeof(fzx_view_t)) + 4u + \
     SIMPIPE_A4(sizeof(fzx_countdown_phase_t)) + 4u)
 #define SIMPIPE_AREA_BYTES ((sizeof(fzx_simpipe_area_t) + 31u) & ~31u)
@@ -810,7 +813,7 @@ simpipe_carve(uint32_t low_end)
     c->report[3] = (uint32_t)SIMPIPE_SLOT(c, 0); c->report[4] = (uint32_t)SIMPIPE_SLOT(c, 1);
     c->report[5] = (uint32_t)SIMPIPE_JOB(c); c->report[6] = end; c->report[7] = SIMPIPE_SLOT_BYTES;
     c->report[8] = SIMPIPE_JOB_BYTES; c->report[9] = sizeof(simpipe_parts) / sizeof(simpipe_parts[0]) +
-        FZX_CORE_PUBLICATION_PARTS + 2u;
+        FZX_CORE_PUBLICATION_PARTS + 2u + FZX_SIMPIPE_VOLATILE_WORDS;
     c->report[10] = SIMPIPE_PAYLOAD; c->report[16] = 1;
     return (uint32_t)end;
 }
@@ -837,6 +840,7 @@ simpipe_copy(bool out)
         s = SIMPIPE_SLOT(c, c->sequence & 1u);
         s->magic = FZX_SIMPIPE_SLOT_MAGIC; s->generation = c->generation;
         s->sequence = ++c->sequence; s->ticks = fzx_input_count;
+        for (unsigned i = 0; i < FZX_SIMPIPE_VOLATILE_WORDS; ++i) s->words[i] = *simpipe_words[i];
         ++c->report[13];
     } else {
         uint32_t want = c->sequence;
@@ -855,6 +859,7 @@ simpipe_copy(bool out)
 #endif
             ) { ++c->report[12]; simpipe_stop(4); }
         ++c->report[14];
+        for (unsigned i = 0; i < FZX_SIMPIPE_VOLATILE_WORDS; ++i) *simpipe_words[i] = s->words[i];
         /* Tick binding: the presented publication must be the one taken at the
          * current tick count (serial). Counted, not fatal. */
         if (s->ticks != fzx_input_count) {
@@ -863,8 +868,7 @@ simpipe_copy(bool out)
     }
     uint8_t *data = simpipe_parts_copy(simpipe_parts, sizeof(simpipe_parts) / sizeof(simpipe_parts[0]),
                                        (uint8_t *)(s + 1), out);
-    data = simpipe_parts_copy((const fzx_simpipe_part_t *)fzx_core_publication_parts, FZX_CORE_PUBLICATION_PARTS,
-                              data, out);
+    data = simpipe_parts_copy(fzx_core_publication_parts, FZX_CORE_PUBLICATION_PARTS, data, out);
     simpipe_parts_copy(c->dynamic, 2u, data, out);
 }
 #endif
@@ -1461,18 +1465,26 @@ main(void)
 #endif
             }
 #if FZX_SIMPIPE_PROFILE
-            const uint32_t simpipe_n = fzx_road_next_frame;
+            /* Executed-tick signal, independent of the sources and of the
+             * 12,288-entry log: ref_tick is the only writer of the bridge's pad
+             * globals and writes all three first thing. Park an impossible
+             * value (no input path produces stick -128) and see whether a tick
+             * replaced it; a diagnostic-replay freeze leaves it, and the saved
+             * values go back. */
+            const unsigned short simpipe_b = ref_pad_button;
+            const signed char simpipe_x = ref_pad_stick_x, simpipe_y = ref_pad_stick_y;
+            ref_pad_button = 0xffffu; ref_pad_stick_x = -128; ref_pad_stick_y = -128;
 #endif
             orig_tick();
 #if FZX_SIMPIPE_PROFILE
-            /* An executed tick advances the road tick counter (logged_tick ->
-             * fzx_road_note_tick) and leaves its own input in the bridge's pad
-             * globals (ref_tick); a diagnostic-replay freeze changes neither. */
-            if (fzx_road_next_frame != simpipe_n) {
+            if (ref_pad_button != 0xffffu || ref_pad_stick_x != -128 || ref_pad_stick_y != -128) {
                 ++simpipe_ticks;
                 simpipe_hash_tick((uint32_t)ref_pad_button << 16 | (uint32_t)(uint8_t)ref_pad_stick_x << 8 |
                                   (uint8_t)ref_pad_stick_y);
-            } else ++fzx_simpipe_ticks[3];
+            } else {
+                ref_pad_button = simpipe_b; ref_pad_stick_x = simpipe_x; ref_pad_stick_y = simpipe_y;
+                ++fzx_simpipe_ticks[3];
+            }
 #endif
 #else
             fzx_step((buttons & ~FZX_RESET) | pending_reset);

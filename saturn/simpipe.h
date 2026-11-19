@@ -8,6 +8,7 @@
 #ifndef FZX_SIMPIPE_H
 #define FZX_SIMPIPE_H
 #include <stdint.h>
+#include "fzx.h"
 
 #define FZX_SIMPIPE_AREA_MAGIC 0x53504442u  /* 'SPDB' */
 #define FZX_SIMPIPE_SLOT_MAGIC 0x53504c54u  /* 'SPLT' */
@@ -25,11 +26,20 @@
 #define FZX_SIMPIPE_TOP_RESERVE_BASE (0x00300000u - FZX_SIMPIPE_TOP_RESERVE_BYTES)
 #define FZX_SIMPIPE_ROAD_LIST (FZX_SIMPIPE_TOP_RESERVE_BASE + 32u)
 
-/* One draw-facing publication output: its address and size. */
-typedef struct { void *address; uint32_t bytes; } fzx_simpipe_part_t;
+/* One ordinary (non-volatile) draw-facing publication output: the core's
+ * descriptor type, shared rather than redeclared (C-037). */
+typedef fzx_part_t fzx_simpipe_part_t;
 
-/* Slot header; the parts follow in table order, each 4-byte aligned. */
-typedef struct { uint32_t magic, generation, sequence, ticks; } fzx_simpipe_slot_t;
+/* The volatile publication words (statuses and the road-plan sequence) are
+ * not parts: they travel as typed values in the slot header, moved with
+ * volatile loads and stores (C-037). */
+#define FZX_SIMPIPE_VOLATILE_WORDS 5u
+
+/* Slot header; the ordinary parts follow in table order, each 4-byte aligned. */
+typedef struct {
+    uint32_t magic, generation, sequence, ticks;
+    uint32_t words[FZX_SIMPIPE_VOLATILE_WORDS];
+} fzx_simpipe_slot_t;
 
 /* The job a slave would run for frame N+1 (sized here; used from checkpoint 4). */
 typedef struct {

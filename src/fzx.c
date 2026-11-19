@@ -52,7 +52,7 @@ void fzx_set_camera(const fzx_view_t *v) {
     else source_view_valid=false;
 }
 #if FZX_SIMPIPE_DBUF
-const fzx_core_part_t fzx_core_publication_parts[FZX_CORE_PUBLICATION_PARTS]={
+const fzx_part_t fzx_core_publication_parts[FZX_CORE_PUBLICATION_PARTS]={
     {&pose,sizeof(pose)},{&pose_valid,sizeof(pose_valid)},{&pose_tracked,sizeof(pose_tracked)},
     {&current_ring,sizeof(current_ring)},{&source_view,sizeof(source_view)},{&source_view_valid,sizeof(source_view_valid)}};
 #endif

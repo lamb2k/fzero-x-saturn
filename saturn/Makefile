@@ -634,15 +634,16 @@ SH_CFLAGS += -DFZX_ROAD_STREAM_BUDGET=1
 else ifneq ($(FZX_ROAD_STREAM_BUDGET),0)
 $(error FZX_ROAD_STREAM_BUDGET must be 0 or 1)
 endif
-# FZX_RBG_FAST=1 (default 0): floor and cloud rotation-layer preparation with
-# the SH-2 divider for projection and an edge-walked line window
-# (include/fzx_rbg_fast.h). Needs the RBG0 floor.
+# FZX_RBG_FAST=1 (default 0): fzx_view clipping/projection with 32x32 products
+# and the SH-2 divider (same results), and an edge-walked floor/cloud line window
+# (include/fzx_rbg_fast.h, src/fzx_rbg_fast.c). Needs the RBG0 floor.
 FZX_RBG_FAST ?= 0
 ifeq ($(FZX_RBG_FAST),1)
 ifneq ($(FZX_SOURCE_FLOOR_RBG),1)
 $(error FZX_RBG_FAST requires FZX_SOURCE_FLOOR_RBG=1)
 endif
 SH_CFLAGS += -DFZX_RBG_FAST=1
+FZX_SKY_SRCS += ../src/fzx_rbg_fast.c
 else ifneq ($(FZX_RBG_FAST),0)
 $(error FZX_RBG_FAST must be 0 or 1)
 endif

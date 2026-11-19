@@ -1,10 +1,11 @@
 """FZX_RBG_FAST (include/fzx_rbg_fast.h): HOST checks against the per-line originals.
 
-The edge-walked line window is compared with the original per-line window
-(extracted from src/fzx_floor_rbg.c at test time) on random convex polygons,
-including ones that leave the screen and cross the clip lines. The divider
-projection is compared with fzx_view_project (on HOST both divide portably;
-the SH-2 divider path is the floor window's existing one).
+The edge-walked line window (src/fzx_rbg_fast.c) is compared with the original
+per-line window (extracted from src/fzx_floor_rbg.c at test time) on random
+convex polygons, including ones that leave the screen and cross the clip lines.
+src/fzx_view.c built with FZX_RBG_FAST=1 is compared with its default build:
+projection, clipping and all six plane tests must be identical (on HOST both
+divide portably; the 32x32 products and the exact remainders are exercised).
 """
 from pathlib import Path
 import os
@@ -21,6 +22,10 @@ DRIVER = r'''
 #include <string.h>
 #include "fzx_view.h"
 #include "fzx_rbg_fast.h"
+/* src/fzx_view.c built a second time with FZX_RBG_FAST=1 (fast_view.c). */
+bool fast_view_project(const fzx_view_t *,const int32_t[3],int32_t[2]);
+int fast_view_clip(const fzx_view_t *,const int32_t[][3],unsigned,int32_t[10][3]);
+int64_t fast_view_plane(const fzx_view_t *,const int32_t[3],unsigned);
 typedef struct { uint16_t window[224][2]; uint32_t visible_lines; } out_t;
 static int64_t divide(int64_t n,int32_t d){return n/d;}
 @ORIGINAL@
@@ -63,7 +68,7 @@ int main(void){
     for(int t=0;t<200000;++t){
         const int32_t p[3]={rnd(-2000000,2000000)*64,rnd(-2000000,2000000)*64,rnd(-5,4000000)*64};
         int32_t o1[2]={0,0},o2[2]={0,0};
-        const bool r1=fzx_view_project(&v,p,o1),r2=fzx_rbg_project(&v,p,o2);
+        const bool r1=fzx_view_project(&v,p,o1),r2=fast_view_project(&v,p,o2);
         ++proj;if(r1!=r2||o1[0]!=o2[0]||o1[1]!=o2[1])++proj_diff;
     }
     /* Clip: identical vertex counts and coordinates. */
@@ -72,9 +77,10 @@ int main(void){
         int32_t q[4][3];const int32_t span=rnd(1,4)==1?2000000:200000;
         for(int i=0;i<4;++i){q[i][0]=rnd(-span,span)*64;q[i][1]=rnd(-span,span)*64;q[i][2]=rnd(-span/4,span)*64;}
         int32_t o1[10][3],o2[10][3];memset(o1,0,sizeof o1);memset(o2,0,sizeof o2);
-        const int n1=fzx_view_clip(&v,(const int32_t (*)[3])q,4,o1),n2=fzx_rbg_clip(&v,(const int32_t (*)[3])q,4,o2);
+        const int n1=fzx_view_clip(&v,(const int32_t (*)[3])q,4,o1),n2=fast_view_clip(&v,(const int32_t (*)[3])q,4,o2);
         ++clips;if(n1>0)++clip_nonempty;
         if(n1!=n2||(n1>0&&memcmp(o1,o2,sizeof(o1[0])*(size_t)n1)))++clip_diff;
+        for(unsigned k=0;k<6;++k)for(int i=0;i<4;++i)if(fzx_view_plane(&v,q[i],k)!=fast_view_plane(&v,q[i],k))++clip_diff;
     }
     printf("clips %ld nonempty %ld clip_differences %ld\n",clips,clip_nonempty,clip_diff);
     if(clip_diff)return 1;
@@ -99,8 +105,14 @@ class RbgFastTests(unittest.TestCase):
             (d / 'driver.c').write_text(DRIVER.replace('@ORIGINAL@', original).replace(
                 'static int cmp_angle(const void *a,const void *b,void *c);', ''))
             exe = d / 'driver'
+            nl = chr(10)
+            (d / 'fast_view.c').write_text('#define FZX_RBG_FAST 1' + nl + ''.join(
+                '#define fzx_view_%s fast_view_%s' % (n, n) + nl for n in
+                ('from_source', 'transform', 'plane', 'project', 'fraction', 'clip')) +
+                '#include "%s"' % (ROOT / 'src/fzx_view.c').as_posix() + nl)
             r = subprocess.run(['gcc', '-std=gnu11', '-O2', '-Wall', '-fsanitize=undefined', '-fno-sanitize-recover=all',
                                 '-I' + str(ROOT / 'include'), str(d / 'driver.c'), str(ROOT / 'src/fzx_view.c'),
+                                str(d / 'fast_view.c'), str(ROOT / 'src/fzx_rbg_fast.c'),
                                 '-lm', '-o', str(exe)], capture_output=True, text=True)
             self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
             return subprocess.run([str(exe)], capture_output=True, text=True)

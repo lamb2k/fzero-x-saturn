@@ -1,6 +1,30 @@
 #include "fzx_view.h"
 #include <limits.h>
 #include <string.h>
+#ifndef FZX_RBG_FAST
+#define FZX_RBG_FAST 0
+#endif
+#if FZX_RBG_FAST
+/* FZX_RBG_FAST=1: the same results with cheaper SH-2 arithmetic. Products whose
+ * factors fit 32 bits use 32x32->64 multiplies; divisions whose quotient fits
+ * 32 bits use the SH-2 64/32 divider (remainders recomputed exactly). Every
+ * other case takes the original 64-bit path. */
+static inline int64_t fv_div(int64_t n,int32_t d) {
+#if defined(__sh__)
+    if(d<0){d=-d;n=-n;}
+    if(d>0 && n>=(int64_t)INT32_MIN*d && n<=(int64_t)INT32_MAX*d) {
+        *(volatile uint32_t *)0xffffff00u=(uint32_t)d;
+        *(volatile uint32_t *)0xffffff10u=(uint32_t)((uint64_t)n>>32);
+        *(volatile uint32_t *)0xffffff14u=(uint32_t)n;
+        return (int32_t)*(volatile uint32_t *)0xffffff14u;
+    }
+#endif
+    return n/d;
+}
+static inline int64_t fv_mul(int64_t k,int32_t z) {
+    return k>=INT32_MIN && k<=INT32_MAX ? (int64_t)(int32_t)k*z : k*z;
+}
+#endif
 
 static bool view_finite(float x) {
     uint32_t bits; memcpy(&bits,&x,4);
@@ -64,6 +88,16 @@ bool fzx_view_transform(const fzx_view_t *v,const int32_t p[3],int32_t out[3]) {
     return true;
 }
 int64_t fzx_view_plane(const fzx_view_t *v,const int32_t p[3],unsigned plane) {
+#if FZX_RBG_FAST
+    switch(plane) {
+    case 0:return (int64_t)p[2]-v->near_plane;
+    case 1:return (int64_t)v->far_plane-p[2];
+    case 2:return (int64_t)v->focal[0]*p[0]+fv_mul(v->center[0]-(int64_t)v->clip[0]*65536,p[2]);
+    case 3:return fv_mul((int64_t)v->clip[2]*65536-v->center[0],p[2])-(int64_t)v->focal[0]*p[0];
+    case 4:return fv_mul(v->center[1]-(int64_t)v->clip[1]*65536,p[2])-(int64_t)v->focal[1]*p[1];
+    default:return (int64_t)v->focal[1]*p[1]+fv_mul((int64_t)v->clip[3]*65536-v->center[1],p[2]);
+    }
+#endif
     const int64_t x=p[0],y=p[1],z=p[2];
     switch(plane) {
     case 0:return z-v->near_plane;
@@ -76,8 +110,13 @@ int64_t fzx_view_plane(const fzx_view_t *v,const int32_t p[3],unsigned plane) {
 }
 bool fzx_view_project(const fzx_view_t *v,const int32_t p[3],int32_t out[2]) {
     if(p[2]<=0)return false;
+#if FZX_RBG_FAST
+    const int64_t x=v->center[0]+fv_div((int64_t)v->focal[0]*p[0],p[2]);
+    const int64_t y=v->center[1]-fv_div((int64_t)v->focal[1]*p[1],p[2]);
+#else
     const int64_t x=v->center[0]+(int64_t)v->focal[0]*p[0]/p[2];
     const int64_t y=v->center[1]-(int64_t)v->focal[1]*p[1]/p[2];
+#endif
     if(x<INT32_MIN || x>INT32_MAX || y<INT32_MIN || y>INT32_MAX)return false;
     out[0]=(int32_t)x;out[1]=(int32_t)y;return true;
 }
@@ -110,12 +149,24 @@ static uint64_t fraction32(int64_t dp,int64_t dc) {
     }
     return q;
 }
+#if FZX_RBG_FAST
+/* d is a positive focal length (int32). */
+static int64_t floor_div(int64_t n,int32_t d) {
+    const int64_t q=fv_div(n,d);
+    return q-(n-fv_mul(q,d)<0);
+}
+static int64_t ceil_div(int64_t n,int32_t d) {
+    const int64_t q=fv_div(n,d);
+    return q+(n-fv_mul(q,d)>0);
+}
+#else
 static int64_t floor_div(int64_t n,int64_t d) {
     return n/d-(n%d<0);
 }
 static int64_t ceil_div(int64_t n,int64_t d) {
     return n/d+(n%d>0);
 }
+#endif
 /* Reapply processed planes to rounded intersections. Each side constrains only
  * one coordinate at positive Z, so this cannot undo an earlier plane. */
 static bool inward(const fzx_view_t *v,int32_t p[3],unsigned plane) {
@@ -126,8 +177,13 @@ static bool inward(const fzx_view_t *v,int32_t p[3],unsigned plane) {
         const bool lower=k==2 || k==5;
         /* Plane order is left, right, top, bottom; clip order is L,T,R,B. */
         const unsigned ci=k==2?0u:k==3?2u:k==4?1u:3u;
+#if FZX_RBG_FAST
+        const int64_t bound=fv_mul(axis==0 ? (int64_t)v->clip[ci]*65536-v->center[0]
+                                           : v->center[1]-(int64_t)v->clip[ci]*65536,p[2]);
+#else
         const int64_t bound=(axis==0 ? (int64_t)v->clip[ci]*65536-v->center[0]
                                     : v->center[1]-(int64_t)v->clip[ci]*65536)*p[2];
+#endif
         const int64_t n=lower?ceil_div(bound,v->focal[axis]):floor_div(bound,v->focal[axis]);
         if(n<INT32_MIN || n>INT32_MAX)return false;
         if((lower && p[axis]<n) || (!lower && p[axis]>n))p[axis]=(int32_t)n;
@@ -156,7 +212,13 @@ int fzx_view_clip(const fzx_view_t *v,const int32_t input[][3],unsigned count,
                 for(unsigned j=0;j<3;++j) {
                     const int64_t delta=(int64_t)current[j]-previous[j];
                     const uint64_t magnitude=(uint64_t)(delta<0?-delta:delta);
+#if FZX_RBG_FAST
+                    /* magnitude < 2^32 and t <= 2^32. */
+                    const int64_t step=t==UINT64_C(4294967296) ? (int64_t)magnitude :
+                        (int64_t)(((uint64_t)(uint32_t)magnitude*(uint32_t)t)>>32);
+#else
                     const int64_t step=(int64_t)((magnitude*t)>>32);
+#endif
                     q[j]=(int32_t)(previous[j]+(delta<0?-step:step));
                 }
                 if(!inward(v,q,plane))return -1;

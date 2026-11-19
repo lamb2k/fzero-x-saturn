@@ -102,18 +102,10 @@ static bool mapping(const fzx_view_t *view,const RefBackdropVertex *source,
     return true;
 }
 static bool projected(const fzx_view_t *v,const int32_t in[4][3],int32_t xy[10][2],unsigned *count) {
-#if FZX_RBG_FAST
-    int32_t clipped[10][3];const int n=fzx_rbg_clip(v,in,4,clipped);
-#else
     int32_t clipped[10][3];const int n=fzx_view_clip(v,in,4,clipped);
-#endif
     if(n<0)return false;
     *count=(unsigned)n;
-#if FZX_RBG_FAST
-    for(int i=0;i<n;++i)if(!fzx_rbg_project(v,clipped[i],xy[i]))return false;
-#else
     for(int i=0;i<n;++i)if(!fzx_view_project(v,clipped[i],xy[i]))return false;
-#endif
     return true;
 }
 static void window(const fzx_view_t *v,const int32_t xy[10][2],unsigned count,fzx_clouds_rbg_t *out) {

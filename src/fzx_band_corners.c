@@ -61,6 +61,12 @@ static int32_t products[2][DELTAS * FRACS] __attribute__((aligned(16)));
 static int32_t job_fraction[2][FRACS];
 static uint8_t negative[2][DELTAS], state[2], loaded;
 #define POLL_LIMIT 200000u
+/* The DSP's results, read cache-through on the SH-2 (never cached, so no purge). */
+#if SH2Z_DSP_NATIVE
+#define DSP_RESULTS(p) ((const volatile int32_t *)((uintptr_t)(p) | 0x20000000u))
+#else
+#define DSP_RESULTS(p) ((const volatile int32_t *)(p))
+#endif
 
 static void dsp_idle(void) {
     uint32_t polls = 0;
@@ -72,7 +78,7 @@ void fzx_band_begin(unsigned surface, const int32_t positions[8][3], const fzx_b
     ++fzx_band_stats[0];
     state[surface] = 0;
     if (!loaded) {
-        dsp_idle(); loaded = sh2z_dsp_scale16_load() ? 1u : 0u; ++fzx_band_stats[5];
+        dsp_idle(); loaded = (sh2z_dsp_scale16_load() || !SH2Z_DSP_NATIVE) ? 1u : 0u; ++fzx_band_stats[5]; /* portable: the CPU form */
 #if ENG_DSP_BANDS_CORRUPT
         /* Control: the product's 48-bit add becomes a 32-bit ADD (the SH2ZAM host test's first scale16 mutation). */
         uint32_t p[SH2Z_DSP_PROGRAM_WORDS];
@@ -107,7 +113,7 @@ void fzx_band_corners(unsigned surface, int32_t outer[4][3], const int32_t posit
                       unsigned half, unsigned band, const int32_t fractions[4]) {
     if (state[surface] == 1) { dsp_idle(); state[surface] = sh2z_dsp_busy() ? 0u : 2u; }
     /* Results are read cache-through: never cached, so no purge. */
-    const volatile int32_t *const q = (const volatile int32_t *)((uintptr_t)products[surface] | 0x20000000u);
+    const volatile int32_t *const q = DSP_RESULTS(products[surface]);
     for (unsigned i = 0; i < 4; ++i) {
         const unsigned side = sides[i], ib = (band - 1) * 2 + (i >= 2);
         const int32_t *base = positions[2 + 2 * half + side], *to = positions[6 * half + side];
@@ -135,7 +141,7 @@ void fzx_band_point(unsigned surface, int32_t p[3], const int32_t positions[8][3
     if (state[surface] == 2)
         for (unsigned k = 0; k < FRACS; ++k) if (job_fraction[surface][k] == fraction) { ib = k; break; }
     if (ib < FRACS) {
-        const volatile int32_t *const q = (const volatile int32_t *)((uintptr_t)products[surface] | 0x20000000u);
+        const volatile int32_t *const q = DSP_RESULTS(products[surface]);
         for (unsigned j = 0; j < 3; ++j) {
             const unsigned k = (half * 2 + side) * 3 + j;
             const int32_t v = q[k * FRACS + ib];

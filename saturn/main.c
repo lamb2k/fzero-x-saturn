@@ -789,7 +789,7 @@ simpipe_stop(uint32_t status)
     fzx_simpipe_area->report[16] = status;
     for (;;) {}
 }
-static volatile uint32_t *
+static volatile uint32_t * __attribute__((noinline))
 simpipe_guard(const fzx_simpipe_area_t *c, unsigned g)
 {
     return g < 3u ? SIMPIPE_GUARD_AT(c, g) : SIMPIPE_LAST_GUARD(c);
@@ -815,7 +815,7 @@ simpipe_carve(uint32_t low_end)
     c->report[10] = SIMPIPE_PAYLOAD; c->report[16] = 1;
     return (uint32_t)end;
 }
-static uint8_t *
+static uint8_t * __attribute__((noinline))
 simpipe_parts_copy(const fzx_simpipe_part_t *p, unsigned n, uint8_t *data, bool out)
 {
     for (; n; --n, ++p) {

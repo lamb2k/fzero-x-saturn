@@ -118,10 +118,10 @@ volatile uint32_t fzx_e0_status, fzx_e0_done, fzx_e0_fault;
  * [11] slave busy sum at the last frame, [12] FRT ticks per field, [13] pick
  * BAD_ARGS, [14] pick TOO_MANY, [15] visible chunks maximum. */
 volatile uint32_t fzx_e0_report[16];
-/* Floor refusal: queue front, presented tick and commits before and after the
- * refused call, floor status, build bank (bit 8: VDP1 busy), field, prelude. */
-volatile uint32_t fzx_e0_floor_diag[11]; /* [10]: refused frames skipped (E1) */
 #if FZX_E1_DRIVE
+/* Floor refusal (E1): queue front, presented tick and commits before and after the
+ * refused call, floor status, build bank (bit 8: VDP1 busy), field, prelude, count. */
+volatile uint32_t fzx_e0_floor_diag[11];
 #include "fzx_floor_rbg.h"
 /* Floor fault probe (E1): the first refused frame's inputs, then the same prepare
  * run again as is and with every interrupt masked. [0] refusals seen, [1] tick,
@@ -273,14 +273,14 @@ static void fail(uint32_t code, const char *text, uint32_t detail) {
     for (;;) {}
 }
 
-/* Interrupt callbacks and the multiply registers (E1 floor fault, 2026-11-19).
- * The BIOS SCU interrupt dispatcher (0x06000840..0x0600094A) saves r0-r7, PR and
- * GBR but not MACH/MACL, and Yaul's SCU handlers call our VBlank callbacks as plain
- * functions. A callback that multiplies (fzx_fp_present: row index x 44, mul.l)
- * overwrites MACL under whatever master code the VBlank-In interrupt lands in; the
- * floor and view maths right after the field wait are the main victims (fault 2,
- * off-by-a-few quotients from libgcc's division). Every engine callback runs inside
- * these wrappers, which keep MACH/MACL. E0_ISR_MAC_SAVE=0 is the control. */
+/* Interrupt callbacks and the multiply registers. The BIOS SCU interrupt dispatcher
+ * (0x06000840..0x0600094A) saves r0-r7, PR and GBR but not MACH/MACL, and Yaul calls
+ * the VBlank callbacks as plain functions. A callback that multiplies (with E1's
+ * 44-byte frame row, fzx_fp_present indexes rows with mul.l) overwrites MACL under
+ * whatever master code the interrupt lands in: wrong products and quotients in the
+ * floor and view maths after the field wait (fault 2 refusals, status 23 in the
+ * probe control). Every engine callback runs inside these wrappers. E0_ISR_MAC_SAVE=0
+ * is the control. */
 #ifndef E0_ISR_MAC_SAVE
 #define E0_ISR_MAC_SAVE 1
 #endif
@@ -296,9 +296,8 @@ static void render_end(void *work) {
     fzx_floor_present(work);
     MAC_RESTORE();
 }
-/* Control probe (E0_MAC_PROBE=1, diagnostic only): for up to one field before the
- * VBlank wait, check 32x32->64 products for a changed MACH/MACL. [0] products,
- * [1] wrong. Costs a field per frame. */
+/* Control probe (E0_MAC_PROBE=1, diagnostic only): for one field before the VBlank
+ * wait, check 32x32->64 products for a changed MACH/MACL. [0] products, [1] wrong. */
 #ifndef E0_MAC_PROBE
 #define E0_MAC_PROBE 0
 #endif
@@ -312,7 +311,6 @@ static void mac_probe(void) {
         probe_seed = probe_seed * 1664525u + 1013904223u;
         const int32_t a = (int32_t)probe_seed, b = (int32_t)(probe_seed * 2654435761u);
         int64_t p, q;
-        /* A wide window between the multiply and the reads, then a reference. */
         __asm__ volatile("dmuls.l %1,%2\n\tnop\n\tnop\n\tnop\n\tnop\n\tnop\n\tnop\n\tsts mach,%S0\n\tsts macl,%R0"
                          : "=&r"(p) : "r"(a), "r"(b) : "mach", "macl");
         __asm__ volatile("dmuls.l %1,%2\n\tsts mach,%S0\n\tsts macl,%R0" : "=&r"(q) : "r"(a), "r"(b) : "mach", "macl");
@@ -395,12 +393,10 @@ static sh2z_segmesh_run_t pick_runs[REF_ROAD_GROUPS];
 volatile uint32_t fzx_e0_pick[6]; /* result, runs, marked, bad view, FRT ticks, calls */
 _Static_assert(sizeof(sh2z_segmesh_anchor_t) == sizeof(fzx_engine_anchor_t), "anchor layout");
 
-/* The slave's job after the track build (slave_road.c, engine line). */
-void fzx_engine_slave_after(void) {
 #if FZX_E1_DRIVE
-    fzx_drive_slave_fill();
+/* The slave's job after the track build (slave_road.c, E1): sprite slot fills. */
+void fzx_engine_slave_after(void) { fzx_drive_slave_fill(); }
 #endif
-}
 
 #ifndef E0_CAP_STABLE
 #define E0_CAP_STABLE 0
@@ -657,6 +653,9 @@ static void before_master(void) {
 }
 
 /* The view, then the slave's job: pick the visible track and build it at a fixed slot. */
+#ifndef E0_QUEUE_STRESS
+#define E0_QUEUE_STRESS 0
+#endif
 static void kick(const fzx_engine_cam_t *cam, uint32_t tick) {
     vdp1_cmdt_t *const commands = commands_buf;
     const fzx_engine_consts_t *k = &path.consts;
@@ -674,7 +673,11 @@ static void kick(const fzx_engine_cam_t *cam, uint32_t tick) {
 #else
     job.shades = road_shades[0];
 #endif
+#if E0_QUEUE_STRESS
+    (void)job; /* control: no track, so every frame fits one field */
+#else
     fzx_slave_road_start(&job);
+#endif
 }
 
 static void build(row_t *row, const fzx_engine_cam_t *cam, uint32_t tick, uint16_t kicked) {
@@ -682,6 +685,16 @@ static void build(row_t *row, const fzx_engine_cam_t *cam, uint32_t tick, uint16
     const fzx_engine_consts_t *k = &path.consts;
     uint32_t first = 0, n = 0, road_count = 0;
     const uint16_t t0 = cpu_frt_count_get();
+#if E0_QUEUE_STRESS
+    {
+        /* Control: a pseudo-random wait (0..1 field) so the queue pushes land at every
+         * phase of the field, including the VBlank-In present. */
+        static uint32_t seed = 1u;
+        seed = seed * 1664525u + 1013904223u;
+        const uint16_t w = (uint16_t)((seed >> 16) % (field_frt ? field_frt : 14000u)), s0 = cpu_frt_count_get();
+        while ((uint16_t)(cpu_frt_count_get() - s0) < w) {}
+    }
+#endif
 
     if (!fzx_engine_backdrop(&fzx_source_backdrop, cam, k, tick)) fail(20, "BACKDROP", tick);
     if (!fzx_engine_skyline(&fzx_source_skyline, cam)) fail(21, "SKYLINE", tick);
@@ -694,6 +707,7 @@ static void build(row_t *row, const fzx_engine_cam_t *cam, uint32_t tick, uint16
     if (!fzx_skyline_native(&commands[CMD_FIRST + first], FZX_SLAVE_ROAD_RESERVE - 1u - first, &fzx_native_view, skyline_vram, &n))
         fail(24, "SKYLINE DRAW", fzx_skyline_stats.fault);
     first += n; n = 0;
+#if FZX_E1_DRIVE
     {
         /* Floor refusal diagnostics: queue front and presents before the call. */
         const uint32_t pending = fzx_floor_pending, presented = fzx_floor_presented, commits = fzx_floor_commits;
@@ -712,6 +726,10 @@ static void build(row_t *row, const fzx_engine_cam_t *cam, uint32_t tick, uint16
             fail(25, "FLOOR", fzx_floor_rbg.fault);
         }
     }
+#else
+    if (!fzx_floor_native(&commands[CMD_FIRST + first], FZX_SLAVE_ROAD_RESERVE - 1u - first, &fzx_native_view, &fzx_source_backdrop, &n))
+        fail(25, "FLOOR", fzx_floor_rbg.fault);
+#endif
     first += n;
     if (first >= FZX_SLAVE_ROAD_RESERVE) fail(26, "PRELUDE OVERFLOW", first);
     vdp1_cmdt_t *jump = &commands[CMD_FIRST + first];
@@ -736,8 +754,12 @@ static void build(row_t *row, const fzx_engine_cam_t *cam, uint32_t tick, uint16
 #endif
 
     const uint16_t t1 = cpu_frt_count_get();
+#if E0_QUEUE_STRESS
+    road_count = 0;
+#else
     if (!fzx_slave_road_finish(&video_fields, &road_count))
         fail(27, "TRACK", fzx_road_stream_stats.fault * 100u + fzx_slave_road_status);
+#endif
     row->wait_road_ticks = (uint16_t)(cpu_frt_count_get() - t1);
 #if FZX_ROAD_STREAM_PHASES
     for (unsigned i = 0; i < FZX_RSPC_COUNTERS; ++i)
@@ -943,7 +965,6 @@ int main(void) {
 #endif
         const uint32_t hold = HOLD_TICK;
         const uint32_t shown = hold && hold <= path.ticks ? hold : tick;
-        const fzx_engine_cam_t *const cam = &path.cams[shown - 1u];
 #endif
         fzx_input_count = shown;
 
@@ -956,11 +977,19 @@ int main(void) {
         const uint16_t w0 = cpu_frt_count_get();
         before_slave();
         const uint16_t kicked = cpu_frt_count_get();
+#if FZX_E1_DRIVE
         kick(cam, shown);
+#else
+        kick(&path.cams[shown - 1u], shown);
+#endif
         const uint16_t w1 = cpu_frt_count_get();
         before_master();
         row->wait_prev_ticks = (uint16_t)((uint16_t)(kicked - w0) + (uint16_t)(cpu_frt_count_get() - w1));
+#if FZX_E1_DRIVE
         build(row, cam, shown, kicked);
+#else
+        build(row, &path.cams[shown - 1u], shown, kicked);
+#endif
 #if FZX_VDP1_DBANK
         {
             /* The previous frame must be drawn and swapped before this one is sent. */

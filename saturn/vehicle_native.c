@@ -106,6 +106,14 @@ volatile int32_t fzx_racer_sprite_eye_x,fzx_racer_sprite_eye_y,fzx_racer_sprite_
 volatile uint32_t fzx_racer_sprite_loop_ticks,fzx_racer_sprite_loop_count;
 typedef struct {sh2z_rspr_pick_t pick;sh2z_rspr_place_t place,shadow;int32_t depth;uint8_t has_shadow;} racer_item_t;
 static racer_item_t racer_items[FZX_RACER_SPRITE_MAX_EXTRA+1];
+#ifndef FZX_RACER_SPRITE_RIVALS
+#define FZX_RACER_SPRITE_RIVALS 0
+#endif
+#if FZX_RACER_SPRITE_RIVALS
+/* Defined by the rivals lane's diagnostic (same 36-byte layout). */
+extern fzx_racer_pose16_t *fzx_rival_poses;
+extern volatile uint32_t fzx_rival_count;
+#endif
 static sh2z_rspr_camera_t racer_camera;
 #ifndef FZX_RACER_SPRITE_SHADOW
 #define FZX_RACER_SPRITE_SHADOW 0
@@ -386,6 +394,16 @@ bool fzx_machine_native(vdp1_cmdt_t *commands,unsigned capacity,const fzx_view_t
         items=racer_poses(items,FZX_RACER_SPRITE_DEMO_N,demo);
         fzx_racer_sprite_loop_ticks=(uint16_t)(cpu_frt_count_get()-extra_start);
         fzx_racer_sprite_loop_count=FZX_RACER_SPRITE_DEMO_N;
+#endif
+#if FZX_RACER_SPRITE_RIVALS
+        /* Test arm only: draw the rivals lane's diagnostic field
+         * (claude/rivals-native, FZX_DIAG_RIVALS) from its pose16 hand-off. */
+        if(fzx_rival_poses&&fzx_rival_count) {
+            const unsigned n=fzx_rival_count>FZX_RACER_SPRITE_MAX_EXTRA?FZX_RACER_SPRITE_MAX_EXTRA:(unsigned)fzx_rival_count;
+            const uint16_t rivals_start=cpu_frt_count_get();
+            items=racer_poses(items,n,fzx_rival_poses);
+            fzx_racer_sprite_loop_ticks=(uint16_t)(cpu_frt_count_get()-rivals_start);fzx_racer_sprite_loop_count=n;
+        }
 #endif
     } else ++fzx_racer_sprite_skips;
     s.count=racer_emit(s.commands,capacity-1,items);fzx_racer_sprite_draws=s.count;

@@ -23,13 +23,17 @@ unsigned fzx_racer_sprites_draw(vdp1_cmdt_t *commands,unsigned capacity,const fz
  * pos: world position, Q16.16 source units (RefMachine.model_pos axes), within
  * about 32,768 units of the camera. basis: RefMachine.model_basis rows, Q1.14:
  * row 0 forward (model +z), row 1 up (model +y), row 2 side (model +x),
- * orthonormal to about 1/1000. set: sprite set (0 = the player's set until the
+ * orthonormal to about 1/1000. Row 2 is the source basis z, positive LEFT,
+ * exactly the axis the source maps model vertex x onto, so cell selection and
+ * mirroring use it as model +x. set: sprite set (0 = the player's set until the
  * roster bake exists). flags bit 0: draw a blob shadow (FZX_RACER_SPRITE_SHADOW). */
 typedef struct {
     int32_t pos[3];
     int16_t basis[3][3];
     uint16_t set,flags;
 } fzx_racer_pose16_t;
+/* 34 bytes of fields; 36 with the int32 alignment (same ABI as the rivals lane's copy). */
+_Static_assert(sizeof(fzx_racer_pose16_t)==36,"pose16 hand-off ABI");
 
 /* No float maths per racer: SH2ZAM rotation-sprites-1 fast path (hardware divider). */
 unsigned fzx_racer_sprites_draw16(vdp1_cmdt_t *commands,unsigned capacity,const fzx_view_t *view,

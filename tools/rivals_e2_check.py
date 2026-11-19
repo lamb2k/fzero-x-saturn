@@ -9,6 +9,7 @@ TOL = {  # metric: (relative widening, absolute widening)
     'lap1_min': (0.03, 0), 'lap1_median': (0.05, 0), 'lap1_max': (0.08, 0), 'rank_change_ticks': (0.5, 0), 'spread_mean': (0.35, 0),
     'spread_max': (0.35, 0), 'grid_finish_spearman': (0.0, 0.25), 'rival_mean_speed': (0.05, 0),
 }
+CONTACT_LIMIT = 250  # contact incidents per race; avoiding keeps the field well under it (native-only bound)
 def metrics(d):
     R = d['racers']; fin = [r for r in R if r['finish_tick'] >= 0]; rivals = [r for r in R if r['id'] != 0]
     ft = sorted(r['finish_tick'] for r in fin); lap1 = sorted(r['lap_end_ticks'][0] for r in R if r['lap_end_ticks'][0] >= 0)
@@ -31,9 +32,11 @@ def main():
         lo, hi = bands[k]['min'], bands[k]['max']; lo2, hi2 = lo - abs(lo) * rel - ab, hi + abs(hi) * rel + ab
         v = [m[k] for m in M]; good = all(lo2 <= x <= hi2 for x in v); ok &= good
         rows.append(dict(metric=k, reference=[lo, hi], accepted=[round(lo2, 3), round(hi2, 3)], native=[min(v), max(v)], verdict='PASS' if good else 'FAIL'))
+    contacts = [d.get('contacts', 0) for d in runs]
     exact = dict(offtrack_ticks=sum(d.get('offtrack_ticks', 0) for d in runs), stuck_events=sum(d.get('stuck_events', 0) for d in runs),
-                 through_ticks=sum(d.get('through_ticks', 0) for d in runs), rivals_pass_each_other=min(d['rank_change_ticks'] for d in runs) > 0)
-    exact_ok = exact['offtrack_ticks'] == 0 and exact['stuck_events'] == 0 and exact['through_ticks'] == 0 and exact['rivals_pass_each_other']
+                 through_ticks=sum(d.get('through_ticks', 0) for d in runs), rivals_pass_each_other=min(d['rank_change_ticks'] for d in runs) > 0,
+                 contact_incidents_max=max(contacts), contact_incidents_limit=CONTACT_LIMIT)
+    exact_ok = exact['offtrack_ticks'] == 0 and exact['stuck_events'] == 0 and exact['through_ticks'] == 0 and exact['rivals_pass_each_other'] and max(contacts) <= CONTACT_LIMIT
     res = dict(verdict='PASS' if ok and exact_ok else 'FAIL', runs=len(runs), bands=rows, exact=exact, exact_verdict='PASS' if exact_ok else 'FAIL')
     for r in rows: print('%-22s ref %s  accept %s  native %s  %s' % (r['metric'], r['reference'], r['accepted'], r['native'], r['verdict']))
     print('exact', exact, res['exact_verdict']); print('VERDICT', res['verdict'])

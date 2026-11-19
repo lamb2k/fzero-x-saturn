@@ -97,7 +97,7 @@ int main(int argc, char** argv) {
             die("unknown tuning name");
         }
     }
-    if (!strcmp(control, "no-avoid")) { P.avoid_long = 0; }
+    if (!strcmp(control, "no-avoid")) { P.avoid_long = 0; P.avoid_ticks = 0; }
     if (!strcmp(control, "no-contact")) { P.contact_long = 0; }
 
     static sh2z_vehicle_t veh[MAXV];
@@ -201,7 +201,7 @@ int main(int argc, char** argv) {
             if (brain[a].last_tick != F.tick || brain[b2].last_tick != F.tick) continue;   /* both current this tick */
             int32_t g2 = sh2z_track_near_gap(&L, &veh[a].t, &veh[b2].t); if (g2 < 0) g2 = -g2;
             int32_t dl = veh[a].t.lateral - veh[b2].t.lateral; if (dl < 0) dl = -dl;
-            if (g2 < P.contact_long / 4 && dl < P.contact_lat / 4 && P.contact_long) ++through;
+            if (g2 < U(46) / 4 && dl < U(40) / 4) ++through;   /* a fixed box, whatever the field's own contact settings */
         }
         rank_change_ticks += changed;
         if (lead > last) { const double s = (lead - last) / 256.0; spread_sum += s; ++spread_n; if (s > spread_max) spread_max = s; }

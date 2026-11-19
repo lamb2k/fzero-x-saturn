@@ -329,7 +329,15 @@ A scene that needs a plain background asks `fzx_scene_back_colour(rgb)`.
 - **What runs:** `ENG_SCENES=1` (with `FZX_E1_DRIVE=1 E1_CLOSEUP=1 E1_CLOSEUP_EARLY=1`) runs the whole loop around the E1 drive with the 3D player: BOOT, TITLE, SELECT, LOAD, RACE, RESULTS, retry, RECORDS and soft reset, sequenced by SH2ZAM scene-1 (PR #43).
   - TITLE, SELECT, RESULTS and RECORDS are text placeholders until the C8 screens bind.
   - `ENG_SCENES=0` builds the E0, E1 pad and E1 driver images byte for byte as before.
-- **Deviations from this draft, to close:**
-  - **Load is not chunked yet.** The race load blocks for about 27 s on a cold load in Ymir. The loading card keeps animating from the VBlank interrupt, but no frame is presented during the load, and a soft reset during a load takes effect when the load ends. Chunking the load (section 7) is the next item.
-  - **No VDP1 list outside RACE.** Submitting one stalled Yaul's VDP1 sync in this image, so menus hide the sprite layer (VDP2 sprite priority 0). Retirement is confirmed when a field has been shown with the sprite layer hidden and VDP1 has no list in flight.
-  - **Placeholders:** RESULTS doesn't keep the race backdrop; the records service and the sound queue's driver aren't linked.
+- **Loading (2026-11-19, `4b45f54`):**
+  - A cold load takes 352 fields (5.9 s), down from 1,643: the reads now stream sequential sectors from one play command (`FZX_CD_STREAM`), and the track pack isn't hashed a second time after the CD loader checked it (`FZX_LOAD_VERIFIED`).
+  - The loading card changes at most every 2 fields: the VBlank interrupt draws the spinner and progress bar.
+  - The loading screen takes a turn inside every CD read and in the track preparation loops, where the soft reset chord cancels the load and returns to TITLE. Cancels at 30, 150 and 300 fields return cleanly, and the next cold load races.
+  - The longest gap between turns is 21 fields, in the path-pack open and the physics parse. Both files are pinned by their asset receipts, so those passes are the next items to bake offline.
+- **VDP1 (2026-11-19, `c37e86b`):** the manager sends its own VDP1 list on every frame outside RACE (prelude, a black full-screen polygon, END), so menu scenes can add commands.
+  - The earlier hang was a list put while Yaul's previous VDP1 sync was still pending. The manager now waits for the previous frame first, as the race's frames do.
+  - Retirement is confirmed at the second manager frame after the fade out.
+- **Still open:**
+  - RESULTS doesn't keep the race backdrop.
+  - The records service and the sound queue's driver aren't linked.
+  - TITLE, SELECT, RESULTS and RECORDS are placeholders until the C8 screens bind.

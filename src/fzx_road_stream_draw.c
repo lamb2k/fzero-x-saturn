@@ -311,6 +311,51 @@ static unsigned corners_of(fzx_road_stream_hot_t *h,const vref_t v[4],bool safe,
 static void clip_input(fzx_road_stream_hot_t *h,const vref_t v[4]){
     for(unsigned i=0;i<4;++i)h->clip_in[i].v=*v[i];
 }
+#ifndef FZX_ROAD_STREAM_LEAN_CLIP
+#define FZX_ROAD_STREAM_LEAN_CLIP 0
+#endif
+#if FZX_ROAD_STREAM_LEAN_CLIP
+/* FZX_ROAD_STREAM_LEAN_CLIP (default 0): clip a quad against the near plane
+ * in 3D only (SH2ZAM sh2z_view_clip_near_center_divu), then against the guard
+ * rectangle in 2D on the projected corners, instead of the six-plane 3D guard
+ * clip. New 2D crossings take z linearly along the screen edge (it only picks
+ * the fog). Returns the corner count in hot->clip_out, or -1 to ask for the
+ * exact clip (a corner too far off screen for the 2D step). */
+static void lean_cross(sh2z_view_vertex_t *q,const sh2z_view_vertex_t *a,const sh2z_view_vertex_t *b,
+    unsigned axis,int32_t edge){
+    const int32_t a0=axis?a->sy:a->sx,b0=axis?b->sy:b->sx,a1=axis?a->sx:a->sy,b1=axis?b->sx:b->sy;
+    const int32_t num=edge-a0,den=b0-a0;
+    const int32_t other=a1+(int32_t)(((int64_t)(b1-a1)*num)/den);
+    const int32_t z=a->z+(int32_t)(((int64_t)b->z-a->z)*num/den);
+    q->x=0;q->y=0;q->z=z;q->outcode=0;q->reserved[0]=q->reserved[1]=q->reserved[2]=0;
+    if(axis){q->sy=(int16_t)edge;q->sx=(int16_t)other;}else{q->sx=(int16_t)edge;q->sy=(int16_t)other;}
+}
+static unsigned lean_side(const sh2z_view_vertex_t *in,unsigned n,sh2z_view_vertex_t *out,
+    unsigned axis,int32_t edge,bool lower){
+    unsigned w=0;if(!n)return 0;
+    const sh2z_view_vertex_t *a=in+n-1;int32_t av=axis?a->sy:a->sx;bool ain=lower?av>=edge:av<=edge;
+    for(unsigned i=0;i<n;++i){const sh2z_view_vertex_t *b=in+i;const int32_t bv=axis?b->sy:b->sx;
+        const bool bin=lower?bv>=edge:bv<=edge;
+        if(ain!=bin)lean_cross(out+w++,ain?a:b,ain?b:a,axis,edge);
+        if(bin)out[w++]=*b;
+        a=b;ain=bin;}
+    return w;
+}
+static int lean_clip(draw_t *d,const vref_t v[4],const int16_t guard[4]){
+    sh2z_view_vertex_t buf[2][12];unsigned n=4;bool near=false;
+    for(unsigned i=0;i<4;++i){buf[0][i]=*v[i];if(v[i]->outcode&SH2Z_OUT_NEAR)near=true;}
+    if(near){n=sh2z_view_clip_near_center_divu(buf[0],&d->view,buf[0]);if(n<3)return 0;}
+    for(unsigned i=0;i<n;++i)if(buf[0][i].sx< -4096||buf[0][i].sx>4096||buf[0][i].sy< -4096||buf[0][i].sy>4096)return -1;
+    n=lean_side(buf[0],n,buf[1],0,guard[0],true);
+    n=lean_side(buf[1],n,buf[0],0,guard[2],false);
+    n=lean_side(buf[0],n,buf[1],1,guard[1],true);
+    n=lean_side(buf[1],n,buf[0],1,guard[3],false);
+    if(n<3)return 0;
+    if(n>SH2Z_VIEW_GUARD_MAX_OUT)return -1;
+    for(unsigned i=0;i<n;++i)d->hot->clip_out[i].v=buf[0][i];
+    return (int)n;
+}
+#endif
 /* shade-1 fallback (fog table without a prepared lookup): per-corner fades,
  * then the exact batch colour forms. The OFFSET form's bias is
  * level[v]*(base-mean), as in the shade-2 ramp. */
@@ -333,8 +378,13 @@ static bool piece(draw_t *d,const vref_t v[4],unsigned quad,unsigned piece_id,
     if(classify(v,&safe)){++d->stats->culled;return true;}
     int n=4;
     if(!safe){const int16_t guard[4]={RS_GX0,RS_GY0,RS_GX1,RS_GY1};
-        FZX_RSP(CLIP);FZX_RSP_COUNT(PIECE_CLIPS,1);clip_input(d->hot,v);
-        n=sh2z_view_clip_guard_src_center_divu(d->hot->clip_out,&d->view,guard,d->hot->clip_in,4,0,10);
+        FZX_RSP(CLIP);FZX_RSP_COUNT(PIECE_CLIPS,1);
+#if FZX_ROAD_STREAM_LEAN_CLIP
+        n=lean_clip(d,v,guard);
+        if(n<0)
+#endif
+        {clip_input(d->hot,v);
+         n=sh2z_view_clip_guard_src_center_divu(d->hot->clip_out,&d->view,guard,d->hot->clip_in,4,0,10);}
         FZX_RSP(QPIECE);if(n>0)FZX_RSP_COUNT(CLIP_CORNERS,n);
         if(n<0)return fail(d,FZX_RS_CLIP);
         if(n<3){++d->stats->culled;return true;}
@@ -491,8 +541,13 @@ static bool quad_body(draw_t *d,unsigned id,const vref_t vertices[4],unsigned fl
     }
 #endif
     if(!safe){
-        FZX_RSP(CLIP);FZX_RSP_COUNT(QUAD_CLIPS,1);clip_input(d->hot,vertices);
-        n=sh2z_view_clip_guard_src_center_divu(d->hot->clip_out,&d->view,d->view.view.clip,d->hot->clip_in,4,0,10);
+        FZX_RSP(CLIP);FZX_RSP_COUNT(QUAD_CLIPS,1);
+#if FZX_ROAD_STREAM_LEAN_CLIP
+        n=lean_clip(d,vertices,d->view.view.clip);
+        if(n<0)
+#endif
+        {clip_input(d->hot,vertices);
+         n=sh2z_view_clip_guard_src_center_divu(d->hot->clip_out,&d->view,d->view.view.clip,d->hot->clip_in,4,0,10);}
         FZX_RSP(QCULL);if(n>0)FZX_RSP_COUNT(CLIP_CORNERS,n);
         if(n<0)return fail(d,FZX_RS_CLIP);
         if(n<3){++d->stats->culled;FZX_RSP_COUNT(CULL_CLIP,1);return true;}

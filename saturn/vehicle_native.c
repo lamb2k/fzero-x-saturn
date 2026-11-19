@@ -78,6 +78,78 @@ uint32_t fzx_vehicle_sub_now(void){return cpu_frt_count_get();}
 #define NATIVE_MARK(n,v) ((void)0)
 #endif
 
+#ifndef FZX_RACER_SPRITES
+#define FZX_RACER_SPRITES 0
+#endif
+#if FZX_RACER_SPRITES
+/* FZX_RACER_SPRITES (default 0): draw the race machine as a baked rotation
+ * sprite set (RSPRITE.PAK, tools/racer_sprites.py; SH2ZAM rotation-sprites-1)
+ * instead of the 3D model. The set takes the machine's own VRAM region (its
+ * textures are not loaded), so no other VDP1 allocation moves. The source
+ * draw state (ref_machine) and the simulation are unchanged. */
+#include "racer_sprites_identity.h"
+#include "racer_sprite_native.h"
+#include "sh2zam/rotation_sprite_experimental.h"
+#ifndef FZX_RACER_SPRITE_DEMO_N
+#define FZX_RACER_SPRITE_DEMO_N 0
+#endif
+_Static_assert(FZX_RACER_SPRITE_BYTES<=FZX_MACHINE_TEXTURE_BYTES+FZX_MACHINE_SHADE_BYTES,
+               "racer sprite set must fit the machine VRAM region");
+_Static_assert(FZX_RACER_SPRITE_DEMO_N>=0&&FZX_RACER_SPRITE_DEMO_N<=FZX_RACER_SPRITE_MAX_EXTRA,"demo racer count");
+static const sh2z_rspr_set_t *racer_set;
+static uint32_t racer_vram;
+static uint16_t racer_pmod;
+volatile uint32_t fzx_racer_sprite_status,fzx_racer_sprite_draws,fzx_racer_sprite_skips,fzx_racer_sprite_cell;
+volatile int32_t fzx_racer_sprite_eye_x,fzx_racer_sprite_eye_y,fzx_racer_sprite_eye_z,fzx_racer_sprite_scale;
+typedef struct {sh2z_rspr_pick_t pick;sh2z_rspr_place_t place;int32_t depth;} racer_item_t;
+static racer_item_t racer_items[FZX_RACER_SPRITE_MAX_EXTRA+1];
+
+static bool racer_item(racer_item_t *it,const fzx_view_t *view,const RefMachine *m,bool player) {
+    fzx_vehicle_pose_t pose;
+    if(!fzx_vehicle_pose(&pose,view,&fzx_source_camera,m))return false;
+    if(player){fzx_racer_sprite_eye_x=pose.eye[0];fzx_racer_sprite_eye_y=pose.eye[1];fzx_racer_sprite_eye_z=pose.eye[2];}
+    if(!sh2z_rspr_select(&it->pick,racer_set,pose.eye[0],pose.eye[1],pose.eye[2]))return false;
+    if(!sh2z_rspr_place(&it->place,&pose.view,racer_set))return false;
+    if(player){fzx_racer_sprite_cell=it->pick.cell|((uint32_t)it->pick.mirror<<16);fzx_racer_sprite_scale=it->place.scale;}
+    it->depth=pose.view.t[2];return true;
+}
+
+/* Far to near (painter order), one distorted sprite each. */
+static unsigned racer_emit(vdp1_cmdt_t *commands,unsigned capacity,unsigned n) {
+    for(unsigned i=1;i<n;++i) {
+        const racer_item_t key=racer_items[i];unsigned j=i;
+        while(j>0&&racer_items[j-1].depth<key.depth){racer_items[j]=racer_items[j-1];--j;}
+        racer_items[j]=key;
+    }
+    unsigned out=0;
+    for(unsigned i=0;i<n&&out<capacity;++i) {
+        uint16_t words[16];
+        if(!sh2z_rspr_emit(words,racer_set,&racer_items[i].pick,&racer_items[i].place,racer_vram,racer_pmod)) {
+            ++fzx_racer_sprite_skips;continue;
+        }
+        memcpy(&commands[out],words,sizeof(words));++out;
+    }
+    return out;
+}
+
+/* Appends items from racer_items[start]; returns the new item count. */
+static unsigned racer_bodies(unsigned start,unsigned n,const fzx_view_t *view,const fzx_racer_sprite_body_t *bodies) {
+    unsigned items=start;
+    for(unsigned i=0;i<n&&items<FZX_RACER_SPRITE_MAX_EXTRA+1;++i) {
+        RefMachine m=fzx_source_machine;
+        for(unsigned a=0;a<3;++a){m.model_pos[a]=bodies[i].pos[a];for(unsigned b=0;b<3;++b)m.model_basis[a][b]=bodies[i].basis[a][b];}
+        if(racer_item(&racer_items[items],view,&m,false))++items;else ++fzx_racer_sprite_skips;
+    }
+    return items;
+}
+
+unsigned fzx_racer_sprites_draw(vdp1_cmdt_t *commands,unsigned capacity,const fzx_view_t *view,
+                                const fzx_racer_sprite_body_t *bodies,unsigned n) {
+    if(!commands||!view||!bodies||fzx_machine_status!=1||!racer_set||n>FZX_RACER_SPRITE_MAX_EXTRA)return 0;
+    return racer_emit(commands,capacity,racer_bodies(0,n,view,bodies));
+}
+#endif
+
 bool fzx_machine_load(void *vram){
     uintptr_t scratch=((uintptr_t)sat_stub_data_end+31u)&~(uintptr_t)31u,log=(uintptr_t)fzx_input_log;
     uintptr_t metadata=(fzx_road_tile_low_end+95u)&~(uintptr_t)31u;
@@ -101,7 +173,20 @@ bool fzx_machine_load(void *vram){
     for(unsigned i=0;i<8;++i){((volatile uint32_t *)metadata)[(int)i-8]=0x5ac71e39u;((volatile uint32_t *)end)[i]=0x5ac71e39u;}
     if(!fzx_texture_cd_load("MACHINE.PAK",FZX_MACHINE_REBAKE_METADATA_BYTES,FZX_MACHINE_REBAKE_METADATA_HASH,(void *)metadata,(void *)scratch,log-32-scratch)||
        !fzx_vehicle_pack_open(&pack,(void *)metadata,FZX_MACHINE_REBAKE_METADATA_BYTES,FZX_MACHINE_REBAKE_TEXTURE_BYTES,FZX_MACHINE_REBAKE_METADATA_HASH,false)||
+#if FZX_RACER_SPRITES
+       ((uintptr_t)vram&7u)||
+       !fzx_texture_cd_load("RSPRITE.PAK",FZX_RACER_SPRITE_BYTES,FZX_RACER_SPRITE_HASH,vram,(void *)scratch,log-32-scratch)){fzx_machine_status=3;return false;}
+    racer_set=(const sh2z_rspr_set_t *)vram;racer_vram=(uint32_t)((uintptr_t)vram&0x7ffffu);
+    if(!sh2z_rspr_valid(racer_set)){fzx_racer_sprite_status=2;fzx_machine_status=3;return false;}
+    {
+        vdp1_cmdt_t mode_cmd;memset(&mode_cmd,0,sizeof(mode_cmd));
+        const vdp1_cmdt_draw_mode_t mode={.end_code_disable=1,.user_clipping_mode=2,.color_mode=VDP1_CMDT_CM_CLUT_16};
+        vdp1_cmdt_draw_mode_set(&mode_cmd,mode);racer_pmod=mode_cmd.cmd_pmod;
+    }
+    fzx_racer_sprite_status=1;
+#else
        !fzx_texture_cd_load("MACHTX.PAK",FZX_MACHINE_REBAKE_TEXTURE_BYTES,FZX_MACHINE_REBAKE_TEXTURE_HASH,vram,(void *)scratch,log-32-scratch)){fzx_machine_status=3;return false;}
+#endif
     memset(work,0,sizeof(*work));
 #if FZX_VEHICLE_NATIVE
     memset(tables,0,sizeof(*tables));work->tables=tables;
@@ -170,7 +255,33 @@ bool fzx_machine_native(vdp1_cmdt_t *commands,unsigned capacity,const fzx_view_t
     vdp1_cmdt_distorted_sprite_set(&s.texture);vdp1_cmdt_draw_mode_set(&s.texture,texture);
     vdp1_cmdt_polygon_set(&s.solid);vdp1_cmdt_draw_mode_set(&s.solid,solid);
     NATIVE_MARK(2,cpu_frt_count_get());
-#if FZX_VEHICLE_NATIVE
+#if FZX_RACER_SPRITES
+    (void)pixels;(void)shades;
+    unsigned items=0;
+    if(racer_item(&racer_items[0],view,&fzx_source_machine,true))items=1;else ++fzx_racer_sprite_skips;
+#if FZX_RACER_SPRITE_DEMO_N
+    {
+        /* Demo field: copies of the player's state on a grid ahead of it (model z
+         * axis = basis row 0 forward, x axis = basis row 2 sideways), spaced in
+         * model radii, for the N-racer measurements before rivals exist. */
+        static fzx_racer_sprite_body_t demo[FZX_RACER_SPRITE_DEMO_N];
+        const float forward=3.0f*FZX_RACER_SPRITE_RADIUS*fzx_source_machine.model_scale[0];
+        const float side=2.4f*FZX_RACER_SPRITE_RADIUS*fzx_source_machine.model_scale[2];
+        for(unsigned i=0;i<FZX_RACER_SPRITE_DEMO_N;++i) {
+            const float row=(float)(i/2u+1u),col=(i&1u)?1.0f:-1.0f;
+            for(unsigned a=0;a<3;++a) {
+                demo[i].pos[a]=fzx_source_machine.model_pos[a]+fzx_source_machine.model_basis[0][a]*forward*row+
+                               fzx_source_machine.model_basis[2][a]*side*col;
+                for(unsigned b=0;b<3;++b)demo[i].basis[a][b]=fzx_source_machine.model_basis[a][b];
+            }
+        }
+        items=racer_bodies(items,FZX_RACER_SPRITE_DEMO_N,view,demo);
+    }
+#endif
+    s.count=racer_emit(s.commands,capacity-1,items);fzx_racer_sprite_draws=s.count;
+    fzx_machine_stats=(fzx_machine_stats_t){.draws=s.count};
+    bool ok=true;
+#elif FZX_VEHICLE_NATIVE
     /* Template emit: the core writes the commands and Gouraud words itself. */
     _Static_assert(sizeof(vdp1_cmdt_t)==32&&offsetof(vdp1_cmdt_t,cmd_colr)==6&&offsetof(vdp1_cmdt_t,cmd_xa)==12&&offsetof(vdp1_cmdt_t,cmd_grda)==28,"VDP1 command layout");
     const fzx_vehicle_target_t target={.commands=(uint32_t (*)[8])(void *)s.commands,.capacity=capacity-1,.pixels=pixels,.shades=shades,
@@ -182,12 +293,17 @@ bool fzx_machine_native(vdp1_cmdt_t *commands,unsigned capacity,const fzx_view_t
 #else
     bool ok=fzx_vehicle_draw(&pack,view,&fzx_source_camera,&fzx_source_machine,work,capacity-1,emit,&s,&fzx_vehicle_stats);
 #endif
+#if !FZX_RACER_SPRITES
     fzx_machine_stats=(fzx_machine_stats_t){.lod=fzx_vehicle_stats.lod,.draws=fzx_vehicle_stats.draws,.culled=fzx_vehicle_stats.culled,
         .clipped=fzx_vehicle_stats.clipped,.saturated=fzx_vehicle_stats.saturated,.fault=fzx_vehicle_stats.fault,
         .positions=fzx_vehicle_stats.positions,.normals=fzx_vehicle_stats.normals};
+#endif
     if(!ok){fzx_machine_status=5;fzx_machine_busy=0;return false;}
     NATIVE_MARK(3,cpu_frt_count_get());
+#if !FZX_RACER_SPRITES
+    /* The sprite set occupies this region when FZX_RACER_SPRITES is on. */
     for(unsigned i=0;i<pack.palettes;++i)if(work->palette_dirty[i])memcpy((uint8_t *)shades+i*32u,work->palette[i],32);
+#endif
     NATIVE_MARK(4,cpu_frt_count_get());
     *count=s.count+1;fzx_machine_ticks=(uint16_t)(cpu_frt_count_get()-start);fzx_machine_busy=0;
 #if FZX_VEHICLE_SUBPROFILE

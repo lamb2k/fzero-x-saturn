@@ -1122,11 +1122,14 @@ void fzx_race_begin(void) {
     fzx_e0_done = 0; fzx_e0_status = 1;
 #if ENG_PACE == 4
     {   /* The pacing pipeline restarts empty: a race that ended (or was left) mid-flight leaves
-         * a frame counted as submitted and never presented. */
+         * a frame counted as submitted and never presented; and the manager's last list must be
+         * drawn and changed before the race's first wait (that change is not a race present). */
+        vdp1_sync_wait();
         const uint32_t mask = cpu_intc_mask_get();
         cpu_intc_mask_set(15);
         pace_rendered = 0u; pace_drawn = 0u; pace_vbi = 0u;
         for (unsigned i = 0; i < 8u; ++i) fzx_pace[i] = 0u;
+        fzx_pace[2] = video_fields; /* the last present's field, as at boot after the load */
 #if FZX_E1_DRIVE && !ENG_PACE_HUD_LEAD
         hud_pending = 0u;
 #endif

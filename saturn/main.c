@@ -467,11 +467,11 @@ extern volatile uint32_t fzx_sky_stack_start;
 volatile uint32_t fzx_simpipe_prof[16];
 volatile uint32_t fzx_simpipe_k[8];
 volatile uint32_t fzx_simpipe_chain[128][4];
-/* Executed ticks (counted after orig_tick by a pad sentinel the tick
- * overwrites, independent of the sources and of the 12,288-entry input log),
+/* Executed ticks (simpipe_dispatch_tick: orig_tick's replay-end predicate
+ * decides, independent of the sources and of the 12,288-entry input log),
  * race generation (restarts), diagnostic-replay freezes (orig_tick calls that
  * ran no tick). Rows: {generation, tick in generation, state, input}; the
- * input word is the bridge's pad state. */
+ * input word is the bridge's pad state after the tick. */
 volatile uint32_t fzx_simpipe_ticks[4];
 static uint32_t
 simpipe_fnv(uint32_t h, const volatile void *data, unsigned bytes)
@@ -516,6 +516,22 @@ simpipe_hash_tick(uint32_t word)
         volatile uint32_t *row = fzx_simpipe_chain[(hashed >> 6) - 1u];
         row[0] = gen; row[1] = in_gen; row[2] = fzx_simpipe_prof[11]; row[3] = fzx_simpipe_prof[12];
     }
+}
+/* One tick dispatch with an explicit result (C-038). orig_tick's only no-tick
+ * return is its replay-end predicate, evaluated here on the same values just
+ * before the call; orig_tick itself is unchanged. On execution the observed
+ * pad (ref_tick writes the bridge's pad globals) is hashed. Returns 1 if a tick
+ * ran, 0 for a diagnostic-replay freeze. */
+static uint32_t __attribute__((noinline))
+simpipe_dispatch_tick(void)
+{
+    const uint32_t replay = fzx_debug_replay_count, n = fzx_input_count;
+    const bool frozen = replay != 0 && (n >= replay || n >= INPUT_LOG_TICKS);
+    orig_tick();
+    if (frozen) { ++fzx_simpipe_ticks[3]; return 0; }
+    simpipe_hash_tick((uint32_t)ref_pad_button << 16 | (uint32_t)(uint8_t)ref_pad_stick_x << 8 |
+                      (uint8_t)ref_pad_stick_y);
+    return 1;
 }
 #endif
 /* Game units to Q16.16 at the course's 1/16 scale, and unit floats to Q16.16. */
@@ -1465,26 +1481,9 @@ main(void)
 #endif
             }
 #if FZX_SIMPIPE_PROFILE
-            /* Executed-tick signal, independent of the sources and of the
-             * 12,288-entry log: ref_tick is the only writer of the bridge's pad
-             * globals and writes all three first thing. Park an impossible
-             * value (no input path produces stick -128) and see whether a tick
-             * replaced it; a diagnostic-replay freeze leaves it, and the saved
-             * values go back. */
-            const unsigned short simpipe_b = ref_pad_button;
-            const signed char simpipe_x = ref_pad_stick_x, simpipe_y = ref_pad_stick_y;
-            ref_pad_button = 0xffffu; ref_pad_stick_x = -128; ref_pad_stick_y = -128;
-#endif
+            simpipe_ticks += simpipe_dispatch_tick();
+#else
             orig_tick();
-#if FZX_SIMPIPE_PROFILE
-            if (ref_pad_button != 0xffffu || ref_pad_stick_x != -128 || ref_pad_stick_y != -128) {
-                ++simpipe_ticks;
-                simpipe_hash_tick((uint32_t)ref_pad_button << 16 | (uint32_t)(uint8_t)ref_pad_stick_x << 8 |
-                                  (uint8_t)ref_pad_stick_y);
-            } else {
-                ref_pad_button = simpipe_b; ref_pad_stick_x = simpipe_x; ref_pad_stick_y = simpipe_y;
-                ++fzx_simpipe_ticks[3];
-            }
 #endif
 #else
             fzx_step((buttons & ~FZX_RESET) | pending_reset);

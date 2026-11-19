@@ -168,7 +168,11 @@ def build(clips: list, ram_bytes: int, streams: int = STREAMS, reverb_bytes: int
 
 def write_outputs(out: Path, pack: dict):
     out.mkdir(parents=True, exist_ok=True)
-    (out / "SNDRACE.PAK").write_bytes(b"SNP1" + struct.pack(">II", IDLE_BYTES, len(pack["image"])) + pack["image"])
+    image = pack["image"] + bytes((-len(pack["image"])) % 4)        # the CD loader moves whole longwords
+    (out / "SNDRACE.PAK").write_bytes(image)
+    fnv = 2166136261
+    for b in image:
+        fnv = ((fnv ^ b) * 16777619) & 0xFFFFFFFF
     def event_table(events):
         if not events:
             return ""
@@ -195,9 +199,13 @@ def write_outputs(out: Path, pack: dict):
         "typedef struct snd_race_clip { uint32_t offset; uint16_t samples, loop_start, loop_end; int8_t oct;"
         " uint16_t fns; uint8_t tl, loop; } snd_race_clip_t;\n"
         "#define SND_RACE_CLIP_COUNT %d\n#define SND_RACE_USED_BYTES %uu\n%s\n"
+        "/* SNDRACE.PAK: the clip region's image, loaded to SND_RACE_CLIPS_BASE (FNV-1a 32 of the file). */\n"
+        "#define SND_RACE_PAK_BYTES %uu\n#define SND_RACE_PAK_HASH 0x%08Xu\n"
         "_Static_assert(SND_RACE_USED_BYTES <= 0x80000u, \"sound RAM map exceeds 512 KB\");\n"
+        "_Static_assert(SND_RACE_CLIPS_BASE + SND_RACE_PAK_BYTES <= SND_RACE_STREAM0_BASE, \"clip image overlaps the streams\");\n"
         "static const snd_race_clip_t snd_race_clips[SND_RACE_CLIP_COUNT] = {\n%s\n};\n%s#endif\n"
-        % (len(pack["clips"]), pack["used"], regions, ",\n".join(rows), event_table(pack.get("events", []))))
+        % (len(pack["clips"]), pack["used"], regions, len(image), fnv, ",\n".join(rows),
+           event_table(pack.get("events", []))))
     meta = {"note": "Local, derived from the owner's ROM. Do not commit or share.", "used": pack["used"],
             "regions": pack["regions"], "events": pack.get("events", []),
             "clips": [{k: v for k, v in c.items() if k != "data"} for c in pack["clips"]]}

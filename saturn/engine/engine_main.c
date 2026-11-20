@@ -853,7 +853,17 @@ static void build(row_t *row, const fzx_engine_cam_t *cam, uint32_t tick, uint16
         {
             /* The cars staged before the kick: one copy after the track. */
             const unsigned m = field_stage_n;
+#if E2_EMIT_LINK
+            /* The list's pieces in order: the field's own commands and the staged 3D cars in place. */
+            if (m) {
+                vdp1_cmdt_t *at = &commands[CMD_FIRST + draws];
+                for (unsigned s = 0; s < fzx_emit_nsegs; ++s) {
+                    memcpy(at, fzx_emit_segs[s].src, fzx_emit_segs[s].n * sizeof(vdp1_cmdt_t)); at += fzx_emit_segs[s].n;
+                }
+            }
+#else
             memcpy(&commands[CMD_FIRST + draws], field_stage_cmds, m * sizeof(vdp1_cmdt_t));
+#endif
             draws += m;
             row->car_cmds = (uint16_t)(m ? m - 1u : 0u); row->sprites = field_stage_sprites;
             row->near = field_stage_near; row->n3d = field_stage_n3d;

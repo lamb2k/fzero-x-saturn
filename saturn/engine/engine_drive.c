@@ -150,12 +150,9 @@ void fzx_drive_contact_ahead(void) {
     ahead_ok = 1;
     ++fzx_atk_defer_report[4];
 }
-#else
-void fzx_drive_contact_ahead(void) {}
 #endif
 #elif ENG_BAL_EARLY
 void fzx_drive_field_run(void) {}
-void fzx_drive_contact_ahead(void) {}
 #endif
 #if defined(ENG_SCENES) && ENG_SCENES
 /* SCENES.md 11.3: one menu update per simulation tick; the timer counts the updates that
@@ -193,7 +190,9 @@ static void step_once(sh2z_vd_input_t *in) {
         ++fzx_atk_defer_report[5];
     } else if (field_pending == 1u && !field_contacts) {
         ++fzx_atk_defer_report[3];
-        if (fzx_atk_player_clear(&body, fzx_field_player_dist(&body), true)) {
+        int32_t pd, pl;
+        fzx_field_player_line(&body, &pd, &pl);
+        if (fzx_atk_player_clear(&body, pd, pl, true)) {
             field_bodies[field_pending] = body; field_contact[field_pending] = 1u; ++field_pending; ++field_contacts;
             memset(&contact, 0, sizeof(contact));
             deferred = true;

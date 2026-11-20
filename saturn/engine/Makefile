@@ -5,8 +5,10 @@
 #
 #   make -C saturn/engine SH2ZAM_ROOT=<checkout of the engine pin> [FZX_VDP1_DBANK=0|1]
 #
-# The SH2ZAM pin is saturn/engine/sh2zam.pin (branch claude/scenes-train-2: claude/e2-field-train (claude/e1-train
-# (segmesh-2, vehicle-dynamics-1, sprite-cache-1, rotation-sprites-2) plus line-field-1) plus scene-1).
+# The SH2ZAM pin is saturn/engine/sh2zam.pin: SH2ZAM main 93b3774, merge train 4 (PR #48), tags
+# rotation-sprites-2/-3, line-follower-1, line-field-1, segmesh-2, vehicle-dynamics-1, sprite-cache-1,
+# scene-1, snd-1 and dsp-1. Before it, the integration branch claude/emit-train-2 ba7c237, whose
+# library differs from main only in comments and in sh2z_rspr_pose (field stores, no memcpy).
 # Assets come from ../../generated (owning generators, receipts checked here).
 ifeq ($(strip $(YAUL_INSTALL_ROOT)),)
 $(error Undefined YAUL_INSTALL_ROOT (install root directory))
@@ -100,6 +102,30 @@ E2_FASTSPRITE ?= 0
 #   near/far rotation-sprite sets in the private roster pack (generated/roster/ROSTER.PAK and
 #   roster_identity.h from tools/roster_identity.py, which refuses a pack with the wrong SHA-256).
 E2_ROSTER ?= 0
+# Sprite emit lane (claude/e2-emit, generated/E2-EMIT.md), field images; each 0 = the emit as it was.
+# E2_EMIT_EXACT: every exact switch below that the image allows (HINT CMD SHADOW POSE SETUP LINK CULL YAW).
+# Default 1 (coordinator 2026-11-19, generated/E2-EMIT.md); E2_EMIT_EXACT=0 is the emit as it was.
+# CMD, POSE and YAW call SH2ZAM rotation-sprites-3 (sh2zam_rotation_sprite3.c).
+E2_EMIT_EXACT ?= 1
+# E2_EMIT_PROF: diagnostic, per-call emit sub-step times (fzx_emit_prof); changes timing slightly.
+E2_EMIT_PROF ?= 0
+# E2_EMIT_HINT (exact): cache lookups probe each car's last slot before the pool scan.
+E2_EMIT_HINT ?= $(E2_EMIT_EXACT)
+# E2_EMIT_CMD (exact): the sprite and shadow commands written in one pass, corners in 32-bit products.
+E2_EMIT_CMD ?= $(E2_EMIT_EXACT)
+# E2_EMIT_SHADOW (exact): shadows posed without the one-cell selection, with the car's own exact screen-up vector.
+E2_EMIT_SHADOW ?= $(E2_EMIT_EXACT)
+# E2_EMIT_POSE (exact; needs E2_CULL=1): rival poses from the cull's terms (sh2z_rspr_pose_terms; with
+#   E2_FASTSPRITE, the same fast pose), divisions overlapped.
+E2_EMIT_POSE ?= $(if $(filter 1,$(E2_CULL)),$(E2_EMIT_EXACT),0)
+# E2_EMIT_SETUP (exact): the sprite camera's scale numerators kept while the focal length is unchanged.
+E2_EMIT_SETUP ?= $(E2_EMIT_EXACT)
+# E2_EMIT_LINK (exact; needs E2_EARLY=1): the 3D cars' staged commands copied once, after the track.
+E2_EMIT_LINK ?= $(if $(filter 1,$(E2_EARLY)),$(E2_EMIT_EXACT),0)
+# E2_EMIT_CULL (exact; needs E2_CULL=1): the cull's far depth kept, its edge tests in 32-bit products.
+E2_EMIT_CULL ?= $(if $(filter 1,$(E2_CULL)),$(E2_EMIT_EXACT),0)
+# E2_EMIT_YAW (exact; needs E2_EMIT_POSE=1): the yaw bin climbed from each car's last bin (convex bins only).
+E2_EMIT_YAW ?= $(if $(filter 1,$(E2_EMIT_POSE)),$(E2_EMIT_EXACT),0)
 # ENG_PACE: frame pacing. 0 as built (a frame as soon as it is ready); 1 adaptive (a two-field gap
 #   after a VDP1 draw longer than a field); 2 the 30 fps lock (presents never one field apart);
 #   3 probe (Yaul's fixed interval ENG_VDP1_INTERVAL); 4 the pipelined 30 fps lock (frame N+1 is
@@ -107,6 +133,15 @@ E2_ROSTER ?= 0
 # ENG_PACE_LEAD (ENG_PACE=4): fields after the present two frames back at which a build starts
 #   (1: at the previous submit; 2: one field later, one field less latency and build time).
 # Default (claude/pace-pipeline, owner 2026-11-19 "Lock 30"): 4 with the banks, else 0.
+# ENG_DSP_BANDS (DSP lane, src/fzx_band_corners.h): the floor's and clouds' fog-band corners.
+#   0 the original 64-bit loops; 1 (default, coordinator 2026-11-19) the same values on the SH-2 from
+#   32-bit deltas, per-band corners only when band_shared fails; 2 their products on the SCU DSP
+#   (SH2ZAM dsp-1 scale16, pin claude/dsp-engine-train-2). Every arm bit-identical.
+ENG_DSP_BANDS ?= 1
+# Diagnostics with ENG_DSP_BANDS=2: CHECK counts DSP corners that differ from the SH-2 form
+# (fzx_band_stats[7]); CORRUPT is the control (one kernel word altered after load).
+ENG_DSP_BANDS_CHECK ?= 0
+ENG_DSP_BANDS_CORRUPT ?= 0
 ENG_PACE ?= $(if $(filter 1,$(FZX_VDP1_DBANK)),4,0)
 ENG_VDP1_INTERVAL ?= 1
 ENG_PACE_LEAD ?= 1
@@ -141,6 +176,24 @@ E0_POP_LOG ?= 0
 E0_CAP_STABLE ?= 1
 # Diagnostic (needs E0_PHASES=1): draw skipped quads anyway and count any that would draw.
 E0_CLUSTER_AUDIT ?= 0
+# Music as CD audio (generated/SOUND-PLAN.md): play music id ENG_CDDA_MUSIC from its disc track while
+# the image runs. Needs generated/cdda/cdda_tracks.h (tools/disc_cdda.py, local) and a multi-track disc.
+ENG_CDDA ?= 0
+ENG_CDDA_MUSIC ?= 0
+# Diagnostic: start this many sectors before the track end, so the loop-back happens within the run.
+ENG_CDDA_LOOPTEST ?= 0
+# Race sound (generated/SOUND-PLAN.md, SH2ZAM snd-1): race events to SCSP clips, engine pitch from
+# speed, the two nearest rivals' engines, and the course music ENG_SND_MUSIC from its CD track.
+# Needs generated/snd (tools/sfx_pack.py), generated/cdda (tools/disc_cdda.py), both local, an
+# SH2ZAM checkout with snd-1 and a multi-track disc. ENG_SND_FADETEST=N: leave (fade the music,
+# close the event epoch) at tick N, the LOAD hook's control.
+# On by default for the drive images (scenes and the plain drive); ENG_SND=0 is the control.
+ENG_SND ?= $(if $(filter 1,$(FZX_E1_DRIVE)),$(if $(filter 1,$(ENG_CDDA)),0,1),0)
+ENG_SND_MUSIC ?= 0
+ENG_SND_FADETEST ?= 0
+ifeq ($(filter 0 1 2,$(ENG_DSP_BANDS)),)
+$(error ENG_DSP_BANDS must be 0, 1 or 2)
+endif
 # Prelude (E0_PRELUDE_*; generated/E0-PRELUDE.md). The exact three are the default (2026-11-19: identical pixels in every field).
 # E0_PRELUDE_SHARE (exact): floor and cloud fog bands project each shared boundary line once.
 E0_PRELUDE_SHARE ?= 1
@@ -188,7 +241,9 @@ endif
 # The racer sprite set the player is drawn from.
 E1_SPRITES := $(if $(filter 2,$(E1_CLOSEUP)),racer_sprites_hq,racer_sprites)
 comma := ,
-SH_OUTPUT_DIR := build-$(if $(filter-out 4,$(ENG_PACE)),pace$(ENG_PACE)$(if $(filter 3,$(ENG_PACE)),i$(ENG_VDP1_INTERVAL),)-,$(if $(filter-out 1,$(ENG_PACE_LEAD)),pace4w$(ENG_PACE_LEAD)-,)$(if $(filter 1,$(ENG_PACE_EARLY_CONTROL)),pace4early-,)$(if $(filter 1,$(ENG_PACE_HUD_LEAD)),pace4hudlead-,))$(if $(filter 1,$(FZX_E1_DRIVE)),e1-d$(E1_DRIVER)$(if $(filter-out 0,$(E1_DRIVER_BOOST)),-b$(E1_DRIVER_BOOST),)$(if $(filter-out 0,$(E1_CLOSEUP)),-ab$(E1_CLOSEUP)$(if $(filter 1,$(E1_CLOSEUP_EARLY)),e,)$(if $(filter-out 0,$(E1_FIELD)),-f$(E1_FIELD)$(if $(filter 1,$(E2_PACK)),p,)$(if $(filter 1,$(E2_FASTPOSE)),q,)$(if $(filter 1,$(E2_CULL)),c,)$(if $(filter 1,$(E2_LOD)),l$(subst $(comma),_,$(E2_LOD_NEAR)),)$(if $(filter 1,$(E2_EARLY)),e,)$(if $(filter 1,$(E2_FASTSPRITE)),f,)$(if $(filter 1,$(E2_ROSTER)),r,)$(if $(filter 1,$(E2_PROF)),P,),)$(if $(filter 1,$(ENG_SCENES)),-scn$(if $(filter-out 0,$(FZX_GUEST_MASK)),-gm$(FZX_GUEST_MASK),)$(if $(filter 1,$(ENG_ROSTER)),-ro,),)$(if $(filter 0,$(E1_FIELD)),$(if $(filter 1,$(E2_EARLY)),E,),),)-,e0-)bank$(FZX_VDP1_DBANK)$(if $(filter 1,$(FZX_VDP1_DBANK_STALE)),-stale,)-g$(E0_GUARD_MARGIN)-c$(E0_FAST_CULL)-l$(E0_LOD_SHIFT)-f$(E0_FAN_FIX)-r$(E0_RBG_LEAN)-k$(E0_CLUSTERS)-w$(E0_WORK_HIGH)$(if $(filter-out 0,$(E0_CHUNK_CAP)),-cap$(E0_CHUNK_CAP),)-n$(E0_LEAN_CLIP)-e$(E0_FOG_EARLY)$(if $(filter 1,$(E0_HW_COUNTER)),-hw,)$(if $(filter 1,$(E0_VDP2_MAP)),-map,)$(if $(filter 1,$(E0_SENTINEL_CONTROL)),-sentinel,)$(if $(filter 1,$(E0_POP_LOG)),-pop,)$(if $(filter 1,$(E0_CAP_STABLE)),-stable,)$(if $(filter 1,$(E0_CLUSTER_AUDIT)),-audit,)$(if $(filter 0,$(E0_ISR_MAC_SAVE)),-nomac,)$(if $(filter 1,$(E0_MAC_PROBE)),-macprobe,)$(if $(filter 0,$(E0_QUEUE_ATOMIC)),-qrace,)$(if $(filter 1,$(E0_QUEUE_STRESS)),-qstress,)$(if $(filter-out 0,$(E0_QUEUE_WIDEN)),-qw$(E0_QUEUE_WIDEN),)$(if $(filter 1,$(E0_PHASES)),-phases,)$(if $(filter 0,$(E0_PRELUDE_SHARE)),-ps0,)$(if $(filter 0,$(E0_PRELUDE_WINDOW)),-pw0,)$(if $(filter 0,$(E0_PRELUDE_DIV)),-pd0,)
+SH_OUTPUT_DIR := build-$(if $(filter-out 1,$(ENG_DSP_BANDS)),dspb$(ENG_DSP_BANDS)$(if $(filter 1,$(ENG_DSP_BANDS_CHECK)),c,)$(if $(filter 1,$(ENG_DSP_BANDS_CORRUPT)),x,)-,)$(if $(filter-out 4,$(ENG_PACE)),pace$(ENG_PACE)$(if $(filter 3,$(ENG_PACE)),i$(ENG_VDP1_INTERVAL),)-,$(if $(filter-out 1,$(ENG_PACE_LEAD)),pace4w$(ENG_PACE_LEAD)-,)$(if $(filter 1,$(ENG_PACE_EARLY_CONTROL)),pace4early-,)$(if $(filter 1,$(ENG_PACE_HUD_LEAD)),pace4hudlead-,))$(if $(filter 1,$(FZX_E1_DRIVE)),e1-d$(E1_DRIVER)$(if $(filter-out 0,$(E1_DRIVER_BOOST)),-b$(E1_DRIVER_BOOST),)$(if $(filter-out 0,$(E1_CLOSEUP)),-ab$(E1_CLOSEUP)$(if $(filter 1,$(E1_CLOSEUP_EARLY)),e,)$(if $(filter-out 0,$(E1_FIELD)),-f$(E1_FIELD)$(if $(filter 1,$(E2_PACK)),p,)$(if $(filter 1,$(E2_FASTPOSE)),q,)$(if $(filter 1,$(E2_CULL)),c,)$(if $(filter 1,$(E2_LOD)),l$(subst $(comma),_,$(E2_LOD_NEAR)),)$(if $(filter 1,$(E2_EARLY)),e,)$(if $(filter 1,$(E2_FASTSPRITE)),f,)$(if $(filter 1,$(E2_ROSTER)),r,)$(if $(filter 1,$(E2_PROF)),P,),)$(if $(filter 1,$(ENG_SCENES)),-scn$(if $(filter-out 0,$(FZX_GUEST_MASK)),-gm$(FZX_GUEST_MASK),)$(if $(filter 1,$(ENG_ROSTER)),-ro,),)$(if $(filter 0,$(E1_FIELD)),$(if $(filter 1,$(E2_EARLY)),E,),),)-,e0-)bank$(FZX_VDP1_DBANK)$(if $(filter 1,$(FZX_VDP1_DBANK_STALE)),-stale,)-g$(E0_GUARD_MARGIN)-c$(E0_FAST_CULL)-l$(E0_LOD_SHIFT)-f$(E0_FAN_FIX)-r$(E0_RBG_LEAN)-k$(E0_CLUSTERS)-w$(E0_WORK_HIGH)$(if $(filter-out 0,$(E0_CHUNK_CAP)),-cap$(E0_CHUNK_CAP),)-n$(E0_LEAN_CLIP)-e$(E0_FOG_EARLY)$(if $(filter 1,$(E0_HW_COUNTER)),-hw,)$(if $(filter 1,$(E0_VDP2_MAP)),-map,)$(if $(filter 1,$(E0_SENTINEL_CONTROL)),-sentinel,)$(if $(filter 1,$(E0_POP_LOG)),-pop,)$(if $(filter 1,$(E0_CAP_STABLE)),-stable,)$(if $(filter 1,$(E0_CLUSTER_AUDIT)),-audit,)$(if $(filter 0,$(E0_ISR_MAC_SAVE)),-nomac,)$(if $(filter 1,$(E0_MAC_PROBE)),-macprobe,)$(if $(filter 0,$(E0_QUEUE_ATOMIC)),-qrace,)$(if $(filter 1,$(E0_QUEUE_STRESS)),-qstress,)$(if $(filter-out 0,$(E0_QUEUE_WIDEN)),-qw$(E0_QUEUE_WIDEN),)$(if $(filter 1,$(E0_PHASES)),-phases,)$(if $(filter 0,$(E0_PRELUDE_SHARE)),-ps0,)$(if $(filter 0,$(E0_PRELUDE_WINDOW)),-pw0,)$(if $(filter 0,$(E0_PRELUDE_DIV)),-pd0,)$(if $(filter 1,$(ENG_CDDA)),-cdda$(ENG_CDDA_MUSIC)$(if $(filter-out 0,$(ENG_CDDA_LOOPTEST)),-lt$(ENG_CDDA_LOOPTEST),),)$(if $(filter 1,$(ENG_SND)),-snd$(ENG_SND_MUSIC)$(if $(filter-out 0,$(ENG_SND_FADETEST)),-ft$(ENG_SND_FADETEST),),)
+EMIT_SWITCHES := $(E2_EMIT_PROF)$(E2_EMIT_HINT)$(E2_EMIT_CMD)$(E2_EMIT_SHADOW)$(E2_EMIT_POSE)$(E2_EMIT_SETUP)$(E2_EMIT_LINK)$(E2_EMIT_CULL)$(E2_EMIT_YAW)
+SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter-out 0,$(subst 0,,$(EMIT_SWITCHES))),-em$(EMIT_SWITCHES),)
 SH_BUILD_DIR := $(SH_OUTPUT_DIR)/yaul
 IMAGE_DIRECTORY := $(SH_OUTPUT_DIR)/cd
 IMAGE_1ST_READ_BIN := A.BIN
@@ -227,6 +282,7 @@ SH2ZAM_UNITS := sh2zam.c sh2zam_angles.c sh2zam_batch_sh2.c sh2zam_box2.c sh2zam
     sh2zam_view_guard_src.c sh2zam_view_guard_src_center.c sh2zam_view_round.c \
     sh2zam_view_merge_tier.c sh2zam_shade_fused.c sh2zam_view_rails.c sh2zam_segmesh.c sh2zam_segmesh_cull.c sh2zam_vdp1_banks.c \
     $(if $(filter 1,$(FZX_E1_DRIVE)),sh2zam_vehicle_dynamics.c sh2zam_unit30.c sh2zam_rotation_sprite.c sh2zam_sprite_cache.c sh2zam_vlc2.c,) \
+    $(if $(filter-out 0,$(E1_FIELD)),$(if $(filter 1,$(E2_EMIT_CMD) $(E2_EMIT_POSE) $(E2_EMIT_YAW)),sh2zam_rotation_sprite3.c,),) \
     $(if $(filter 1,$(E1_CLOSEUP)),sh2zam_vehicle.c sh2zam_view_indexed.c sh2zam_pose.c,) \
     $(if $(filter-out 0,$(E1_FIELD)),sh2zam_line_follower.c sh2zam_line_field.c,) \
     $(if $(filter 1,$(ENG_SCENES)),sh2zam_scene.c,)
@@ -241,8 +297,18 @@ SH_SRCS := engine_main.c engine_scene.c engine_path.c \
     $(if $(filter 1,$(FZX_E1_DRIVE)),engine_drive.c ../physics_native.c,) \
     $(if $(filter 1,$(E1_CLOSEUP)),engine_closeup.c ../../src/fzx_vehicle.c ../../src/fzx_vehicle_draw.c,) \
     $(if $(filter-out 0,$(E1_FIELD)),engine_field.c,) \
-    $(if $(filter 1,$(ENG_SCENES)),engine_scenes.c engine_records.c engine_load_fast.c,) $(if $(filter 1,$(ENG_ROSTER)),engine_roster.c,) \
+    $(if $(filter 1,$(ENG_SCENES)),engine_scenes.c engine_records.c engine_load_fast.c engine_cup.c,) $(if $(filter 1,$(ENG_ROSTER)),engine_roster.c,) \
     $(addprefix $(SH2ZAM_ROOT)/saturn/src/,$(sort $(SH2ZAM_UNITS)))
+ifneq ($(ENG_DSP_BANDS),0)
+SH_SRCS += ../../src/fzx_band_corners.c
+ifeq ($(ENG_DSP_BANDS),2)
+ifeq ($(wildcard $(SH2ZAM_ROOT)/saturn/include/sh2zam/dsp_experimental.h),)
+$(error ENG_DSP_BANDS=2 needs an SH2ZAM pin with dsp-1 (claude/dsp-engine-train-2))
+endif
+SH_SRCS += $(SH2ZAM_ROOT)/saturn/src/sh2zam_dsp.c
+endif
+SH_CFLAGS += -DENG_DSP_BANDS=$(ENG_DSP_BANDS) -DENG_DSP_BANDS_CHECK=$(ENG_DSP_BANDS_CHECK) -DENG_DSP_BANDS_CORRUPT=$(ENG_DSP_BANDS_CORRUPT)
+endif
 
 SH_CFLAGS += -DENG_PACE=$(ENG_PACE) $(if $(filter 3,$(ENG_PACE)),-DENG_VDP1_INTERVAL=$(ENG_VDP1_INTERVAL),) $(if $(filter 4,$(ENG_PACE)),-DENG_PACE_LEAD=$(ENG_PACE_LEAD) -DENG_PACE_EARLY_CONTROL=$(ENG_PACE_EARLY_CONTROL) -DENG_PACE_HUD_LEAD=$(ENG_PACE_HUD_LEAD),) -DFZX_ENGINE=1 -DFZX_FRAME_PROFILE=1 -DFZX_VDP1_DBANK=$(FZX_VDP1_DBANK) \
     -DFZX_VDP1_DBANK_STALE=$(FZX_VDP1_DBANK_STALE) -DFZX_ROAD_STREAM_GUARD_MARGIN=$(E0_GUARD_MARGIN) \
@@ -259,6 +325,30 @@ SH_CFLAGS += -DENG_PACE=$(ENG_PACE) $(if $(filter 3,$(ENG_PACE)),-DENG_VDP1_INTE
     -ffunction-sections -fdata-sections \
     -DE0_ISR_MAC_SAVE=$(E0_ISR_MAC_SAVE) -DE0_MAC_PROBE=$(E0_MAC_PROBE) -DFZX_DBANK_QUEUE_ATOMIC=$(E0_QUEUE_ATOMIC) -DE0_QUEUE_STRESS=$(E0_QUEUE_STRESS) -DFZX_DBANK_QUEUE_WIDEN=$(E0_QUEUE_WIDEN) -DFZX_E1_DRIVE=$(FZX_E1_DRIVE) -DE1_DRIVER=$(E1_DRIVER) -DE1_DRIVER_BOOST=$(E1_DRIVER_BOOST) \
     $(if $(filter 1,$(FZX_E1_DRIVE)),-I$(G)/physics -I$(G)/$(E1_SPRITES),)
+ifeq ($(ENG_CDDA),1)
+ifeq ($(wildcard $(G)/cdda/cdda_tracks.h),)
+$(error ENG_CDDA=1 needs $(G)/cdda/cdda_tracks.h: run tools/disc_cdda.py --header)
+endif
+SH_SRCS += engine_cdda.c
+SH_CFLAGS += -DENG_CDDA=1 -DENG_CDDA_MUSIC=$(ENG_CDDA_MUSIC) -DENG_CDDA_LOOPTEST=$(ENG_CDDA_LOOPTEST) -I$(G)/cdda
+endif
+ifeq ($(ENG_SND),1)
+ifeq ($(ENG_CDDA),1)
+$(error ENG_SND plays the music itself: build it without ENG_CDDA)
+endif
+ifneq ($(FZX_E1_DRIVE),1)
+$(error ENG_SND needs FZX_E1_DRIVE=1)
+endif
+SND_RECEIPT_CHECK := $(foreach R,snd/snd.receipt cdda/cdda.receipt,$(shell sh ../../tools/check_receipt.sh $(G)/$(R) >/dev/null 2>&1 || echo $(R)))
+ifneq ($(strip $(SND_RECEIPT_CHECK)),)
+$(error Missing or stale sound assets ($(SND_RECEIPT_CHECK)): run tools/sfx_pack.py --output generated/snd and tools/disc_cdda.py --music <bgm_cdda.py output> --ids all --header-only --header generated/cdda/cdda_tracks.h (local, from the ROM); or build with ENG_SND=0)
+endif
+ifeq ($(wildcard $(SH2ZAM_ROOT)/saturn/include/sh2zam/snd_experimental.h),)
+$(error ENG_SND=1 needs the SH2ZAM pin (saturn/engine/sh2zam.pin, with snd-1))
+endif
+SH_SRCS += engine_snd.c $(SH2ZAM_ROOT)/saturn/src/sh2zam_snd.c
+SH_CFLAGS += -DENG_SND=1 -DENG_SND_MUSIC=$(ENG_SND_MUSIC) -DENG_SND_FADETEST=$(ENG_SND_FADETEST) -I$(G)/snd -I$(G)/cdda
+endif
 # As ../Makefile: these SH2ZAM units carry same-named assembler macros.
 SH_CFLAGS += $$(if $$(filter %/sh2zam_view.c %/sh2zam_view_center.c,$$<),-fno-lto,)
 ifneq ($(E1_CLOSEUP),0)
@@ -270,6 +360,19 @@ ifneq ($(E1_FIELD),0)
 # FZX_CLOSEUP_CARS: 3D slots (engine_field.h FZX_FIELD_K_MAX).
 SH_CFLAGS += -DE1_FIELD=$(E1_FIELD) -DFZX_CLOSEUP_CARS=6
 SH_CFLAGS += -DE2_PACK=$(E2_PACK) -DE2_FASTPOSE=$(E2_FASTPOSE) -DE2_CULL=$(E2_CULL) -DE2_LOD=$(E2_LOD) -DE2_LOD_NEAR=$(E2_LOD_NEAR) -DE2_EARLY=$(E2_EARLY) -DE2_PROF=$(E2_PROF) -DE2_FASTSPRITE=$(E2_FASTSPRITE) -DE2_ROSTER=$(E2_ROSTER)
+SH_CFLAGS += -DE2_EMIT_PROF=$(E2_EMIT_PROF) -DE2_EMIT_HINT=$(E2_EMIT_HINT) -DE2_EMIT_CMD=$(E2_EMIT_CMD) -DE2_EMIT_SHADOW=$(E2_EMIT_SHADOW) -DE2_EMIT_POSE=$(E2_EMIT_POSE) -DE2_EMIT_SETUP=$(E2_EMIT_SETUP) -DE2_EMIT_LINK=$(E2_EMIT_LINK) -DE2_EMIT_CULL=$(E2_EMIT_CULL) -DE2_EMIT_YAW=$(E2_EMIT_YAW)
+ifeq ($(E2_EMIT_YAW):$(E2_EMIT_POSE),1:0)
+$(error E2_EMIT_YAW needs E2_EMIT_POSE=1)
+endif
+ifeq ($(E2_EMIT_CULL):$(E2_CULL),1:0)
+$(error E2_EMIT_CULL needs E2_CULL=1)
+endif
+ifeq ($(E2_EMIT_LINK):$(E2_EARLY),1:0)
+$(error E2_EMIT_LINK needs E2_EARLY=1)
+endif
+ifeq ($(E2_EMIT_POSE):$(E2_CULL),1:0)
+$(error E2_EMIT_POSE needs E2_CULL=1)
+endif
 ifeq ($(E2_PACK),1)
 SH_CFLAGS += -I$(G)/rivals
 endif
@@ -331,6 +434,7 @@ stage-e0-packs:
 	   $(G)/skyline/SKYLINE.PAK $(G)/planes_cloud/PLANES.PAK \
 	   $(G)/floor_rbg/FLOORCHR.BIN $(G)/floor_rbg/FLOORMAP.BIN $(G)/floor_rbg/FLOORKOF.BIN "$(IMAGE_DIRECTORY)/"
 	$(if $(filter 1,$(E0_CLUSTERS)),cp $(G)/road_cluster/ROADCL.PAK "$(IMAGE_DIRECTORY)/",)
+	$(if $(filter 1,$(ENG_SND)),cp $(G)/snd/SNDRACE.PAK "$(IMAGE_DIRECTORY)/",)
 ifeq ($(FZX_E1_DRIVE),1)
 	cp $(G)/physics/PHYS.PAK $(G)/$(E1_SPRITES)/RSPRITE.PAK "$(IMAGE_DIRECTORY)/"
 endif

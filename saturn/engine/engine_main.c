@@ -74,6 +74,18 @@
 #else
 #define CLOSEUP_COMMANDS 0u
 #endif
+#ifndef ENG_CDDA
+#define ENG_CDDA 0
+#endif
+#if ENG_CDDA
+#include "engine_cdda.h"
+#endif
+#ifndef ENG_SND
+#define ENG_SND 0
+#endif
+#if ENG_SND
+#include "engine_snd.h"
+#endif
 #if FZX_ROAD_STREAM_PHASES
 /* Diagnostic builds only: the track build's phase totals (slave timer units). */
 fzx_rsp_state_t fzx_rsp;
@@ -138,6 +150,9 @@ volatile uint32_t fzx_input_count; /* the presented logic tick, read by the reus
 fzx_view_t fzx_native_view;
 
 /* Status for captures. 1 running, 2 path done; faults are 16 and above. */
+#if ENG_SND && ENG_SND_FADETEST
+static uint32_t fzx_e0_snd_left;
+#endif
 volatile uint32_t fzx_e0_status, fzx_e0_done, fzx_e0_fault;
 /* [0] magic, [1] rows written, [2] row capacity, [3] rows base, [4] fields at
  * start, [5] frames built, [6] fields per second, [7] VDP1 texture bytes used,
@@ -437,8 +452,16 @@ static void pace_vblank_in(void *work) {
             if (n > fzx_pace[7]) fzx_pace[7] = n;
             pace_rendered = 0u; pace_drawn = 0u; pace_vbi = 0u;
             ++fzx_pace[1];
+#if ENG_SND
+            engine_snd_vblank(true);
+            MAC_RESTORE();
+            return;
+#endif
         }
     }
+#if ENG_SND
+    engine_snd_vblank(false);
+#endif
     MAC_RESTORE();
 }
 #endif
@@ -487,6 +510,12 @@ void user_init(void) {
     vdp1_vram_partitions_set(command_reserve,
         VDP1_VRAM_DEFAULT_TEXTURE_SIZE + (VDP1_VRAM_DEFAULT_CMDT_COUNT - command_reserve) * 32u,
         VDP1_VRAM_DEFAULT_GOURAUD_COUNT, VDP1_VRAM_DEFAULT_CLUT_COUNT);
+#if ENG_CDDA
+    engine_cdda_power(); /* before peripheral polling: SMPC sound commands must not meet an INTBACK */
+#endif
+#if ENG_SND
+    engine_snd_power(); /* before peripheral polling: SMPC sound commands must not meet an INTBACK */
+#endif
     smpc_peripheral_init();
     vdp2_tvmd_display_res_set(VDP2_TVMD_INTERLACE_NONE, VDP2_TVMD_HORZ_NORMAL_A, VDP2_TVMD_VERT_224);
     vdp2_scrn_back_color_set(VDP2_VRAM_ADDR(3, 0x01FFFE), RGB1555(1, 1, 2, 6));
@@ -696,6 +725,9 @@ static void field_stage(const fzx_engine_cam_t *cam) {
     const uint16_t v0 = cpu_frt_count_get();
     PROF_MARK(vp);
     const unsigned ncars = fzx_field_cars(field_cars, fzx_drive_body());
+#if ENG_SND
+    engine_snd_cars(fzx_drive_body(), field_cars, ncars);
+#endif
     PROF(5, vp);
     for (unsigned i = 0; i < FZX_FIELD_K_MAX; ++i) { car_stage_n[i] = 0; car_stage_p[i] = car_stage[i]; }
     for (unsigned i = 0; i < ncars; ++i) {
@@ -824,6 +856,9 @@ static void build(row_t *row, const fzx_engine_cam_t *cam, uint32_t tick, uint16
     uint16_t car_stage_n[FZX_FIELD_K_MAX];
     const uint16_t v0 = cpu_frt_count_get();
     const unsigned ncars = fzx_field_cars(field_cars, fzx_drive_body());
+#if ENG_SND
+    engine_snd_cars(fzx_drive_body(), field_cars, ncars);
+#endif
     for (unsigned i = 0; i < FZX_FIELD_K_MAX; ++i) { car_stage_n[i] = 0; car_stage_p[i] = car_stage[i]; }
     for (unsigned i = 0; i < ncars; ++i) {
         const fzx_field_car_t *c = &field_cars[i];
@@ -871,7 +906,17 @@ static void build(row_t *row, const fzx_engine_cam_t *cam, uint32_t tick, uint16
         {
             /* The cars staged before the kick: one copy after the track. */
             const unsigned m = field_stage_n;
+#if E2_EMIT_LINK
+            /* The list's pieces in order: the field's own commands and the staged 3D cars in place. */
+            if (m) {
+                vdp1_cmdt_t *at = &commands[CMD_FIRST + draws];
+                for (unsigned s = 0; s < fzx_emit_nsegs; ++s) {
+                    memcpy(at, fzx_emit_segs[s].src, fzx_emit_segs[s].n * sizeof(vdp1_cmdt_t)); at += fzx_emit_segs[s].n;
+                }
+            }
+#else
             memcpy(&commands[CMD_FIRST + draws], field_stage_cmds, m * sizeof(vdp1_cmdt_t));
+#endif
             draws += m;
             row->car_cmds = (uint16_t)(m ? m - 1u : 0u); row->sprites = field_stage_sprites;
             row->near = field_stage_near; row->n3d = field_stage_n3d;
@@ -986,6 +1031,10 @@ void fzx_race_load(void) {
     if (!fzx_engine_path_open(&path, (const void *)PATH_BASE, FZX_ENGINE_PATH_BYTES, FZX_ENGINE_PATH_HASH))
 #endif
         fail(18, "PATH PACK", 0);
+#if ENG_SND
+    /* The race clips straight into sound RAM while the disc is free (no music yet). */
+    if (!engine_snd_load((void *)scratch, 0x00300000u - scratch)) fail(60, "SOUND LOAD", fzx_texture_cd_status.status);
+#endif
 
     vdp1_vram_partitions_get(&partitions);
 #if FZX_E1_DRIVE
@@ -1144,6 +1193,16 @@ bool fzx_race_frame(void) {
     const fzx_engine_cam_t *const lens = scn_lens;
     {
 #else
+#if ENG_CDDA
+    /* After the last CD data load, before the loop takes its time origin: music from its own
+     * track, streamed by the drive. A failure is recorded in engine_cdda_stats for the capture;
+     * the image runs on without music. */
+    (void)engine_cdda_start(ENG_CDDA_MUSIC, ENG_CDDA_LOOPTEST);
+#endif
+#if ENG_SND
+    engine_snd_start(1u); /* after the last disc read: course music and the race's sound epoch;
+                           before the loop takes its time origin, so the first frame keeps its phase */
+#endif
     uint32_t tick = 0, remainder = 0, previous = video_fields, row_index = 0;
 #if E0_HW_COUNTER
     uint32_t hw_loops = 0, hw_next = 0, hw_mark_frames = 0;
@@ -1162,6 +1221,9 @@ bool fzx_race_frame(void) {
         }
 #endif
         const uint16_t loop_start = cpu_frt_count_get();
+#if ENG_CDDA
+        engine_cdda_service();
+#endif
         const uint32_t field = video_fields;
         /* Real time: the path advances one tick per 1/60 s, whatever the frame takes. */
         remainder += (field - previous) * 60u;
@@ -1180,6 +1242,16 @@ bool fzx_race_frame(void) {
         fzx_field_sim_ticks = 0;
 #endif
         fzx_drive_step(advance);
+#if ENG_SND
+#if ENG_PACE == 4
+        engine_snd_build(); /* this frame's sound, released at its present (pace_vblank_in) */
+#else
+        engine_snd_frame();
+#endif
+#if ENG_SND_FADETEST
+        if (fzx_drive_tick() >= ENG_SND_FADETEST && !fzx_e0_snd_left) { fzx_e0_snd_left = 1; engine_snd_leave(60u); }
+#endif
+#endif
         const uint16_t phys = (uint16_t)(cpu_frt_count_get() - p0);
         tick = fzx_drive_tick() ? fzx_drive_tick() : 1u;
         if (fzx_e1_driver && fzx_e1_report[5]) { fzx_e0_done = 1; fzx_e0_status = 2; }
@@ -1351,6 +1423,9 @@ bool fzx_race_frame(void) {
             vdp1_sync();
             pace_vbi = 0u; pace_drawn = 0u; pace_rendered = 1u;
             pace_tick_inflight = shown;
+#if ENG_SND
+            engine_snd_seal();
+#endif
             ++fzx_pace[0];
             cpu_intc_mask_set(mask);
         }

@@ -160,6 +160,8 @@ def main():
                 cmd += ['--mutate', a.mutate]
             run(cmd)
             nat = load(nt)
+            for k in (0, 1):   # the window's start state is the reference's (tick T): events at T + 1 compare against it
+                nat[(t, k)] = rows[(t, k)]
             end = t + n
             if (end, 0) not in nat:
                 return dict(start=t, length=n, ok=False, reason='native stopped early')
@@ -169,9 +171,21 @@ def main():
                 ep.append(dict(racer=k, pos_err=math.dist(rs['pos'], ns['pos']), speed_err=abs(rs['speed'] - ns['speed']),
                                speed_tol=SPEED_TOL * abs(rs['speed']) + QUANTUM))
             ep_ok = all(e['pos_err'] <= POS_TOL and e['speed_err'] <= e['speed_tol'] for e in ep)
+            sens = None
+            if not ep_ok and not a.mutate:
+                # Sensitivity probe: the same native window with racer 0 moved 64 Q16 LSB (0.001 unit)
+                # sideways, judged against the unmoved native run with the same tolerances.
+                nn = w / 'native-nudge.tsv'
+                run([x if x != str(nt) else str(nn) for x in cmd] + ['--nudge', '64'])
+                nud = load(nn)
+                sens = (end, 0) in nud and not all(
+                    math.dist(state(nat, end, k)['pos'], state(nud, end, k)['pos']) <= POS_TOL and
+                    abs(state(nat, end, k)['speed'] - state(nud, end, k)['speed']) <= SPEED_TOL * abs(state(nat, end, k)['speed']) + QUANTUM
+                    for k in (0, 1))
             m = match(events(rows, t, end, length), events(nat, t, end, length))
             ev_ok = all(x['ok'] for v in m.values() for x in v)
-            return dict(start=t, length=n, endpoint_ok=ep_ok, events_ok=ev_ok, ok=ep_ok and ev_ok, endpoints=ep, events=m)
+            return dict(start=t, length=n, endpoint_ok=ep_ok, events_ok=ev_ok, ok=ep_ok and ev_ok, endpoints=ep, events=m,
+                        chaotic=sens)
         with ThreadPoolExecutor(a.jobs) as ex:
             results = list(ex.map(window, sorted(starts.items())))
         sres = dict(reference_events={c: sum(1 for e in ref_ev if e[0] == c) for c in CLASSES}, windows=results)
@@ -186,7 +200,11 @@ def main():
                         cl['damage_rel_max'] = max(cl['damage_rel_max'], x['damage_rel'])
     tag = a.mutate or 'base'
     (out / ('judge-%s.json' % tag)).write_text(json.dumps(summary, indent=1))
-    print('%s: windows %d pass %d endpoints %d' % (tag, summary['windows'], summary['passed'], summary['endpoints']))
+    chaotic = sum(1 for v in summary['scenarios'].values() for r in v['windows'] if r.get('chaotic'))
+    summary['chaotic'] = chaotic
+    (out / ('judge-%s.json' % tag)).write_text(json.dumps(summary, indent=1))
+    print('%s: windows %d pass %d endpoints %d; failing endpoints that a 0.001-unit nudge also breaks: %d' % (
+        tag, summary['windows'], summary['passed'], summary['endpoints'], chaotic))
     for c in CLASSES:
         if c in summary['classes']:
             cl = summary['classes'][c]

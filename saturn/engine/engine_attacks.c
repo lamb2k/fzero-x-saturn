@@ -422,6 +422,12 @@ static void press(uint32_t i, int dir) {
     r->last_press = now;
 }
 
+static bool road_wide(const sh2z_vehicle_t *v) {
+    sh2z_line_sample_t at;
+    sh2z_line_sample(F.line, v->t.node, v->t.dist, &at);
+    return at.half_width * 2 > 138 * 256;
+}
+
 static void think(const sh2z_vd_body_t *p, uint32_t i) {
     rival_t *r = &R[i];
     sh2z_vehicle_t *v = &F.veh[i];
@@ -437,11 +443,10 @@ static void think(const sh2z_vd_body_t *p, uint32_t i) {
     const uint32_t race = race_ticks();
     bool vis = false, vis_known = false;
 #define VIS() (vis_known ? vis : (vis_known = true, vis = fzx_atk_visible(p, i)))
-    sh2z_line_sample_t at;
-    sh2z_line_sample(F.line, v->t.node, v->t.dist, &at);
-    const bool wide = at.half_width * 2 > 138 * 256;
+    bool wide = false, wide_known = false;
+#define WIDE() (wide_known ? wide : (wide_known = true, wide = road_wide(v)))
     /* Chasers on their target. */
-    if (b->chase >= 0 && (uint32_t)b->chase < F.count && race > THINK_AFTER_TICKS && wide &&
+    if (b->chase >= 0 && (uint32_t)b->chase < F.count && race > THINK_AFTER_TICKS && WIDE() &&
         !(r->mode & (M_SIDE | M_SPIN))) {
         const sh2z_vehicle_t *c = &F.veh[b->chase];
         if (!(c->flags & (SH2Z_VEH_RETIRED | SH2Z_VEH_FINISHED)) && iabs(near_gap(c, v)) < 184 * 256 && VIS()) {
@@ -483,6 +488,7 @@ static void think(const sh2z_vd_body_t *p, uint32_t i) {
         iabs(pl->t.lateral - v->t.lateral) < 138 * 256 && iabs(near_gap(pl, v)) < 500 * 256)
         start_attack(i, true, (rnd() & 1u) ? -1 : 1);
 #undef VIS
+#undef WIDE
 }
 
 static uint32_t mix(uint32_t h, uint32_t x) { return (h ^ x) * 16777619u; }
@@ -497,10 +503,11 @@ void fzx_atk_after(const sh2z_vd_body_t *p) {
             if ((i & 3u) == (tick & 3u)) think(p, i);
     }
     ++fzx_atk_report[15];
-    fzx_atk_report[14] = fzx_atk_hash();
     const uint32_t t = F.field->tick;
-    if ((t & 255u) == 0u && t / 256u >= 1u && t / 256u <= FZX_ATK_CHECKPOINTS)
+    if ((t & 255u) == 0u && t / 256u >= 1u && t / 256u <= FZX_ATK_CHECKPOINTS) {
+        fzx_atk_report[14] = fzx_atk_hash();   /* at the checkpoints only */
         fzx_atk_chk[t / 256u - 1u] = fzx_atk_report[14] ^ sh2z_field_hash(F.field);
+    }
 }
 
 /* ---- the scripted hunter ------------------------------------------------------------------- */

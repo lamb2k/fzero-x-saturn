@@ -35,7 +35,7 @@ static int pads_b[2][20000], pads_x[2][20000];
 
 int main(int argc, char **argv) {
     const char *p0 = 0, *p1 = 0, *pads = 0, *trace = 0, *mutate = "";
-    int from = -1, ticks = 120, c0 = 0, c1 = 0, since = -1, toucher = -1, touching = 0, side[2] = { 0, 0 };
+    int from = -1, ticks = 120, c0 = 0, c1 = 0, since = -1, toucher = -1, touching = 0, side[2] = { 0, 0 }, nudge = 0;
     for (int i = 1; i + 1 < argc; i += 2) {
         if (!strcmp(argv[i], "--pack0")) p0 = argv[i + 1];
         else if (!strcmp(argv[i], "--pack1")) p1 = argv[i + 1];
@@ -46,6 +46,7 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[i], "--toucher")) toucher = atoi(argv[i + 1]);
         else if (!strcmp(argv[i], "--touching")) touching = atoi(argv[i + 1]);
         else if (!strcmp(argv[i], "--trace")) trace = argv[i + 1];
+        else if (!strcmp(argv[i], "--nudge")) nudge = atoi(argv[i + 1]);
         else if (!strcmp(argv[i], "--spin-side0")) side[0] = atoi(argv[i + 1]);
         else if (!strcmp(argv[i], "--spin-side1")) side[1] = atoi(argv[i + 1]);
         else if (!strcmp(argv[i], "--mutate")) mutate = argv[i + 1];
@@ -82,6 +83,8 @@ int main(int argc, char **argv) {
     else if (!strcmp(mutate, "heavy5")) br.heavy_gain = Q16(5.0);
     else if (*mutate) die("unknown mutation");
     sh2z_vd_body_t b[2] = { course[0].start, course[1].start };
+    /* --nudge N: racer 0 starts N Q16 LSB to the side (the sensitivity probe: native against itself). */
+    for (int k = 0; k < 3; ++k) b[0].pos[k] += (int32_t)(((int64_t)b[0].body[2][k] * nudge) >> 30);
     sh2z_bc_body_t bc[2];
     memset(bc, 0, sizeof(bc));
     bc[0].strength = fzx_atk_machine[c0][0]; bc[1].strength = fzx_atk_machine[c1][0];

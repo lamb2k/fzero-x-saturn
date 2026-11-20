@@ -243,6 +243,14 @@ ENG_RIVAL_SURFACE ?= 1
 ifeq ($(filter 0 1,$(ENG_RIVAL_SURFACE)),)
 $(error ENG_RIVAL_SURFACE must be 0 or 1)
 endif
+# ENG_RIVAL_BEHAVE (field images with ENG_RIVAL_SURFACE=1; SH2ZAM line-field-5, claude/line-field-5): the rivals'
+# tube roll, lateral inertia, air and falls with a knock-out credit, the near-focus knock-out gate and the free CPU
+# boost (boost_energy 0), with the values HOST checked them with (ref/rivals_gp_main.c --behave 1). Fall, retirement
+# and KO-credit events go to fzx_field_events (engine_field.h). Default 0: line-field-4's field step for step.
+ENG_RIVAL_BEHAVE ?= 0
+ifeq ($(filter 0 1,$(ENG_RIVAL_BEHAVE)),)
+$(error ENG_RIVAL_BEHAVE must be 0 or 1)
+endif
 ENG_SND_FADETEST ?= 0
 ifeq ($(filter 0 1 2,$(ENG_DSP_BANDS)),)
 $(error ENG_DSP_BANDS must be 0, 1 or 2)
@@ -318,7 +326,7 @@ BAL_SWITCHES := $(ENG_BAL_CLOUDS)$(ENG_BAL_EARLY)$(ENG_BAL_FORCE)$(ENG_BAL_HASH)
 EMIT_SWITCHES := $(E2_EMIT_PROF)$(E2_EMIT_HINT)$(E2_EMIT_CMD)$(E2_EMIT_SHADOW)$(E2_EMIT_POSE)$(E2_EMIT_SETUP)$(E2_EMIT_LINK)$(E2_EMIT_CULL)$(E2_EMIT_YAW)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter-out 0,$(subst 0,,$(EMIT_SWITCHES))),-em$(EMIT_SWITCHES),)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter-out 00000,$(BAL_SWITCHES)),-bal$(BAL_SWITCHES),)
-SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter-out mute-city-1,$(ENG_COURSE)),-$(ENG_COURSE),)$(if $(E1_DRIVER_KH),-kh$(E1_DRIVER_KH),)$(if $(filter 1,$(ENG_COURSE_SELECT)),-sel,)$(if $(filter 1,$(ENG_TUBES)),-tubes,)$(if $(filter 0,$(ENG_RIVAL_SURFACE)),-rs0,)$(if $(filter 1,$(ENG_SCN_STALL_CONTROL)),-stallctl,)
+SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter-out mute-city-1,$(ENG_COURSE)),-$(ENG_COURSE),)$(if $(E1_DRIVER_KH),-kh$(E1_DRIVER_KH),)$(if $(filter 1,$(ENG_COURSE_SELECT)),-sel,)$(if $(filter 1,$(ENG_TUBES)),-tubes,)$(if $(filter 0,$(ENG_RIVAL_SURFACE)),-rs0,)$(if $(filter 1,$(ENG_RIVAL_BEHAVE)),-beh,)$(if $(filter 1,$(ENG_SCN_STALL_CONTROL)),-stallctl,)
 SH_BUILD_DIR := $(SH_OUTPUT_DIR)/yaul
 IMAGE_DIRECTORY := $(SH_OUTPUT_DIR)/cd
 IMAGE_1ST_READ_BIN := A.BIN
@@ -328,6 +336,11 @@ include $(YAUL_INSTALL_ROOT)/share/build.pre.mk
 SH2ZAM_ROOT ?=
 ifeq ($(wildcard $(SH2ZAM_ROOT)/saturn/include/sh2zam/segmesh_experimental.h),)
 $(error Set SH2ZAM_ROOT to a checkout of the engine pin (saturn/engine/sh2zam.pin))
+endif
+ifeq ($(ENG_RIVAL_BEHAVE),1)
+ifeq ($(shell grep -l sh2z_field_behave $(SH2ZAM_ROOT)/saturn/include/sh2zam/line_field_experimental.h 2>/dev/null),)
+$(error ENG_RIVAL_BEHAVE=1 needs an SH2ZAM pin with line-field-5 (claude/line-field-5))
+endif
 endif
 
 G := ../../generated
@@ -437,7 +450,7 @@ endif
 ifneq ($(E1_FIELD),0)
 # FZX_CLOSEUP_CARS: 3D slots (engine_field.h FZX_FIELD_K_MAX).
 SH_CFLAGS += -DE1_FIELD=$(E1_FIELD) -DFZX_CLOSEUP_CARS=6
-SH_CFLAGS += -DENG_RIVAL_SURFACE=$(ENG_RIVAL_SURFACE) -DE2_PACK=$(E2_PACK) -DE2_FASTPOSE=$(E2_FASTPOSE) -DE2_CULL=$(E2_CULL) -DE2_LOD=$(E2_LOD) -DE2_LOD_NEAR=$(E2_LOD_NEAR) -DE2_EARLY=$(E2_EARLY) -DE2_PROF=$(E2_PROF) -DE2_FASTSPRITE=$(E2_FASTSPRITE) -DE2_ROSTER=$(E2_ROSTER)
+SH_CFLAGS += -DENG_RIVAL_SURFACE=$(ENG_RIVAL_SURFACE) -DENG_RIVAL_BEHAVE=$(ENG_RIVAL_BEHAVE) -DE2_PACK=$(E2_PACK) -DE2_FASTPOSE=$(E2_FASTPOSE) -DE2_CULL=$(E2_CULL) -DE2_LOD=$(E2_LOD) -DE2_LOD_NEAR=$(E2_LOD_NEAR) -DE2_EARLY=$(E2_EARLY) -DE2_PROF=$(E2_PROF) -DE2_FASTSPRITE=$(E2_FASTSPRITE) -DE2_ROSTER=$(E2_ROSTER)
 SH_CFLAGS += -DE2_EMIT_PROF=$(E2_EMIT_PROF) -DE2_EMIT_HINT=$(E2_EMIT_HINT) -DE2_EMIT_CMD=$(E2_EMIT_CMD) -DE2_EMIT_SHADOW=$(E2_EMIT_SHADOW) -DE2_EMIT_POSE=$(E2_EMIT_POSE) -DE2_EMIT_SETUP=$(E2_EMIT_SETUP) -DE2_EMIT_LINK=$(E2_EMIT_LINK) -DE2_EMIT_CULL=$(E2_EMIT_CULL) -DE2_EMIT_YAW=$(E2_EMIT_YAW)
 ifeq ($(E2_EMIT_YAW):$(E2_EMIT_POSE),1:0)
 $(error E2_EMIT_YAW needs E2_EMIT_POSE=1)

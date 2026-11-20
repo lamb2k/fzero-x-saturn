@@ -42,6 +42,28 @@ static sh2z_field_surface_t surface;
 #else
 #define RIVAL_TUBES 0
 #endif
+#ifndef ENG_RIVAL_BEHAVE
+#define ENG_RIVAL_BEHAVE 0
+#endif
+#if ENG_RIVAL_BEHAVE && !RIVAL_TUBES
+#error ENG_RIVAL_BEHAVE needs E2_PACK=1 and ENG_RIVAL_SURFACE=1
+#endif
+#if ENG_RIVAL_BEHAVE
+/* line-field-5: the behaviours' tuning, and the fall / retirement / KO-credit events for the attacks glue. */
+static sh2z_field_behave_t behave;
+static uint16_t prev_flags[FZX_FIELD_CARS];
+static int16_t prev_credit[FZX_FIELD_CARS];
+fzx_field_event_t fzx_field_events[FZX_FIELD_EVENTS];
+volatile uint32_t fzx_field_event_count;
+static void field_event(uint32_t agent, uint32_t kind, int32_t by, int32_t tick) {
+    const uint32_t n = fzx_field_event_count;
+    if (n < FZX_FIELD_EVENTS) {
+        fzx_field_event_t *e = &fzx_field_events[n];
+        e->agent = (uint8_t)agent; e->kind = (uint8_t)kind; e->by = (int16_t)by; e->tick = tick;
+    }
+    fzx_field_event_count = n + 1u; /* counts past the table too: a full table shows as count > FZX_FIELD_EVENTS */
+}
+#endif
 
 volatile uint32_t fzx_field_k = 1, fzx_field_d = 250, fzx_field_margin = 40;
 volatile uint32_t fzx_field_report[16];
@@ -433,7 +455,30 @@ bool fzx_field_load(const sh2z_vd_track_t *track, const sh2z_vd_body_t *player) 
         fzx_e2_report[10] = surface.zone_count; fzx_e2_report[11] = (uint32_t)params.dash_from;
     }
 #endif
+#if ENG_RIVAL_BEHAVE
+    {
+        /* line-field-5: the values HOST checked the bands and the C-095 tube judge with (ref/rivals_gp_main.c
+         * --behave 1 --tune boost_energy=0): the source's tube bias pick (1/64 a decision; half hold to an exit,
+         * the rest 20..35 decisions), cylinders hold their angle, pipes settle near their line; air nodes (shape
+         * 0x180), open-edge road (0x000), fall to retirement 95 ticks, KO window 120; free CPU boost. */
+        memset(&behave, 0, sizeof(behave));
+        behave.roll_chance = 1024; behave.roll_latch = 32768; behave.roll_min = 20; behave.roll_span = 16;
+        behave.roll_lead = 26214; behave.hold_lead = 7864; behave.roll_well = 52429;
+        behave.hold_mask = 0x01c0u; behave.hold_value = 0x00c0u; behave.exit_mask = 0x01c0u; behave.exit_value = 0x0080u;
+        behave.roll_exit_ahead = U(3000);
+        behave.lat_accel = 192;
+        behave.air_mask = 0x01c0u; behave.air_value = 0x0180u; behave.open_mask = 0x01c0u; behave.open_value = 0x0000u;
+        behave.air_spread = 2600; behave.fall_margin = U(30); behave.fall_ticks = 95;
+        behave.ko_window = 120; behave.ko_near = U(1500); behave.ko_floor = 26;
+        params.behave = &behave;
+        params.boost_energy = 0;
+        fzx_field_event_count = 0;
+    }
+#endif
     sh2z_field_init(&field, &line, &params, veh, brain, order, slot_of, rank_order, FZX_FIELD_CARS, CSEL(field_seed,FZX_RIVALS_FIELD_SEED));
+#if ENG_RIVAL_BEHAVE
+    for (uint32_t i = 0; i < FZX_FIELD_CARS; ++i) { prev_flags[i] = veh[i].flags; prev_credit[i] = brain[i].ko_credit; }
+#endif
     field.focus = 0;
     memset(is3d, 0, sizeof(is3d)); memset(want_run, 0, sizeof(want_run));
     fzx_field_report[0] = 1;
@@ -479,6 +524,16 @@ void fzx_field_tick(const sh2z_vd_body_t *player) {
     sh2z_field_step(&field);
     fzx_field_report[3] = field.tick; fzx_field_report[5] = field.contacts;
     fzx_field_report[11] = field.finished; fzx_field_report[12] = field.retired;
+#if ENG_RIVAL_BEHAVE
+    for (uint32_t i = 1; i < FZX_FIELD_CARS; ++i) {
+        const uint16_t f = veh[i].flags, was = prev_flags[i];
+        const sh2z_field_brain_t *b = &brain[i];
+        if ((f & SH2Z_VEH_FALLING) && !(was & SH2Z_VEH_FALLING)) field_event(i, FZX_FIELD_EV_FALL, b->ko_by, b->fall_tick);
+        if (b->ko_credit != prev_credit[i] && b->ko_credit >= 0) field_event(i, FZX_FIELD_EV_KO, b->ko_credit, (int32_t)field.tick);
+        if ((f & SH2Z_VEH_RETIRED) && !(was & SH2Z_VEH_RETIRED)) field_event(i, FZX_FIELD_EV_RETIRE, b->ko_credit, b->retire_tick);
+        prev_flags[i] = f; prev_credit[i] = b->ko_credit;
+    }
+#endif
 }
 
 #if E2_FASTPOSE

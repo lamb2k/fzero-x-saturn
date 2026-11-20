@@ -117,6 +117,9 @@ enum { FADE_FRAMES = 16u, RETIRE_MIN = 1u };
 volatile uint32_t fzx_scn_report[32];
 volatile uint32_t fzx_scn_pad;        /* bit 16 set: use bits 0..15 as port 1 (captures) */
 volatile uint32_t fzx_scn_force_end;  /* captures: nonzero ends the race now with this reason */
+#if ENG_SCN_STALL_CONTROL
+volatile uint32_t fzx_scn_stall_ctl; /* engine gate control: see the main loop */
+#endif
 volatile uint32_t fzx_scn_probe;      /* captures: 0x100 | machine id, tried in SELECT */
 /* SCENES.md 11.3 (captures): nonzero classifies a Time Attack race at the GP trigger, as GP
  * does. [0] the tick that set the finish, [1] the finish timer, [2] the trigger frame,
@@ -1349,6 +1352,14 @@ void fzx_scn_main(void) {
                 sh2z_scene_retired(&seq);
             }
         }
+#if ENG_SCN_STALL_CONTROL
+        /* Engine gate control (ctl-menus): a write to fzx_scn_stall_ctl holds this menu frame for 3 fields. */
+        if (POKED(fzx_scn_stall_ctl) && seq.current != FZX_SCN_RACE && !load_ran) {
+            POKED(fzx_scn_stall_ctl) = 0;
+            const uint32_t f0 = video_fields_get();
+            while (video_fields_get() - f0 < 3u) { }
+        }
+#endif
         menu_scene_prev = seq.current; menu_phase_prev = seq.phase;
         menu_frame_prev = seq.current != FZX_SCN_RACE && !load_ran && !(seq.phase <= SH2Z_SCENE_RUN && seq.current == FZX_SCN_RACE);
         load_ran = false;

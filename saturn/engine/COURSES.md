@@ -259,6 +259,19 @@ byte-identical to the recipe of record (docs/FUNCTIONAL_RECIPE.md).
 - **Windows:** the skyline palette's white entry flashes at night (`Background_UpdateBackgroundSprites`,
   `whiteIndex`). The plan is one CLUT word rewritten per frame, behind the change flag.
 
+**Road lookup tables aligned in the bake (lane `claude/vdp1`, 2026-11-20).**
+- **Why:** VDP1 reads a lookup table from `(CMDCOLR & ~3) * 8`. `tools/road_bake.py` pools each 32-byte
+  table at an 8-byte offset, so 106 to 186 tables per course are misaligned. `ENG_CLUT_ALIGN` copies
+  them to aligned VDP1 VRAM at every track load (up to 6 KB after the road shades; fault 39 if they do
+  not fit).
+- **Card:** align the tables to 32 bytes in an engine-only bake path. Do not change the shared tool's
+  default: the legacy recipe reads `generated/road_bake`. Regenerate the engine's six road bakes, preps
+  and the select bundle. Then remove the load-time copy and its VRAM.
+- **Gates:**
+  - every table aligned at load (count 0 copies);
+  - the Mednafen pictures unchanged against `ENG_CLUT_ALIGN=1`;
+  - legacy recipe BIN `4b4cacb2` unchanged.
+
 ## 8. Pipes and cylinders: results (lane `claude/tubes`, 2026-11-20)
 
 HOST and EMULATOR (Ymir) tiers; timings MODELLED; hardware UNRUN. Evidence: `fzx-evidence/host/claude-tub/`.

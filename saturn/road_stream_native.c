@@ -257,6 +257,44 @@ bool fzx_road_stream_clut_align(void *area,uint32_t area_bytes,uint32_t *used){
     return true;
 }
 #endif
+#ifndef FZX_ROAD_STREAM_LINE_START
+#define FZX_ROAD_STREAM_LINE_START 0
+#endif
+#if FZX_ROAD_STREAM_LINE_START
+/* FZX_ROAD_STREAM_LINE_START: VDP1 draws a distorted sprite or polygon as lines from its
+ * A-D edge to its B-C edge and ends a line once it leaves the clip, but it walks every
+ * pixel before a line enters it. A road command whose B-C corners lie nearer the view
+ * than its A-D corners is mirrored after the build: corners B,A,D,C, the horizontal flip
+ * toggled and the Gouraud words swapped the same way, so the same texels and shades land
+ * on the same screen corners and the lines start on the visible side. */
+volatile uint32_t fzx_road_stream_line_flips;
+static int32_t line_out(int32_t x,int32_t y,const int16_t clip[4]){
+    int32_t o=0;
+    if(x<clip[0])o+=clip[0]-x;else if(x>=clip[2])o+=x-clip[2]+1;
+    if(y<clip[1])o+=clip[1]-y;else if(y>=clip[3])o+=y-clip[3]+1;
+    return o;
+}
+static void line_start(vdp1_cmdt_t *commands,uint32_t n,const int16_t clip[4]){
+    for(uint32_t i=0;i<n;++i){
+        fzx_road_stream_vdp1_t *c=(fzx_road_stream_vdp1_t *)(void *)(commands+i);
+        const unsigned kind=c->ctrl&0xfu;
+        if(kind!=2u&&kind!=3u&&kind!=4u)continue;
+        if(line_out(c->xb,c->yb,clip)+line_out(c->xc,c->yc,clip)>=line_out(c->xa,c->ya,clip)+line_out(c->xd,c->yd,clip))continue;
+        int16_t t;
+        t=c->xa;c->xa=c->xb;c->xb=t;t=c->ya;c->ya=c->yb;c->yb=t;
+        t=c->xd;c->xd=c->xc;c->xc=t;t=c->yd;c->yd=c->yc;c->yc=t;
+        if(kind!=4u)c->ctrl^=0x0010u;
+        if(c->pmod&4u){
+            /* Two 32-bit reads; a word pair is rewritten only when its halves differ (VDP1 VRAM is slow). */
+            volatile uint32_t *g=(volatile uint32_t *)((uintptr_t)VDP1_VRAM(0)+((uintptr_t)c->grda<<3));
+            const uint32_t ab=g[0],cd=g[1];
+            if((ab>>16)!=(ab&0xffffu))g[0]=(ab<<16)|(ab>>16);
+            if((cd>>16)!=(cd&0xffffu))g[1]=(cd<<16)|(cd>>16);
+        }
+        ++fzx_road_stream_line_flips;
+    }
+}
+#endif
 bool fzx_road_stream_native(vdp1_cmdt_t *commands,unsigned capacity,const fzx_view_t *view,
     const int32_t eye[3],const RefRoadPlan *plan,int32_t pa,int32_t pb,void *pixels,void *shades,uint32_t *count){
     if(count)*count=0;
@@ -313,6 +351,9 @@ bool fzx_road_stream_native(vdp1_cmdt_t *commands,unsigned capacity,const fzx_vi
           shades,FZX_ROAD_STREAM_SHADE_BYTES,&emitted)||emitted!=n){
         fzx_road_stream_status=4;fzx_road_stream_busy=0;return false;
     }
+#endif
+#if FZX_ROAD_STREAM_LINE_START
+    line_start(commands+1,n,view->clip);
 #endif
     FZX_RSP(REPORT);
     memset(commands,0,sizeof(*commands));vdp1_cmdt_user_clip_coord_set(commands);

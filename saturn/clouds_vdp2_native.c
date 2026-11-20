@@ -2,6 +2,7 @@
 #include "sky_native.h"
 #include "planes_native.h"
 #include "sky_colors.h"
+#include "course_select.h"
 #include <string.h>
 
 /* VDP2 layout (see generated/C5-CLOUDS-VDP2-PLAN.md). The floor owns A0 0..0xfff,
@@ -73,6 +74,9 @@ void fzx_clouds_dbank_select(unsigned bank){clouds_bank=bank&1u;}
 #define CLOUDS_STAGE fzx_clouds_rbg
 #endif
 static uint8_t sky_keys[64];
+#ifndef FZX_SKY_LINEAR_PICK
+#define FZX_SKY_LINEAR_PICK 0
+#endif
 static unsigned band_count;
 extern volatile uint32_t fzx_input_count;
 
@@ -130,7 +134,7 @@ static void apply(void) {
     /* Band colours: the 64 source sky samples, written once (never per frame),
      * so CRAM stays stable through every presented frame. */
     volatile uint16_t *cram=(volatile uint16_t *)VDP2_CRAM_MODE_1_OFFSET(0,0,BAND_CRAM_FIRST);
-    for(unsigned i=0;i<64u;++i)cram[i]=fzx_sky_colors[i];
+    for(unsigned i=0;i<64u;++i)cram[i]=CSEL(sky_colors,fzx_sky_colors)[i];
     applied=true;++fzx_clouds_applies;
 }
 static void restore(void) {
@@ -152,9 +156,13 @@ static void restore(void) {
 bool fzx_clouds_vdp2_load(const void *planes_vram) {
     if(!planes_vram){fzx_clouds_status=2;return false;}
     for(unsigned i=0;i<64u;++i) {
-        const uint16_t c=fzx_sky_colors[i];
+        const uint16_t c=CSEL(sky_colors,fzx_sky_colors)[i];
         sky_keys[i]=(uint8_t)((c&31u)+((c>>5)&31u)+((c>>10)&31u));
+#if ENG_COURSE_SELECT
+        if(!fzx_cid->sky_linear && i && sky_keys[i]<sky_keys[i-1]){fzx_clouds_status=5;return false;}
+#elif !FZX_SKY_LINEAR_PICK
         if(i && sky_keys[i]<sky_keys[i-1]){fzx_clouds_status=5;return false;}
+#endif
     }
     /* Cloud-only pack, rebased: variant 0 (unfaded), level 0 = 64x32 RGB1555
      * row-major at offset 0. VDP2 RGB cells are 8x8 row-major, 128 bytes. */
@@ -168,7 +176,7 @@ bool fzx_clouds_vdp2_load(const void *planes_vram) {
         map[y*64+x]=CLOUD_CHAR_NUMBER+((y&3u)*8u+(x&7u))*4u;
     memset((void *)CLOUD_RP,0,96);
     for(unsigned y=0;y<224;++y){((volatile uint16_t *)CLOUD_WINDOW)[y*2]=640;((volatile uint16_t *)CLOUD_WINDOW)[y*2+1]=0;}
-    for(unsigned y=0;y<224;++y)((volatile uint16_t *)SKY_BACK)[y]=fzx_sky_colors[63];
+    for(unsigned y=0;y<224;++y)((volatile uint16_t *)SKY_BACK)[y]=CSEL(sky_colors,fzx_sky_colors)[63];
     saved_capture();
     const vdp2_scrn_cell_format_t format={.scroll_screen=VDP2_SCRN_RBG0_PB,
         .ccc=VDP2_SCRN_CCC_RGB_32768,.char_size=VDP2_SCRN_CHAR_SIZE_1X1,.pnd_size=2,
@@ -203,10 +211,40 @@ static bool emit(void *context,const fzx_floor_polygon_t *q) {
     else {
         /* The nearest resident sky sample: the source gradient's channel sum
          * rises monotonically (checked at load), so bisect on it. */
+#if ENG_COURSE_SELECT
+        unsigned best=0;
+        if(fzx_cid->sky_linear) {
+            uint32_t bd=~0u;
+            for(unsigned i=0;i<64u;++i) {
+                const uint16_t s=fzx_cid->sky_colors[i];
+                const int32_t dr=(int32_t)(sky&31u)-(int32_t)(s&31u),dg=(int32_t)((sky>>5)&31u)-(int32_t)((s>>5)&31u),
+                              db=(int32_t)((sky>>10)&31u)-(int32_t)((s>>10)&31u);
+                const uint32_t d=(uint32_t)((dr<0?-dr:dr)+(dg<0?-dg:dg)+(db<0?-db:db));
+                if(d<bd){bd=d;best=i;}
+            }
+        } else {
+            const uint32_t key=(sky&31u)+((sky>>5)&31u)+((sky>>10)&31u);
+            unsigned lo=0,hi=63;
+            while(lo<hi){const unsigned mid=(lo+hi)/2;if(sky_keys[mid]<key)lo=mid+1;else hi=mid;}
+            best=(lo>0 && key-sky_keys[lo-1]<sky_keys[lo]-key)?lo-1:lo;
+        }
+#elif FZX_SKY_LINEAR_PICK
+        /* A course whose gradient is not monotonic in brightness (a sunset): the
+         * nearest sample by per-channel distance, over all 64. */
+        unsigned best=0;uint32_t bd=~0u;
+        for(unsigned i=0;i<64u;++i) {
+            const uint16_t s=CSEL(sky_colors,fzx_sky_colors)[i];
+            const int32_t dr=(int32_t)(sky&31u)-(int32_t)(s&31u),dg=(int32_t)((sky>>5)&31u)-(int32_t)((s>>5)&31u),
+                          db=(int32_t)((sky>>10)&31u)-(int32_t)((s>>10)&31u);
+            const uint32_t d=(uint32_t)((dr<0?-dr:dr)+(dg<0?-dg:dg)+(db<0?-db:db));
+            if(d<bd){bd=d;best=i;}
+        }
+#else
         const uint32_t key=(sky&31u)+((sky>>5)&31u)+((sky>>10)&31u);
         unsigned lo=0,hi=63;
         while(lo<hi){const unsigned mid=(lo+hi)/2;if(sky_keys[mid]<key)lo=mid+1;else hi=mid;}
         const unsigned best=(lo>0 && key-sky_keys[lo-1]<sky_keys[lo]-key)?lo-1:lo;
+#endif
         c->cmd_colr=(uint16_t)(0x4000u|(q->band<<11)|(BAND_CRAM_FIRST+best));
         ++band_count;
     }

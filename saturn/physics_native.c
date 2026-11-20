@@ -79,6 +79,20 @@ const sh2z_vd_rules_t fzx_phys_rules = {
     .clock_den = 3,
 };
 
+#if FZX_PHYS_TUBES
+/* The tube shapes' constants (racer.c func_8008EC98 pipe, func_8008F550 cylinder): the
+ * half-pipe join length 1000 as the pipe join's tilt lever, the pipe join's 23 above the
+ * line, the cylinder's 200 of reach and of join lift, and the 0.01 guards. */
+const sh2z_vd_tube_rules_t fzx_phys_tube_rules = {
+    .join_lever = Q16(1000.0),
+    .pipe_rim = Q16(23.0),
+    .cyl_reach = Q16(200.0),
+    .cyl_lift = Q16(200.0),
+    .min_dist = Q16(0.01),
+    .min_unit = Q30(0.01),
+};
+#endif
+
 typedef struct {
     const uint8_t* p;
     const uint8_t* end;
@@ -106,9 +120,18 @@ int fzx_phys_load(FzxPhysCourse* c, const uint8_t* data, size_t size, int zones)
     sh2z_vd_vehicle_t* v = &c->vehicle;
     sh2z_vd_body_t* b = &c->start;
     uint32_t nn, nz, nr, nm, i;
+#if FZX_PHYS_TUBES
+    uint32_t version;
+#endif
 
     memset(c, 0, sizeof(*c));
+#if FZX_PHYS_TUBES
+    if ((uint32_t) word(&r) != FZX_PHYS_MAGIC) return -1;
+    version = (uint32_t) word(&r);
+    if (version != FZX_PHYS_VERSION && version != FZX_PHYS_VERSION_TUBES) return -1;
+#else
     if ((uint32_t) word(&r) != FZX_PHYS_MAGIC || (uint32_t) word(&r) != FZX_PHYS_VERSION) return -1;
+#endif
     nn = (uint32_t) word(&r);
     nz = (uint32_t) word(&r);
     nr = (uint32_t) word(&r);
@@ -185,6 +208,17 @@ int fzx_phys_load(FzxPhysCourse* c, const uint8_t* data, size_t size, int zones)
         words(&r, c->ramps[i].dim, 3);
     }
     for (i = 0; i < nm; i++) words(&r, c->mines[i].pos, 3);
+#if FZX_PHYS_TUBES
+    if (version == FZX_PHYS_VERSION_TUBES) {
+        for (i = 0; i < nn; i++) {
+            c->joins[i].prev_end = word(&r);
+            c->joins[i].next_start = word(&r);
+            c->joins[i].scale = word(&r);
+            if (c->joins[i].scale <= 0) return -5;
+        }
+        c->track2.joins = c->joins;
+    }
+#endif
     /* Starting state. */
     c->state_offset = (uint32_t) (r.p - data);
     b->flags = (uint32_t) word(&r);
@@ -247,6 +281,10 @@ int fzx_phys_load(FzxPhysCourse* c, const uint8_t* data, size_t size, int zones)
     c->track.ramps = c->ramps;
     c->track.mines = c->mines;
     c->track.count = nn;
+#if FZX_PHYS_TUBES
+    c->track2.base = c->track;
+    c->track2.tube = fzx_phys_tube_rules;
+#endif
     return 0;
 }
 

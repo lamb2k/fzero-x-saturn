@@ -58,6 +58,29 @@ class PackTests(unittest.TestCase):
         self.assertEqual(shape, 1 | (1 << 8))
         self.assertEqual(zones, 0 | (1 << 16))
 
+    def test_tube_joins_make_version_3(self):
+        plain = physics_pack.build(physics_pack.parse(self.tmp))
+        h = lambda x: float(x).hex()
+        text = self.tmp.read_text()
+        # Node 2 is a pipe that joins its previous span; node 3 a pipe without joins (the source's sentinels).
+        text = text.replace("seg 2 %d " % 0x8000040, "seg 2 %d " % 0x8000080)
+        text = text.replace("machine 0 0", "join 2 0 %s\njoin 3 0 %s\nmachine 0 0" % (
+            " ".join(h(x) for x in (0.25, 99.0, 0.25)), " ".join(h(x) for x in (-99.0, 99.0, -1.0))), 1)
+        self.tmp.write_text(text)
+        tubes = physics_pack.build(physics_pack.parse(self.tmp))
+        self.assertEqual(struct.unpack(">I", plain[4:8])[0], physics_pack.VERSION)  # control: no joins, v2
+        self.assertEqual(struct.unpack(">I", tubes[4:8])[0], physics_pack.VERSION_TUBES)
+        self.assertEqual(len(tubes), len(plain) + 4 * 3 * 4)
+        joins = HEADER_WORDS + 4 * NODE_WORDS + 9
+        words = struct.unpack(">12i", tubes[4 * joins:4 * (joins + 12)])
+        self.assertEqual(words[0:3], (0, 1 << 30, 1 << 30))                    # node 0: no record
+        self.assertEqual(words[6:9], (1 << 28, 3 << 29, 1 << 28))              # node 2: 0.25, 1.5 (clamped), 0.25
+        self.assertEqual(words[9:12], (-(1 << 30), 3 << 29, 1 << 30))          # node 3: -1, 1.5, scale 1
+        joined = " ".join(h(x) for x in (0.25, 99.0, 0.25))
+        self.tmp.write_text(text.replace(joined, " ".join(h(x) for x in (0.25, 99.0, -1.0))))  # control: no scale
+        with self.assertRaises(ValueError):
+            physics_pack.build(physics_pack.parse(self.tmp))
+
     def test_line_hash_matches_the_c_definition(self):
         src = physics_pack.parse(self.tmp)
         h = 0xCBF29CE484222325

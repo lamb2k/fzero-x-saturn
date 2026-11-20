@@ -2,7 +2,7 @@
  * MIT; see ../LICENSE. Host headers only; the game code is behind ref.h and rivals_bake.c.
  *
  *   fzx-gp-ref --course RECORD --rom BOOT --cpu-line LINE --difficulty 0..3 --seed N
- *              --ticks MAX --report OUT.json [--trace OUT.bin] [--player-cpu 0|1]
+ *              --ticks MAX --report OUT.json [--trace OUT.bin] [--player-cpu 0|1] [--tuning-course N]
  *
  * Records what the native rival model is judged against: lap and race times per racer, finishing
  * order against grid order, field spread, rank changes, retirements. --trace writes racer 0's
@@ -17,6 +17,7 @@
 #include "ref.h"
 
 int rb_gp_init(int difficulty, unsigned seed, const short* cpu_line);
+int rb_gp_tuning_course(int n);
 void rb_racer(int i, float f[5], int n[8]);
 float rb_course_length(void);
 void rb_gp_frame(void);
@@ -38,7 +39,7 @@ static unsigned char* read_file(const char* path, size_t* n) {
 
 int main(int argc, char** argv) {
     const char *course = 0, *rom = 0, *line = 0, *report = 0, *trace = 0;
-    int difficulty = 1, max_ticks = 14000, player_cpu = 1;
+    int difficulty = 1, max_ticks = 14000, player_cpu = 1, tuning_course = 0;
     unsigned seed = 1;
     for (int i = 1; i + 1 < argc; i += 2) {
         if (!strcmp(argv[i], "--course")) course = argv[i + 1];
@@ -50,6 +51,7 @@ int main(int argc, char** argv) {
         else if (!strcmp(argv[i], "--seed")) seed = (unsigned)atoi(argv[i + 1]);
         else if (!strcmp(argv[i], "--ticks")) max_ticks = atoi(argv[i + 1]);
         else if (!strcmp(argv[i], "--player-cpu")) player_cpu = atoi(argv[i + 1]);
+        else if (!strcmp(argv[i], "--tuning-course")) tuning_course = atoi(argv[i + 1]);
         else die("unknown argument");
     }
     if (!course || !rom || !line || !report) die("usage: see gp_ref_main.c");
@@ -64,6 +66,7 @@ int main(int argc, char** argv) {
     static short cpu_line[0x200];
     for (int i = 0; i < 0x200; ++i) cpu_line[i] = (short)((lb[2 * i] << 8) | lb[2 * i + 1]);
     if (ref_load_course(rec, 1) != 0 || ref_race_init() != 0) die("race set-up failed");
+    if (rb_gp_tuning_course(tuning_course) != 0) die("--tuning-course is the original course index, 0..23");
     const int total = rb_gp_init(difficulty, seed, cpu_line);
     if (total != MAXR) die("the reference did not set up 30 racers");
     if (player_cpu) ref_set_cpu_driver(1);

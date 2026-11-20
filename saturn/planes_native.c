@@ -2,6 +2,7 @@
 #include "texture_cd.h"
 #include "planes_identity.h"
 #include <string.h>
+#include "course_select.h"
 /* The unchanged combined identity header predates the compact-pack tag. */
 #ifndef FZX_PLANE_CLOUD_ONLY_PACK
 #define FZX_PLANE_CLOUD_ONLY_PACK 0
@@ -15,7 +16,7 @@ volatile uint32_t fzx_plane_fields;
 bool fzx_planes_load(void *vram) {
     uintptr_t start=((uintptr_t)sat_stub_data_end+31u)&~(uintptr_t)31u;
     if(start<0x00200000u || start>=0x00300000u || fzx_texture_cd_scratch_bytes()>0x00300000u-start)return false;
-    bool ok=fzx_texture_cd_load("PLANES.PAK",FZX_PLANE_RESIDENT_BYTES,FZX_PLANE_HASH,vram,(void *)start,0x00300000u-start);
+    bool ok=fzx_texture_cd_load(CNAME(FZX_CF_PLANES,"PLANES.PAK"),FZX_PLANE_RESIDENT_BYTES,CSEL(plane_hash,FZX_PLANE_HASH),vram,(void *)start,0x00300000u-start);
     fzx_plane_status=ok?1:2;return ok;
 }
 typedef struct {vdp1_cmdt_t *cmd;uintptr_t pixels;uint16_t *shades;unsigned count;} submit_t;
@@ -53,7 +54,7 @@ bool fzx_planes_native(vdp1_cmdt_t *commands,unsigned capacity,const fzx_view_t 
     commands->cmd_xa=view->clip[0];commands->cmd_ya=view->clip[1];commands->cmd_xc=view->clip[2]-1;commands->cmd_yc=view->clip[3]-1;
     submit_t submit={commands+1,(uintptr_t)vram,shades,0};
     if(capacity-1>FZX_PLANE_MAX_DRAWS)capacity=FZX_PLANE_MAX_DRAWS+1;
-    if(!fzx_planes_draw(view,source,fzx_plane_fog,fzx_plane_mean,capacity-1,emit,&submit,&fzx_plane_stats)) {
+    if(!fzx_planes_draw(view,source,CSEL(plane_fog,fzx_plane_fog),CSEL(plane_mean,fzx_plane_mean),capacity-1,emit,&submit,&fzx_plane_stats)) {
         fzx_plane_status=3;return false;
     }
     *count=submit.count+1;fzx_plane_ticks=(uint16_t)(cpu_frt_count_get()-start);

@@ -27,7 +27,21 @@ def pair(mesh):
             for i in range(4):
                 q=ids[i:]+ids[:i]
                 if vertices[q[0]][3]==vertices[q[1]][3] and vertices[q[2]][3]==vertices[q[3]][3]:break
-            else:raise ArtError('Source road pair has unsupported S topology')
+            else:
+                # A cylinder join (course.c Course_ChunkJoinCylinder) tapers its quads to the line, so a
+                # few pairs have no two edges of constant S. Take the turn whose cross edges are nearest
+                # constant S and give the pair its own copies of the second and fourth corners with the
+                # S of the first and third (approximate texturing on those quads only; the mesh keeps
+                # the change, so a second pass sees an ordinary pair).
+                if not any(vertices[i][3]!=vertices[ids[0]][3] for i in ids):raise ArtError('Source road pair has unsupported S topology')
+                q=min((ids[i:]+ids[:i] for i in range(4)),key=lambda r:abs(vertices[r[0]][3]-vertices[r[1]][3])+abs(vertices[r[2]][3]-vertices[r[3]][3]))
+                for src,dst in ((q[0],1),(q[2],3)):
+                    copy=list(vertices[q[dst]]);copy[3]=vertices[src][3];vertices.append(copy)
+                    for tri in (a,b):
+                        for k in range(3):
+                            if tri[k]==q[dst]:tri[k]=len(vertices)-1
+                    q[dst]=len(vertices)-1
+                mesh.setdefault('approximate_pairs',[]).append(first)
             ids=q
         if any(vertices[i][5:]!=[0,0,0,255] for i in ids):raise ArtError('Road vertex combiner requires a new color path')
         result.append(dict(vertices=ids,material=a[3],chunk=oa['chunk'],outer=oa['conditional_outer'],primitive=primitive,first=first))

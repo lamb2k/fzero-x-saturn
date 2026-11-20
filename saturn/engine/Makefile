@@ -5,7 +5,9 @@
 #
 #   make -C saturn/engine SH2ZAM_ROOT=<checkout of the engine pin> [FZX_VDP1_DBANK=0|1]
 #
-# The SH2ZAM pin is saturn/engine/sh2zam.pin: SH2ZAM main 5a94dbe, merge train 5 (PR #51: dual-claim-1,
+# The SH2ZAM pin is saturn/engine/sh2zam.pin: SH2ZAM main accd505, merge train 7 (PR #56: vehicle-dynamics-2,
+# pipes and cylinders), after train 6 (PR #55: line-field-3, the first-lap chase cap). Before it, branch
+# claude/jack-train 8449e35 (the same library sources). Before that, main 5a94dbe, merge train 5 (PR #51: dual-claim-1,
 # compiled only with ENG_BAL_CLOUDS=2, and line-field-2, whose second-lap re-target is off while a brain's
 # finish_ticks is 0). Before it, main 93b3774 (train 4, PR #48): rotation-sprites-2/-3, line-follower-1,
 # line-field-1, segmesh-2, vehicle-dynamics-1, sprite-cache-1, scene-1, snd-1 and dsp-1; before that the
@@ -195,7 +197,42 @@ ENG_CDDA_LOOPTEST ?= 0
 # close the event epoch) at tick N, the LOAD hook's control.
 # On by default for the drive images (scenes and the plain drive); ENG_SND=0 is the control.
 ENG_SND ?= $(if $(filter 1,$(FZX_E1_DRIVE)),$(if $(filter 1,$(ENG_CDDA)),0,1),0)
-ENG_SND_MUSIC ?= 0
+# Course (tools/course_catalog.py): its asset set comes from generated/ for the first course and
+# from generated/courses/<ENG_COURSE> for the others; the music defaults to the course's own
+# (race.c D_i2_80106F14). ENG_COURSE=mute-city-1 builds the images it always did.
+ENG_COURSE ?= mute-city-1
+ENG_COURSES := mute-city-1 silence-1 sand-ocean-1 devils-forest-1 big-blue-1 port-town-1
+COURSE_MUSIC_mute-city-1 := 0
+COURSE_MUSIC_silence-1 := 1
+COURSE_MUSIC_sand-ocean-1 := 2
+COURSE_MUSIC_devils-forest-1 := 5
+COURSE_MUSIC_big-blue-1 := 4
+COURSE_MUSIC_port-town-1 := 3
+ifeq ($(filter $(ENG_COURSE),$(ENG_COURSES)),)
+$(error ENG_COURSE must be one of $(ENG_COURSES))
+endif
+ENG_SND_MUSIC ?= $(COURSE_MUSIC_$(ENG_COURSE))
+COURSE_INDEX_mute-city-1 := 0
+COURSE_INDEX_silence-1 := 1
+COURSE_INDEX_sand-ocean-1 := 2
+COURSE_INDEX_devils-forest-1 := 3
+COURSE_INDEX_big-blue-1 := 4
+COURSE_INDEX_port-town-1 := 5
+# ENG_COURSE_SELECT=1 (scenes images): one disc carries every bundled course's packs (tools/course_bundle.py,
+# generated/courses/select; the Jack Cup bundles all six) and LOAD takes the set of the course to race
+# (the cup catalog, engine_cup.c, opens the bundled rows), with that course's music (engine_courses.c).
+# The default for scenes images with the default ENG_COURSE (claude/jack, 2026-11-20: all six courses
+# race exact from one image); 0 builds the single-course scenes image as before.
+ENG_COURSE_SELECT ?= $(if $(and $(filter 1,$(ENG_SCENES)),$(filter mute-city-1,$(ENG_COURSE))),1,0)
+# Tubes (lane claude-tub, saturn/engine/COURSES.md 6): pipes and cylinders in the player's physics
+# (SH2ZAM vehicle-dynamics-2, physics pack v3 with joins). On by default for the Jack Cup's two tube
+# courses; ENG_TUBES=0 builds them with vehicle-dynamics-1, which refuses their v3 packs (the
+# control). The road courses take 0 and build as before. The one-disc image (ENG_COURSE_SELECT=1) takes 1:
+# vehicle-dynamics-2 gives road shapes the same bits as vehicle-dynamics-1 and accepts v2 and v3 packs.
+ENG_TUBES ?= $(if $(filter sand-ocean-1 big-blue-1,$(ENG_COURSE)),1,$(if $(filter 1,$(ENG_COURSE_SELECT)),1,0))
+ifeq ($(filter 0 1,$(ENG_TUBES)),)
+$(error ENG_TUBES must be 0 or 1)
+endif
 ENG_SND_FADETEST ?= 0
 ifeq ($(filter 0 1 2,$(ENG_DSP_BANDS)),)
 $(error ENG_DSP_BANDS must be 0, 1 or 2)
@@ -279,6 +316,7 @@ BAL_SWITCHES := $(ENG_BAL_CLOUDS)$(ENG_BAL_EARLY)$(ENG_BAL_FORCE)$(ENG_BAL_HASH)
 EMIT_SWITCHES := $(E2_EMIT_PROF)$(E2_EMIT_HINT)$(E2_EMIT_CMD)$(E2_EMIT_SHADOW)$(E2_EMIT_POSE)$(E2_EMIT_SETUP)$(E2_EMIT_LINK)$(E2_EMIT_CULL)$(E2_EMIT_YAW)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter-out 0,$(subst 0,,$(EMIT_SWITCHES))),-em$(EMIT_SWITCHES),)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter-out 00000,$(BAL_SWITCHES)),-bal$(BAL_SWITCHES),)
+SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter-out mute-city-1,$(ENG_COURSE)),-$(ENG_COURSE),)$(if $(E1_DRIVER_KH),-kh$(E1_DRIVER_KH),)$(if $(filter 1,$(ENG_COURSE_SELECT)),-sel,)$(if $(filter 1,$(ENG_TUBES)),-tubes,)
 SH_BUILD_DIR := $(SH_OUTPUT_DIR)/yaul
 IMAGE_DIRECTORY := $(SH_OUTPUT_DIR)/cd
 IMAGE_1ST_READ_BIN := A.BIN
@@ -291,15 +329,17 @@ $(error Set SH2ZAM_ROOT to a checkout of the engine pin (saturn/engine/sh2zam.pi
 endif
 
 G := ../../generated
+GCREL := $(if $(filter mute-city-1,$(ENG_COURSE)),,courses/$(ENG_COURSE)/)
+GC := $(G)$(if $(GCREL),/$(GCREL:%/=%),)
 E0_RECEIPTS := engine_path/engine_path.receipt road_pack/road_pack.receipt road_bake/road_bake.receipt \
                skyline/skyline.receipt sky/sky.receipt planes_cloud/planes.receipt floor_rbg/floor_rbg.receipt \
                $(if $(filter 1,$(E0_CLUSTERS)),road_cluster/road_cluster.receipt,)
-E0_RECEIPT_CHECK := $(foreach R,$(E0_RECEIPTS),$(shell sh ../../tools/check_receipt.sh $(G)/$(R) >/dev/null 2>&1 || echo $(R)))
+E0_RECEIPT_CHECK := $(foreach R,$(E0_RECEIPTS),$(shell sh ../../tools/check_receipt.sh $(GC)/$(R) >/dev/null 2>&1 || echo $(R)))
 ifeq ($(FZX_E1_DRIVE),1)
 # The scenes image takes the 3D player from generated/mach3d (tools/mach3d_packs.py) and its own
 # offline bakes (road_prep, engine_path_ranges).
-E1_CLOSEUP_RECEIPTS := $(if $(filter 1,$(ENG_SCENES)),mach3d_scn/mach3d.receipt road_prep/road_prep.receipt engine_path_ranges/engine_path_ranges.receipt,$(E1_REBAKE)/machine_rebake.receipt $(E1_VEHICLE)/closeup.receipt)
-E1_RECEIPT_CHECK := $(foreach R,physics/physics.receipt $(E1_SPRITES)/racer_sprites.receipt $(if $(filter 1,$(E1_CLOSEUP)),$(E1_CLOSEUP_RECEIPTS),),$(shell sh ../../tools/check_receipt.sh $(G)/$(R) >/dev/null 2>&1 || echo $(R)))
+E1_CLOSEUP_RECEIPTS := $(if $(filter 1,$(ENG_SCENES)),mach3d_scn/mach3d.receipt $(GCREL)road_prep/road_prep.receipt $(GCREL)engine_path_ranges/engine_path_ranges.receipt,$(E1_REBAKE)/machine_rebake.receipt $(E1_VEHICLE)/closeup.receipt)
+E1_RECEIPT_CHECK := $(foreach R,$(GCREL)physics/physics.receipt $(E1_SPRITES)/racer_sprites.receipt $(if $(filter 1,$(E1_CLOSEUP)),$(E1_CLOSEUP_RECEIPTS),),$(shell sh ../../tools/check_receipt.sh $(G)/$(R) >/dev/null 2>&1 || echo $(R)))
 ifneq ($(strip $(E1_RECEIPT_CHECK)),)
 $(error Missing or stale E1 assets; run their generators: $(E1_RECEIPT_CHECK))
 endif
@@ -316,11 +356,11 @@ SH2ZAM_UNITS := sh2zam.c sh2zam_angles.c sh2zam_batch_sh2.c sh2zam_box2.c sh2zam
     sh2zam_spatial.c sh2zam_transform.c sh2zam_trig.c sh2zam_view.c sh2zam_view_center.c \
     sh2zam_view_guard_src.c sh2zam_view_guard_src_center.c sh2zam_view_round.c \
     sh2zam_view_merge_tier.c sh2zam_shade_fused.c sh2zam_view_rails.c sh2zam_segmesh.c sh2zam_segmesh_cull.c sh2zam_vdp1_banks.c \
-    $(if $(filter 1,$(FZX_E1_DRIVE)),sh2zam_vehicle_dynamics.c sh2zam_unit30.c sh2zam_rotation_sprite.c sh2zam_sprite_cache.c sh2zam_vlc2.c,) \
+    $(if $(filter 1,$(FZX_E1_DRIVE)),sh2zam_vehicle_dynamics.c sh2zam_unit30.c sh2zam_rotation_sprite.c sh2zam_sprite_cache.c sh2zam_vlc2.c,)     $(if $(filter 1,$(FZX_E1_DRIVE)),$(if $(filter 1,$(ENG_TUBES)),sh2zam_vehicle_dynamics2.c,),) \
     $(if $(filter-out 0,$(E1_FIELD)),$(if $(filter 1,$(E2_EMIT_CMD) $(E2_EMIT_POSE) $(E2_EMIT_YAW)),sh2zam_rotation_sprite3.c,),) \
     $(if $(filter 1,$(E1_CLOSEUP)),sh2zam_vehicle.c sh2zam_view_indexed.c sh2zam_pose.c,) \
     $(if $(filter-out 0,$(E1_FIELD)),sh2zam_line_follower.c sh2zam_line_field.c,) \
-    $(if $(filter 1,$(ENG_ATTACKS)),sh2zam_body_contact.c sh2zam_vehicle_contact.c,) \
+    $(if $(filter 1,$(ENG_ATTACKS)),sh2zam_body_contact.c sh2zam_vehicle_contact.c $(if $(filter 1,$(ENG_TUBES)),sh2zam_vehicle_contact2.c,),) \
     $(if $(filter 1,$(ENG_SCENES)),sh2zam_scene.c,)     $(if $(filter 2,$(ENG_BAL_CLOUDS)),sh2zam_dual_claim.c,)
 
 SH_SRCS := engine_main.c engine_scene.c engine_path.c \
@@ -329,7 +369,7 @@ SH_SRCS := engine_main.c engine_scene.c engine_path.c \
     ../../src/fzx_view.c ../../src/fzx_view16.c ../../src/fzx_view16_center.c ../../src/fzx_sky.c ../../src/fzx_skyline.c ../../src/fzx_planes.c \
     ../../src/fzx_floor_rbg.c ../../src/fzx_clouds_rbg.c ../../src/fzx_rbg_fast.c \
     ../../src/fzx_road_pack.c ../../src/fzx_road_stream.c ../../src/fzx_road_stream_draw.c \
-    $(G)/course_record.c \
+    $(GC)/course_record.c \
     $(if $(filter 1,$(FZX_E1_DRIVE)),engine_drive.c ../physics_native.c,) \
     $(if $(filter 1,$(E1_CLOSEUP)),engine_closeup.c ../../src/fzx_vehicle.c ../../src/fzx_vehicle_draw.c,) \
     $(if $(filter-out 0,$(E1_FIELD)),engine_field.c,) $(if $(filter 1,$(ENG_ATTACKS)),engine_attacks.c,) \
@@ -350,18 +390,18 @@ SH_CFLAGS += -DENG_BAL_CLOUDS=$(ENG_BAL_CLOUDS) -DENG_BAL_EARLY=$(ENG_BAL_EARLY)
 SH_CFLAGS += -DENG_PACE=$(ENG_PACE) $(if $(filter 3,$(ENG_PACE)),-DENG_VDP1_INTERVAL=$(ENG_VDP1_INTERVAL),) $(if $(filter 4,$(ENG_PACE)),-DENG_PACE_LEAD=$(ENG_PACE_LEAD) -DENG_PACE_EARLY_CONTROL=$(ENG_PACE_EARLY_CONTROL) -DENG_PACE_HUD_LEAD=$(ENG_PACE_HUD_LEAD),) -DFZX_ENGINE=1 -DFZX_FRAME_PROFILE=1 -DFZX_VDP1_DBANK=$(FZX_VDP1_DBANK) \
     -DFZX_VDP1_DBANK_STALE=$(FZX_VDP1_DBANK_STALE) -DFZX_ROAD_STREAM_GUARD_MARGIN=$(E0_GUARD_MARGIN) \
     -DFZX_ROAD_STREAM_PHASES=$(E0_PHASES) -DFZX_SCENE_PHASES=$(E0_PHASES) -DFZX_ROAD_STREAM_FAST_CULL=$(E0_FAST_CULL) -DFZX_ROAD_STREAM_LOD_SHIFT=$(E0_LOD_SHIFT) -DFZX_ROAD_STREAM_FAN_FIX=$(E0_FAN_FIX) -DFZX_RBG_LEAN=$(E0_RBG_LEAN) -DFZX_RBG_SHARE=$(E0_PRELUDE_SHARE) -DFZX_RBG_WINDOW=$(E0_PRELUDE_WINDOW) -DFZX_RBG_DIV=$(E0_PRELUDE_DIV) \
-    -DFZX_ROAD_STREAM_CLUSTERS=$(E0_CLUSTERS) -DFZX_ROAD_STREAM_CLUSTER_AUDIT=$(E0_CLUSTER_AUDIT) -I$(G)/road_cluster -DFZX_ROAD_STREAM_WORK_HIGH=$(E0_WORK_HIGH) -DE0_CHUNK_CAP=$(E0_CHUNK_CAP) -DFZX_ROAD_STREAM_LEAN_CLIP=$(E0_LEAN_CLIP) -DFZX_ROAD_STREAM_FOG_EARLY=$(E0_FOG_EARLY) -DE0_HW_COUNTER=$(E0_HW_COUNTER) -DE0_VDP2_MAP=$(E0_VDP2_MAP) -DE0_SENTINEL_CONTROL=$(E0_SENTINEL_CONTROL) -DE0_POP_LOG=$(E0_POP_LOG) -DE0_CAP_STABLE=$(E0_CAP_STABLE) \
-    -DFZX_SOURCE_SKY=1 -I$(G)/sky -DFZX_SKY_SIMPLIFY=1 -DFZX_SOURCE_SKYLINE=1 -I$(G)/skyline -DFZX_SKYLINE_CD=1 \
-    -DFZX_SOURCE_PLANES=1 -I$(G)/planes_cloud -DFZX_PLANE_CLOUD_ONLY=1 -DFZX_PLANES_DEGENERATE_UV=1 \
-    -DFZX_SOURCE_FLOOR_RBG=1 -I$(G)/floor_rbg -DFZX_CLOUDS_VDP2=1 \
-    -DFZX_SOURCE_ROAD=1 -I$(G)/road_pack -DFZX_SOURCE_ROAD_TILES=1 -DFZX_SOURCE_ROAD_STREAM=1 -I$(G)/road_bake \
+    -DFZX_ROAD_STREAM_CLUSTERS=$(E0_CLUSTERS) -DFZX_ROAD_STREAM_CLUSTER_AUDIT=$(E0_CLUSTER_AUDIT) -I$(GC)/road_cluster -DFZX_ROAD_STREAM_WORK_HIGH=$(E0_WORK_HIGH) -DE0_CHUNK_CAP=$(E0_CHUNK_CAP) -DFZX_ROAD_STREAM_LEAN_CLIP=$(E0_LEAN_CLIP) -DFZX_ROAD_STREAM_FOG_EARLY=$(E0_FOG_EARLY) -DE0_HW_COUNTER=$(E0_HW_COUNTER) -DE0_VDP2_MAP=$(E0_VDP2_MAP) -DE0_SENTINEL_CONTROL=$(E0_SENTINEL_CONTROL) -DE0_POP_LOG=$(E0_POP_LOG) -DE0_CAP_STABLE=$(E0_CAP_STABLE) \
+    -DFZX_SOURCE_SKY=1 -I$(GC)/sky -DFZX_SKY_SIMPLIFY=1 -DFZX_SOURCE_SKYLINE=1 -I$(GC)/skyline -DFZX_SKYLINE_CD=1 \
+    -DFZX_SOURCE_PLANES=1 -I$(GC)/planes_cloud -DFZX_PLANE_CLOUD_ONLY=1 -DFZX_PLANES_DEGENERATE_UV=1 \
+    -DFZX_SOURCE_FLOOR_RBG=1 -I$(GC)/floor_rbg -DFZX_CLOUDS_VDP2=1 \
+    -DFZX_SOURCE_ROAD=1 -I$(GC)/road_pack -DFZX_SOURCE_ROAD_TILES=1 -DFZX_SOURCE_ROAD_STREAM=1 -I$(GC)/road_bake \
     -DFZX_ROAD_STREAM_NATIVE_LAYOUT=1 -DFZX_RS_PACK_PATH=0 -DFZX_ROAD_STREAM_EMIT=1 -DFZX_RS_PACKET_PATH=0 \
     -DFZX_ROAD_STREAM_BUDGET=1 -DFZX_RBG_FAST=1 -DFZX_SLAVE_ROAD=1 -DFZX_ROAD_LOD=1 \
-    -I$(G)/engine_path -DFZX_SH2_DIVU=1 -O2 -std=c11 -Wall -Wextra \
+    -I$(GC)/engine_path -DFZX_SH2_DIVU=1 -O2 -std=c11 -Wall -Wextra \
     -I. -I.. -I../../include -I../../ref -I$(SH2ZAM_ROOT)/saturn/include -DSH2Z_REQUIRE_SH2=1 \
     -ffunction-sections -fdata-sections \
-    -DE0_ISR_MAC_SAVE=$(E0_ISR_MAC_SAVE) -DE0_MAC_PROBE=$(E0_MAC_PROBE) -DFZX_DBANK_QUEUE_ATOMIC=$(E0_QUEUE_ATOMIC) -DE0_QUEUE_STRESS=$(E0_QUEUE_STRESS) -DFZX_DBANK_QUEUE_WIDEN=$(E0_QUEUE_WIDEN) -DFZX_E1_DRIVE=$(FZX_E1_DRIVE) -DE1_DRIVER=$(E1_DRIVER) -DE1_DRIVER_BOOST=$(E1_DRIVER_BOOST) \
-    $(if $(filter 1,$(FZX_E1_DRIVE)),-I$(G)/physics -I$(G)/$(E1_SPRITES),)
+    -DE0_ISR_MAC_SAVE=$(E0_ISR_MAC_SAVE) -DE0_MAC_PROBE=$(E0_MAC_PROBE) -DFZX_DBANK_QUEUE_ATOMIC=$(E0_QUEUE_ATOMIC) -DE0_QUEUE_STRESS=$(E0_QUEUE_STRESS) -DFZX_DBANK_QUEUE_WIDEN=$(E0_QUEUE_WIDEN) -DFZX_E1_DRIVE=$(FZX_E1_DRIVE) -DE1_DRIVER=$(E1_DRIVER) -DE1_DRIVER_BOOST=$(E1_DRIVER_BOOST) $(if $(E1_DRIVER_KH),-DE1_DRIVER_KH=$(E1_DRIVER_KH)f,) \
+    $(if $(filter 1,$(FZX_E1_DRIVE)),-I$(GC)/physics -I$(G)/$(E1_SPRITES),)
 ifeq ($(ENG_CDDA),1)
 ifeq ($(wildcard $(G)/cdda/cdda_tracks.h),)
 $(error ENG_CDDA=1 needs $(G)/cdda/cdda_tracks.h: run tools/disc_cdda.py --header)
@@ -411,7 +451,7 @@ ifeq ($(E2_EMIT_POSE):$(E2_CULL),1:0)
 $(error E2_EMIT_POSE needs E2_CULL=1)
 endif
 ifeq ($(E2_PACK),1)
-SH_CFLAGS += -I$(G)/rivals
+SH_CFLAGS += -I$(GC)/rivals
 ifeq ($(ENG_ATTACKS),1)
 ifeq ($(wildcard $(SH2ZAM_ROOT)/saturn/include/sh2zam/body_contact_experimental.h),)
 $(error ENG_ATTACKS=1 needs an SH2ZAM checkout with body-contact-1 (claude/body-contact))
@@ -441,12 +481,12 @@ ifeq ($(E1_CLOSEUP),1)
 # As ../Makefile: view_indexed shares assembler names with view_rails, and pose-1's
 # assembly reads a file-static table, so both stay out of LTO.
 ifeq ($(ENG_SCENES),1)
-SH_CFLAGS += -DENG_SCENES=1 -DFZX_GUEST_MASK=$(FZX_GUEST_MASK)ull -I$(G)/mach3d_scn -DFZX_CD_STREAM=1 -DFZX_LOAD_VERIFIED=1 -DENG_ROSTER=$(ENG_ROSTER) -I$(G)/roster -DFZX_ROAD_PREP_BAKED=1 -I$(G)/road_prep -I$(G)/engine_path_ranges
+SH_CFLAGS += -DENG_SCENES=1 -DFZX_GUEST_MASK=$(FZX_GUEST_MASK)ull -I$(G)/mach3d_scn -DFZX_CD_STREAM=1 -DFZX_LOAD_VERIFIED=1 -DENG_ROSTER=$(ENG_ROSTER) -I$(G)/roster -DFZX_ROAD_PREP_BAKED=1 -I$(GC)/road_prep -I$(GC)/engine_path_ranges
 else
 SH_CFLAGS += -I$(G)/$(E1_REBAKE) -I$(G)/$(E1_VEHICLE)
 endif
 # 16 root files plus MACHAB.PAK: the CD loader reads up to 32 root entries (default 16).
-SH_CFLAGS += $$(if $$(filter %/texture_cd.c,$$<),-DFZX_TEXTURE_CD_ROOT_ENTRIES=32,)
+SH_CFLAGS += $$(if $$(filter %/texture_cd.c,$$<),-DFZX_TEXTURE_CD_ROOT_ENTRIES=$(if $(filter 1,$(ENG_COURSE_SELECT)),96,32),)
 SH_CFLAGS += $$(if $$(filter engine_closeup.c %/fzx_vehicle.c %/fzx_vehicle_draw.c,$$<),-DFZX_SOURCE_CAMERA=1 -DFZX_SOURCE_MACHINE=1 -DFZX_VEHICLE_NATIVE=1 -DFZX_VEHICLE_FAST=1 -DFZX_VEHICLE_POSE1=1,)
 SH_CFLAGS += $$(if $$(filter %/sh2zam_view_indexed.c %/sh2zam_pose.c,$$<),-fno-lto,)
 endif
@@ -455,6 +495,26 @@ endif
 # reserved), then the CD scratch (4,096 B), then a 12,288-word block the track
 # workspace's loader expects ahead of it. The reused loaders find these through
 # the two symbols below.
+# A course after the first carries its own skyline layout (skyline_ring.h, tools/skyline_assets.py) and
+# may use a larger track texture budget (tools/road_bake.py --texture-limit; placement checked at load); its
+# sky gradient need not be monotonic in brightness (a sunset), so sky bands pick their colour by distance.
+SH_CFLAGS += $(if $(filter 1,$(FZX_E1_DRIVE)),$(if $(filter 1,$(ENG_TUBES)),-DFZX_PHYS_TUBES=1,),)
+SH_CFLAGS += $(if $(GCREL),-DENG_COURSE_SKYLINE=1 -DFZX_ROAD_STREAM_TEXTURE_LIMIT=240000u -DFZX_SKY_LINEAR_PICK=1 -DENG_COURSE_INDEX=$(COURSE_INDEX_$(ENG_COURSE)),)
+ifeq ($(ENG_COURSE_SELECT),1)
+ifneq ($(ENG_SCENES),1)
+$(error ENG_COURSE_SELECT=1 needs ENG_SCENES=1)
+endif
+ifneq ($(ENG_COURSE),mute-city-1)
+$(error ENG_COURSE_SELECT=1 bundles the courses itself: leave ENG_COURSE at mute-city-1)
+endif
+SELECT_RECEIPT_CHECK := $(shell sh ../../tools/check_receipt.sh $(G)/courses/select/course_ids.receipt >/dev/null 2>&1 || echo stale)
+ifneq ($(strip $(SELECT_RECEIPT_CHECK)),)
+$(error Missing or stale course bundle: run tools/course_bundle.py <courses>)
+endif
+SH_SRCS += engine_courses.c $(G)/courses/select/course_ids.c
+SH_CFLAGS += -DENG_COURSE_SELECT=1 -I$(G)/courses/select -DFZX_ROAD_STREAM_TEXTURE_LIMIT=240000u
+endif
+
 SH_LDFLAGS += -Wl,--defsym=_sat_stub_data_end=0x0028C000 -Wl,--defsym=_fzx_input_log=0x0028D000
 # Unused functions and data are dropped at link time (SH2ZAM sections-1).
 SH_LDFLAGS += -Wl,--gc-sections
@@ -472,29 +532,32 @@ IP_1ST_READ_SIZE := 0
 
 include $(YAUL_INSTALL_ROOT)/share/build.post.iso-cue.mk
 
-$(SH_OUTPUT_PATH)/$(SH_PROGRAM).iso: $(G)/engine_path/ENGPATH.PAK
+$(SH_OUTPUT_PATH)/$(SH_PROGRAM).iso: $(GC)/engine_path/ENGPATH.PAK
 pre-build-iso: stage-e0-packs
 .PHONY: stage-e0-packs
 stage-e0-packs:
 	mkdir -p "$(IMAGE_DIRECTORY)"
-	cp $(G)/engine_path/ENGPATH.PAK $(G)/road_pack/ROAD.PAK $(G)/road_bake/ROADLOD.PAK $(G)/road_bake/ROADLTX.PAK \
-	   $(G)/skyline/SKYLINE.PAK $(G)/planes_cloud/PLANES.PAK \
-	   $(G)/floor_rbg/FLOORCHR.BIN $(G)/floor_rbg/FLOORMAP.BIN $(G)/floor_rbg/FLOORKOF.BIN "$(IMAGE_DIRECTORY)/"
-	$(if $(filter 1,$(E0_CLUSTERS)),cp $(G)/road_cluster/ROADCL.PAK "$(IMAGE_DIRECTORY)/",)
+	cp $(GC)/engine_path/ENGPATH.PAK $(GC)/road_pack/ROAD.PAK $(GC)/road_bake/ROADLOD.PAK $(GC)/road_bake/ROADLTX.PAK \
+	   $(GC)/skyline/SKYLINE.PAK $(GC)/planes_cloud/PLANES.PAK \
+	   $(GC)/floor_rbg/FLOORCHR.BIN $(GC)/floor_rbg/FLOORMAP.BIN $(GC)/floor_rbg/FLOORKOF.BIN "$(IMAGE_DIRECTORY)/"
+	$(if $(filter 1,$(E0_CLUSTERS)),cp $(GC)/road_cluster/ROADCL.PAK "$(IMAGE_DIRECTORY)/",)
 	$(if $(filter 1,$(ENG_SND)),cp $(G)/snd/SNDRACE.PAK "$(IMAGE_DIRECTORY)/",)
 ifeq ($(FZX_E1_DRIVE),1)
-	cp $(G)/physics/PHYS.PAK $(G)/$(E1_SPRITES)/RSPRITE.PAK "$(IMAGE_DIRECTORY)/"
+	cp $(GC)/physics/PHYS.PAK $(G)/$(E1_SPRITES)/RSPRITE.PAK "$(IMAGE_DIRECTORY)/"
 endif
 ifeq ($(ENG_SCENES),1)
 	rm -f "$(IMAGE_DIRECTORY)"/MACH3D*.PAK
 	cp $(foreach F,$(ENG_ENTRANT_PACKS),$(G)/mach3d_scn/MACH3D$(F).PAK) "$(IMAGE_DIRECTORY)/"
 	$(if $(filter 1,$(ENG_ROSTER)),cp $(G)/roster/ROSTERZ.PAK "$(IMAGE_DIRECTORY)/",rm -f "$(IMAGE_DIRECTORY)/ROSTERZ.PAK")
-	cp $(G)/road_prep/ROADPREP.PAK "$(IMAGE_DIRECTORY)/"
+	cp $(GC)/road_prep/ROADPREP.PAK "$(IMAGE_DIRECTORY)/"
 else ifeq ($(E1_CLOSEUP),1)
 	cp $(G)/$(E1_VEHICLE)/MACHAB.PAK "$(IMAGE_DIRECTORY)/"
 endif
 ifeq ($(E2_PACK),1)
-	cp $(G)/rivals/RIVALS.PAK "$(IMAGE_DIRECTORY)/"
+	cp $(GC)/rivals/RIVALS.PAK "$(IMAGE_DIRECTORY)/"
+endif
+ifeq ($(ENG_COURSE_SELECT),1)
+	while read -r src name; do cp "$(G)/$$src" "$(IMAGE_DIRECTORY)/$$name"; done < $(G)/courses/select/files.txt
 endif
 ifeq ($(E2_ROSTER),1)
 	cp $(G)/roster/ROSTER.PAK "$(IMAGE_DIRECTORY)/"

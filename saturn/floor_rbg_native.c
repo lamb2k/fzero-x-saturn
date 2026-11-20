@@ -4,6 +4,7 @@
 #include "texture_cd.h"
 #include <stddef.h>
 #include <string.h>
+#include "course_select.h"
 #if FZX_SOURCE_FINISH_MENU
 #include "records_scene.h"
 #endif
@@ -82,7 +83,7 @@ static bool load(const char *name,unsigned size,uint32_t hash,uintptr_t destinat
         fzx_texture_cd_load(name,size,hash,(void *)destination,(void *)scratch,0x00300000u-scratch);
 }
 bool fzx_floor_load(void) {
-    if(!load("FLOORCHR.BIN",FZX_FLOORCHR_BYTES,FZX_FLOORCHR_HASH,FLOOR_CHARS) ||
+    if(!load(CNAME(FZX_CF_FCHR,"FLOORCHR.BIN"),CSEL(fchr_bytes,FZX_FLOORCHR_BYTES),CSEL(fchr_hash,FZX_FLOORCHR_HASH),FLOOR_CHARS) ||
        !load("FLOORMAP.BIN",FZX_FLOORMAP_BYTES,FZX_FLOORMAP_HASH,FLOOR_MAP) ||
        !load("FLOORKOF.BIN",FZX_FLOORKOF_BYTES,FZX_FLOORKOF_HASH,FLOOR_COEFF)) {
         fzx_floor_status=2;return false;
@@ -115,7 +116,7 @@ bool fzx_floor_load(void) {
     r->spctl=0x1520u;r->ccctl|=0x0040u;
     vdp2_sprite_priority_set(1,5);
     r->craofb&=(uint16_t)~0x0070u;
-    *(volatile uint16_t *)VDP2_CRAM_MODE_1_OFFSET(0,0,1)=FZX_FLOOR_FOG;
+    *(volatile uint16_t *)VDP2_CRAM_MODE_1_OFFSET(0,0,1)=CSEL(floor_fog,FZX_FLOOR_FOG);
     uint16_t *ratios=&r->ccrsa;
     for(unsigned pair=0;pair<4;++pair) {
         unsigned word=0;
@@ -131,7 +132,7 @@ static bool emit(void *context,const fzx_floor_polygon_t *q) {
     vdp1_cmdt_t *c=&s->commands[s->count++];memset(c,0,sizeof(*c));vdp1_cmdt_polygon_set(c);
     const vdp1_cmdt_draw_mode_t mode={.end_code_disable=1,.trans_pixel_disable=1,.user_clipping_mode=2};
     vdp1_cmdt_draw_mode_set(c,mode);
-    c->cmd_colr=q->band==0?0:q->band==7?FZX_FLOOR_FOG:(uint16_t)(0x4001u|(q->band<<11));
+    c->cmd_colr=q->band==0?0:q->band==7?CSEL(floor_fog,FZX_FLOOR_FOG):(uint16_t)(0x4001u|(q->band<<11));
     c->cmd_xa=q->x[0];c->cmd_ya=q->y[0];c->cmd_xb=q->x[1];c->cmd_yb=q->y[1];
     c->cmd_xc=q->x[2];c->cmd_yc=q->y[2];c->cmd_xd=q->x[3];c->cmd_yd=q->y[3];return true;
 }

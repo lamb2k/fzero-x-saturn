@@ -312,7 +312,7 @@ static void own_frame(void) { list_frame(&bare_list); }
 static vdp1_cmdt_list_t backdrop_list;
 static void text_frame(bool printed) {
 #if E0_HW_COUNTER
-    if (fzx_hw_overlay(printed)) printed = true; /* under the screen's own text; once a second */
+    if (fzx_hw_overlay(printed, 21u)) printed = true; /* under the screen's own text; once a second */
 #endif
     if (printed) dbgio_flush();
     span_build(seq.current);

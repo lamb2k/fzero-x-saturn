@@ -86,9 +86,10 @@ void fzx_race_begin(void);
 bool fzx_race_frame(void);
 #if E0_HW_COUNTER
 /* The hardware disc's cadence readout (engine_main.c): a manager frame's gap in fields, the
- * race run's break, and the readout (printed when due or forced; true when it printed). */
+ * race run's break, and the readout from text row `row` (printed when due or forced; true
+ * when it printed). */
 void fzx_hw_menu_gap(uint32_t gap);
 void fzx_hw_race_break(void);
-bool fzx_hw_overlay(bool force);
+bool fzx_hw_overlay(bool force, uint32_t row);
 #endif
 #endif

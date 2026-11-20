@@ -1,0 +1,15 @@
+# Cold boot, choose course COURSE in the select (probe 0x2nn), race it in driver mode to RESULTS.
+# engine_gate.py substitutes COURSE (two hex digits).
+until 1 1 2000
+mark title
+pad 0800 2
+until 2 1 600
+poke _fzx_scn_probe 0x2COURSE
+wait 3
+mark select
+pad 0400 2
+until 4 1 4000
+mark race_start
+until 5 1 14000
+wait 4
+mark results

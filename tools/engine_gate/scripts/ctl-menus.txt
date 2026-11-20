@@ -1,0 +1,7 @@
+# CONTROL for the menus check (image built with ENG_SCN_STALL_CONTROL=1): one TITLE frame is held for 3 fields.
+until 1 1 2000
+wait 30
+mark before
+poke _fzx_scn_stall_ctl 1
+wait 30
+mark after

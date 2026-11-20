@@ -62,6 +62,36 @@ class HygieneScanTests(unittest.TestCase):
                 self.assertEqual(status, 1)
                 self.assertIn("private absolute path", out)
 
+    def test_planted_local_machine_paths_fail(self):
+        # Built from parts at run time, so the test file itself stays clean.
+        paths = ["c:" + "\\" + "users" + "\\" + "someone" + "\\x.txt",
+                 "E:" + "\\" + "Project" + "\\docs\\notes.md",
+                 "D:/" + "Games/" + "saturn/disc.cue",
+                 "\\\\" + "wsl$" + "\\Ubuntu\\home",
+                 "\\\\" + "wsl.localhost" + "\\Ubuntu\\srv"]
+        for path in paths:
+            with self.subTest(path=path):
+                status, out = run(self.plant("log.txt", f"read {path}\n"))
+                self.assertEqual(status, 1)
+                self.assertTrue("private absolute path" in out or "local machine path" in out, out)
+
+    def test_planted_bios_and_rom_names_fail(self):
+        names = ["Bios " + "Saturn 1.01a (U) " + "[!]" + ".bin", "Game " + "(USA)" + ".z64", "Game (E) " + "[!]" + ".v64",
+                 "sega" + "_101.bin", "mpr" + "-17933.bin", "Sega Saturn " + "BIOS.bin"]
+        for name in names:
+            with self.subTest(name=name):
+                status, out = run(self.plant("notes.md", f"boot with {name}\n"))
+                self.assertEqual(status, 1)
+                self.assertIn("BIOS or ROM dump file name", out)
+
+    def test_allowed_generic_forms_pass(self):
+        lines = ["Set FZX_GATE_BIOS=<bios file>; the ROM is $FZX_TEST_ROM.",
+                 "python3 tools/import_course.py --rom /path/to/F-Zero-X.z64",
+                 "copy to C:" + "\\" + "path\\to\\evidence; or %USERPROFILE%\\fzx-evidence; ~/fzx-evidence",
+                 "if path[1] == ':': path = '/mnt/' + path[0].lower()", "rom.z64 and A.BIN are generic"]
+        status, out = run(self.plant("notes.md", "\n".join(lines) + "\n"))
+        self.assertEqual(status, 0, out)
+
     def test_binary_and_oversized_files_fail(self):
         status, out = run(self.plant("blob.dat", b"\0\1\2"))
         self.assertEqual(status, 1)

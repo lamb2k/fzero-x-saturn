@@ -13,12 +13,17 @@
 volatile uint32_t fzx_fx_report[16];
 volatile uint32_t fzx_fx_events[32];
 volatile uint32_t fzx_fx_demand[2];
-volatile uint32_t fzx_fx_shells;      /* highlight shells drawn (cars x frames) */   /* commands the effects asked for: last frame, most in a frame */ /* tick << 8 | kind (1 retire, 2 destroyed, 3 spin-out start), last 32 */
+volatile uint32_t fzx_fx_shells;
+volatile uint32_t fzx_fx_on_slave;    /* frames whose effects the slave emitted */      /* highlight shells drawn (cars x frames) */   /* commands the effects asked for: last frame, most in a frame */ /* tick << 8 | kind (1 retire, 2 destroyed, 3 spin-out start), last 32 */
 static uint32_t n_events;
 /* Diagnostic: master FRT totals and maxima per phase over the run: [0] set-up and body colour,
  * [1] the player's boosters, [2] particles, [3] the rivals' order, [4] the rivals' boosters,
  * [5] sort and copy, [6] fzx_fx_tick, [7] fzx_fx_player; maxima at [8 + k]. */
 volatile uint32_t fzx_fx_prof[16];
+/* Diagnostic: fzx_fx_tick's parts, FRT totals: [0] flashes and contacts, [1] the rivals, [2] the rings. */
+volatile uint32_t fzx_fx_prof2[4];
+static uint16_t prof2_t;
+static void prof2(unsigned k) { const uint16_t now = cpu_frt_count_get(); fzx_fx_prof2[k] += (uint16_t)(now - prof2_t); prof2_t = now; }
 static uint16_t prof_t;
 static void prof(unsigned k) {
     const uint16_t now = cpu_frt_count_get(), d = (uint16_t)(now - prof_t);
@@ -309,7 +314,7 @@ static void spin_turn(car_fx_t *c) {
 
 void fzx_fx_tick(const sh2z_vd_body_t *player) {
     if (fzx_fx_report[0] != 1) return;
-    prof_t = cpu_frt_count_get();
+    prof_t = cpu_frt_count_get(); prof2_t = prof_t;
     tick_player = player;
     fzx_atk_fx_wall = rival_wall;
     ++fx_ticks;
@@ -344,6 +349,7 @@ void fzx_fx_tick(const sh2z_vd_body_t *player) {
             if (spark(mid, vel, impact + Q16(12.0), b)) car[a].white = car[b].white;
         }
     }
+    prof2(0);
     /* Rivals: spin-out, spin attacks, retirement, wrecks. */
     for (uint32_t i = 1; i < CARS; ++i) {
         int32_t spin_t, dir;
@@ -366,6 +372,7 @@ void fzx_fx_tick(const sh2z_vd_body_t *player) {
         attack_motion(c);
         c->mode = (uint8_t)mode;
     }
+    prof2(1);
     /* One step of every ring; gravity along the player's up (the source: each racer's own). */
     for (int c = 0; c < 3; ++c) {
         const int32_t up = q14(player->body[1][c]);
@@ -374,6 +381,7 @@ void fzx_fx_tick(const sh2z_vd_body_t *player) {
     }
     sh2z_ep_step(&p_spark); sh2z_ep_step(&p_exp1); sh2z_ep_step(&p_exp2);
     sh2z_ep_step(&p_fly); sh2z_ep_step(&p_smoke); sh2z_ep_step(&p_debris);
+    prof2(2);
     prof(6);
 }
 
@@ -471,7 +479,7 @@ static unsigned n_items;
 /* The budget keeps the nearest: past FZX_FX_SLOTS a new command replaces the farthest kept one
  * when it is nearer (fzx_fx_report[10] counts the commands left out). */
 static item_t spare;
-static unsigned demand;
+static unsigned demand, dropped, boost_cmds;
 static item_t *slot(int32_t depth) {
     ++demand;
     item_t *t = n_items < FZX_FX_SLOTS ? &items[n_items] : &spare;
@@ -480,7 +488,7 @@ static item_t *slot(int32_t depth) {
 }
 static void commit(item_t *t) {
     if (t != &spare) { ++n_items; return; }
-    ++fzx_fx_report[10];
+    ++dropped;
     unsigned far = 0;
     for (unsigned i = 1; i < FZX_FX_SLOTS; ++i) if (items[i].depth > items[far].depth) far = i;
     if (spare.depth < items[far].depth) items[far] = spare;
@@ -549,7 +557,7 @@ static void boosters(const sh2z_ep_view_t *v, const fzx_field_car_t *o, int32_t 
         const uint32_t colr = (uint32_t)art + FZX_FX_CLUT_BOOST + env * 32u;
         item_t *t = slot(pt.depth - 1);
         if (t && sh2z_ep_emit_diamond(t->w, pt.x, pt.y, r, (uint32_t)art + FZX_FX_BOOST_HEAD, 16u, 16u, colr, pmod_tex)) {
-            commit(t); ++fzx_fx_report[11];
+            commit(t); ++boost_cmds;
         }
         if (!tail) continue;
         int32_t e[3]; pt1_t pe;
@@ -559,16 +567,25 @@ static void boosters(const sh2z_ep_view_t *v, const fzx_field_car_t *o, int32_t 
                                    { (int16_t)(pt.x - r), (int16_t)pt.y }, { (int16_t)(pt.x - r), (int16_t)pt.y } };
         t = slot(pt.depth);
         if (t && sh2z_ep_emit_quad(t->w, xy, (uint32_t)art + FZX_FX_BOOST_TAIL, 16u, 16u, colr, pmod_tex_half)) {
-            commit(t); ++fzx_fx_report[11];
+            commit(t); ++boost_cmds;
         }
     }
 }
 
-unsigned fzx_fx_emit(vdp1_cmdt_t *commands, unsigned capacity, const fzx_view_t *view, const fzx_engine_cam_t *cam,
-                     const fzx_field_car_t *cars, unsigned n) {
-    if (fzx_fx_report[0] != 1) return 0;
-    const uint16_t t0 = cpu_frt_count_get();
-    prof_t = t0;
+/* The frame's inputs to the emit, staged by the master (fzx_fx_stage) and read by whichever SH-2
+ * runs the emit (fzx_fx_job): the view, the cars and the boosters' hover share. */
+static sh2z_ep_view_t snap_v;
+static fzx_field_car_t snap_cars[CARS];
+static unsigned snap_n;
+static int32_t snap_hover;
+static bool snap_ok;
+/* The emit's results, written by its SH-2 and read by the master through the cache-through window. */
+typedef struct { uint32_t n, demand, dropped, boost, live, ticks; } fx_out_t;
+static fx_out_t job_out;
+
+bool fzx_fx_stage(const fzx_view_t *view, const fzx_engine_cam_t *cam, const fzx_field_car_t *cars, unsigned n) {
+    snap_ok = false;
+    if (fzx_fx_report[0] != 1) return false;
     sh2z_ep_view_t v;
     for (unsigned i = 0; i < 3u; ++i) for (unsigned j = 0; j < 3u; ++j) {
         const int32_t q = view->rotation[i][j];
@@ -581,7 +598,6 @@ unsigned fzx_fx_emit(vdp1_cmdt_t *commands, unsigned capacity, const fzx_view_t 
     v.width = 320; v.height = 224; v.guard = 96;
     view_last = v; view_ok = true;
     fy_ratio = sh2z_divu_div64((int64_t)v.focal_y << 16, v.focal_x, NULL);
-    n_items = 0; demand = 0; fzx_fx_report[11] = 0;
     /* The player's flash and low-energy flicker on the 3D body (racer.c 5795). */
     if (tick_player && player_max > 0) {
         uint8_t col[3] = { player_body[0], player_body[1], player_body[2] };
@@ -605,11 +621,26 @@ unsigned fzx_fx_emit(vdp1_cmdt_t *commands, unsigned capacity, const fzx_view_t 
         const int32_t h = tick_player->hover;
         hover_frac = h <= Q16(7.0) ? 0 : h >= Q16(13.0) ? 65536 : m16(h - Q16(7.0), Q16(1.0 / 6.0));
     }
+    snap_v = v; snap_hover = hover_frac;
+    if (n > CARS) n = CARS;
+    memcpy(snap_cars, cars, n * sizeof(cars[0])); snap_n = n;
+    for (uint32_t i = 0; i < CARS; ++i) car[i].smoke_flash = 0u;   /* the shells have read it (fzx_drive_cars) */
+    snap_ok = true;
+    return true;
+}
+/* The effects' commands, far to near, from the staged frame. Either SH-2 (dual-claim-1 in
+ * engine_main.c); writes only the emit's own state and job_out. */
+unsigned fzx_fx_job(vdp1_cmdt_t *commands, unsigned capacity) {
+    if (!snap_ok) { job_out.n = 0; return 0; }
+    const uint16_t t0 = cpu_frt_count_get();
+    const sh2z_ep_view_t v = snap_v;
+    const fzx_field_car_t *const cars = snap_cars;
+    const unsigned n = snap_n;
+    const int32_t hover_frac = snap_hover;
+    n_items = 0; demand = 0; dropped = 0; boost_cmds = 0;
     /* By priority, while the budget lasts: the player's boosters, explosions, sparks, flying
-     * sparks, debris, smoke, then the rivals' boosters. */
-    prof(0);
+     * sparks, debris, smoke, then the rivals' boosters (the budget keeps the nearest). */
     for (unsigned k = 0; k < n; ++k) if (cars[k].id == 0u) boosters(&v, &cars[k], view_depth(&v, cars[k].pos), hover_frac, true);
-    prof(1);
     for (uint32_t k = 0; k < p_exp2.count; ++k) {
         const sh2z_ep_particle_t *e = sh2z_ep_at(&p_exp2, k);
         diamond(&v, e, FZX_FX_EXPLOSION + (uint32_t)(e->timer >> 2) * 512u, 32u, FZX_FX_CLUT_EXPLOSION + (uint32_t)(e->timer >> 1) * 32u,
@@ -667,7 +698,6 @@ unsigned fzx_fx_emit(vdp1_cmdt_t *commands, unsigned capacity, const fzx_view_t 
         const sh2z_ep_particle_t *e = sh2z_ep_at(&p_smoke, k);
         diamond(&v, e, FZX_FX_SMOKE + (uint32_t)(e->timer >> 2) * 512u, 32u, FZX_FX_CLUT_SMOKE, pmod_tex_half, NEAR_BOOST * 16384);
     }
-    prof(2);
     {
         /* The rivals' boosters nearest first, so the budget drops the farthest. */
         static int32_t cd[CARS]; static uint8_t ck[CARS], co[CARS];
@@ -679,10 +709,8 @@ unsigned fzx_fx_emit(vdp1_cmdt_t *commands, unsigned capacity, const fzx_view_t 
             cd[m] = d; ck[m] = (uint8_t)k; ++m;
         }
         sh2z_ep_sort(co, cd, m);
-        prof(3);
-        for (unsigned j = m; j-- > 0;) boosters(&v, &cars[ck[co[j]]], cd[co[j]], hover_frac, false);
+            for (unsigned j = m; j-- > 0;) boosters(&v, &cars[ck[co[j]]], cd[co[j]], hover_frac, false);
     }
-    prof(4);
     /* Far to near, after the cars. */
     static int32_t depth[FZX_FX_SLOTS];
     static uint8_t order[FZX_FX_SLOTS];
@@ -690,14 +718,20 @@ unsigned fzx_fx_emit(vdp1_cmdt_t *commands, unsigned capacity, const fzx_view_t 
     sh2z_ep_sort(order, depth, n_items);
     unsigned out = 0;
     for (unsigned i = 0; i < n_items && out < capacity; ++i) memcpy(&commands[out++], items[order[i]].w, sizeof(vdp1_cmdt_t));
-    prof(5);
-    fzx_fx_report[1] = out;
-    for (uint32_t i = 0; i < CARS; ++i) car[i].smoke_flash = 0u;
-    fzx_fx_demand[0] = demand; if (demand > fzx_fx_demand[1]) fzx_fx_demand[1] = demand;
-    if (out > fzx_fx_report[2]) fzx_fx_report[2] = out;
-    fzx_fx_report[3] = p_spark.count + p_exp1.count + p_exp2.count + p_fly.count + p_smoke.count + p_debris.count;
-    const uint32_t dt = (uint16_t)(cpu_frt_count_get() - t0);
-    fzx_fx_report[13] = dt;
-    if (dt > fzx_fx_report[14]) fzx_fx_report[14] = dt;
+    job_out.n = out; job_out.demand = demand; job_out.dropped = dropped; job_out.boost = boost_cmds;
+    job_out.live = p_spark.count + p_exp1.count + p_exp2.count + p_fly.count + p_smoke.count + p_debris.count;
+    job_out.ticks = (uint16_t)(cpu_frt_count_get() - t0);
     return out;
+}
+
+void fzx_fx_job_done(bool slave) {
+    const volatile fx_out_t *o = (const volatile fx_out_t *)((uintptr_t)&job_out | CPU_CACHE_THROUGH);
+    const uint32_t out = o->n;
+    fzx_fx_report[1] = out;
+    if (out > fzx_fx_report[2]) fzx_fx_report[2] = out;
+    fzx_fx_report[3] = o->live;
+    fzx_fx_report[10] += o->dropped;
+    fzx_fx_report[11] = o->boost;
+    fzx_fx_demand[0] = o->demand; if (o->demand > fzx_fx_demand[1]) fzx_fx_demand[1] = o->demand;
+    if (slave) ++fzx_fx_on_slave; else { fzx_fx_report[13] = o->ticks; if (o->ticks > fzx_fx_report[14]) fzx_fx_report[14] = o->ticks; }
 }

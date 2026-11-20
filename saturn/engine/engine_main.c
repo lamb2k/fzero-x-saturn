@@ -685,6 +685,16 @@ void fzx_engine_slave_after(void) {
 #if ENG_BAL_CLOUDS
     bal_slave();
 #endif
+#if ENG_FX
+    {
+        const uint32_t tag = fx_tag;
+        if (sh2z_claim_b(&fx_claim, tag)) {
+            cpu_cache_purge(); /* the staged frame, rings and states the master wrote */
+            fx_slave_n = fzx_fx_job(fx_stage_cmds, FZX_FX_SLOTS);
+            fx_done = tag;
+        }
+    }
+#endif
 }
 #endif
 
@@ -836,8 +846,15 @@ static void kick(const fzx_engine_cam_t *cam, uint32_t tick) {
 static vdp1_cmdt_t field_stage_cmds[DRIVE_SLOTS];
 static unsigned field_stage_n;
 #if ENG_FX
-static vdp1_cmdt_t fx_stage_cmds[FZX_FX_SLOTS];
+/* The race effects' commands: emitted by whichever SH-2 claims the frame's job first (SH2ZAM
+ * dual-claim-1, as the clouds): the slave after its track, fills and clouds, or the master just
+ * before it waits for the track. Either way the emit runs while the other CPU is still busy. */
+#include "sh2zam/dual_claim_experimental.h"
+static vdp1_cmdt_t fx_stage_cmds[FZX_FX_SLOTS] __attribute__((aligned(32)));
 static unsigned fx_stage_n;
+static sh2z_claim_t fx_claim __uncached;
+static volatile uint32_t fx_tag __uncached, fx_done __uncached, fx_slave_n __uncached;
+static bool fx_mine;
 #endif
 static uint16_t field_stage_c3d, field_stage_emit, field_stage_sprites;
 static uint8_t field_stage_near, field_stage_n3d;
@@ -883,7 +900,11 @@ static void field_stage(const fzx_engine_cam_t *cam) {
 #endif
     field_stage_n = fzx_drive_cars(field_stage_cmds, DRIVE_SLOTS, &fzx_native_view, cam, field_cars, ncars, car_stage_p, car_stage_n);
 #if ENG_FX
-    fx_stage_n = field_stage_n ? fzx_fx_emit(fx_stage_cmds, FZX_FX_SLOTS, &fzx_native_view, cam, field_cars, ncars) : 0u;
+    (void)fzx_fx_stage(&fzx_native_view, cam, field_cars, field_stage_n ? ncars : 0u);
+    {   /* a new job tag before STAGE_READY (nonzero, below 2^31) */
+        const uint32_t t = (fx_tag + 1u) & SH2Z_CLAIM_TAG_MAX;
+        fx_tag = t ? t : 1u;
+    }
 #endif
     field_stage_c3d = (uint16_t)(v1 - v0);
     field_stage_emit = (uint16_t)(cpu_frt_count_get() - v1);
@@ -1060,6 +1081,11 @@ static void build(row_t *row, const fzx_engine_cam_t *cam, uint32_t tick, uint16
 #endif
 #endif
 
+#if ENG_FX && E1_FIELD && E2_EARLY
+    /* The effects: the master takes the job if the slave has not (it is still on its track). */
+    fx_mine = sh2z_claim_a(&fx_claim, fx_tag);
+    if (fx_mine) fx_stage_n = fzx_fx_job(fx_stage_cmds, FZX_FX_SLOTS);
+#endif
     const uint16_t t1 = cpu_frt_count_get();
 #if E0_QUEUE_STRESS
     road_count = 0;
@@ -1130,8 +1156,15 @@ static void build(row_t *row, const fzx_engine_cam_t *cam, uint32_t tick, uint16
 #endif
             draws += m;
 #if ENG_FX
-            /* The race effects after the cars (their user clip still applies). */
-            memcpy(&commands[CMD_FIRST + draws], fx_stage_cmds, fx_stage_n * sizeof(vdp1_cmdt_t));
+            /* The race effects after the cars (their user clip still applies); the slave's through
+             * the cache-through window. */
+            if (!fx_mine) {
+                while (fx_done != fx_tag) {}
+                fx_stage_n = fx_slave_n;
+                memcpy(&commands[CMD_FIRST + draws], (const void *)((uintptr_t)fx_stage_cmds | CPU_CACHE_THROUGH),
+                       fx_stage_n * sizeof(vdp1_cmdt_t));
+            } else memcpy(&commands[CMD_FIRST + draws], fx_stage_cmds, fx_stage_n * sizeof(vdp1_cmdt_t));
+            fzx_fx_job_done(!fx_mine);
             draws += fx_stage_n;
 #endif
             row->car_cmds = (uint16_t)(m ? m - 1u : 0u); row->sprites = field_stage_sprites;

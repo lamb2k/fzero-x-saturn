@@ -66,7 +66,13 @@ bool fzx_fx_player_posed(void);
  * (CMDCOLR) for CLUT sprites, the RGB colour for polygons and the Q16 scale. False: none. */
 bool fzx_fx_shell(uint32_t id, uint16_t *colr, uint16_t *rgb, int32_t *scale);
 extern volatile uint32_t fzx_fx_shells;
-/* Every frame, after the cars: the effects' commands, far to near. */
-unsigned fzx_fx_emit(vdp1_cmdt_t *commands, unsigned capacity, const fzx_view_t *view, const fzx_engine_cam_t *cam,
-                     const fzx_field_car_t *cars, unsigned n);
+/* Every frame, on the master after fzx_drive_cars (the shells): the emit's inputs (view, cars,
+ * the player's body colour). False: nothing to emit. */
+bool fzx_fx_stage(const fzx_view_t *view, const fzx_engine_cam_t *cam, const fzx_field_car_t *cars, unsigned n);
+/* The effects' commands, far to near, from the staged frame: on either SH-2, whichever claims the
+ * frame's job (engine_main.c, SH2ZAM dual-claim-1). Returns the count. */
+unsigned fzx_fx_job(vdp1_cmdt_t *commands, unsigned capacity);
+/* On the master once the job is done: the counters (slave: true when the slave ran it). */
+void fzx_fx_job_done(bool slave);
+extern volatile uint32_t fzx_fx_on_slave;
 #endif

@@ -23,6 +23,19 @@ void fzx_clouds_dbank_select(unsigned bank);
  * (a user-clip command first, then the bands). */
 bool fzx_clouds_native(vdp1_cmdt_t *commands,unsigned capacity,const fzx_view_t *view,
                        const RefBackdrop *source,uint32_t *count);
+#if ENG_BAL_CLOUDS
+/* Engine balance (claude/balance): fzx_clouds_native split so the prepare can
+ * run on either SH-2. Master: fzx_clouds_ready (the selected bank is free), then
+ * after the prepare fzx_clouds_commit (the queue push, interrupts masked); after a
+ * slave prepare, fzx_clouds_purge_remote first. Either CPU: fzx_clouds_prepare, with
+ * the inputs (view, backdrop, sky lines, bank) in memory. */
+bool fzx_clouds_ready(void);
+bool fzx_clouds_prepare(vdp1_cmdt_t *commands,unsigned capacity,const fzx_view_t *view,
+                        const RefBackdrop *source,uint32_t *count);
+void fzx_clouds_commit(void);
+void fzx_clouds_purge_remote(void);
+uint32_t fzx_clouds_stage_hash(uint32_t h);
+#endif
 /* From fzx_floor_present at VBlank: tables, sky lines and band colours.
  * Returns true when it wrote a frame's data. */
 bool fzx_clouds_present(void);

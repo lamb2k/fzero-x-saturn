@@ -75,12 +75,33 @@ static signed char driver_stick(void) {
 /* Close-up 3D-N: the rival field steps after the player, every tick (FRT time summed for the frame row). */
 volatile uint32_t fzx_field_sim_ticks;
 #endif
+#if E1_FIELD && ENG_BAL_EARLY
+/* ENG_BAL_EARLY: the player's state after each tick of this frame, for the field. A frame
+ * steps at most 4 ticks; a longer run steps the field in order before taking more. */
+enum { FIELD_PENDING_MAX = 8u };
+static sh2z_vd_body_t field_bodies[FIELD_PENDING_MAX];
+static unsigned field_pending;
+void fzx_drive_field_run(void) {
+    for (unsigned k = 0; k < field_pending; ++k) {
+        const uint16_t f0 = cpu_frt_count_get();
+        fzx_field_tick(&field_bodies[k]);
+        fzx_field_sim_ticks += (uint16_t)(cpu_frt_count_get() - f0);
+    }
+    field_pending = 0;
+}
+#elif ENG_BAL_EARLY
+void fzx_drive_field_run(void) {}
+#endif
 static void step_once(sh2z_vd_input_t *in) {
     sh2z_vd_step(&body, &course.track, &course.vehicle, &fzx_phys_rules, in);
 #if ENG_SND
     engine_snd_tick(&body, &course.vehicle, course.track.laps); /* reads the state only */
 #endif
-#if E1_FIELD
+#if E1_FIELD && ENG_BAL_EARLY
+    /* The field steps after the kick (fzx_drive_field_run) on this tick's player state. */
+    if (field_pending >= FIELD_PENDING_MAX) fzx_drive_field_run();
+    field_bodies[field_pending++] = body;
+#elif E1_FIELD
     {
         const uint16_t f0 = cpu_frt_count_get();
         fzx_field_tick(&body);

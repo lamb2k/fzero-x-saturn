@@ -213,6 +213,107 @@ static bool emit(void *context,const fzx_floor_polygon_t *q) {
     c->cmd_xa=q->x[0];c->cmd_ya=q->y[0];c->cmd_xb=q->x[1];c->cmd_yb=q->y[1];
     c->cmd_xc=q->x[2];c->cmd_yc=q->y[2];c->cmd_xd=q->x[3];c->cmd_yd=q->y[3];return true;
 }
+#if ENG_BAL_CLOUDS
+#if !FZX_VDP1_DBANK
+#error ENG_BAL_CLOUDS needs FZX_VDP1_DBANK=1
+#endif
+/* The prepare: the user clip, the borders, parameter B, W1 and the fade bands into
+ * the selected bank, without the queue push. Shared by fzx_clouds_native and, with
+ * ENG_BAL_CLOUDS, by fzx_clouds_prepare on either CPU. *n: commands written. */
+static inline __attribute__((always_inline)) bool clouds_body(vdp1_cmdt_t *commands,unsigned capacity,
+                                                              const fzx_view_t *view,const RefBackdrop *source,uint32_t *n) {
+    memset(commands,0,sizeof(*commands));vdp1_cmdt_user_clip_coord_set(commands);
+    commands->cmd_xa=view->clip[0];commands->cmd_ya=view->clip[1];commands->cmd_xc=view->clip[2]-1;commands->cmd_yc=view->clip[3]-1;
+    /* The VDP1 sky used to cover the whole view each frame. Clear the view to
+     * transparent instead (the floor's band-0 write), so no earlier frame or
+     * screen shows through, then black side borders outside the user clip:
+     * the back screen spans the full line. */
+    unsigned borders=0;
+    {
+        vdp1_cmdt_t *c=&commands[1+borders++];memset(c,0,sizeof(*c));vdp1_cmdt_polygon_set(c);
+        const vdp1_cmdt_draw_mode_t mode={.end_code_disable=1,.trans_pixel_disable=1};
+        vdp1_cmdt_draw_mode_set(c,mode);c->cmd_colr=0;
+        c->cmd_xa=(int16_t)view->clip[0];c->cmd_ya=(int16_t)view->clip[1];
+        c->cmd_xb=(int16_t)(view->clip[2]-1);c->cmd_yb=(int16_t)view->clip[1];
+        c->cmd_xc=(int16_t)(view->clip[2]-1);c->cmd_yc=(int16_t)(view->clip[3]-1);
+        c->cmd_xd=(int16_t)view->clip[0];c->cmd_yd=(int16_t)(view->clip[3]-1);
+    }
+    const int16_t sides[2][2]={{0,(int16_t)(view->clip[0]-1)},{(int16_t)view->clip[2],319}};
+    for(unsigned i=0;i<2;++i) {
+        if(sides[i][1]<sides[i][0] || borders+2>=capacity)continue;
+        vdp1_cmdt_t *c=&commands[1+borders++];memset(c,0,sizeof(*c));vdp1_cmdt_polygon_set(c);
+        const vdp1_cmdt_draw_mode_t mode={.end_code_disable=1,.trans_pixel_disable=1};
+        vdp1_cmdt_draw_mode_set(c,mode);c->cmd_colr=0x8000u;
+        c->cmd_xa=sides[i][0];c->cmd_ya=0;c->cmd_xb=sides[i][1];c->cmd_yb=0;
+        c->cmd_xc=sides[i][1];c->cmd_yc=223;c->cmd_xd=sides[i][0];c->cmd_yd=223;
+    }
+    submit_t submit={commands+1+borders,capacity-1-borders,0};band_count=0;
+    /* The plane status words stay live for the capture harness: busy, and the
+     * cloud stats in the plane stats block (draws = fade bands). */
+    fzx_plane_busy=1;
+    if(!fzx_clouds_rbg_prepare(view,source,&CLOUDS_STAGE,emit,&submit)) {
+        fzx_plane_stats.fault=CLOUDS_STAGE.fault;fzx_clouds_status=3;return false;
+    }
+    memset(&fzx_plane_stats,0,sizeof(fzx_plane_stats));
+    fzx_plane_stats.draws=submit.count;fzx_plane_stats.hash=CLOUDS_STAGE.hash;fzx_plane_busy=0;
+    fzx_clouds_degenerate+=CLOUDS_STAGE.degenerate;fzx_clouds_bands=submit.count;
+    *n=submit.count+1+borders;return true;
+}
+bool fzx_clouds_native(vdp1_cmdt_t *commands,unsigned capacity,const fzx_view_t *view,
+                       const RefBackdrop *source,uint32_t *count) {
+#if FZX_VDP1_DBANK
+    if(!commands || capacity<2 || !view || !source || !count || fzx_clouds_status!=1 ||
+       !clouds_stage[clouds_bank] || !sky_stage[clouds_bank] || !sh2z_vdp1_queue_free(&clouds_queue,clouds_bank))return false;
+#else
+    if(!commands || capacity<2 || !view || !source || !count || fzx_clouds_status!=1 || fzx_clouds_pending)return false;
+#endif
+    uint32_t n=0;
+    if(!clouds_body(commands,capacity,view,source,&n))return false;
+#if FZX_VDP1_DBANK
+    (void)queue_push(&clouds_queue,clouds_bank,fzx_input_count?fzx_input_count:1u);
+#endif
+    *count=n;fzx_clouds_pending=fzx_input_count?fzx_input_count:1;return true;
+}
+/* ENG_BAL_CLOUDS (engine, claude/balance): the prepare may run on the slave SH-2.
+ * The master checks the bank (fzx_clouds_ready), either CPU prepares, and the master
+ * pushes the queue (fzx_clouds_commit), so the VBlank-In present still only meets
+ * pushes made with the master's interrupts masked. */
+bool fzx_clouds_ready(void) {
+    return fzx_clouds_status==1 && clouds_stage[clouds_bank] && sky_stage[clouds_bank] &&
+           sh2z_vdp1_queue_free(&clouds_queue,clouds_bank);
+}
+bool fzx_clouds_prepare(vdp1_cmdt_t *commands,unsigned capacity,const fzx_view_t *view,
+                        const RefBackdrop *source,uint32_t *count) {
+    if(!commands || capacity<2 || !view || !source || !count)return false;
+    return clouds_body(commands,capacity,view,source,count);
+}
+void fzx_clouds_commit(void) {
+    (void)queue_push(&clouds_queue,clouds_bank,fzx_input_count?fzx_input_count:1u);
+    fzx_clouds_pending=fzx_input_count?fzx_input_count:1;
+}
+/* After the slave prepared: drop the master's cache lines of what it wrote and the
+ * master reads (the bank-0 stage and sky lines in work RAM, which the present copies;
+ * the counters). Bank 1 is VDP1 VRAM, read through the cache-through window. */
+static void purge_cached(void *p,uint32_t bytes) {
+    if((uintptr_t)p<0x20000000u)cpu_cache_area_purge(p,bytes);
+}
+/* Diagnostic (ENG_BAL_HASH): FNV-1a of the selected bank's parameter B, window and sky lines. */
+uint32_t fzx_clouds_stage_hash(uint32_t h) {
+    const volatile uint8_t *p=(const volatile uint8_t *)&clouds_stage[clouds_bank]->rp;
+    for(uint32_t i=0;i<sizeof(fzx_floor_rp_t)+sizeof(((fzx_clouds_rbg_t *)0)->window);++i)h=(h^p[i])*16777619u;
+    p=(const volatile uint8_t *)sky_stage[clouds_bank];
+    for(uint32_t i=0;i<sizeof(sky_lines);++i)h=(h^p[i])*16777619u;
+    return h;
+}
+void fzx_clouds_purge_remote(void) {
+    purge_cached(clouds_stage[clouds_bank],sizeof(fzx_clouds_rbg_t));
+    purge_cached(sky_stage[clouds_bank],sizeof(sky_lines));
+    purge_cached((void *)&fzx_plane_stats,sizeof(fzx_plane_stats));
+    purge_cached((void *)&fzx_clouds_degenerate,sizeof(fzx_clouds_degenerate));
+    purge_cached((void *)&fzx_clouds_bands,sizeof(fzx_clouds_bands));
+    purge_cached((void *)&fzx_clouds_status,sizeof(fzx_clouds_status));
+}
+#else
 bool fzx_clouds_native(vdp1_cmdt_t *commands,unsigned capacity,const fzx_view_t *view,
                        const RefBackdrop *source,uint32_t *count) {
 #if FZX_VDP1_DBANK
@@ -261,6 +362,7 @@ bool fzx_clouds_native(vdp1_cmdt_t *commands,unsigned capacity,const fzx_view_t 
 #endif
     *count=submit.count+1+borders;fzx_clouds_pending=fzx_input_count?fzx_input_count:1;return true;
 }
+#endif
 uint16_t fzx_clouds_upload_log[FZX_CLOUDS_UPLOAD_LOG];
 volatile uint32_t fzx_clouds_upload_count,fzx_clouds_upload_max,fzx_clouds_upload_overruns;
 void fzx_clouds_upload_record(uint16_t start,uint32_t began_in_blank) {

@@ -1,4 +1,7 @@
 #include "road_cd.h"
+#if ENG_SND
+#include "engine/engine_snd.h"
+#endif
 
 /* Yaul 0.3.1's CPU transfer uses 16-bit reads at 0x25890000. The reference
  * Yaba build does not implement that alias. The sector-data port used by
@@ -55,6 +58,9 @@ static int stream_read(fad_t fad,sector_buffer_t *out) {
 #endif
 int fzx_road_sector_read(fad_t fad,sector_buffer_t *out) {
     int rc;
+#if ENG_SND
+    engine_snd_disc_read();
+#endif
 #if FZX_CD_STREAM
     {
         if(fad<150 || !out || ((uintptr_t)out&3u)) return -1;

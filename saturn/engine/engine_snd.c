@@ -414,3 +414,14 @@ void engine_snd_leave(uint32_t frames) {
 bool engine_snd_quiet(void) {
     return sh2z_cdda_quiet(&cd);
 }
+
+void engine_snd_idle(void) {
+    sh2z_cdda_frame(&cd);
+    engine_snd_report[7] = cd.commands; engine_snd_report[8] = cd.loop_backs; engine_snd_report[9] = cd.state;
+}
+
+volatile uint32_t engine_snd_disc[2];
+void engine_snd_disc_read(void) {
+    ++engine_snd_disc[0];
+    if (!sh2z_cdda_quiet(&cd)) ++engine_snd_disc[1];   /* a data read while music plays: the gate's fault count */
+}

@@ -44,4 +44,9 @@ void engine_snd_vblank(bool presented);
 void engine_snd_frame(void);
 void engine_snd_leave(uint32_t frames);
 bool engine_snd_quiet(void);
+/* Frames outside the race (menus, LOAD): the CD player only (fade, pause, status). */
+void engine_snd_idle(void);
+/* Called by the disc loader before each data read: [0] reads, [1] reads while music was not quiet. */
+extern volatile uint32_t engine_snd_disc[2];
+void engine_snd_disc_read(void);
 #endif

@@ -117,6 +117,12 @@ Checked per lane merge by the lane itself, and audited per milestone:
    hang on the route.
 7. **Controls.** Every check ships with an input that makes it fail.
 8. **Legacy untouched.** The legacy recipe BIN still builds byte-identical.
+9. **Margin.** Until hardware numbers exist, the modelled critical path
+   (master busy plus its wait for the track) at p99, times 1.36, stays within
+   33.3 ms: 24.5 ms modelled. A per-CPU cap is not the measure.
+10. **Matrix.** Gates 1 to 9 hold on the default image as shipped, with sound
+    off and with scenes off, and for race systems on two courses, one with
+    tubes, using real packs. The list is in AGENTS.md under Workflow.
 
 ## 6. What stops
 

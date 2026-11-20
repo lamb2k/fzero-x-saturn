@@ -27,9 +27,11 @@ tune the legacy image for speed. If a task asks for either, stop and say so.
 At the start of every session read, in this order, and nothing else first:
 
 1. this file, then your role file (CLAUDE.md or CODEX.md);
-2. [docs/ENGINE_PLAN.md](docs/ENGINE_PLAN.md): the plan and the current milestone;
-3. [docs/STATUS.md](docs/STATUS.md): where the work stands;
-4. [docs/HANDOFF.md](docs/HANDOFF.md): what the last session left.
+2. [docs/ENGINE_PLAN.md](docs/ENGINE_PLAN.md): the plan, the milestones and the gates;
+3. [docs/RETRO_PLAN_20261120.md](docs/RETRO_PLAN_20261120.md): where the engine
+   line stands and the phases from here (P0 to P5);
+4. [docs/STATUS.md](docs/STATUS.md): the legacy line's status;
+5. [docs/HANDOFF.md](docs/HANDOFF.md): what the last session left.
 
 Read source files when a card needs them. Old checkpoint prose reads like
 instructions and pulls work off course.
@@ -84,44 +86,89 @@ instructions and pulls work off course.
 
 - **Lanes.** One owner per lane, one branch per lane, isolated build stages,
   builds one after another inside a stage. A lane never edits another lane's
-  code; it asks through the coordinator. Lanes: track, racers, physics,
-  rivals, frame (VDP1 banks, VDP2), build and memory, audio, front end (C8),
-  cars.
-- **Merging.** Lane branches merge into `engine` when the lane's own gates
-  pass in CI and locally. The engine integrator merges; no review round is
-  needed per change. `gate1` and the release recipe stay with Codex.
+  code; it asks through the coordinator. A lane is a fresh agent with a short
+  brief: the goal, a pushed base commit, the files to read, the gates and what
+  is not its work. It pushes at every report. It hands over at its milestone
+  or at about 400k tokens of context, whichever comes first, with a handover
+  file that a new agent can start from.
+- **Measure first.** An optimisation lane's first step is a profile of the
+  thing it is asked to speed up, reported before any change. If the profile
+  contradicts the brief, the lane stops for a new brief.
+- **Gate matrix.** Run on the lane head merged with the current `engine`:
+  - switch-off identity of every default image, and the legacy recipe BIN;
+  - cadence on the locked 30 fps loop: every interval two fields, with master,
+    slave and critical-path (master busy plus its wait for the track) mean,
+    p99 and maximum;
+  - plays right: HOST equals SH-2 at the checkpoints and the final state, and
+    the course's finish against its HOST reference;
+  - determinism over two runs;
+  - the default image as shipped, and with sound off, and with scenes off;
+  - the scenes loop: cold race and retry equal, menus at the floor, soft reset
+    from every scene, a load cancelled at three points;
+  - two courses for anything in the race, one of them with tubes, on real
+    packs, never stand-ins;
+  - memory floors and maps; every check shown failing on its control.
+- **Merging.** The engine integrator merges a lane when its head contains the
+  current `engine` and its report covers the matrix. No review round is needed
+  per change. Merges go in batches, and `engine` is frozen while a lane gates
+  on it. `gate1` and the release recipe stay with Codex.
 - **Review.** One independent audit per milestone, by the agent that did not
   write the code, against ENGINE_PLAN section 5. Findings become cards fixed
   before the next milestone. A finding that breaks a gate blocks the
   milestone; a tooling or wording finding does not block a merge.
-- **Tools.** Diagnostic scripts and checkers need a failing control, not a
-  review round, before use.
-- **Hand-overs.** One message per milestone or per blocking question, with
-  the commit, the image hashes, the numbers and the evidence path. Number
-  them. A message with no reply is not agreement.
+- **Judges.** Fixtures, bands and controls are agreed before measuring and are
+  not changed after seeing results. Handling and contact are judged in short
+  windows started from the reference's own state, with a failing mutation per
+  event class; whole-race comparison is a guardrail only. An exception is the
+  owner's to grant, by name.
+- **Contracts.** An interface two lanes or two agents build against is written
+  down and agreed as a numbered draft before either side binds to it.
+- **Tools.** One gate script and one set of scorers live in the repository and
+  every lane runs the same ones; a lane that needs more extends them. Tools
+  need a failing control, not a review round, before use.
+- **Hand-overs.** One message per milestone or per blocking question. Lead
+  with the verdict in one line, then the commit and its base, the image
+  hashes, the numbers with their tier, what was not run, and the evidence
+  path. Number them. A message with no reply is not agreement.
 - **Budgets.** Every hand-over states the lane's work RAM, VRAM, cartridge
   and stack use. The shared floors are in ENGINE_PLAN section 5; a lane that
   would cross one frees the space first.
 - **SH2ZAM.** Components land on `claude/<topic>` or `codex/<topic>` branches
-  with a pull request, an `*_experimental.h` contract tag, host tests in CI
-  and upstream SH4ZAM style. The engine pins a commit. Merge trains run once
-  per milestone.
+  with a pull request, an `*_experimental.h` contract tag that no open pull
+  request already uses, host tests in CI, upstream SH4ZAM style and no libc
+  memory calls in library objects. A pull request merges when it passes the
+  integration runbook; the owner's standing approval (2026-11-19) covers
+  these. The engine pins a commit on SH2ZAM main.
 - **Demos.** Every milestone ships labelled emulator stills, a short clip and
-  the frame table. Say what looks wrong.
-- **Hardware.** Each milestone's disc goes to the owner with the sheet in
-  docs/HARDWARE_TEST.md. No frame-rate claim without a hardware run.
-- **Added 2026-11-20** (from docs/RETRO_PLAN_20261120.md):
-  - One shared gate script in the repo; lanes and the integrator run the same
-    one, across images, sound on and off, scenes on and off, and courses.
-  - A lane hands over at about 400k tokens or one milestone, pushes at every
-    report, and ends with a handover file.
-  - A measuring spike comes before any optimisation lane; no lane starts from
-    an estimate.
-  - Race systems qualify on two courses (one with tubes) and on real packs.
-  - `engine` takes merges in batches and is frozen while a lane gates on it.
-  - Routine merges, SH2ZAM trains that pass the runbook, and owner discs need
-    no owner approval. The owner gets one digest per milestone event or
-    decision, not progress pings.
+  the frame table. Anything the owner judges by eye goes as a side-by-side
+  clip of the same course and ticks. Say what looks wrong.
+- **Hardware.** Each milestone's disc is rebuilt for the owner after the
+  milestone merge, with the sheet in docs/HARDWARE_TEST.md, and run under a
+  second emulator as a cross-check. No frame-rate claim without a hardware run.
+- **Owner.** One digest per milestone event or decision, in plain words, with
+  a recommendation for each question. Routine merges, SH2ZAM trains, discs and
+  starting the next phase item need no approval and are not reported as
+  waiting.
+
+## Known traps
+
+Each of these cost a round on 2026-11-19 and 20.
+
+- A name is not a meaning: check a flag or counter in the reference source
+  before reasoning from it, and check a profile against a frame trace.
+- Generated assets go stale when a merge touches their generator. Check the
+  receipts in a reused stage and regenerate with the tool.
+- A change to a shared tool under `tools/` can break the legacy recipe.
+  Rebuild it.
+- An image can change through link-time layout alone when the SH2ZAM pin
+  moves. Compare symbols before calling it a behaviour change.
+- A system that passes on Mute City can pass by coincidence. Its rival pace
+  target and its start grid are special cases.
+- A cost measured with stand-in art or a made-up grid is not the cost.
+- Sound moves the disc drive. Any disc read path needs a sound-on run.
+- A per-CPU time cap is not a frame budget; the two CPUs' work can exceed two
+  caps on the same frame. Budget the critical path.
+- Stage scripts start with `set -euo pipefail`; commits use LF line endings.
 
 ## Evidence
 
@@ -156,6 +203,10 @@ The same rule covers `engine` and lane branches (2026-11-19).
 The three touchpoints in plan section 7, a missing ROM path when no ROM-free
 card remains, anything outward-facing, look and feel acceptance at each milestone, a
 hardware run, and an architecture choice ENGINE_PLAN does not already decide.
+
+Do not ask for, or wait on, routine merges into `engine`, SH2ZAM pull requests
+that pass the runbook, owner discs, housekeeping or the next phase item in
+docs/RETRO_PLAN_20261120.md.
 
 ## Keep the state small
 

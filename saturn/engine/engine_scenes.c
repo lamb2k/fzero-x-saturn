@@ -1093,7 +1093,29 @@ static void spin_hook(void) {
  * The manager's NBG3 map displays them while VDP1 is being reclaimed by RACE.
  * B1 0x7b000..0x7bbff and palette 62 are free in the race map. */
 static uint16_t card_saved_colors[16];
+static uint16_t card_saved_track_color;
 static unsigned card_used;
+/* The course-menu Jack preview is solid RGB(192,64,64). Its baked 128x64
+ * one-bit still expands into B1 0x7a000..0x7afff, just below the nameplate.
+ * Each 8x8 character has 8 source bytes and 16 destination words. */
+static void card_track(unsigned course) {
+    static const uint16_t four_pixels[16] = {
+        0,1,0x10,0x11,0x100,0x101,0x110,0x111,
+        0x1000,0x1001,0x1010,0x1011,0x1100,0x1101,0x1110,0x1111
+    };
+    volatile uint16_t *color = (volatile uint16_t *)VDP2_CRAM_MODE_1_OFFSET(0, 0, 977);
+    card_saved_track_color = *color;
+    *color = RGB1555(1, 24, 8, 8);
+    volatile uint16_t *tiles = (volatile uint16_t *)VDP2_VRAM_ADDR(3, 0x1a000);
+    for (unsigned i = 0; i < sizeof(card_tracks[0]); ++i) {
+        const uint8_t row = card_tracks[course][i];
+        tiles[2u*i] = four_pixels[row >> 4];
+        tiles[2u*i+1u] = four_pixels[row & 15u];
+    }
+    volatile uint16_t *map = (volatile uint16_t *)NBG3_MAP;
+    for (unsigned i = 0; i < 128u; ++i)
+        map[(5u+i/16u)*64u + 22u+i%16u] = (uint16_t)(0xd000u | (0xd00u+i));
+}
 static void card_show(unsigned course) {
     if (course >= sizeof(cards)/sizeof(cards[0])) return;
     const unsigned cols = cards[course].cols;
@@ -1108,13 +1130,15 @@ static void card_show(unsigned course) {
     volatile uint16_t *map = (volatile uint16_t *)NBG3_MAP;
     for (unsigned i = 0; i < 2u*cols; ++i)
         map[(3u+i/cols)*64u + (40u-cols)/2u + i%cols] = (uint16_t)(0xe000u | (0xd80u+i));
+    card_track(course);
 }
 static void card_release(void) {
     if (!card_used) return;
     volatile uint16_t *palette = (volatile uint16_t *)VDP2_CRAM_MODE_1_OFFSET(0, 0, 992);
     for (unsigned i = 0; i < 16u; ++i) palette[i] = card_saved_colors[i];
-    volatile uint16_t *tiles = (volatile uint16_t *)VDP2_VRAM_ADDR(3, 0x1b000);
-    for (unsigned i = 0; i < card_used; ++i) tiles[i] = 0;
+    *(volatile uint16_t *)VDP2_CRAM_MODE_1_OFFSET(0, 0, 977) = card_saved_track_color;
+    volatile uint16_t *tiles = (volatile uint16_t *)VDP2_VRAM_ADDR(3, 0x1a000);
+    for (unsigned i = 0; i < 2048u + card_used; ++i) tiles[i] = 0;
     card_used = 0;
 }
 

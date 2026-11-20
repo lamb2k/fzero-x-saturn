@@ -165,6 +165,9 @@ void fzx_drive_step(uint32_t n) {
             /* fzx_e1_driver 2: the scripted hunter (engine_attacks.c), the 5-KO scenario. */
             if (fzx_e1_driver == 2u && body.intro == 0) {
                 uint16_t hb; int8_t hs;
+#if E1_FIELD && ENG_BAL_EARLY
+                fzx_drive_field_run(); /* the hunter reads the field: step it to this tick first */
+#endif
                 (void)fzx_atk_hunter(&body, &hb, &hs);
                 if (ticks >= RACE_START_TICK) button = hb;
                 sx = hs;

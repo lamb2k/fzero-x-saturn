@@ -71,6 +71,9 @@ FZX_GUEST_MASK ?= 0
 # Diagnostic only (scenes image): Jack's six rounds GP-available on course 0's assets (engine_cup.c),
 # for the GP flow and pause-retry checks until the courses lane lands. Never a release build.
 FZX_CUP_DIAG_CATALOG ?= 0
+# Engine gate control (tools/engine_gate.py ctl-menus): 1 links a probe that holds one menu frame for 3 fields
+# when fzx_scn_stall_ctl is written. Diagnostic only; 0 (default) compiles nothing.
+ENG_SCN_STALL_CONTROL ?= 0
 # The 3D player packs on the disc: the select screen's entrants (C-069: Blue Falcon 0,
 # Golden Fox 1, Fire Stingray 3). The CD loader reads at most 32 root entries.
 ENG_ENTRANT_PACKS ?= 00 01 03
@@ -333,7 +336,7 @@ BAL_SWITCHES := $(ENG_BAL_CLOUDS)$(ENG_BAL_EARLY)$(ENG_BAL_FORCE)$(ENG_BAL_HASH)
 EMIT_SWITCHES := $(E2_EMIT_PROF)$(E2_EMIT_HINT)$(E2_EMIT_CMD)$(E2_EMIT_SHADOW)$(E2_EMIT_POSE)$(E2_EMIT_SETUP)$(E2_EMIT_LINK)$(E2_EMIT_CULL)$(E2_EMIT_YAW)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter-out 0,$(subst 0,,$(EMIT_SWITCHES))),-em$(EMIT_SWITCHES),)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter-out 00000,$(BAL_SWITCHES)),-bal$(BAL_SWITCHES),)
-SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter-out mute-city-1,$(ENG_COURSE)),-$(ENG_COURSE),)$(if $(E1_DRIVER_KH),-kh$(E1_DRIVER_KH),)$(if $(filter 1,$(ENG_COURSE_SELECT)),-sel,)$(if $(filter 1,$(ENG_TUBES)),-tubes,)
+SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter-out mute-city-1,$(ENG_COURSE)),-$(ENG_COURSE),)$(if $(E1_DRIVER_KH),-kh$(E1_DRIVER_KH),)$(if $(filter 1,$(ENG_COURSE_SELECT)),-sel,)$(if $(filter 1,$(ENG_TUBES)),-tubes,)$(if $(filter 1,$(ENG_SCN_STALL_CONTROL)),-stallctl,)
 SH_BUILD_DIR := $(SH_OUTPUT_DIR)/yaul
 IMAGE_DIRECTORY := $(SH_OUTPUT_DIR)/cd
 IMAGE_1ST_READ_BIN := A.BIN
@@ -509,7 +512,7 @@ ifeq ($(E1_CLOSEUP),1)
 # As ../Makefile: view_indexed shares assembler names with view_rails, and pose-1's
 # assembly reads a file-static table, so both stay out of LTO.
 ifeq ($(ENG_SCENES),1)
-SH_CFLAGS += -DENG_SCENES=1 -DFZX_CUP_DIAG_CATALOG=$(FZX_CUP_DIAG_CATALOG) -DFZX_GUEST_MASK=$(FZX_GUEST_MASK)ull -I$(G)/mach3d_scn -DFZX_CD_STREAM=1 -DFZX_LOAD_VERIFIED=1 -DENG_ROSTER=$(ENG_ROSTER) -I$(G)/roster -DFZX_ROAD_PREP_BAKED=1 -I$(GC)/road_prep -I$(GC)/engine_path_ranges
+SH_CFLAGS += -DENG_SCENES=1 -DFZX_CUP_DIAG_CATALOG=$(FZX_CUP_DIAG_CATALOG) -DFZX_GUEST_MASK=$(FZX_GUEST_MASK)ull -I$(G)/mach3d_scn -DFZX_CD_STREAM=1 -DFZX_LOAD_VERIFIED=1 -DENG_ROSTER=$(ENG_ROSTER) -DENG_SCN_STALL_CONTROL=$(ENG_SCN_STALL_CONTROL) -I$(G)/roster -DFZX_ROAD_PREP_BAKED=1 -I$(GC)/road_prep -I$(GC)/engine_path_ranges
 else
 SH_CFLAGS += -I$(G)/$(E1_REBAKE) -I$(G)/$(E1_VEHICLE)
 endif

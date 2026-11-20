@@ -1,0 +1,421 @@
+{
+ "comment": "Engine gate matrix (tools/engine_gate.py, tools/ENGINE_GATE.md). Agreed before measuring; change limits only with the owner's or integrator's say-so, never after seeing a result.",
+ "limits": {
+  "over_two": 0,
+  "critical_p99_ms": 24.5,
+  "master_stack_min": 20480,
+  "slave_stack_min": 4096,
+  "slave_guard_trips": 0,
+  "menu_worst_fields": 2,
+  "race_window_tick": 420
+ },
+ "images": {
+  "e0": {
+   "vars": [],
+   "kind": "race",
+   "note": "E0 flythrough",
+   "sound": false
+  },
+  "field": {
+   "vars": [
+    "FZX_E1_DRIVE=1",
+    "E1_DRIVER=1"
+   ],
+   "kind": "race",
+   "note": "29 rivals, driver; sound on (default)",
+   "sound": true
+  },
+  "field-snd0": {
+   "vars": [
+    "FZX_E1_DRIVE=1",
+    "E1_DRIVER=1",
+    "ENG_SND=0"
+   ],
+   "kind": "race",
+   "note": "field, sound off",
+   "sound": false
+  },
+  "field-pad": {
+   "vars": [
+    "FZX_E1_DRIVE=1"
+   ],
+   "kind": "race",
+   "note": "field as shipped (pad), identity only",
+   "sound": true
+  },
+  "drive": {
+   "vars": [
+    "FZX_E1_DRIVE=1",
+    "E1_DRIVER=1",
+    "E1_FIELD=0"
+   ],
+   "kind": "race",
+   "note": "player alone, driver",
+   "sound": true
+  },
+  "roster": {
+   "vars": [
+    "FZX_E1_DRIVE=1",
+    "E1_DRIVER=1",
+    "E2_FASTSPRITE=1",
+    "E2_ROSTER=1"
+   ],
+   "kind": "race",
+   "note": "field with the roster sprites",
+   "sound": true
+  },
+  "scenes": {
+   "vars": [
+    "FZX_E1_DRIVE=1",
+    "ENG_SCENES=1"
+   ],
+   "kind": "scenes",
+   "note": "the disc as shipped (pad), identity only",
+   "sound": true
+  },
+  "scenes-drv": {
+   "vars": [
+    "FZX_E1_DRIVE=1",
+    "ENG_SCENES=1",
+    "E1_DRIVER=1"
+   ],
+   "kind": "scenes",
+   "note": "scenes, driver; sound on",
+   "sound": true
+  },
+  "scenes-drv-snd0": {
+   "vars": [
+    "FZX_E1_DRIVE=1",
+    "ENG_SCENES=1",
+    "E1_DRIVER=1",
+    "ENG_SND=0"
+   ],
+   "kind": "scenes",
+   "note": "scenes, driver; sound off",
+   "sound": false
+  }
+ },
+ "identity": {
+  "quick": [
+   "field",
+   "scenes-drv"
+  ],
+  "full": [
+   "e0",
+   "field",
+   "field-snd0",
+   "field-pad",
+   "drive",
+   "roster",
+   "scenes",
+   "scenes-drv",
+   "scenes-drv-snd0"
+  ]
+ },
+ "legacy": {
+  "modes": [
+   "full"
+  ],
+  "recipe": "4b4cacb26d221259b7e621f3f41e55488fd6fd5d50e28536c6c1c86945deb3d7",
+  "off": "bb5f0fc5baef1670"
+ },
+ "courses": [
+  {
+   "slug": "mute-city-1",
+   "index": 0,
+   "tubes": false
+  },
+  {
+   "slug": "silence-1",
+   "index": 1,
+   "tubes": false
+  },
+  {
+   "slug": "sand-ocean-1",
+   "index": 2,
+   "tubes": true
+  },
+  {
+   "slug": "devils-forest-1",
+   "index": 3,
+   "tubes": false
+  },
+  {
+   "slug": "big-blue-1",
+   "index": 4,
+   "tubes": true
+  },
+  {
+   "slug": "port-town-1",
+   "index": 5,
+   "tubes": false
+  }
+ ],
+ "runs": [
+  {
+   "name": "race-field",
+   "image": "field",
+   "kind": "race",
+   "course": "mute-city-1",
+   "determinism": true,
+   "modes": [
+    "quick",
+    "full"
+   ]
+  },
+  {
+   "name": "race-field-snd0",
+   "image": "field-snd0",
+   "kind": "race",
+   "course": "mute-city-1",
+   "modes": [
+    "full"
+   ]
+  },
+  {
+   "name": "race-drive",
+   "image": "drive",
+   "kind": "race",
+   "course": "mute-city-1",
+   "modes": [
+    "full"
+   ]
+  },
+  {
+   "name": "race-roster",
+   "image": "roster",
+   "kind": "race",
+   "course": "mute-city-1",
+   "modes": [
+    "full"
+   ]
+  },
+  {
+   "name": "race-e0",
+   "image": "e0",
+   "kind": "race",
+   "modes": [
+    "full"
+   ]
+  },
+  {
+   "name": "loop",
+   "image": "scenes-drv",
+   "kind": "loop",
+   "script": "loop.txt",
+   "course": "mute-city-1",
+   "determinism_full": true,
+   "modes": [
+    "quick",
+    "full"
+   ]
+  },
+  {
+   "name": "loop-snd0",
+   "image": "scenes-drv-snd0",
+   "kind": "loop",
+   "script": "loop.txt",
+   "course": "mute-city-1",
+   "modes": [
+    "full"
+   ]
+  },
+  {
+   "name": "reset",
+   "image": "scenes-drv",
+   "kind": "reset",
+   "script": "reset.txt",
+   "modes": [
+    "quick",
+    "full"
+   ],
+   "expect_marks": 7
+  },
+  {
+   "name": "reset-snd0",
+   "image": "scenes-drv-snd0",
+   "kind": "reset",
+   "script": "reset.txt",
+   "modes": [
+    "full"
+   ],
+   "expect_marks": 7
+  },
+  {
+   "name": "cancel",
+   "image": "scenes-drv",
+   "kind": "cancel",
+   "script": "cancel.txt",
+   "modes": [
+    "quick",
+    "full"
+   ]
+  },
+  {
+   "name": "cancel-snd0",
+   "image": "scenes-drv-snd0",
+   "kind": "cancel",
+   "script": "cancel.txt",
+   "modes": [
+    "full"
+   ]
+  },
+  {
+   "name": "course-*",
+   "image": "scenes-drv",
+   "kind": "course",
+   "script": "course.txt",
+   "courses": "all",
+   "modes": [
+    "full"
+   ]
+  }
+ ],
+ "controls": [
+  {
+   "name": "ctl-identity",
+   "check": "identity",
+   "how": "head field BIN built with E0_FOG_EARLY=0 against the head's default field BIN",
+   "image": "field",
+   "vars": [
+    "E0_FOG_EARLY=0"
+   ]
+  },
+  {
+   "name": "ctl-legacy",
+   "check": "legacy",
+   "how": "the OFF build's BIN against the recipe hash"
+  },
+  {
+   "name": "ctl-cadence",
+   "check": "cadence",
+   "how": "field image with the chunk cap off (E0_CAP_STABLE=0 E0_CHUNK_CAP=0)",
+   "image": "field",
+   "vars": [
+    "E0_CAP_STABLE=0",
+    "E0_CHUNK_CAP=0"
+   ],
+   "kind": "race",
+   "course": "mute-city-1"
+  },
+  {
+   "name": "ctl-margin",
+   "check": "margin",
+   "how": "field image with the balance off (ENG_BAL_CLOUDS=0 ENG_BAL_EARLY=0 ENG_BAL_PREWARM=0)",
+   "image": "field",
+   "vars": [
+    "ENG_BAL_CLOUDS=0",
+    "ENG_BAL_EARLY=0",
+    "ENG_BAL_PREWARM=0"
+   ],
+   "kind": "race",
+   "course": "mute-city-1"
+  },
+  {
+   "name": "ctl-host",
+   "check": "host",
+   "how": "the field race against a HOST reference driven at heading gain 2.6",
+   "reuse": "race-field",
+   "host_driver": "0.004,2.6"
+  },
+  {
+   "name": "ctl-determinism",
+   "check": "determinism",
+   "how": "the field race against the balance-off control race (one switch apart)",
+   "reuse": "race-field",
+   "against": "ctl-margin"
+  },
+  {
+   "name": "ctl-stack",
+   "check": "memory",
+   "how": "a word written into the painted master stack 4 KB above its floor at tick 600",
+   "image": "field",
+   "kind": "race",
+   "course": "mute-city-1",
+   "pokes": "*_fzx_sky_stack_start+4096=0@600"
+  },
+  {
+   "name": "ctl-guard",
+   "check": "memory",
+   "how": "the slave stack's first guard word overwritten at tick 600",
+   "image": "field",
+   "kind": "race",
+   "course": "mute-city-1",
+   "pokes": "0x06002000=0@600"
+  },
+  {
+   "name": "ctl-loop",
+   "check": "loop",
+   "how": "the retry race forced to retire (_fzx_scn_force_end 2 after tick 2000)",
+   "image": "scenes-drv",
+   "kind": "loop",
+   "script": "ctl-loop.txt",
+   "course": "mute-city-1"
+  },
+  {
+   "name": "ctl-reset",
+   "check": "reset",
+   "how": "at SELECT the chord lacks one button (0E00), so A confirms and the image goes to LOAD",
+   "image": "scenes-drv",
+   "kind": "reset",
+   "script": "ctl-reset.txt"
+  },
+  {
+   "name": "ctl-cancel",
+   "check": "cancel",
+   "how": "the chord lacks one button (0E00) 30 fields into the load, so the load runs on",
+   "image": "scenes-drv",
+   "kind": "cancel",
+   "script": "ctl-cancel.txt"
+  },
+  {
+   "name": "ctl-menus",
+   "check": "menus",
+   "how": "image built with ENG_SCN_STALL_CONTROL=1; one TITLE frame held for 3 fields",
+   "image": "scenes-drv",
+   "kind": "menus",
+   "script": "ctl-menus.txt",
+   "vars": [
+    "ENG_SCN_STALL_CONTROL=1"
+   ]
+  },
+  {
+   "name": "ctl-course",
+   "check": "host",
+   "how": "Silence raced but judged against Mute City's HOST reference",
+   "image": "scenes-drv",
+   "kind": "course",
+   "course": "silence-1",
+   "host_course": "mute-city-1",
+   "script": "course.txt"
+  },
+  {
+   "name": "ctl-disc",
+   "check": "disc",
+   "how": "the sound-on cancel script on the data-only CUE (no CD audio tracks): flagged non-shipping; its audio is compared with the mixed-disc run",
+   "image": "scenes-drv",
+   "kind": "cancel",
+   "script": "cancel.txt",
+   "disc": "data",
+   "against": "cancel"
+  }
+ ],
+ "regenerate": [
+  {
+   "receipt": "generated/courses/select/course_ids.receipt",
+   "cmd": "python3 tools/course_bundle.py",
+   "rom": false
+  },
+  {
+   "receipt": "generated/road_tiles/road_tiles.receipt",
+   "cmd": "python3 tools/road_tiles.py",
+   "rom": false
+  }
+ ],
+ "determinism_mask": [
+  [
+   "__oreg_buf",
+   128
+  ]
+ ]
+}

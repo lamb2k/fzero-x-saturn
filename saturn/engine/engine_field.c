@@ -88,6 +88,18 @@ static sh2z_field_surface_t surface;
 #if ENG_RIVAL_BEHAVE
 /* line-field-5: the behaviours' tuning, and the fall / retirement / KO-credit events for the attacks glue. */
 static sh2z_field_behave_t behave;
+#if defined(ENG_COURSE_SELECT) && ENG_COURSE_SELECT
+#include "course_drops.h"
+#define DROP_COUNT ((uint32_t)fzx_course_drop_count[fzx_cid - fzx_course_ids])
+#define DROP_ROWS (fzx_course_drops[fzx_cid - fzx_course_ids])
+#elif __has_include("rivals_drops.h")
+#include "rivals_drops.h"
+#define DROP_COUNT FZX_RIVALS_DROP_COUNT
+#define DROP_ROWS fzx_rivals_drops
+#else
+#define DROP_COUNT 0u
+static const uint16_t DROP_ROWS[1][2] = { { 0, 0 } };
+#endif
 static uint16_t prev_flags[FZX_FIELD_CARS];
 static int16_t prev_credit[FZX_FIELD_CARS];
 fzx_field_event_t fzx_field_events[FZX_FIELD_EVENTS];
@@ -380,6 +392,11 @@ bool fzx_field_load(const sh2z_vd_track_t *track, const sh2z_vd_body_t *player) 
             for (int c = 0; c < 3; ++c) { st->pos[c] = pp[i].pos[c] << 12; st->fwd[c] = pp[i].fwd[c]; st->up[c] = pp[i].up[c]; }
         }
         fzx_e2_report[1] = worst; fzx_e2_report[9] = off0;
+#if ENG_RIVAL_BEHAVE
+        /* line-field-5 drops: node flag 0x0200 on the course's drop ranges (tools/rivals_drops.py). */
+        for (uint32_t r = 0; r < DROP_COUNT; ++r)
+            for (uint32_t k = DROP_ROWS[r][0]; k <= DROP_ROWS[r][1] && k < line.count; ++k) nodes[k].flags |= 0x0200u;
+#endif
         if (off0 > 65536u || nodes[0].start != 0) { fzx_field_report[0] = 5; fzx_e2_report[0] = 4; return false; }
     }
 #endif
@@ -506,7 +523,7 @@ bool fzx_field_load(const sh2z_vd_track_t *track, const sh2z_vd_body_t *player) 
         /* line-field-5: the values HOST checked the bands and the C-095 tube judge with (ref/rivals_gp_main.c
          * --behave 1 --tune boost_energy=0): the source's tube bias pick (1/64 a decision; half hold to an exit,
          * the rest 20..35 decisions), cylinders hold their angle, pipes settle near their line; air nodes (shape
-         * 0x180), open-edge road (0x000), fall to retirement 95 ticks, KO window 120; free CPU boost. */
+         * 0x180), open-edge road (0x000), fall to retirement 95 ticks, KO window 120; drops; free CPU boost. */
         memset(&behave, 0, sizeof(behave));
         behave.roll_chance = 1024; behave.roll_latch = 32768; behave.roll_min = 20; behave.roll_span = 16;
         behave.roll_lead = 26214; behave.hold_lead = 7864; behave.roll_well = 52429;
@@ -516,6 +533,9 @@ bool fzx_field_load(const sh2z_vd_track_t *track, const sh2z_vd_body_t *player) 
         behave.air_mask = 0x01c0u; behave.air_value = 0x0180u; behave.open_mask = 0x01c0u; behave.open_value = 0x0000u;
         behave.air_spread = 2600; behave.fall_margin = U(30); behave.fall_ticks = 95;
         behave.ko_window = 120; behave.ko_near = U(1500); behave.ko_floor = 26;
+        /* Drops (HOST tuning seeds 1-6 and 101-106, judged on 201-206): launches out of a pipe on a drop node 1 in 16;
+         * beyond 1.8 of the radius round a drop cylinder, 16 / 65536 a step. */
+        behave.drop_mask = 0x0200u; behave.drop_value = 0x0200u; behave.drop_lat = 117965; behave.drop_chance = 16; behave.launch_chance = 4096;
         params.behave = &behave;
         params.boost_energy = 0;
         fzx_field_event_count = 0;

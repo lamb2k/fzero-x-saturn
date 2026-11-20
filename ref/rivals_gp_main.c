@@ -31,6 +31,15 @@ static sh2z_line_node_t nodes[MAXN];
 static sh2z_field_zone_t zones[256];
 static sh2z_field_surface_t surface;
 static sh2z_field_behave_t behave;   /* line-field-5 (--behave 1) */
+#ifndef DROP_LAT
+#define DROP_LAT 117965    /* 1.8 of the radius round (about 103 degrees; the reference falls at 105 and 151) */
+#endif
+#ifndef LAUNCH_CHANCE
+#define LAUNCH_CHANCE 4096   /* per launch out of a tube on a drop node (tuning seeds: 2 in 12, reference 2) */
+#endif
+#ifndef DROP_CHANCE
+#define DROP_CHANCE 16     /* per step beyond it (HOST tuning seeds 1-6, 101-106: 3 falls in 12 races, reference 4) */
+#endif
 static uint32_t be32(const unsigned char* p) { return ((uint32_t)p[0] << 24) | ((uint32_t)p[1] << 16) | ((uint32_t)p[2] << 8) | p[3]; }
 static uint16_t be16(const unsigned char* p) { return (uint16_t)((p[0] << 8) | p[1]); }
 
@@ -43,6 +52,7 @@ int main(int argc, char** argv) {
      * and the near-edge share, as tools judge the reference's (fzx-gp-ref --diag). */
     int use_behave = 0; double tube_clamp = 0;
     const char* fixture = "";
+    const char* drops_file = NULL;
     int sources = 0; double src_amount[4] = {0, 0, 0, 0}; long src_n[4] = {0, 0, 0, 0}, wall_inc = 0, edge_ticks = 0, road_ticks = 0;
     int32_t tune_accel = 40, tune_grip = U(6), tune_lane = 30;
     long length = 0, dash = 0; unsigned seed = 1; int max_ticks = 14000, start_tick = 420, lod = 1, hash_every = 0;
@@ -66,7 +76,8 @@ int main(int argc, char** argv) {
         else if (!strcmp(argv[i], "--tube-clamp")) tube_clamp = atof(argv[i + 1]);   /* C-095 control: angles held below this (degrees) */   /* 1: tube_angles over pipe and cylinder nodes */
         else if (!strcmp(argv[i], "--sources")) sources = atoi(argv[i + 1]);
         else if (!strcmp(argv[i], "--behave")) use_behave = atoi(argv[i + 1]);   /* line-field-5 behaviours, defaults below */
-        else if (!strcmp(argv[i], "--fixture")) fixture = argv[i + 1];   /* C-100 fixtures: relabel, stuck, suppress */
+        else if (!strcmp(argv[i], "--fixture")) fixture = argv[i + 1];
+        else if (!strcmp(argv[i], "--drops")) drops_file = argv[i + 1];   /* line-field-5 drop nodes (tools/rivals_drops.py) */   /* C-100 fixtures: relabel, stuck, suppress */
         else die("unknown argument");
     }
     if (!pack || !config || !report || length <= 0) die("usage: see rivals_gp_main.c");
@@ -81,6 +92,17 @@ int main(int argc, char** argv) {
         const unsigned char* p = buf + 16 * i;
         nodes[i].start = (int32_t)be32(p); nodes[i].lateral = (int16_t)be16(p + 4); nodes[i].speed_cap = be16(p + 6);
         nodes[i].half_width = be16(p + 8); nodes[i].flags = be16(p + 10); nodes[i].inv_span = be32(p + 12);
+    }
+    if (drops_file) {   /* line-field-5: node flag 0x0200 on the drop ranges (the engine sets it from rivals_drops.h) */
+        FILE* df = fopen(drops_file, "r");
+        if (!df) die("cannot open drops");
+        char ln[256];
+        while (fgets(ln, sizeof ln, df)) {
+            unsigned a, b2;
+            if (ln[0] == '#' || sscanf(ln, "%u %u", &a, &b2) != 2) continue;
+            for (unsigned k = a; k <= b2 && k < count_nodes; ++k) nodes[k].flags |= 0x0200u;
+        }
+        fclose(df);
     }
     const sh2z_line_t L = { nodes, count_nodes, (int32_t)length };
 
@@ -139,6 +161,7 @@ int main(int argc, char** argv) {
         behave.air_mask = 0x01c0; behave.air_value = 0x0180; behave.open_mask = 0x01c0; behave.open_value = 0x0000;
         behave.air_spread = 2600; behave.fall_margin = U(30); behave.fall_ticks = 95;
         behave.ko_window = 120; behave.ko_near = U(1500); behave.ko_floor = 26;
+        behave.drop_mask = 0x0200; behave.drop_value = 0x0200; behave.drop_lat = DROP_LAT; behave.drop_chance = DROP_CHANCE; behave.launch_chance = LAUNCH_CHANCE;
         P.behave = &behave;
     }
     /* Tuning overrides for HOST experiments only: --tune "name=value,..." (integers, the field's own units). */
@@ -152,6 +175,7 @@ int main(int argc, char** argv) {
             #undef T
             if (!strcmp(tok, "boost_ticks")) { P.boost_ticks = (int16_t)val; continue; }
             #define B(n) if (!strcmp(tok, #n)) { behave.n = val; continue; }
+            B(drop_lat) B(drop_chance) B(launch_chance)
             B(roll_chance) B(roll_latch) B(roll_lead) B(roll_well) B(hold_lead) B(roll_exit_ahead) B(lat_accel) B(air_spread) B(fall_margin) B(fall_ticks) B(ko_window) B(ko_near) B(ko_floor)
             #undef B
             if (!strcmp(tok, "roll_min")) { behave.roll_min = (int16_t)val; continue; }
@@ -246,6 +270,7 @@ int main(int argc, char** argv) {
     static int air_run[MAXV]; static long air_eps, air_landed, air_fell, air_ticks, air_max, air_out_eps;
     static int air_out[MAXV];
     static long fall_eps, fall_retired, fall_open, fall_max; static int fall_start_t[MAXV];
+    static long fall_drop; static int pre_flags_drop[MAXV];   /* falls that start on (or launch from) a drop node */
     static int fix_done, fix_agent = -1, fix_ticks;
     static int slow_ticks[MAXV];
     double spread_sum = 0, spread_max = 0; int spread_n = 0; double spread_at[32]; int marks = 0;
@@ -272,7 +297,7 @@ int main(int argc, char** argv) {
             veh[0].energy = veh[0].max_energy;   /* the trace carries its own outcome */
         }
         static int32_t e_before[MAXV]; static uint16_t f_before[MAXV];
-        for (int i = 0; i < count; ++i) { e_before[i] = veh[i].energy; f_before[i] = veh[i].flags; pre_node[i] = veh[i].t.node; pre_dist[i] = veh[i].t.dist; }
+        for (int i = 0; i < count; ++i) { e_before[i] = veh[i].energy; f_before[i] = veh[i].flags; pre_node[i] = veh[i].t.node; pre_dist[i] = veh[i].t.dist; pre_flags_drop[i] = (nodes[veh[i].t.node].flags & 0x0200u) != 0; }
         if (t == start_tick) sh2z_field_start(&F);
         clock_gettime(CLOCK_MONOTONIC, &t0);
         sh2z_field_step(&F);
@@ -356,7 +381,7 @@ int main(int argc, char** argv) {
                         air_out_eps += air_out[i];
                         air_run[i] = 0;
                     }
-                    if ((v->flags & SH2Z_VEH_FALLING) && !(f_before[i] & SH2Z_VEH_FALLING)) { ++fall_eps; fall_start_t[i] = t; }
+                    if ((v->flags & SH2Z_VEH_FALLING) && !(f_before[i] & SH2Z_VEH_FALLING)) { ++fall_eps; fall_start_t[i] = t; if ((at.flags & 0x0200u) || (pre_flags_drop[i])) ++fall_drop; }
                     if ((v->flags & SH2Z_VEH_RETIRED) && (f_before[i] & SH2Z_VEH_FALLING)) {
                         ++fall_retired; if (t - fall_start_t[i] > fall_max) fall_max = t - fall_start_t[i];
                     }
@@ -417,10 +442,10 @@ int main(int argc, char** argv) {
             ot_elig[0], ot_elig[1], ot_elig[2], ot_oob[0], ot_oob[1], ot_oob[2], offtrack, ot_oob[0]);
     if (use_behave) fprintf(o, " \"geometry\": {\"air_unexplained\": %ld, \"air_missing\": %ld, \"fall_suppressed\": %ld}, \"fixture\": \"%s\", \"fixture_agent\": %d,\n"
                                " \"episodes\": {\"air\": %ld, \"air_landed\": %ld, \"air_fell\": %ld, \"air_open_at_end\": %ld, \"air_ticks\": %ld, \"air_max_ticks\": %ld, \"air_out_of_bounds\": %ld,"
-                               " \"falls\": %ld, \"falls_retired\": %ld, \"falls_open_at_end\": %ld, \"fall_max_ticks\": %ld},\n",
+                               " \"falls\": %ld, \"falls_on_drop_nodes\": %ld, \"falls_retired\": %ld, \"falls_open_at_end\": %ld, \"fall_max_ticks\": %ld},\n",
                             geo_unexplained, geo_missing, geo_suppressed, fixture, fix_agent,
                             air_eps, air_landed, air_fell, air_eps - air_landed - air_fell, air_ticks, air_max, air_out_eps,
-                            fall_eps, fall_retired, fall_open, fall_max);
+                            fall_eps, fall_drop, fall_retired, fall_open, fall_max);
     if (sources) fprintf(o, " \"damage\": {\"contact\": [%ld, %.1f], \"wall\": [%ld, %.1f], \"boost\": [%ld, %.1f], \"other\": [%ld, %.1f]}, \"wall_incidents\": %ld, \"near_edge_share\": %.4f,\n",
                          src_n[0], src_amount[0], src_n[1], src_amount[1], src_n[2], src_amount[2], src_n[3], src_amount[3], wall_inc,
                          road_ticks ? (double)edge_ticks / road_ticks : 0.0);

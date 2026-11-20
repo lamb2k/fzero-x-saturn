@@ -64,6 +64,12 @@ static uint32_t roster_inflate_fnv(uint32_t family, unsigned prof) {
 #include "engine_drive.h"
 #include "sh2zam/scene_experimental.h"
 #include "sh2zam/vehicle_dynamics_experimental.h"
+#if ENG_SND
+#include "engine_snd.h"
+/* Music fades (frames): before LOAD's first disc read, and out of a race into RESULTS. */
+#define SND_LOAD_FADE 30u
+#define SND_RACE_FADE 60u
+#endif
 
 #ifndef FZX_GUEST_MASK
 #define FZX_GUEST_MASK 0ull
@@ -527,6 +533,9 @@ static void spin_hook(void) {
 static bool load_enter(void *u, uint32_t s) {
     (void)u; (void)s;
     load_done = false;
+#if ENG_SND
+    engine_snd_leave(SND_LOAD_FADE); /* the music fades; load_tick waits for a quiet drive */
+#endif
     /* The loading card; the spinner's four glyph words are read back from the map once
      * printed, so the interrupt animates them while the CPU sits in the CD loads. */
     const char *name = "?";
@@ -551,6 +560,9 @@ static void load_tick(void *u, uint32_t s) __attribute__((noinline));
 static void load_tick(void *u, uint32_t s) {
     (void)u; (void)s;
     if (load_done || seq.phase != SH2Z_SCENE_RUN) return;
+#if ENG_SND
+    if (!engine_snd_quiet()) return; /* no disc read until the music has faded and the drive paused */
+#endif
     const uint32_t family = fzx_session.machine_id;
     if (!fzx_session.confirmed || !machine_allowed(family) || !fzx_closeup_has_family(family)) {
         fzx_scn_report[16] = 60u; /* refused: back to select */
@@ -653,6 +665,9 @@ static bool race_enter(void *u, uint32_t s) {
     (void)sh2z_arena_alloc(&race_arena, 256u, 16u);
     if (retry_entering) { *vdp2_regs_get() = race_regs; retry_entering = false; }
     fzx_race_render_callback(true);
+#if ENG_SND
+    engine_snd_start(seq.epoch); /* engine voices, the race's sound epoch, the course music (no waits) */
+#endif
     fzx_race_begin();
     end_reason = FZX_END_NONE; end_wait = 0; max_kmh = 0;
     ++run_counter;
@@ -724,6 +739,11 @@ static bool boot_enter(void *u, uint32_t s) {
 }
 static void boot_tick(void *u, uint32_t s) { (void)u; (void)s; (void)request(FZX_SCN_TITLE, RANK_GOTO); }
 static void common_leave(void *u, uint32_t s) { (void)u; (void)s; leaving = true; }
+#if ENG_SND
+static void race_leave(void *u, uint32_t s) { common_leave(u, s); engine_snd_leave(SND_RACE_FADE); }
+#else
+#define race_leave common_leave
+#endif
 
 /* ---- menu preload dispatch (SCENES.md section 2; C-070) ----------------------------- */
 #define PRELOAD_BUDGET_FRT 7000u /* about 7.8 ms a frame (FRT at master clock / 32) */
@@ -773,7 +793,7 @@ static const sh2z_scene_t table[FZX_SCN_COUNT] = {
     [FZX_SCN_TITLE]   = { menu_preload, title_enter, title_tick, common_leave, title_release, menu_arenas, 1 },
     [FZX_SCN_SELECT]  = { menu_preload, select_enter, select_tick, common_leave, common_release, menu_arenas, 1 },
     [FZX_SCN_LOAD]    = { NULL, load_enter, load_tick, load_leave, common_release, NULL, 0 },
-    [FZX_SCN_RACE]    = { NULL, race_enter, race_tick, common_leave, race_release, race_arenas, 1 },
+    [FZX_SCN_RACE]    = { NULL, race_enter, race_tick, race_leave, race_release, race_arenas, 1 },
     [FZX_SCN_RESULTS] = { menu_preload, results_enter, results_tick, common_leave, results_release, menu_arenas, 1 },
     [FZX_SCN_RECORDS] = { menu_preload, records_enter, records_tick, common_leave, common_release, menu_arenas, 1 },
 };
@@ -879,6 +899,9 @@ void fzx_scn_main(void) {
         if (seq.phase == SH2Z_SCENE_FAULT) fault(2, "ENTER");
         apply_fade(level);
         snd_deliver();
+#if ENG_SND
+        if (seq.current != FZX_SCN_RACE) engine_snd_idle(); /* the race frame services the CD itself */
+#endif
         if (load_ran) {
             /* The frame that ran a blocking load has put its list inside the load (load_tick);
              * the card stays on screen, its spinner is VBlank-driven. */

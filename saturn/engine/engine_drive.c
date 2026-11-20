@@ -2,6 +2,9 @@
 #include <string.h>
 #include <stddef.h>
 #include "engine_drive.h"
+#if ENG_SND
+#include "engine_snd.h"
+#endif
 #include "physics_native.h"
 #include "physics_identity.h"
 #include "racer_sprites_identity.h"
@@ -74,6 +77,9 @@ volatile uint32_t fzx_field_sim_ticks;
 #endif
 static void step_once(sh2z_vd_input_t *in) {
     sh2z_vd_step(&body, &course.track, &course.vehicle, &fzx_phys_rules, in);
+#if ENG_SND
+    engine_snd_tick(&body, &course.vehicle, course.track.laps); /* reads the state only */
+#endif
 #if E1_FIELD
     {
         const uint16_t f0 = cpu_frt_count_get();

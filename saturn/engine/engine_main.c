@@ -686,6 +686,32 @@ static unsigned fx_stage_n;
 static sh2z_claim_t fx_claim __uncached;
 static volatile uint32_t fx_tag __uncached, fx_done __uncached, fx_slave_n __uncached;
 static bool fx_mine;
+#if ENG_FX_SPLIT
+/* ENG_FX_SPLIT: the job in two halves (engine_fx.c fzx_fx_half: 0 the particles, 1 the rest), each
+ * claimed on its own (the slave tries 0 first, the master 1), and the merge claimed by the SH-2 that
+ * finishes last: a half done publishes its tag, then the SH-2 that sees both halves done claims the
+ * merge (when both see it, dual-claim-1 gives it to one). fx_ran[h]: 1 master, 2 slave. */
+static sh2z_claim_t fx_half_claim[2] __uncached, fx_merge_claim __uncached;
+static volatile uint32_t fx_half_done[2] __uncached, fx_ran[2] __uncached;
+static bool fx_merge(bool slave, uint32_t tag) {
+    if (fx_half_done[0] != tag || fx_half_done[1] != tag) return false;
+    if (!(slave ? sh2z_claim_b(&fx_merge_claim, tag) : sh2z_claim_a(&fx_merge_claim, tag))) return false;
+    const uint32_t me = slave ? 2u : 1u;
+    const bool foreign[2] = { fx_ran[0] != me, fx_ran[1] != me };
+    const unsigned n = fzx_fx_merge(fx_stage_cmds, FZX_FX_SLOTS, foreign);
+    if (slave) { ++fzx_fx_split[2]; fx_slave_n = n; fx_done = tag; } else fx_stage_n = n;
+    return true;
+}
+static void fx_halves(bool slave, uint32_t tag) {
+    for (unsigned k = 0; k < 2u; ++k) {
+        const unsigned h = slave ? k : 1u - k;
+        if (!(slave ? sh2z_claim_b(&fx_half_claim[h], tag) : sh2z_claim_a(&fx_half_claim[h], tag))) continue;
+        fzx_fx_half(h);
+        fx_ran[h] = slave ? 2u : 1u;
+        fx_half_done[h] = tag;
+    }
+}
+#endif
 #endif
 #if FZX_E1_DRIVE
 void fzx_engine_slave_after(void) {
@@ -700,11 +726,17 @@ void fzx_engine_slave_after(void) {
 #if ENG_FX && E1_FIELD && E2_EARLY
     {
         const uint32_t tag = fx_tag;
+#if ENG_FX_SPLIT
+        cpu_cache_purge(); /* the staged frame, rings and states the master wrote */
+        fx_halves(true, tag);
+        (void)fx_merge(true, tag);
+#else
         if (sh2z_claim_b(&fx_claim, tag)) {
             cpu_cache_purge(); /* the staged frame, rings and states the master wrote */
             fx_slave_n = fzx_fx_job(fx_stage_cmds, FZX_FX_SLOTS);
             fx_done = tag;
         }
+#endif
     }
 #endif
 }
@@ -1091,8 +1123,13 @@ static void build(row_t *row, const fzx_engine_cam_t *cam, uint32_t tick, uint16
 #endif
 #if ENG_FX && E1_FIELD && E2_EARLY
     /* The effects: the master takes the job if the slave has not (it is still on its track). */
+#if ENG_FX_SPLIT
+    fx_halves(false, fx_tag);
+    fx_mine = fx_merge(false, fx_tag);
+#else
     fx_mine = sh2z_claim_a(&fx_claim, fx_tag);
     if (fx_mine) fx_stage_n = fzx_fx_job(fx_stage_cmds, FZX_FX_SLOTS);
+#endif
 #endif
     const uint16_t t1 = cpu_frt_count_get();
 #if E0_QUEUE_STRESS

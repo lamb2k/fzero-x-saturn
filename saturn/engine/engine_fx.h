@@ -79,6 +79,12 @@ bool fzx_fx_stage(const fzx_view_t *view, const fzx_engine_cam_t *cam, const fzx
 /* The effects' commands, far to near, from the staged frame: on either SH-2, whichever claims the
  * frame's job (engine_main.c, SH2ZAM dual-claim-1). Returns the count. */
 unsigned fzx_fx_job(vdp1_cmdt_t *commands, unsigned capacity);
+/* ENG_FX_SPLIT: the same commands in two halves and a merge. fzx_fx_half(0) emits the particles
+ * (flying sparks, debris), fzx_fx_half(1) the rest, each on whichever SH-2 claims it; the SH-2 that
+ * finishes last runs fzx_fx_merge (foreign[h]: half h ran on the other SH-2). */
+void fzx_fx_half(unsigned h);
+unsigned fzx_fx_merge(vdp1_cmdt_t *commands, unsigned capacity, const bool foreign[2]);
+extern volatile uint32_t fzx_fx_split[4];
 /* On the master once the job is done: the counters (slave: true when the slave ran it). */
 void fzx_fx_job_done(bool slave);
 extern volatile uint32_t fzx_fx_on_slave;

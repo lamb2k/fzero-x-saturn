@@ -484,35 +484,40 @@ bool fzx_fx_shell(uint32_t id, uint16_t *colr, uint16_t *rgb, int32_t *scale) {
 }
 
 typedef struct { int32_t depth; uint16_t w[16]; } item_t;
-static item_t items[FZX_FX_SLOTS];
-static unsigned n_items;
-
-/* The budget keeps the nearest: past FZX_FX_SLOTS a new command replaces the farthest kept one
- * when it is nearer (fzx_fx_report[10] counts the commands left out). */
-static item_t spare;
-static unsigned demand, dropped, boost_cmds;
-static item_t *slot(int32_t depth) {
-    ++demand;
-    item_t *t = n_items < FZX_FX_SLOTS ? &items[n_items] : &spare;
+/* Where an emit puts its commands. With the budget (one emit of the whole frame): past FZX_FX_SLOTS
+ * a new command replaces the farthest kept one when it is nearer (fzx_fx_report[10] counts the
+ * commands left out). Without it (one half of a split emit): every command is kept in emit order
+ * and an overflow is flagged, so the merge can replay the budget over both halves exactly. */
+typedef struct {
+    item_t it[FZX_FX_SLOTS];
+    item_t spare;
+    unsigned n, demand, dropped, boost, mark;
+    uint16_t ticks;
+    uint8_t budget, over;
+} sink_t;
+static item_t *slot(sink_t *k, int32_t depth) {
+    ++k->demand;
+    item_t *t = k->n < FZX_FX_SLOTS ? &k->it[k->n] : &k->spare;
     t->depth = depth;
     return t;
 }
-static void commit(item_t *t) {
-    if (t != &spare) { ++n_items; return; }
-    ++dropped;
+static void commit(sink_t *k, item_t *t) {
+    if (t != &k->spare) { ++k->n; return; }
+    if (!k->budget) { k->over = 1u; return; }
+    ++k->dropped;
     unsigned far = 0;
-    for (unsigned i = 1; i < FZX_FX_SLOTS; ++i) if (items[i].depth > items[far].depth) far = i;
-    if (spare.depth < items[far].depth) items[far] = spare;
+    for (unsigned i = 1; i < FZX_FX_SLOTS; ++i) if (k->it[i].depth > k->it[far].depth) far = i;
+    if (k->spare.depth < k->it[far].depth) k->it[far] = k->spare;
 }
 
-static void diamond(const sh2z_ep_view_t *v, const sh2z_ep_particle_t *e, uint32_t pixels, uint32_t w, uint32_t clut,
+static void diamond(sink_t *k, const sh2z_ep_view_t *v, const sh2z_ep_particle_t *e, uint32_t pixels, uint32_t w, uint32_t clut,
                     uint16_t pmod, int32_t max_depth) {
     pt1_t pt;
     if (!proj1(v, e->pos, &pt) || pt.depth > max_depth) return;
     const int32_t r = px1(&pt, e->scale);
     if (r < 1) return;
-    item_t *t = slot(pt.depth);
-    if (t && sh2z_ep_emit_diamond(t->w, pt.x, pt.y, r, (uint32_t)art + pixels, w, w, (uint32_t)art + clut, pmod)) commit(t);
+    item_t *t = slot(k, pt.depth);
+    if (t && sh2z_ep_emit_diamond(t->w, pt.x, pt.y, r, (uint32_t)art + pixels, w, w, (uint32_t)art + clut, pmod)) commit(k, t);
 }
 
 static uint16_t rgb(const uint8_t c[3]) {
@@ -538,7 +543,7 @@ static void boost_snap(const fzx_field_car_t *cars, unsigned n) {
 }
 
 /* The racers' boosters (Racer_Draw's booster pass). */
-static void boosters(const sh2z_ep_view_t *v, const fzx_field_car_t *o, int32_t depth0, int32_t hover_frac, bool player_only) {
+static void boosters(sink_t *sk, const sh2z_ep_view_t *v, const fzx_field_car_t *o, int32_t depth0, int32_t hover_frac, bool player_only) {
     const uint32_t id = o->id;
     if (id == 0u) {
         const sh2z_vd_body_t *b = tick_player;
@@ -581,9 +586,9 @@ static void boosters(const sh2z_ep_view_t *v, const fzx_field_car_t *o, int32_t 
         const int32_t r = px1(&pt, size);
         if (r < 1) continue;
         const uint32_t colr = (uint32_t)art + FZX_FX_CLUT_BOOST + env * 32u;
-        item_t *t = slot(pt.depth - 1);
+        item_t *t = slot(sk, pt.depth - 1);
         if (t && sh2z_ep_emit_diamond(t->w, pt.x, pt.y, r, (uint32_t)art + FZX_FX_BOOST_HEAD, 16u, 16u, colr, pmod_tex)) {
-            commit(t); ++boost_cmds;
+            commit(sk, t); ++sk->boost;
         }
         if (!tail) continue;
         int32_t e[3]; pt1_t pe;
@@ -591,9 +596,9 @@ static void boosters(const sh2z_ep_view_t *v, const fzx_field_car_t *o, int32_t 
         if (!proj1(v, e, &pe)) continue;
         const int16_t xy[4][2] = { { (int16_t)(pt.x + r), (int16_t)pt.y }, { (int16_t)pe.x, (int16_t)pe.y },
                                    { (int16_t)(pt.x - r), (int16_t)pt.y }, { (int16_t)(pt.x - r), (int16_t)pt.y } };
-        t = slot(pt.depth);
+        t = slot(sk, pt.depth);
         if (t && sh2z_ep_emit_quad(t->w, xy, (uint32_t)art + FZX_FX_BOOST_TAIL, 16u, 16u, colr, pmod_tex_half)) {
-            commit(t); ++boost_cmds;
+            commit(sk, t); ++sk->boost;
         }
     }
 }
@@ -607,8 +612,7 @@ static int32_t snap_hover;
 static bool snap_ok;
 /* The emit's results, written by its SH-2 and read by the master through the cache-through window. */
 typedef struct { uint32_t n, demand, dropped, boost, live, ticks; uint16_t phase[8]; } fx_out_t;
-/* Diagnostic: the emit's phases (FRT since its start; last frame), when the master ran it. */
-#define JP(k) (job_out.phase[(k)] = (uint16_t)(cpu_frt_count_get() - t0))
+/* Diagnostic: with the split emit, phase[0] and [1] are the two halves' times (FRT; last frame). */
 volatile uint32_t fzx_fx_jobmax[8], fzx_fx_jobworst[8];   /* per phase, the most master FRT counts (cumulative from the emit's start) */
 static fx_out_t job_out;
 
@@ -659,28 +663,19 @@ bool fzx_fx_stage(const fzx_view_t *view, const fzx_engine_cam_t *cam, const fzx
     snap_ok = true;
     return true;
 }
-/* The effects' commands, far to near, from the staged frame. Either SH-2 (dual-claim-1 in
- * engine_main.c); writes only the emit's own state and job_out. */
-unsigned fzx_fx_job(vdp1_cmdt_t *commands, unsigned capacity) {
-    if (!snap_ok) { job_out.n = 0; return 0; }
-    const uint16_t t0 = cpu_frt_count_get();
-    const sh2z_ep_view_t v = snap_v;
-    const fzx_field_car_t *const cars = snap_cars;
-    const unsigned n = snap_n;
-    const int32_t hover_frac = snap_hover;
-    n_items = 0; demand = 0; dropped = 0; boost_cmds = 0;
-    /* By priority, while the budget lasts: the player's boosters, explosions, sparks, flying
-     * sparks, debris, smoke, then the rivals' boosters (the budget keeps the nearest). */
-    for (unsigned k = 0; k < n; ++k) if (cars[k].id == 0u) boosters(&v, &cars[k], view_depth(&v, cars[k].pos), hover_frac, true);
-    JP(0);
+/* The emit in parts, each from the staged frame and into its own sink. In emit order: part 1 (the
+ * player's boosters, explosions, sparks), the particles (flying sparks, debris), part 2 (smoke, the
+ * rivals' boosters). */
+static void emit_part1(sink_t *sk, const sh2z_ep_view_t *v, const fzx_field_car_t *cars, unsigned n, int32_t hover_frac) {
+    for (unsigned k = 0; k < n; ++k) if (cars[k].id == 0u) boosters(sk, v, &cars[k], view_depth(v, cars[k].pos), hover_frac, true);
     for (uint32_t k = 0; k < p_exp2.count; ++k) {
         const sh2z_ep_particle_t *e = sh2z_ep_at(&p_exp2, k);
-        diamond(&v, e, FZX_FX_EXPLOSION + (uint32_t)(e->timer >> 2) * 512u, 32u, FZX_FX_CLUT_EXPLOSION + (uint32_t)(e->timer >> 1) * 32u,
+        diamond(sk, v, e, FZX_FX_EXPLOSION + (uint32_t)(e->timer >> 2) * 512u, 32u, FZX_FX_CLUT_EXPLOSION + (uint32_t)(e->timer >> 1) * 32u,
                 pmod_tex, INT32_MAX);
     }
     for (uint32_t k = 0; k < p_exp1.count; ++k) {
         const sh2z_ep_particle_t *e = sh2z_ep_at(&p_exp1, k);
-        diamond(&v, e, FZX_FX_EXPLOSION + (uint32_t)(e->timer >> 1) * 512u, 32u, FZX_FX_CLUT_EXPLOSION + (uint32_t)e->timer * 32u,
+        diamond(sk, v, e, FZX_FX_EXPLOSION + (uint32_t)(e->timer >> 1) * 512u, 32u, FZX_FX_CLUT_EXPLOSION + (uint32_t)e->timer * 32u,
                 pmod_tex, INT32_MAX);
     }
     for (uint32_t k = 0; k < p_spark.count; ++k) {
@@ -691,30 +686,30 @@ unsigned fzx_fx_job(vdp1_cmdt_t *commands, unsigned capacity) {
             const int32_t drop = (int32_t)(e->timer - 1) * (int32_t)(e->timer - 1) * Q16(0.15);
             for (int a = 0; a < 3; ++a) d.pos[a] -= (int32_t)(((int64_t)drop * q14(tick_player->body[1][a])) >> 14);
         }
-        diamond(&v, &d, FZX_FX_SPARK + (uint32_t)(e->timer >> 1) * 512u, 32u, FZX_FX_CLUT_SPARK + (uint32_t)e->timer * 32u,
+        diamond(sk, v, &d, FZX_FX_SPARK + (uint32_t)(e->timer >> 1) * 512u, 32u, FZX_FX_CLUT_SPARK + (uint32_t)e->timer * 32u,
                 pmod_tex, NEAR_BOOST * 16384);
     }
-    JP(1);
+}
+static void emit_particles(sink_t *sk, const sh2z_ep_view_t *v) {
     for (uint32_t k = 0; k < p_fly.count; ++k) {
         const sh2z_ep_particle_t *e = sh2z_ep_at(&p_fly, k);
         pt1_t a;
-        if (!proj1(&v, e->pos, &a)) continue;
+        if (!proj1(v, e->pos, &a)) continue;
         /* The tail 3 ticks back: its screen offset at the head's scale (one projection a spark). */
         const int32_t s = (int32_t)(((int64_t)a.scale * fx_ratio) >> 16);   /* focal_x / depth */
-        const int32_t bx = a.x - (int32_t)(((int64_t)vdot16(v.r[0], e->vel) * 3 * s) >> 32);
-        const int32_t by = a.y + (int32_t)(((int64_t)vdot16(v.r[1], e->vel) * 3 * a.scale) >> 32);
-        item_t *t = slot(a.depth);
+        const int32_t bx = a.x - (int32_t)(((int64_t)vdot16(v->r[0], e->vel) * 3 * s) >> 32);
+        const int32_t by = a.y + (int32_t)(((int64_t)vdot16(v->r[1], e->vel) * 3 * a.scale) >> 32);
+        item_t *t = slot(sk, a.depth);
         const int16_t xy[4][2] = { { (int16_t)a.x, (int16_t)a.y }, { (int16_t)bx, (int16_t)by }, { 0, 0 }, { 0, 0 } };
-        if (sh2z_ep_emit_shape(t->w, SH2Z_EP_LINE, xy, 0x821Fu, pmod_line, (uint32_t)art + FZX_FX_GOURAUD_SPARK)) commit(t);
+        if (sh2z_ep_emit_shape(t->w, SH2Z_EP_LINE, xy, 0x821Fu, pmod_line, (uint32_t)art + FZX_FX_GOURAUD_SPARK)) commit(sk, t);
     }
-    JP(2);
     for (uint32_t k = 0; k < p_debris.count; ++k) {
         const sh2z_ep_particle_t *e = sh2z_ep_at(&p_debris, k);
         pt1_t pt;
-        if (!proj1(&v, e->pos, &pt)) continue;
+        if (!proj1(v, e->pos, &pt)) continue;
         const int32_t r = px1(&pt, e->scale);
         if (r < 1) continue;
-        item_t *t = slot(pt.depth);
+        item_t *t = slot(sk, pt.depth);
         /* A shard turning on itself: three corners at phases from its seed, 0xCC a tick (racer.c debris). */
         int16_t xy[4][2];
         const uint32_t ph = (uint32_t)e->seed * 16u + (uint32_t)e->timer * 0xCCu;
@@ -732,12 +727,13 @@ unsigned fzx_fx_job(vdp1_cmdt_t *commands, unsigned capacity) {
         const uint16_t colour = id ? rgb(fzx_fx_body[family_of(id)]) : rgb(player_body);
         /* alpha 255 - sin(vibration & 0x7FF) x 255: opaque or half-transparent */
         const bool half = (sh2z_sin12_u30(ph & 0x7ffu) >> 22) >= 128;
-        if (sh2z_ep_emit_shape(t->w, SH2Z_EP_POLYGON, (const int16_t (*)[2])xy, colour, half ? pmod_poly_half : pmod_poly, 0u)) commit(t);
+        if (sh2z_ep_emit_shape(t->w, SH2Z_EP_POLYGON, (const int16_t (*)[2])xy, colour, half ? pmod_poly_half : pmod_poly, 0u)) commit(sk, t);
     }
-    JP(3);
+}
+static void emit_part2(sink_t *sk, const sh2z_ep_view_t *v, const fzx_field_car_t *cars, unsigned n, int32_t hover_frac) {
     for (uint32_t k = 0; k < p_smoke.count; ++k) {
         const sh2z_ep_particle_t *e = sh2z_ep_at(&p_smoke, k);
-        diamond(&v, e, FZX_FX_SMOKE + (uint32_t)(e->timer >> 2) * 512u, 32u, FZX_FX_CLUT_SMOKE, pmod_tex_half, NEAR_BOOST * 16384);
+        diamond(sk, v, e, FZX_FX_SMOKE + (uint32_t)(e->timer >> 2) * 512u, 32u, FZX_FX_CLUT_SMOKE, pmod_tex_half, NEAR_BOOST * 16384);
     }
     {
         /* The rivals' boosters nearest first, so the budget drops the farthest. */
@@ -745,34 +741,114 @@ unsigned fzx_fx_job(vdp1_cmdt_t *commands, unsigned capacity) {
         unsigned m = 0;
         for (unsigned k = 0; k < n && m < CARS; ++k) {
             if (cars[k].id == 0u) continue;
-            const int32_t d = view_depth(&v, cars[k].pos);   /* no divide: depth first */
-            if (d <= v.near_z || d > NEAR_BOOST * 16384) continue;
+            const int32_t d = view_depth(v, cars[k].pos);   /* no divide: depth first */
+            if (d <= v->near_z || d > NEAR_BOOST * 16384) continue;
             cd[m] = d; ck[m] = (uint8_t)k; ++m;
         }
         sh2z_ep_sort(co, cd, m);
-            for (unsigned j = m; j-- > 0;) boosters(&v, &cars[ck[co[j]]], cd[co[j]], hover_frac, false);
+            for (unsigned j = m; j-- > 0;) boosters(sk, v, &cars[ck[co[j]]], cd[co[j]], hover_frac, false);
     }
-    JP(5);
-    /* Far to near, after the cars. */
+}
+/* Far to near, after the cars. */
+static unsigned emit_sort(item_t *const *it, unsigned n, vdp1_cmdt_t *commands, unsigned capacity) {
     /* By 16-unit depth bands, far to near (a counting sort; the order inside a band is the emit
      * order): an insertion sort of 70 items cost 1.6 ms. */
     static uint16_t band_n[SORT_BANDS + 1];
     static uint8_t band_of[FZX_FX_SLOTS], order[FZX_FX_SLOTS];
     memset(band_n, 0, sizeof(band_n));
-    for (unsigned i = 0; i < n_items; ++i) {
-        uint32_t b = (uint32_t)items[i].depth >> 18;            /* Q14 depth / 16 units */
+    for (unsigned i = 0; i < n; ++i) {
+        uint32_t b = (uint32_t)it[i]->depth >> 18;            /* Q14 depth / 16 units */
         if (b >= SORT_BANDS) b = SORT_BANDS - 1u;
         b = SORT_BANDS - 1u - b;                                /* far first */
         band_of[i] = (uint8_t)b; ++band_n[b + 1u];
     }
     for (unsigned b = 0; b < SORT_BANDS; ++b) band_n[b + 1u] = (uint16_t)(band_n[b + 1u] + band_n[b]);
-    for (unsigned i = 0; i < n_items; ++i) order[band_n[band_of[i]]++] = (uint8_t)i;
+    for (unsigned i = 0; i < n; ++i) order[band_n[band_of[i]]++] = (uint8_t)i;
     unsigned out = 0;
-    for (unsigned i = 0; i < n_items && out < capacity; ++i) memcpy(&commands[out++], items[order[i]].w, sizeof(vdp1_cmdt_t));
-    JP(6);
-    job_out.n = out; job_out.demand = demand; job_out.dropped = dropped; job_out.boost = boost_cmds;
+    for (unsigned i = 0; i < n && out < capacity; ++i) memcpy(&commands[out++], it[order[i]]->w, sizeof(vdp1_cmdt_t));
+    return out;
+}
+static void sink_reset(sink_t *k, uint8_t budget) {
+    k->n = 0; k->demand = 0; k->dropped = 0; k->boost = 0; k->mark = 0; k->over = 0; k->budget = budget;
+}
+static void job_report(const sink_t *k, unsigned out, uint16_t t0) {
+    job_out.n = out; job_out.demand = k->demand; job_out.dropped = k->dropped; job_out.boost = k->boost;
     job_out.live = p_spark.count + p_exp1.count + p_exp2.count + p_fly.count + p_smoke.count + p_debris.count;
     job_out.ticks = (uint16_t)(cpu_frt_count_get() - t0);
+}
+/* The two halves' sinks: [0] the particles, [1] parts 1 and 2 (mark: where part 2 starts). [0] is
+ * also the whole emit's sink when the merge falls back to it. */
+static sink_t sinks[2];
+
+/* The effects' commands, far to near, from the staged frame, in one emit. Either SH-2 (dual-claim-1
+ * in engine_main.c); writes only the emit's own state and job_out. */
+unsigned fzx_fx_job(vdp1_cmdt_t *commands, unsigned capacity) {
+    if (!snap_ok) { job_out.n = 0; return 0; }
+    const uint16_t t0 = cpu_frt_count_get();
+    const sh2z_ep_view_t v = snap_v;
+    sink_t *const sk = &sinks[0];
+    sink_reset(sk, 1u);
+    /* By priority, while the budget lasts: the player's boosters, explosions, sparks, flying
+     * sparks, debris, smoke, then the rivals' boosters (the budget keeps the nearest). */
+    emit_part1(sk, &v, snap_cars, snap_n, snap_hover);
+    emit_particles(sk, &v);
+    emit_part2(sk, &v, snap_cars, snap_n, snap_hover);
+    static item_t *it[FZX_FX_SLOTS];
+    for (unsigned i = 0; i < sk->n; ++i) it[i] = &sk->it[i];
+    const unsigned out = emit_sort(it, sk->n, commands, capacity);
+    job_report(sk, out, t0);
+    return out;
+}
+
+/* The split emit (ENG_FX_SPLIT, engine_main.c): half 0 (the particles) and half 1 (the rest) on
+ * whichever SH-2 claims each, then the merge on the SH-2 that finishes last. */
+void fzx_fx_half(unsigned h) {
+    sink_t *const sk = &sinks[h];
+    const uint16_t t0 = cpu_frt_count_get();
+    sink_reset(sk, 0u);
+    if (!snap_ok) return;
+    const sh2z_ep_view_t v = snap_v;
+    if (h == 0u) emit_particles(sk, &v);
+    else {
+        emit_part1(sk, &v, snap_cars, snap_n, snap_hover);
+        sk->mark = sk->n;
+        emit_part2(sk, &v, snap_cars, snap_n, snap_hover);
+    }
+    sk->ticks = (uint16_t)(cpu_frt_count_get() - t0);
+}
+/* The budget replayed over both halves in emit order (part 1, the particles, part 2): the same kept
+ * commands in the same places as one emit. A half that overflowed its sink (more than FZX_FX_SLOTS
+ * commands) falls back to one emit. foreign[h]: half h was written by the other SH-2 (read through
+ * the cache-through window). */
+volatile uint32_t fzx_fx_split[4];   /* merges, fallbacks, merges on the slave, most replayed */
+unsigned fzx_fx_merge(vdp1_cmdt_t *commands, unsigned capacity, const bool foreign[2]) {
+    if (!snap_ok) { job_out.n = 0; return 0; }
+    const uint16_t t0 = cpu_frt_count_get();
+    sink_t *const k0 = foreign[0] ? (sink_t *)((uintptr_t)&sinks[0] | CPU_CACHE_THROUGH) : &sinks[0];
+    sink_t *const k1 = foreign[1] ? (sink_t *)((uintptr_t)&sinks[1] | CPU_CACHE_THROUGH) : &sinks[1];
+    ++fzx_fx_split[0];
+    if (k0->over || k1->over) { ++fzx_fx_split[1]; return fzx_fx_job(commands, capacity); }
+    static item_t *it[FZX_FX_SLOTS];
+    unsigned n = 0, dropped = 0;
+    const unsigned n0 = k0->n, n1 = k1->n, mark = k1->mark;
+    for (unsigned s = 0; s < 3u; ++s) {
+        const sink_t *const k = s == 1u ? k0 : k1;
+        const unsigned from = s == 2u ? mark : 0u, to = s == 0u ? mark : s == 1u ? n0 : n1;
+        for (unsigned i = from; i < to; ++i) {
+            item_t *const t = (item_t *)&k->it[i];
+            if (n < FZX_FX_SLOTS) { it[n++] = t; continue; }
+            ++dropped;
+            unsigned far = 0;
+            for (unsigned j = 1; j < FZX_FX_SLOTS; ++j) if (it[j]->depth > it[far]->depth) far = j;
+            if (t->depth < it[far]->depth) it[far] = t;
+        }
+    }
+    if (n0 + n1 > fzx_fx_split[3]) fzx_fx_split[3] = n0 + n1;
+    const unsigned out = emit_sort(it, n, commands, capacity);
+    sink_t total;
+    total.demand = k0->demand + k1->demand; total.dropped = dropped; total.boost = k1->boost;
+    job_report(&total, out, t0);
+    job_out.phase[0] = k1->ticks; job_out.phase[1] = k0->ticks;
     return out;
 }
 

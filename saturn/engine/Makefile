@@ -508,6 +508,13 @@ $(error Missing or stale effect art; run tools/fx_assets.py (FZX_TEST_ROM set))
 endif
 SH_CFLAGS += -DENG_FX=1 -I$(G)/fx
 endif
+# ENG_FX_SPLIT (with ENG_FX=1; lane claude/combat): the emit in two halves (the particles; the rest), each
+#   on whichever SH-2 claims it, merged by the one that finishes last, so both share the burst after a
+#   retirement. The same commands as one emit (the budget is replayed over both halves). 0: one emit.
+ENG_FX_SPLIT ?= 1
+ifeq ($(ENG_FX),1)
+SH_CFLAGS += -DENG_FX_SPLIT=$(ENG_FX_SPLIT)
+endif
 endif
 ifeq ($(E2_ROSTER),1)
 ifneq ($(E2_PACK):$(E2_CULL):$(E2_FASTSPRITE):$(E2_EARLY),1:1:1:1)

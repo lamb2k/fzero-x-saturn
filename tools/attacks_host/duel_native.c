@@ -6,9 +6,16 @@
  *   fzx-duel-native --pack0 P0 --pack1 P1 --pads PADS --from T --ticks N --machines c0,c1
  *                   [--since S --toucher K --touching 0|1] [--trace OUT.tsv] [--mutate NAME]
  *
- * --spin-side0/1 S (+1 or -1) gives a spin-out the side the reference drew (a random choice there).
+ * --spin-side0/1 S (+1 or -1) gives a spin-out the side the reference drew (a random choice there),
+ * from the tick after the spin-out starts (the round-2 scorer's form). --spin-draws FILE ("t k sign"
+ * per reference draw) gives every draw the reference's side on the tick it is drawn (C-092 scorer).
  * The trace has the reference's columns (ref/duel_main.c). --mutate plants one rule change for the
- * class controls: impact1.2, push2.5, share-swap, spin140, credit-off, heavy9, heavy5, reach45. */
+ * class controls: impact1.2, push2.5, share-swap, spin140, credit-off, heavy9, heavy5, reach45.
+ *
+ * --pairlog FILE (C-092): per tick, the pair test as the body-contact rule decided it, from the
+ * inputs it read (logging only; d2 and closing repeat sh2z_bc_pair's integer terms):
+ *   N t along_ok d2_q32 closing_q32 touch first push hit0 hit1 damage0 damage1 (damage Q16 raw)
+ *   K t victim attacker      a KO credited at the victim's spin-out start */
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -32,9 +39,10 @@ static unsigned char *read_all(const char *path, size_t *n) {
 
 static FzxPhysCourse course[2];
 static int pads_b[2][20000], pads_x[2][20000];
+static signed char draw[2][20000];   /* --spin-draws: the reference's spin side per tick and racer (0 none) */
 
 int main(int argc, char **argv) {
-    const char *p0 = 0, *p1 = 0, *pads = 0, *trace = 0, *mutate = "";
+    const char *p0 = 0, *p1 = 0, *pads = 0, *trace = 0, *mutate = "", *pairlog = 0, *draws = 0;
     int from = -1, ticks = 120, c0 = 0, c1 = 0, since = -1, toucher = -1, touching = 0, side[2] = { 0, 0 }, nudge = 0;
     for (int i = 1; i + 1 < argc; i += 2) {
         if (!strcmp(argv[i], "--pack0")) p0 = argv[i + 1];
@@ -46,9 +54,11 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[i], "--toucher")) toucher = atoi(argv[i + 1]);
         else if (!strcmp(argv[i], "--touching")) touching = atoi(argv[i + 1]);
         else if (!strcmp(argv[i], "--trace")) trace = argv[i + 1];
+        else if (!strcmp(argv[i], "--pairlog")) pairlog = argv[i + 1];
         else if (!strcmp(argv[i], "--nudge")) nudge = atoi(argv[i + 1]);
         else if (!strcmp(argv[i], "--spin-side0")) side[0] = atoi(argv[i + 1]);
         else if (!strcmp(argv[i], "--spin-side1")) side[1] = atoi(argv[i + 1]);
+        else if (!strcmp(argv[i], "--spin-draws")) draws = argv[i + 1];
         else if (!strcmp(argv[i], "--mutate")) mutate = argv[i + 1];
         else if (!strcmp(argv[i], "--machines")) { if (sscanf(argv[i + 1], "%d,%d", &c0, &c1) != 2) die("--machines c0,c1"); }
         else die("unknown argument");
@@ -59,6 +69,14 @@ int main(int argc, char **argv) {
     if (fzx_phys_load(&course[0], i0, n, 1) != 0) die("bad pack 0");
     unsigned char *i1 = read_all(p1, &n);
     if (fzx_phys_load(&course[1], i1, n, 1) != 0) die("bad pack 1");
+    if (draws) {
+        FILE *df = fopen(draws, "r");
+        int dt, dk, ds;
+        if (!df) die("cannot open the spin draws");
+        while (fscanf(df, "%d %d %d", &dt, &dk, &ds) == 3)
+            if (dt >= 0 && dt < 20000 && (dk == 0 || dk == 1)) draw[dk][dt] = ds > 0 ? 1 : -1;
+        fclose(df);
+    }
     FILE *pf = fopen(pads, "r");
     if (!pf) die("cannot open the pads");
     int t, b0, x0, b1, x1, last = -1;
@@ -100,6 +118,8 @@ int main(int argc, char **argv) {
     uint16_t prev[2] = { (uint16_t)pads_b[0][from], (uint16_t)pads_b[1][from] };
     FILE *tf = trace ? fopen(trace, "w") : NULL;
     if (trace && !tf) die("cannot write the trace");
+    FILE *lf = pairlog ? fopen(pairlog, "w") : NULL;
+    if (pairlog && !lf) die("cannot write the pair log");
     for (t = from + 1; t <= from + ticks && t <= last; ++t) {
         /* Contact first, on the state after the previous tick (Racer_Update's order). */
         for (int k = 0; k < 2; ++k) {
@@ -117,8 +137,22 @@ int main(int argc, char **argv) {
         if (gap > len / 2) gap -= len;
         if (gap < -len / 2) gap += len;
         uint32_t ev = 0;
-        if ((bc[0].flags & bc[1].flags & SH2Z_BC_ACTIVE) && (gap < 0 ? -gap : gap) <= ((int64_t)92 << 12))
+        const int along_ok = (bc[0].flags & bc[1].flags & SH2Z_BC_ACTIVE) && (gap < 0 ? -gap : gap) <= ((int64_t)92 << 12);
+        int64_t d2 = 0, closing = 0;
+        for (int k = 0; k < 3; ++k) {   /* the rule's own terms: dx = b - a (Q16), dv saturated, both exact in int64 */
+            const int64_t dx = (int64_t)bc[1].pos[k] - bc[0].pos[k];
+            int64_t dv = (int64_t)bc[1].vel[k] - bc[0].vel[k];
+            if (dv > INT32_MAX) dv = INT32_MAX;
+            if (dv < INT32_MIN) dv = INT32_MIN;
+            d2 += dx * dx;
+            closing += dx * dv;
+        }
+        if (along_ok)
             ev = sh2z_bc_pair(&bc[0], &bc[1], 0, 1, was_touching, &br);
+        if (lf)
+            fprintf(lf, "N %d %d %lld %lld %d %d %d %d %d %ld %ld\n", t, along_ok, (long long)d2, (long long)closing,
+                    (ev & SH2Z_BC_EV_TOUCH) != 0, (ev & SH2Z_BC_EV_FIRST) != 0, (ev & SH2Z_BC_EV_PUSH) != 0, bc[0].hit, bc[1].hit,
+                    (long)bc[0].damage, (long)bc[1].damage);
         was_touching = (ev & SH2Z_BC_EV_TOUCH) != 0;
         const uint32_t spin_before = b[1].flags & SH2Z_VD_SPINNING, spin_before0 = b[0].flags & SH2Z_VD_SPINNING;
         for (int k = 0; k < 2; ++k) {
@@ -133,11 +167,32 @@ int main(int argc, char **argv) {
             c.push[0] = bc[k].push[0]; c.push[1] = bc[k].push[1]; c.push[2] = bc[k].push[2];
             c.damage = bc[k].damage; c.hit = bc[k].hit; c.regain = k == 0 ? regain : 0;
             if (k == 0) regain = 0;
+            const sh2z_vd_body_t pre = b[k];
+            const sh2z_vd_contact_t c_in = c;
 #if FZX_PHYS_TUBES
             sh2z_vd_step2_contact(&b[k], &course[k].track2, &course[k].vehicle, &rules, &in, &c);
 #else
             sh2z_vd_step_contact(&b[k], &course[k].track, &course[k].vehicle, &rules, &in, &c);
 #endif
+            /* --spin-draws: where the reference drew a spin side on this tick, the native takes the
+             * same side at its own draw, inside the step (the step turns by it at once). The native
+             * side is the parity of race_ticks: the step is redone with the parity flipped, and the
+             * clock kept from the first run (race_ticks is read only by the draw and the clock). */
+            const int want = t < 20000 ? draw[k][t] : 0;
+            if (want && b[k].spin_steer != 0 && ((b[k].spin_steer > 0) != (want > 0))) {
+                sh2z_vd_body_t alt = pre;
+                sh2z_vd_contact_t c2 = c_in;
+                alt.race_ticks ^= 1;
+#if FZX_PHYS_TUBES
+                sh2z_vd_step2_contact(&alt, &course[k].track2, &course[k].vehicle, &rules, &in, &c2);
+#else
+                sh2z_vd_step_contact(&alt, &course[k].track, &course[k].vehicle, &rules, &in, &c2);
+#endif
+                if (alt.spin_steer != 0 && ((alt.spin_steer > 0) == (want > 0))) {
+                    alt.race_ticks = b[k].race_ticks; alt.race_time = b[k].race_time;
+                    b[k] = alt;
+                }
+            }
         }
         /* The spin-out side is a random draw in the original: take the reference's (--spin-side*). */
         for (int k = 0; k < 2; ++k) {
@@ -150,6 +205,7 @@ int main(int argc, char **argv) {
             !(b[0].flags & (SH2Z_VD_FINISHED | SH2Z_VD_CRASHED | SH2Z_VD_SPINNING))) {
             ++kos;
             regain += course[0].vehicle.max_energy / 8;
+            if (lf) fprintf(lf, "K %d 1 %d\n", t, bc[1].toucher);
         }
         if (tf) {
             for (int k = 0; k < 2; ++k) {
@@ -165,5 +221,6 @@ int main(int argc, char **argv) {
         }
     }
     if (tf) fclose(tf);
+    if (lf) fclose(lf);
     return 0;
 }

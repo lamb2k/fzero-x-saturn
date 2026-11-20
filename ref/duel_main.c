@@ -15,7 +15,16 @@
  * --pads writes every tick's integer pads for both racers ("t b0 x0 b1 x1"): the native windows
  * replay them. --trace: one line per tick and racer (see duel_state). --bake-at T writes both
  * racers' physics pack sources after tick T (the native window's start state). The course record
- * and the ROM are the owner's: everything written is local only. */
+ * and the ROM are the owner's: everything written is local only.
+ *
+ * C-092 (the contact judge): --pairlog FILE writes, per tick, the exact pre-tick inputs of the pair
+ * test (P: positions, velocities, attack states, flags, along gap, colliding bit; floats as %a) and
+ * the original's own decisions from the hooked racer.c (T touch, C closing comparison, H push,
+ * D damage calls with their source, K KO credit with victim and attacker). --force T:V replays the
+ * same run with the closing comparison of tick T forced to V (0 or 1; a branch replay). --perturb
+ * T:K:F:A:D adds D to racer K's position (F 0) or velocity (F 1), axis A, just before tick T
+ * (a reference-only perturbation; repeatable up to 8 times). --replay-pads FILE drives both racers
+ * from a recorded --pads file instead of the scripted drivers (as the native windows are driven). */
 #include <math.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -31,6 +40,12 @@ void duel_state(int k, float f[12], int n[8]);
 typedef void (*DuelEmit)(const char* key, int a, int b, const float* v, int n);
 void duel_bake(int k, DuelEmit emit);
 float rb_course_length(void);
+void duel_log_tick(int tick);
+void duel_force(int tick, int value);
+int duel_log_count(void);
+void duel_log_get(int i, int* kind, int* tick, int* a, int* b, float f[10]);
+void duel_pair(float* trail, int* colliding);
+void duel_perturb(int k, int field, int axis, float delta);
 
 static void die(const char* m) { fprintf(stderr, "fzx-duel: %s\n", m); exit(2); }
 static unsigned char* read_file(const char* path, size_t* n) {
@@ -72,7 +87,9 @@ static signed char steer(const float f[12], float target, float kl) {
 int main(int argc, char** argv) {
     const char *course = 0, *rom = 0, *scenario = "bump", *trace = 0, *pads = 0, *bake0 = 0, *bake1 = 0;
     int ticks = 2400, bake_at = -1, c0 = 0, c1 = 9, attack_from = 700;
-    const char *length_out = 0;
+    const char *length_out = 0, *pairlog = 0, *replay = 0;
+    int force_tick = -1, force_value = -1, npert = 0, pert_t[8], pert_k[8], pert_f[8], pert_a[8];
+    float pert_d[8];
     float e0 = 0.0f, e1 = 0.0f;
     for (int i = 1; i + 1 < argc; i += 2) {
         if (!strcmp(argv[i], "--course")) course = argv[i + 1];
@@ -84,6 +101,15 @@ int main(int argc, char** argv) {
         else if (!strcmp(argv[i], "--bake-at")) bake_at = atoi(argv[i + 1]);
         else if (!strcmp(argv[i], "--attack-from")) attack_from = atoi(argv[i + 1]);
         else if (!strcmp(argv[i], "--length-out")) length_out = argv[i + 1];
+        else if (!strcmp(argv[i], "--pairlog")) pairlog = argv[i + 1];
+        else if (!strcmp(argv[i], "--replay-pads")) replay = argv[i + 1];
+        else if (!strcmp(argv[i], "--force")) { if (sscanf(argv[i + 1], "%d:%d", &force_tick, &force_value) != 2) die("--force T:V"); }
+        else if (!strcmp(argv[i], "--perturb")) {
+            if (npert >= 8 || sscanf(argv[i + 1], "%d:%d:%d:%d:%f", &pert_t[npert], &pert_k[npert], &pert_f[npert], &pert_a[npert],
+                                     &pert_d[npert]) != 5 || pert_k[npert] < 0 || pert_k[npert] > 1 || pert_a[npert] < 0 || pert_a[npert] > 2)
+                die("--perturb T:K:F:A:D");
+            npert++;
+        }
         else if (!strcmp(argv[i], "--bake0")) bake0 = argv[i + 1];
         else if (!strcmp(argv[i], "--bake1")) bake1 = argv[i + 1];
         else if (!strcmp(argv[i], "--machines")) { if (sscanf(argv[i + 1], "%d,%f,%d,%f", &c0, &e0, &c1, &e1) != 4) die("--machines c0,e0,c1,e1"); }
@@ -106,7 +132,23 @@ int main(int argc, char** argv) {
     if (length_out) { FILE* lf = fopen(length_out, "w"); if (!lf) die("cannot write the length"); fprintf(lf, "%.6f\n", length); fclose(lf); }
     FILE* tf = trace ? fopen(trace, "w") : NULL;
     FILE* pf = pads ? fopen(pads, "w") : NULL;
-    if ((trace && !tf) || (pads && !pf)) die("cannot write an output");
+    FILE* lf = pairlog ? fopen(pairlog, "w") : NULL;
+    if ((trace && !tf) || (pads && !pf) || (pairlog && !lf)) die("cannot write an output");
+    duel_force(force_tick, force_value);
+    static unsigned short rb[2][20000];
+    static signed char rx[2][20000];
+    int rlast = -1;
+    if (replay) {
+        FILE* rf = fopen(replay, "r");
+        int rt; unsigned rb0, rb1; int rx0, rx1;
+        if (!rf) die("cannot open the replay pads");
+        while (fscanf(rf, "%d %u %d %u %d", &rt, &rb0, &rx0, &rb1, &rx1) == 5 && rt >= 0 && rt < 20000) {
+            rb[0][rt] = (unsigned short)rb0; rx[0][rt] = (signed char)rx0; rb[1][rt] = (unsigned short)rb1; rx[1][rt] = (signed char)rx1;
+            rlast = rt;
+        }
+        fclose(rf);
+        if (rlast < ticks - 1) die("the replay pads are shorter than --ticks");
+    }
     float f0[12], f1[12]; int n0[8], n1[8];
     duel_state(0, f0, n0); duel_state(1, f1, n1);
     int tap_at = -1000, tap_dir = 0, attacker = sc == 3 ? 1 : 0;
@@ -145,7 +187,32 @@ int main(int argc, char** argv) {
         if (n0[0] & ST_SPIN) target0 = f0[8];
         x[0] = steer(f0, target0, 0.004f);
         x[1] = steer(f1, target1, 0.004f);
+        if (replay) { b[0] = rb[0][t]; x[0] = rx[0][t]; b[1] = rb[1][t]; x[1] = rx[1][t]; }
+        for (int q = 0; q < npert; ++q)
+            if (pert_t[q] == t) duel_perturb(pert_k[q], pert_f[q], pert_a[q], pert_d[q]);
+        if (lf) {
+            float trail; int colliding;
+            duel_pair(&trail, &colliding);
+            duel_state(0, f0, n0); duel_state(1, f1, n1);
+            fprintf(lf, "P %d %a %d", t, (double)trail, colliding);
+            for (int k = 0; k < 2; ++k) {
+                const float* fs = k ? f1 : f0; const int* ns = k ? n1 : n0;
+                for (int j = 0; j < 6; ++j) fprintf(lf, " %a", (double)fs[j]);
+                fprintf(lf, " %d %d", ns[1], ns[0]);
+            }
+            fputc('\n', lf);
+        }
+        duel_log_tick(t);
         duel_tick(b[0], x[0], 0, b[1], x[1], 0);
+        if (lf) {
+            for (int q = 0; q < duel_log_count(); ++q) {
+                int kind, tk, a, bb; float v[10];
+                duel_log_get(q, &kind, &tk, &a, &bb, v);
+                fprintf(lf, "%c %d %d %d", kind, tk, a, bb);
+                for (int j = 0; j < 10; ++j) fprintf(lf, " %a", (double)v[j]);
+                fputc('\n', lf);
+            }
+        }
         if (pf) fprintf(pf, "%d %u %d %u %d\n", t, b[0], x[0], b[1], x[1]);
         duel_state(0, f0, n0); duel_state(1, f1, n1);
         if (tf) {
@@ -159,6 +226,7 @@ int main(int argc, char** argv) {
     }
     if (tf) fclose(tf);
     if (pf) fclose(pf);
+    if (lf) fclose(lf);
     printf("duel %s: ticks %d kos %d O energy %.2f flags %08x P energy %.2f\n", scenario, ticks, n1[3], f1[7], (unsigned)n1[0], f0[7]);
     return 0;
 }

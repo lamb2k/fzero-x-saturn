@@ -8,6 +8,7 @@
 #include "fzx_course.h"
 #include "fzx_game.h"
 #include "controller.h"
+#include "duel_hooks.h"
 
 extern s32 gGameMode, gNumPlayers, gTotalRacers;
 extern s16 gRacersKOd;
@@ -18,6 +19,7 @@ extern f32 gPlayerEngine[];
 extern s32 gPlayerControlPorts[];
 extern Controller gControllers[];
 extern Racer gRacers[];
+extern RacerPairInfo sRacerPairInfo[];
 extern unsigned short ref_pad_button;
 extern signed char ref_pad_stick_x, ref_pad_stick_y;
 void func_8008969C(void);
@@ -85,6 +87,82 @@ void duel_state(int k, float f[12], int n[8]) {
     f[11] = r->unk_238;   /* spin-out steer (its side is a random draw in Racer_ReceiveDamage) */
     n[0] = (int) r->stateFlags; n[1] = r->attackState; n[2] = r->spinOutTimer; n[3] = gRacersKOd;
     n[4] = r->unk_288; n[5] = r->unk_28C ? r->unk_28C->id : -1; n[6] = r->lap; n[7] = r->raceTime;
+}
+
+/* C-092 logging (ref/duel_hooks.h): records drained by the host driver after every tick. */
+#define DUEL_LOG_MAX 64
+typedef struct { s32 kind, tick, a, b; f32 f[10]; } DuelRec;
+static DuelRec sLog[DUEL_LOG_MAX];
+static s32 sLogN, sTick = -1, sForceTick = -1, sForceValue = -1;
+int ref_duel_ctx;
+
+static DuelRec* duel_rec(s32 kind, s32 a, s32 b) {
+    DuelRec* r;
+    if (sLogN >= DUEL_LOG_MAX) {
+        return &sLog[DUEL_LOG_MAX - 1];   /* never reached by two racers; the last record is overwritten */
+    }
+    r = &sLog[sLogN++];
+    r->kind = kind; r->tick = sTick; r->a = a; r->b = b;
+    { s32 i; for (i = 0; i < 10; i++) r->f[i] = 0.0f; }
+    return r;
+}
+
+void ref_duel_ko(struct Racer* victim, struct Racer* attacker, int window) {
+    DuelRec* r = duel_rec('K', ((Racer*) victim)->id, ((Racer*) attacker)->id);
+    r->f[0] = (f32) window;
+}
+
+void ref_duel_damage(struct Racer* racer, float amount) {
+    const Racer* x = (const Racer*) racer;
+    DuelRec* r = duel_rec('D', x->id, ref_duel_ctx);
+    r->f[0] = amount;
+    r->f[1] = x->energy;   /* before the call */
+    r->f[2] = (f32) (s32) x->stateFlags;
+}
+
+void ref_duel_touch(struct Racer* racer, struct Racer* racer2, int was_colliding, float d, float impact, float share_racer,
+                    float share_racer2) {
+    DuelRec* r = duel_rec('T', ((Racer*) racer)->id, ((Racer*) racer2)->id);
+    r->f[0] = (f32) was_colliding; r->f[1] = d; r->f[2] = impact; r->f[3] = share_racer; r->f[4] = share_racer2;
+    r->f[5] = (f32) ((Racer*) racer)->attackState; r->f[6] = (f32) ((Racer*) racer2)->attackState;
+}
+
+int ref_duel_closing(struct Racer* racer, struct Racer* racer2, float dx, float dy, float dz, float dvx, float dvy, float dvz,
+                     float closing) {
+    const int natural = closing <= 0.0f;
+    const int taken = (sTick == sForceTick && sForceValue >= 0) ? sForceValue : natural;
+    DuelRec* r = duel_rec('C', ((Racer*) racer)->id, ((Racer*) racer2)->id);
+    r->f[0] = closing; r->f[1] = (f32) natural; r->f[2] = (f32) taken;
+    r->f[3] = dx; r->f[4] = dy; r->f[5] = dz; r->f[6] = dvx; r->f[7] = dvy; r->f[8] = dvz;
+    return taken;
+}
+
+void ref_duel_push(struct Racer* racer, struct Racer* racer2, float k_racer, float k_racer2, float px, float py, float pz) {
+    DuelRec* r = duel_rec('H', ((Racer*) racer)->id, ((Racer*) racer2)->id);
+    r->f[0] = k_racer; r->f[1] = k_racer2; r->f[2] = px; r->f[3] = py; r->f[4] = pz;
+}
+
+void duel_log_tick(int tick) { sTick = tick; sLogN = 0; ref_duel_ctx = 0; }
+void duel_force(int tick, int value) { sForceTick = tick; sForceValue = value; }
+int duel_log_count(void) { return sLogN; }
+void duel_log_get(int i, int* kind, int* tick, int* a, int* b, float f[10]) {
+    s32 k;
+    *kind = sLog[i].kind; *tick = sLog[i].tick; *a = sLog[i].a; *b = sLog[i].b;
+    for (k = 0; k < 10; k++) f[k] = sLog[i].f[k];
+}
+
+/* The pair's state as the next tick's contact test reads it: along gap and the colliding bit. */
+void duel_pair(float* trail, int* colliding) {
+    const RacerPairInfo* p = &sRacerPairInfo[0];
+    *trail = p->trailToLeadDistance;
+    *colliding = p->areColliding ? 1 : 0;
+}
+
+/* Reference-only perturbation before a tick: racer k's position (field 0) or velocity (field 1), one axis. */
+void duel_perturb(int k, int field, int axis, float delta) {
+    Racer* r = &gRacers[k];
+    f32* v = field == 0 ? &r->segmentPositionInfo.pos.x : &r->velocity.x;
+    v[axis] += delta;
 }
 
 /* Physics pack source of racer k (as ref_handling_bake does for racer 0). */

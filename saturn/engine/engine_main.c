@@ -1122,7 +1122,13 @@ void fzx_race_load(void) {
     /* The race clips straight into sound RAM (no music yet), last among the reads: the load's
      * earlier reads and their cancel turns keep the timeline they have without sound. The CD
      * workspace is the 4,096 B block at sat_stub_data_end, free again here. */
-    if (!engine_snd_load((void *)scratch, 0x0028D000u - 32u - scratch)) fail(60, "SOUND LOAD", fzx_texture_cd_status.status);
+    {
+        const uint32_t f0 = video_fields;
+        if (!engine_snd_load((void *)scratch, 0x0028D000u - 32u - scratch)) fail(60, "SOUND LOAD", fzx_texture_cd_status.status);
+        /* An even number of fields, so the frames after the load keep the field parity they
+         * have without sound (the race's presented ticks stay comparable one for one). */
+        if ((video_fields - f0) & 1u) { const uint32_t f1 = video_fields; while (video_fields == f1) {} }
+    }
 #endif
     /* Frame rows follow the track workspace in low work RAM, guarded. */
     {

@@ -236,6 +236,9 @@ b68b859 = courses-train aa0a587 + the PR). It ports `racer.c` `func_8008EC98` (p
 - Mute City field 0e510d9b, drive 079e73e7, scenes 7d8513eb;
 - Silence field 513abdfb, Devil's Forest 5dbe5bae, Port Town 7c48a88d.
 
+**Corrupt-pack controls:** one byte flipped on the disc in the v3 PHYS.PAK's join table (Sand Ocean) and in Big
+Blue's PHYS.PAK; both images refuse it (status 50).
+
 **Rivals (E2 bands, 6 seeds, line-field-2):**
 - Sand Ocean passes 14/14.
 - Big Blue fails `finished` and `retired`: the native field retires 1 to 3 rivals and the

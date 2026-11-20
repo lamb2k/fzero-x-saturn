@@ -13,13 +13,14 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from import_course import extract_rom_course, normalize_rom  # noqa: E402
+import course_catalog  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 DECOMP = ROOT / "upstream/G-Diffuser/decomp"
 # common_assets_compressed (segment 0x0F) starts at ROM 0x2B9EA0 (yamls/us/rev0/assets.yaml);
 # the Mute City CPU line is D_F264110 (segment offset 0x264110, cpu.c D_i3_8013DB80[0]).
 SEGMENT_F_ROM = 0x2B9EA0
-CPU_LINE_OFFSETS = {"mute-city-1": 0x264110}
+CPU_LINE_OFFSETS = {slug: course_catalog.course(slug)["cpu_line"] for slug in course_catalog.COURSES}
 DIFFICULTY = {"novice": 0, "standard": 1, "expert": 2, "master": 3}
 
 
@@ -33,19 +34,20 @@ def table(name: str, source: str) -> list[int]:
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--output", type=Path, default=ROOT / "generated/rivals")
-    ap.add_argument("--course", default="mute-city-1")
+    ap.add_argument("--course", default="mute-city-1", choices=tuple(course_catalog.COURSES))
     ap.add_argument("--difficulty", choices=DIFFICULTY, default="standard")
     args = ap.parse_args()
     path = os.environ.get("FZX_TEST_ROM")
     if not path:
         raise SystemExit("FZX_TEST_ROM is required locally")
     raw = Path(path).read_bytes()
+    course_catalog.register(args.course)
     record, _ = extract_rom_course(raw, args.course)
     rom, _ = normalize_rom(raw)
     start = SEGMENT_F_ROM + CPU_LINE_OFFSETS[args.course]
     line = rom[start:start + 0x400]
     src = (DECOMP / "src/overlays/ovl_i3/cpu.c").read_text()
-    course_index, d = 0, DIFFICULTY[args.difficulty]
+    course_index, d = course_catalog.course(args.course)["index"], DIFFICULTY[args.difficulty]
     base = table("D_i3_8013E4A8", src)[course_index * 4 + d]
     step = table("D_i3_8013E628", src)[course_index * 4 + d]
     out = args.output

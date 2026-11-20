@@ -25,6 +25,7 @@
 #include "road_native.h"
 #include "road_stream_native.h"
 #include "road_lod_identity.h"
+#include "course_select.h"
 #include "slave_road.h"
 #include "texture_cd.h"
 #include "sh2zam/segmesh_experimental.h"
@@ -1190,18 +1191,18 @@ void fzx_race_load(void) {
     /* The drive reads only the header and anchors and the lens record (engine_path_ranges.h:
      * about 2 KB of the pack), each checked as it arrives. */
     static fzx_engine_cam_t lens_record __attribute__((aligned(4)));
-    if (!fzx_texture_cd_load_range("ENGPATH.PAK", FZX_ENGINE_PATH_BYTES, 0, FZX_EPATH_HEAD_BYTES, FZX_EPATH_HEAD_HASH,
+    if (!fzx_texture_cd_load_range(CNAME(FZX_CF_EPATH,"ENGPATH.PAK"), CSEL(path_bytes,FZX_ENGINE_PATH_BYTES), 0, CSEL(head_bytes,FZX_EPATH_HEAD_BYTES), CSEL(head_hash,FZX_EPATH_HEAD_HASH),
                                    (void *)PATH_BASE, (void *)scratch, 0x00300000u - scratch) ||
-        !fzx_texture_cd_load_range("ENGPATH.PAK", FZX_ENGINE_PATH_BYTES, FZX_EPATH_LENS_AT, FZX_EPATH_LENS_BYTES,
-                                   FZX_EPATH_LENS_HASH, &lens_record, (void *)scratch, 0x00300000u - scratch))
+        !fzx_texture_cd_load_range(CNAME(FZX_CF_EPATH,"ENGPATH.PAK"), CSEL(path_bytes,FZX_ENGINE_PATH_BYTES), CSEL(lens_at,FZX_EPATH_LENS_AT), CSEL(lens_bytes,FZX_EPATH_LENS_BYTES),
+                                   CSEL(lens_hash,FZX_EPATH_LENS_HASH), &lens_record, (void *)scratch, 0x00300000u - scratch))
         fail(17, "PATH LOAD", fzx_texture_cd_status.status);
-    if (!fzx_engine_path_open_head(&path, (const void *)PATH_BASE, FZX_EPATH_HEAD_BYTES, FZX_ENGINE_PATH_BYTES,
-                                   FZX_ENGINE_PATH_HASH))
+    if (!fzx_engine_path_open_head(&path, (const void *)PATH_BASE, CSEL(head_bytes,FZX_EPATH_HEAD_BYTES), CSEL(path_bytes,FZX_ENGINE_PATH_BYTES),
+                                   CSEL(path_hash,FZX_ENGINE_PATH_HASH)))
 #else
-    if (!fzx_texture_cd_load("ENGPATH.PAK", FZX_ENGINE_PATH_BYTES, FZX_ENGINE_PATH_FILE_HASH, (void *)PATH_BASE,
+    if (!fzx_texture_cd_load(CNAME(FZX_CF_EPATH,"ENGPATH.PAK"), CSEL(path_bytes,FZX_ENGINE_PATH_BYTES), CSEL(path_file_hash,FZX_ENGINE_PATH_FILE_HASH), (void *)PATH_BASE,
                              (void *)scratch, 0x00300000u - scratch))
         fail(17, "PATH LOAD", fzx_texture_cd_status.status);
-    if (!fzx_engine_path_open(&path, (const void *)PATH_BASE, FZX_ENGINE_PATH_BYTES, FZX_ENGINE_PATH_HASH))
+    if (!fzx_engine_path_open(&path, (const void *)PATH_BASE, CSEL(path_bytes,FZX_ENGINE_PATH_BYTES), CSEL(path_hash,FZX_ENGINE_PATH_HASH)))
 #endif
         fail(18, "PATH PACK", 0);
 #if ENG_SND
@@ -1245,13 +1246,13 @@ void fzx_race_load(void) {
     dbgio_printf("\x1b[H\x1b[2J LOADING TRACK...\n");
     dbgio_flush(); vdp2_sync(); vdp2_sync_wait();
 #endif
-    if (!fzx_road_load(fzx_course_record, sizeof(fzx_course_record)))
+    if (!fzx_road_load(CSEL(record,fzx_course_record), sizeof(fzx_course_record)))
         fail(34, fzx_road_load_status.status == 2 ? "4 MB RAM CARTRIDGE REQUIRED" : "TRACK PACK LOAD", fzx_road_load_status.status);
     road_pixels = (void *)((uintptr_t)partitions.texture_base + offset);
-    road_shades[0] = (void *)((uintptr_t)road_pixels + FZX_ROAD_LOD_TEXTURE_BYTES);
-    if (offset + FZX_ROAD_LOD_TEXTURE_BYTES + FZX_ROAD_STREAM_SHADE_BYTES > partitions.texture_size || !fzx_road_stream_load(road_pixels))
+    road_shades[0] = (void *)((uintptr_t)road_pixels + CSEL(lod_tex_bytes,FZX_ROAD_LOD_TEXTURE_BYTES));
+    if (offset + CSEL(lod_tex_bytes,FZX_ROAD_LOD_TEXTURE_BYTES) + FZX_ROAD_STREAM_SHADE_BYTES > partitions.texture_size || !fzx_road_stream_load(road_pixels))
         fail(35, "TRACK LOAD", fzx_road_stream_status);
-    offset += FZX_ROAD_LOD_TEXTURE_BYTES + FZX_ROAD_STREAM_SHADE_BYTES;
+    offset += CSEL(lod_tex_bytes,FZX_ROAD_LOD_TEXTURE_BYTES) + FZX_ROAD_STREAM_SHADE_BYTES;
     SCN_STAMP(3);
     SCN_ONCE(fzx_slave_road_init());
     if (fzx_slave_road_status != 1) fail(36, "SLAVE INIT", fzx_slave_road_status);

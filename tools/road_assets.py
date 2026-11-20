@@ -17,6 +17,7 @@ import struct
 import subprocess
 
 from import_course import extract_rom_course, normalize_rom
+import course_catalog
 from import_source_art import (DECOMP, YAML, ArtError, bounded, decode_texture,
                                metadata, mio0, output_location, verify_source)
 
@@ -317,13 +318,16 @@ def main():
     ap.add_argument("--cc", choices=("gcc", "clang"), default="gcc")
     ap.add_argument("--opt", choices=("0", "2"), default="0")
     ap.add_argument("--output", type=Path, default=Path("generated/road"))
+    ap.add_argument("--course", default=course_catalog.DEFAULT, choices=tuple(course_catalog.COURSES))
     args = ap.parse_args()
+    course_catalog.register(args.course)
+    venue_course = course_catalog.course(args.course)
     output_location(args.output)
     raw_path = os.environ.get("FZX_TEST_ROM")
     if not raw_path:
         raise SystemExit("FZX_TEST_ROM is required locally")
     raw = Path(raw_path).read_bytes()
-    record, provenance = extract_rom_course(raw)
+    record, provenance = extract_rom_course(raw, args.course)
     rom, _ = normalize_rom(raw)
     verify_source(DECOMP)
     # Always rebuild. A caller-provided capture must never receive a receipt
@@ -373,13 +377,14 @@ def main():
     result["accounting"]["conditional_outer_triangles"] = sum(o["conditional_outer"] for o in result["origins"])
     result["accounting"]["interior_triangles"] = len(inside["triangles"])
     textures = {}
-    venue = mio0(rom[0x235130:0x239A80])
-    venue_rows = metadata((DECOMP / YAML / "mute_city_textures.yaml").read_text())
+    venue_start, venue_end = venue_course["venue_segment"]
+    venue = mio0(rom[venue_start:venue_end])
+    venue_rows = metadata((DECOMP / YAML / venue_course["venue_yaml"]).read_text())
     for mat in result["materials"]:
         name = mat["texture"]["name"]
         if name in textures:
             continue
-        source_name = name + "_235130" if name.startswith("D_A") else name
+        source_name = name + "_%X" % venue_start if name.startswith("D_A") else name
         texture_rows = venue_rows if name.startswith("D_A") else rows
         data = venue if name.startswith("D_A") else segment
         texels = ((mat["load"][1] >> 12) & 4095) + 1
@@ -389,9 +394,9 @@ def main():
     (args.output / "road.json").write_bytes(payload)
     digest = lambda p: hashlib.sha256(p.read_bytes()).hexdigest()
     dependencies = {ROOT / name for name in (
-        "tools/road_assets.py", "tools/road_bindings.py", "tools/import_source_art.py", "tools/import_course.py",
+        "tools/road_assets.py", "tools/road_bindings.py", "tools/import_source_art.py", "tools/import_course.py", "tools/course_catalog.py",
         "ref/build.sh", "ref/road_bridge.c", "ref/road_main.c", "ref/gen_stubs.py")}
-    dependencies.update(DECOMP / YAML / name for name in ("course_track_gfx.yaml", "mute_city_textures.yaml", "machine_custom_gfx.yaml"))
+    dependencies.update(DECOMP / YAML / name for name in ("course_track_gfx.yaml", venue_course["venue_yaml"], "machine_custom_gfx.yaml"))
     dependencies.update(DECOMP / name for name in ("src/overlays/ovl_i2/race.c", "src/overlays/ovl_i3/background.c"))
     for pre in host.glob("*.i"):
         for name in re.findall(r'^#\s+\d+\s+"([^"<>]+)"', pre.read_text(), re.M):

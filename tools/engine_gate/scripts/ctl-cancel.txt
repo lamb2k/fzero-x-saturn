@@ -1,0 +1,12 @@
+# CONTROL for the cancel check: the chord lacks B (0E00) 30 fields into the load, so the load is not cancelled.
+until 1 1 2000
+pad 0800 2
+until 2 1 600
+pad 0400 2
+until 3 1 600
+wait 30
+pad 0E00 4
+wait 2
+until 1 1 2000
+mark cancel30
+pad 0800 2

@@ -120,6 +120,41 @@ void rb_racer(int i, float f[5], int n[8]) {
     n[7] = (int)r->unk_368;
 }
 
+/* Race_Init's surface set-up (pit, dash, dirt, ice), jumps and landmines, as handling_probe.c's
+ * ref_handling_race_features: the bridge's race leaves them out. --zones 1 in fzx-gp-ref: every
+ * racer, CPU racers included, then meets the course's zones as in the game. */
+void Course_LandminesViewInteractDataInit(void);
+void Course_JumpsViewInteractDataInit(void);
+void Course_EffectsViewInteractDataInit(bool arg0);
+void rb_gp_zones(void) {
+    Course_LandminesViewInteractDataInit();
+    Course_JumpsViewInteractDataInit();
+    Course_EffectsViewInteractDataInit(false);
+}
+
+/* The course's surface zones after rb_gp_zones, one row per effect: segment, type, t0, t1, the two
+ * bound vectors and whether the segment bounds them by side offset (else by edge vectors). */
+int rb_zones(float out[][11], int max) {
+    const CourseInfo* c = gCurrentCourseInfo;
+    int n = 0, i;
+    for (i = 0; i < c->segmentCount; ++i) {
+        const CourseSegment* s = &c->courseSegments[i];
+        const Effect* e;
+        for (e = s->effectsStart; e != NULL && e != s->effectsEnd; e++) {
+            if (n < max) {
+                float* o = out[n];
+                o[0] = (float)i; o[1] = (float)(e->effectType & COURSE_EFFECT_MASK);
+                o[2] = e->segmentTValueStart; o[3] = e->segmentTValueEnd;
+                o[4] = e->unk_0C.x; o[5] = e->unk_0C.y; o[6] = e->unk_0C.z;
+                o[7] = e->unk_18.x; o[8] = e->unk_18.y; o[9] = e->unk_18.z;
+                o[10] = (s->trackSegmentInfo & 0x8000000) ? 1.0f : 0.0f;
+            }
+            ++n;
+        }
+    }
+    return n;
+}
+
 /* The game loop's frame counter: CPU racers think on (id & 3) == (frame % 4). Call once per tick. */
 extern u32 gGameFrameCount;
 void rb_gp_frame(void) { gGameFrameCount++; }

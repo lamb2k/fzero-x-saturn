@@ -182,7 +182,9 @@ static void post(uint16_t ev) {
 
 static uint32_t read_toc(uint32_t *toc) {
     uint8_t status; uint16_t words;
+#if defined(FZX_CD_STREAM) && FZX_CD_STREAM
     fzx_road_stream_invalidate();   /* the data reader's open stream ends with any other CD command */
+#endif
     if (cd_block_cmd_toc_get(&status, &words) || words < 204u) return 0u;
     uint16_t last = cpu_frt_count_get(); uint32_t elapsed = 0;
     while (!(CD_REGS[4] & 0x0002u)) {
@@ -210,7 +212,9 @@ static void start_cd(void) {
     if (!music_fad) return;
     /* CD-DA moves the pickup and drops the device connection: the data reader must not continue
      * a stream it opened before (its next sector would be the wrong one). */
+#if defined(FZX_CD_STREAM) && FZX_CD_STREAM
     fzx_road_stream_invalidate();
+#endif
     /* Set CD Device Connection to none (audio sectors must not fill the data buffers), without
      * waiting: the Play follows at a later frame, once the block reports CMOK. */
     if (CD_REGS[4] & 0x0001u) {
@@ -455,7 +459,9 @@ void engine_snd_frame(void) {
 }
 
 void engine_snd_leave(uint32_t frames) {
+#if defined(FZX_CD_STREAM) && FZX_CD_STREAM
     fzx_road_stream_invalidate();   /* the fade ends in a pause: the data reader starts a new stream */
+#endif
     const uint32_t mask = cpu_intc_mask_get();
     cpu_intc_mask_set(15);
     sealed = 0xFFu;

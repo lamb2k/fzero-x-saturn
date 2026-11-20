@@ -935,7 +935,7 @@ static fzx_cl_key_t cls_key(uint8_t outcome) {
 }
 static void race_finish_hook(uint32_t timer, uint32_t tick) {
     if (timer == 1u) fzx_scn_cls[0] = tick;
-    if (cls_done || timer != FZX_FINISH_TRIGGER_TICKS) return;
+    if (cls_done || timer < FZX_FINISH_TRIGGER_TICKS) return;
     fzx_cl_in_t in[FZX_ENTRANTS_MAX];
     fzx_cl_key_t k = cls_key(FZX_OUT_FINISH);
 #if E1_FIELD

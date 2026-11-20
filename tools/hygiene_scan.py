@@ -5,7 +5,8 @@ Checks every tracked file (or the paths given) for:
   - ROM, disc-image and archive file types;
   - N64 ROM headers in any byte order, and the exact retail ROM fingerprint;
   - binary content (NUL bytes) and files over the size limit;
-  - absolute paths into a personal home directory.
+  - absolute paths into a personal home directory, other local drive-letter or WSL share paths,
+    and BIOS or ROM dump file names (environment variables and placeholders are the allowed forms).
 
 Run before every push:  python3 tools/hygiene_scan.py
 Exit status 0 means clean; 1 lists each problem as path: reason.
@@ -34,9 +35,21 @@ ROM_SHA1 = "5f658e88ffa9de23cba6986a8fd3d3a90d7b4340"
 # Built from parts so this file does not match its own patterns.
 _SEP = r"[\\/]+"
 PRIVATE_PATH = re.compile(
-    r"\b[A-Za-z]:" + _SEP + "Users" + _SEP + r"[^\\/\s\"'`<>]+"
+    r"\b[A-Za-z]:" + _SEP + "(?i:Users|Documents and Settings)" + _SEP + r"[^\\/\s\"'`<>]+"
     + "|" + r"/(?:home|Users)/[A-Za-z0-9._-]+/"
     + "|" + r"(?<![\w.])/" + "root/"
+)
+# Any other absolute drive-letter path with a folder in it (a local project or tools tree), and WSL's UNC
+# shares. Allowed forms: environment variables ($VAR, %VAR%), <placeholders> and C:\path\to\....
+LOCAL_PATH = re.compile(
+    r"(?<![\w\]])[A-Za-z]:" + _SEP + r"(?!path" + _SEP + r"to\b)[A-Za-z0-9_][^\s\"'`<>|*?\\/]*" + _SEP + r"[^\s\"'`<>|*?]+"
+    + "|" + r"\\\\" + r"wsl(?:\$|\.localhost)\\"
+)
+# BIOS and ROM dump file names (dump tags, the usual BIOS names); the generic placeholders (rom.z64) stay allowed.
+DUMP_NAME = re.compile(
+    r"(?i)\((?:U|USA|E|Europe|J|Japan)\)\s*(?:\[[!a-z0-9]+\]\s*)?[^\s\"'`<>]*\.(?:z64|n64|v64|bin|cue|iso|rom)\b"
+    + "|" + r"\[!\]\.(?:z64|n64|v64|bin|rom)\b"
+    + "|" + r"\b(?:sega" + r"_101|mpr" + r"-1[0-9]{4}|bios[ _]saturn[^\n]*?\.bin|saturn[ _]bios[^\n]*?\.bin)\b"
 )
 
 
@@ -67,6 +80,14 @@ def scan_file(path: Path) -> list[str]:
         match = PRIVATE_PATH.search(line)
         if match:
             problems.append(f"line {number}: private absolute path {match.group(0)!r}")
+            continue
+        match = LOCAL_PATH.search(line)
+        if match:
+            problems.append(f"line {number}: local machine path {match.group(0)!r}")
+            continue
+        match = DUMP_NAME.search(line)
+        if match:
+            problems.append(f"line {number}: BIOS or ROM dump file name {match.group(0)!r}")
     return problems
 
 

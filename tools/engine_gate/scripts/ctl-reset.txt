@@ -1,0 +1,9 @@
+# CONTROL for the reset check: at SELECT the chord lacks B (0E00), so A confirms and the image goes to LOAD, not TITLE.
+until 1 1 2000
+mark t0
+pad 0800 2
+until 2 1 600
+pad 0E00 30
+wait 2
+until 1 1 600
+mark from_select

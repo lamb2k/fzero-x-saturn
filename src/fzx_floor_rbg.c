@@ -340,10 +340,8 @@ bool fzx_floor_rbg_prepare(const fzx_view_t *view,const RefBackdrop *source,
     if(!mapping(view,source->vertices,(const int32_t (*)[3])positions,out))return false;
 #endif
     FZX_SCP(BANDS);
-#if FZX_RBG_LEAN && FZX_RBG_SHARE
-    band_edge_t edges[16];unsigned edge_count=0;
-#endif
 #if FZX_RBG_NEAR0 && FZX_RBG_LEAN && FZX_RBG_SHARE
+    band_edge_t edges[16];unsigned edge_count=0;
     /* FZX_RBG_NEAR0 (engine, exact): bands 1-7 of both halves overdraw the whole
      * quad from fraction 1/14 outwards, so band 0 is drawn only over the near
      * strip between the two halves' 1/14 lines (band 1's low edges, which the
@@ -366,8 +364,13 @@ bool fzx_floor_rbg_prepare(const fzx_view_t *view,const RefBackdrop *source,
             if(!BAND_PROJECTED(view,(const int32_t (*)[3])outer,xy,&count))return fail(out,2);
         }
     }
-#endif
     if(!polygon((const int32_t (*)[2])xy,count,0,out,emit,context))return false;
+#else
+    if(!polygon((const int32_t (*)[2])xy,count,0,out,emit,context))return false;
+#if FZX_RBG_LEAN && FZX_RBG_SHARE
+    band_edge_t edges[16];unsigned edge_count=0;
+#endif
+#endif
     for(unsigned half=0;half<2;++half)for(unsigned band=1;band<8;++band) {
         /* Thresholds are halfway between the same eight source fog levels as
          * the native tile atlas. Geometry stays on the authored two halves. */

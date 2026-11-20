@@ -126,5 +126,10 @@ typedef struct {
 bool fzx_vehicle_draw_native(const fzx_vehicle_pack_t *,const fzx_view_t *,const RefCamera *,
                              const RefMachine *,fzx_vehicle_work_t *,const fzx_vehicle_target_t *,
                              uint32_t *,fzx_vehicle_stats_t *);
+#if defined(ENG_BAL_PREWARM)&&ENG_BAL_PREWARM
+/* Engine: the work's native tables and templates for a source LOD (1..6) and target, before
+ * the race, so the first draw does not build them; the draws are unchanged. */
+bool fzx_vehicle_native_prewarm(const fzx_vehicle_pack_t *,int,fzx_vehicle_work_t *,const fzx_vehicle_target_t *);
+#endif
 #endif
 #endif

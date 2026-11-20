@@ -264,21 +264,28 @@ void fzx_atk_contact(const sh2z_vd_body_t *p, sh2z_vd_contact_t *out) {
      * current on this tick take part (the player, rivals driven here, and agents the field stepped on
      * its last tick): far from the player the field's level of detail steps agents every 2, 4 or 8
      * ticks, and a pair is resolved on the ticks both are current, as line-field-1's own contact did. */
-    uint8_t cand[FZX_ATK_MAX], cur[FZX_ATK_MAX];
+    uint8_t cand[FZX_ATK_MAX], sc[FZX_ATK_MAX];
+    int32_t sa[FZX_ATK_MAX], sl[FZX_ATK_MAX];   /* along, lateral and current, in physical order */
     memset(cand, 0, sizeof(cand));
-    for (uint32_t i = 0; i < n; ++i)
-        cur[i] = (uint8_t)(i == 0u || (F.veh[i].flags & SH2Z_VEH_EXTERNAL) || F.brain[i].last_tick == F.field->tick);
+    const uint32_t ftick = F.field->tick;
     for (uint32_t s = 0; s < n; ++s) {
-        const uint32_t a = order[s];
-        if (!cur[a]) continue;
+        const uint32_t i = order[s];
+        const sh2z_vehicle_t *v = &F.veh[i];
+        sa[s] = along[i]; sl[s] = v->t.lateral;
+        sc[s] = (uint8_t)(i == 0u || (v->flags & SH2Z_VEH_EXTERNAL) || F.brain[i].last_tick == ftick);
+    }
+    for (uint32_t s = 0; s < n; ++s) {
+        if (!sc[s]) continue;
+        const int32_t aa = sa[s], al = sl[s];
+        uint32_t t = s;
         for (uint32_t k = 1; k < n; ++k) {
-            const uint32_t b = order[s + k < n ? s + k : s + k - n];
-            int32_t gap = along[a] - along[b];
+            if (++t == n) t = 0;
+            int32_t gap = aa - sa[t];
             if (gap > half) gap -= length;
             else if (gap <= -half) gap += length;
             if (gap > PRE_Q8) break;
-            if (gap < 0 || !cur[b]) continue;
-            if (iabs(F.veh[a].t.lateral - F.veh[b].t.lateral) <= PRE_Q8) cand[a] = cand[b] = 1;
+            if (gap < 0 || !sc[t]) continue;
+            if (iabs(al - sl[t]) <= PRE_Q8) cand[order[s]] = cand[order[t]] = 1;
         }
     }
     PROF(2); APROF(1, sp);
@@ -554,6 +561,8 @@ static void think(const sh2z_vd_body_t *p, uint32_t i) {
     sh2z_vehicle_t *v = &F.veh[i];
     const sh2z_field_brain_t *b = &F.brain[i];
     if (v->flags & (SH2Z_VEH_FINISHED | SH2Z_VEH_RETIRED) || (r->mode & (M_SPUN | M_CRASHED))) return;
+    /* Nothing below can act without one of these (no side effects are skipped). */
+    if (!(b->chase >= 0 || fzx_atk_difficulty >= 2u || r->drift || reverse_run > REVERSE_TICKS)) return;
     const sh2z_vehicle_t *pl = &F.veh[0];
     const int32_t self_total = total_of(v), player_total = total_of(pl);
     const uint32_t diff = fzx_atk_difficulty > 3u ? 3u : fzx_atk_difficulty;

@@ -274,7 +274,7 @@ bool fzx_clouds_native(vdp1_cmdt_t *commands,unsigned capacity,const fzx_view_t 
 #if ENG_LOOK_CLOSE
     /* Course look: inside a whole pipe span the clouds' stage is closed (every line
      * empty, no fade bands) instead of prepared; the sky lines stay. */
-    if(fzx_look_closed){for(unsigned y=0;y<224;++y){CLOUDS_STAGE.window[y][0]=640;CLOUDS_STAGE.window[y][1]=0;}CLOUDS_STAGE.visible_lines=0;CLOUDS_STAGE.degenerate=0;CLOUDS_STAGE.commands=0;}
+    if(fzx_look_closed&2u){for(unsigned y=0;y<224;++y){CLOUDS_STAGE.window[y][0]=640;CLOUDS_STAGE.window[y][1]=0;}CLOUDS_STAGE.visible_lines=0;CLOUDS_STAGE.degenerate=0;CLOUDS_STAGE.commands=0;}
     else
 #endif
     if(!fzx_clouds_rbg_prepare(view,source,&CLOUDS_STAGE,emit,&submit)) {

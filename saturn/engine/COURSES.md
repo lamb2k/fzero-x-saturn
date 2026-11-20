@@ -90,8 +90,8 @@ A pack that would reach the 3D player or the pool is refused at load (fail 35 pa
 | Pipes (driving round the inside of a tube) | Sand Ocean (15 points), later cups | player physics and road done (section 7); rivals stay in line space |
 | Cylinders (driving round the outside) | Big Blue (10 points), later cups | player physics and road done (section 7); rivals stay in line space |
 | Half-pipes | later cups | physics as road |
-| Stars (night sky) | Silence | not drawn: the night sky is the gradient and the skyline only |
-| Flashing skyline windows (night) | Silence | not animated |
+| Stars (night sky) | Silence | `ENG_LOOK_STARS` (section 8), default off |
+| Flashing skyline windows (night) | Silence | `ENG_LOOK_WINDOWS` (section 8), default off |
 | Surface zones for rivals (dirt, ice) | Devil's Forest, Port Town | rivals ignore them; the player's physics has them |
 
 ## 5. Per-course results

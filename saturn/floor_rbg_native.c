@@ -153,7 +153,7 @@ bool fzx_floor_native(vdp1_cmdt_t *commands,unsigned capacity,const fzx_view_t *
 #if ENG_LOOK_CLOSE
     /* Course look: inside a whole pipe span the tube covers the view, so the floor's
      * stage is closed (every line empty, no band polygons) instead of prepared. */
-    if(fzx_look_closed){for(unsigned y=0;y<224;++y){FLOOR_STAGE.window[y][0]=640;FLOOR_STAGE.window[y][1]=0;}FLOOR_STAGE.visible_lines=0;FLOOR_STAGE.commands=0;}
+    if(fzx_look_closed&1u){for(unsigned y=0;y<224;++y){FLOOR_STAGE.window[y][0]=640;FLOOR_STAGE.window[y][1]=0;}FLOOR_STAGE.visible_lines=0;FLOOR_STAGE.commands=0;}
     else
 #endif
     if(!fzx_floor_rbg_prepare(view,source,&FLOOR_STAGE,emit,&submit)){fzx_floor_status=3;fzx_floor_busy=0;return false;}

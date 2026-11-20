@@ -39,3 +39,8 @@ CRAM owners:
 | 66..1007 | free | |
 
 How this map was made: an `E0_VDP2_MAP=1` build of the default image (BIN 2758f9881ed90ab9, same layout code as default BIN 64f671b6199cdec3) copies the VDP2 register shadow and CRAM after setup. `tools/e0_vdp2map.py BUILD RUN` decodes them, finds each table's extent from the registers and the map contents, checks for overlaps, and checks the final VDP2 VRAM dump of the 3-lap run for written bytes outside every allocation (Ymir, emulator).
+
+Course-look switches (lane `claude/course-look`, `COURSES.md` section 8): no new VDP2 VRAM or CRAM use.
+`ENG_LOOK_CLOSE` writes only the existing W0 (floor) and W1 (clouds) line-window tables in their staged copies
+(every line empty while closed). The stars (`ENG_LOOK_STARS`, 1,280 B) and the flashing windows
+(`ENG_LOOK_WINDOWS`, one word of an existing skyline CLUT) are in VDP1 VRAM (`COURSES.md` section 3).

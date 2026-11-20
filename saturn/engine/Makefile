@@ -232,8 +232,9 @@ endif
 # ENG_LOOK_FOG: the course fog a quarter of its colour inside a pipe or tunnel, tapered over the joins
 #   (course.c Course_Draw, courseFogColors >> 2).
 # ENG_LOOK_OUTER: the road plan's outer bit 0 inside a tunnel too (course.c D_800F89D8), not only a pipe.
-# ENG_LOOK_CLOSE: the VDP2 floor and clouds closed (empty windows, no fade bands, no prepare) while the
-#   camera is inside a whole pipe span.
+# ENG_LOOK_CLOSE (a speed item: the source always draws its background): the VDP2 floor and clouds closed
+#   (empty windows, no fade bands, no prepare) while the camera is inside a whole pipe span whose next
+#   opening is beyond the drawn track. 1 both, 2 the clouds only, 3 the floor only.
 # ENG_LOOK_STARS (a starry night course; look_night.h from course_look_assets.py --night): background.c's
 #   100 stars as 8x8 VDP1 sprites over the sky (status 55 if their 1,280 B do not fit after the track).
 # ENG_LOOK_WINDOWS (night): the skyline palettes' white entry flashes through the source's window colours.
@@ -243,10 +244,13 @@ ENG_LOOK_CLOSE ?= 0
 ENG_LOOK_STARS ?= 0
 ENG_LOOK_WINDOWS ?= 0
 ENG_LOOK_SWITCHES := $(ENG_LOOK_FOG) $(ENG_LOOK_OUTER) $(ENG_LOOK_CLOSE) $(ENG_LOOK_STARS) $(ENG_LOOK_WINDOWS)
-ifneq ($(filter-out 0 1,$(ENG_LOOK_SWITCHES)),)
-$(error ENG_LOOK_FOG, _OUTER, _CLOSE, _STARS and _WINDOWS must be 0 or 1)
+ifneq ($(filter-out 0 1,$(ENG_LOOK_FOG) $(ENG_LOOK_OUTER) $(ENG_LOOK_STARS) $(ENG_LOOK_WINDOWS)),)
+$(error ENG_LOOK_FOG, _OUTER, _STARS and _WINDOWS must be 0 or 1)
 endif
-ENG_LOOK_ANY := $(if $(filter 1,$(ENG_LOOK_SWITCHES)),1,0)
+ifneq ($(filter-out 0 1 2 3,$(ENG_LOOK_CLOSE)),)
+$(error ENG_LOOK_CLOSE must be 0..3)
+endif
+ENG_LOOK_ANY := $(if $(filter 1 2 3,$(ENG_LOOK_SWITCHES)),1,0)
 ifeq ($(ENG_LOOK_ANY):$(FZX_E1_DRIVE),1:0)
 $(error ENG_LOOK_* need FZX_E1_DRIVE=1 (the player's place on the course))
 endif

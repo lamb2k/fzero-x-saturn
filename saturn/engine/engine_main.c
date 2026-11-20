@@ -256,49 +256,83 @@ static const uint16_t look_star_sprites[FZX_LOOK_STAR_LEVELS * 64u] = FZX_LOOK_S
 enum { STAR_VRAM_BYTES = FZX_LOOK_STAR_LEVELS * 128u, STAR_KEEP = 48u /* prelude commands left for skyline + floor */ };
 static uintptr_t stars_vram;
 /* Last frame: [0] drawn, [1] behind the camera, [2] off the view, [3] dropped for want of
- * commands, [4] frames drawn, [5] most drawn in a frame, [6] VRAM offset. */
+ * commands, [4] frames drawn, [5] most drawn in a frame, [6] VRAM offset, [7] longest call (FRT ticks). */
 volatile uint32_t fzx_look_stars[8];
+volatile uint32_t fzx_look_star_ticks[2]; /* FRT ticks summed over calls, and calls */
+/* The stars in units of 128 (int16, |v| < 2^13), set at load, for 16-bit multiplies. */
+static int16_t star_pos[FZX_LOOK_STAR_COUNT][3];
+static uint8_t look_star_level[FZX_LOOK_STAR_COUNT];
 static bool stars_load(uintptr_t vram) {
     volatile uint16_t *out = (volatile uint16_t *)vram;
     for (unsigned i = 0; i < FZX_LOOK_STAR_LEVELS * 64u; ++i) out[i] = look_star_sprites[i];
     for (unsigned i = 0; i < FZX_LOOK_STAR_LEVELS * 64u; ++i) if (out[i] != look_star_sprites[i]) return false;
+    for (unsigned i = 0; i < FZX_LOOK_STAR_COUNT; ++i) {
+        star_pos[i][0] = (int16_t)(look_stars[i].x >> 7); star_pos[i][1] = (int16_t)(look_stars[i].y >> 7);
+        star_pos[i][2] = (int16_t)(look_stars[i].z >> 7);
+        look_star_level[i] = (uint8_t)look_stars[i].level;
+    }
     stars_vram = vram;
     return true;
 }
+static inline int32_t mul16(int16_t a, int16_t b) { return (int32_t)a * (int32_t)b; } /* muls.w */
+/* (num << 15) / den on the SH-2 divider (64/32, 39 cycles), for 0 <= |num| <= den: the quotient
+ * fits, so the divider's overflow cases never arise (SH2ZAM divu-1's hardware facts). */
+static inline int32_t ratio15(int32_t num, int32_t den) {
+    *(volatile uint32_t *)SH2Z_DIVU_DVSR_ADDRESS = (uint32_t)den;
+    *(volatile uint32_t *)SH2Z_DIVU_DVDNTH_ADDRESS = (uint32_t)(num >> 17);
+    *(volatile uint32_t *)SH2Z_DIVU_DVDNTL_ADDRESS = (uint32_t)num << 15;
+    return (int32_t)*(volatile uint32_t *)SH2Z_DIVU_DVDNTL_ADDRESS;
+}
 static unsigned stars_emit(vdp1_cmdt_t *commands, unsigned capacity, const fzx_view_t *view, const fzx_engine_cam_t *cam) {
-    const int32_t ex = cam->eye[0] >> 16, ey = cam->eye[1] >> 16, ez = cam->eye[2] >> 16;
-    const int32_t (*r)[3] = view->rotation;
+    /* Camera space in 16-bit multiplies: directions in units of 128 against the rotation rows in
+     * Q14; each sum stays under 2^29. A star behind the camera or outside the view's cone (with
+     * an 8-pixel margin) goes before any division; only the ratios matter. */
+    const uint16_t t0 = cpu_frt_count_get();
+    const int16_t ex = (int16_t)(cam->eye[0] >> 23), ey = (int16_t)(cam->eye[1] >> 23), ez = (int16_t)(cam->eye[2] >> 23);
+    int16_t r[3][3];
+    for (unsigned i = 0; i < 3u; ++i) for (unsigned j = 0; j < 3u; ++j) r[i][j] = (int16_t)(view->rotation[i][j] >> 16);
+    /* Cone: |c| / z at most the view's widest half-extent over the focal length (Q15). */
+    int32_t lim[2];
+    for (unsigned k = 0; k < 2u; ++k) {
+        const int32_t lo = view->center[k] - ((int32_t)view->clip[k] << 16), hi = ((int32_t)view->clip[k + 2u] << 16) - view->center[k];
+        const int32_t half = (lo > hi ? lo : hi) + (8 << 16), f = view->focal[k] >> 1;
+        lim[k] = f > 0 && half < f ? (int32_t)(((int64_t)half << 15) / f) >> 1 : 1 << 15;
+    }
+    vdp1_cmdt_t tmpl;
+    memset(&tmpl, 0, sizeof(tmpl));
+    vdp1_cmdt_normal_sprite_set(&tmpl);
+    const vdp1_cmdt_draw_mode_t mode = { .end_code_disable = 1, .user_clipping_mode = 2,
+                                         .color_mode = VDP1_CMDT_CM_RGB_32768, .cc_mode = VDP1_CMDT_CC_REPLACE };
+    vdp1_cmdt_draw_mode_set(&tmpl, mode);
+    vdp1_cmdt_char_base_set(&tmpl, (vdp1_vram_t)stars_vram);
+    vdp1_cmdt_char_size_set(&tmpl, 8, 8);
+    const uint16_t srca = tmpl.cmd_srca;
     unsigned n = 0, behind = 0, off = 0, dropped = 0;
     for (unsigned i = 0; i < FZX_LOOK_STAR_COUNT; ++i) {
-        const look_star_t *s = &look_stars[i];
-        const int32_t d[3] = { s->x - ex, s->y - ey, s->z - ez };
-        /* Camera space, Q30 x source units (|d| < 2^21, so < 2^51); only the ratios matter. */
-        const int64_t c2 = (int64_t)r[2][0] * d[0] + (int64_t)r[2][1] * d[1] + (int64_t)r[2][2] * d[2];
-        if (c2 <= 0) { ++behind; continue; }
-        const int64_t c0 = (int64_t)r[0][0] * d[0] + (int64_t)r[0][1] * d[1] + (int64_t)r[0][2] * d[2];
-        const int64_t c1 = (int64_t)r[1][0] * d[0] + (int64_t)r[1][1] * d[1] + (int64_t)r[1][2] * d[2];
-        const int32_t z = (int32_t)(c2 >> 22);
+        const int16_t d0 = (int16_t)(star_pos[i][0] - ex), d1 = (int16_t)(star_pos[i][1] - ey), d2 = (int16_t)(star_pos[i][2] - ez);
+        const int32_t z = mul16(r[2][0], d0) + mul16(r[2][1], d1) + mul16(r[2][2], d2);
         if (z <= 0) { ++behind; continue; }
-        bool ox = false, oy = false;
-        const int32_t sx = sh2z_divu_div64((int64_t)view->focal[0] * (c0 >> 22), z, &ox);
-        const int32_t sy = sh2z_divu_div64((int64_t)view->focal[1] * (c1 >> 22), z, &oy);
-        if (ox || oy) { ++off; continue; }
-        const int32_t x = (int32_t)(((int64_t)view->center[0] + sx) >> 16), y = (int32_t)(((int64_t)view->center[1] - sy) >> 16);
+        const int32_t zx = (z >> 15) * lim[0], zy = (z >> 15) * lim[1];
+        const int32_t c0 = mul16(r[0][0], d0) + mul16(r[0][1], d1) + mul16(r[0][2], d2);
+        if (c0 > zx || -c0 > zx) { ++off; continue; }
+        const int32_t c1 = mul16(r[1][0], d0) + mul16(r[1][1], d1) + mul16(r[1][2], d2);
+        if (c1 > zy || -c1 > zy) { ++off; continue; }
+        /* Screen: centre + focal * c / z, with c / z in Q15. */
+        const int32_t x = (int32_t)((view->center[0] + (((int64_t)view->focal[0] * ratio15(c0, z)) >> 15)) >> 16);
+        const int32_t y = (int32_t)((view->center[1] - (((int64_t)view->focal[1] * ratio15(c1, z)) >> 15)) >> 16);
         if (x < view->clip[0] || x >= view->clip[2] || y < view->clip[1] || y >= view->clip[3]) { ++off; continue; }
         if (n >= capacity) { ++dropped; continue; }
         vdp1_cmdt_t *c = &commands[n++];
-        memset(c, 0, sizeof(*c));
-        vdp1_cmdt_normal_sprite_set(c);
-        const vdp1_cmdt_draw_mode_t mode = { .end_code_disable = 1, .user_clipping_mode = 2,
-                                             .color_mode = VDP1_CMDT_CM_RGB_32768, .cc_mode = VDP1_CMDT_CC_REPLACE };
-        vdp1_cmdt_draw_mode_set(c, mode);
-        vdp1_cmdt_char_base_set(c, (vdp1_vram_t)(stars_vram + (uint32_t)s->level * 128u));
-        vdp1_cmdt_char_size_set(c, 8, 8);
+        *c = tmpl;
+        c->cmd_srca = (uint16_t)(srca + look_star_level[i] * 16u); /* 128 B per level, in 8-byte units */
         c->cmd_xa = (int16_t)x; c->cmd_ya = (int16_t)y;
     }
     fzx_look_stars[0] = n; fzx_look_stars[1] = behind; fzx_look_stars[2] = off; fzx_look_stars[3] = dropped;
     fzx_look_stars[4] += n ? 1u : 0u;
     if (n > fzx_look_stars[5]) fzx_look_stars[5] = n;
+    const uint16_t dt = (uint16_t)(cpu_frt_count_get() - t0);
+    if (dt > fzx_look_stars[7]) fzx_look_stars[7] = dt;
+    fzx_look_star_ticks[0] += dt; ++fzx_look_star_ticks[1];
     return n;
 }
 #endif
@@ -803,8 +837,9 @@ static void kick(const fzx_engine_cam_t *cam, uint32_t tick) {
         job_fog[0] = look.fog[0]; job_fog[1] = look.fog[1]; job_fog[2] = look.fog[2];
 #endif
 #if ENG_LOOK_CLOSE
-        fzx_look_closed = look.closed;
-        fzx_look_closed_frames += fzx_look_closed;
+        /* Bit 0 closes the floor, bit 1 the clouds (ENG_LOOK_CLOSE 1 both, 2 clouds only, 3 floor only). */
+        fzx_look_closed = look.closed ? (ENG_LOOK_CLOSE == 2 ? 2u : ENG_LOOK_CLOSE == 3 ? 1u : 3u) : 0u;
+        fzx_look_closed_frames += look.closed;
 #endif
         fzx_look_state = (uint32_t)look.inside | (uint32_t)look.shape << 8 | (uint32_t)look.outer << 16 | (uint32_t)look.closed << 24;
     }

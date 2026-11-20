@@ -33,6 +33,8 @@ extern volatile uint32_t engine_snd_prof[10];
 
 void engine_snd_power(void);
 bool engine_snd_load(void *scratch, uint32_t scratch_bytes);
+/* The music track's place from the disc's TOC (early in the race load: a short blocking read). */
+void engine_snd_toc(void);
 void engine_snd_start(uint32_t epoch);
 void engine_snd_tick(const sh2z_vd_body_t *body, const sh2z_vd_vehicle_t *vehicle, int32_t laps);
 #if E1_FIELD
@@ -42,6 +44,8 @@ void engine_snd_build(void);
 void engine_snd_seal(void);
 void engine_snd_vblank(bool presented);
 void engine_snd_frame(void);
+/* After the frame's submit (the master is waiting for the swap): the nearest-rival search. */
+void engine_snd_late(void);
 void engine_snd_leave(uint32_t frames);
 bool engine_snd_quiet(void);
 /* Frames outside the race (menus, LOAD): the CD player only (fade, pause, status). */

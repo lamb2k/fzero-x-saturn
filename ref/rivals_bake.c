@@ -120,6 +120,22 @@ void rb_racer(int i, float f[5], int n[8]) {
     n[7] = (int)r->unk_368;
 }
 
+/* Racer i's displacement from the course line along the segment's up axis (the other component
+ * of rb_racer's lateral): with the lateral, the angle round a pipe or cylinder (claude/jack-gp). */
+float rb_racer_up(int i) {
+    const Racer* r = &gRacers[i];
+    return r->segmentBasis.y.x * r->segmentPositionInfo.segmentDisplacement.x +
+           r->segmentBasis.y.y * r->segmentPositionInfo.segmentDisplacement.y +
+           r->segmentBasis.y.z * r->segmentPositionInfo.segmentDisplacement.z;
+}
+
+/* Diagnostic: racer i's displacement from the course line, world axes (y up). */
+void rb_racer_disp(int i, float d[3]) {
+    const Racer* r = &gRacers[i];
+    d[0] = r->segmentPositionInfo.segmentDisplacement.x; d[1] = r->segmentPositionInfo.segmentDisplacement.y;
+    d[2] = r->segmentPositionInfo.segmentDisplacement.z;
+}
+
 /* Race_Init's surface set-up (pit, dash, dirt, ice), jumps and landmines, as handling_probe.c's
  * ref_handling_race_features: the bridge's race leaves them out. --zones 1 in fzx-gp-ref: every
  * racer, CPU racers included, then meets the course's zones as in the game. */

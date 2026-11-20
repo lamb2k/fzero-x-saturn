@@ -16,6 +16,7 @@
  * slip_steer, rough_keep and recharge set the surface; --dash Q8 sets the final dash (fzx-rivals writes
  * ZONES.txt.dash). None of them: line-field-3 step for step. */
 #include <stdint.h>
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -36,6 +37,7 @@ static uint16_t be16(const unsigned char* p) { return (uint16_t)((p[0] << 8) | p
 
 int main(int argc, char** argv) {
     const char *pack = 0, *config = 0, *report = 0, *trace = 0, *control = "none", *tune = 0, *zone_file = 0, *wrap = 0;
+    int tube_angles = 0; long tube_ticks = 0, tube_bin[4] = {0, 0, 0, 0};
     int32_t tune_accel = 40, tune_grip = U(6), tune_lane = 30;
     long length = 0, dash = 0; unsigned seed = 1; int max_ticks = 14000, start_tick = 420, lod = 1, hash_every = 0;
     for (int i = 1; i + 1 < argc; i += 2) {
@@ -54,6 +56,7 @@ int main(int argc, char** argv) {
         else if (!strcmp(argv[i], "--zones")) zone_file = argv[i + 1];
         else if (!strcmp(argv[i], "--wrap")) wrap = argv[i + 1];
         else if (!strcmp(argv[i], "--dash")) dash = atol(argv[i + 1]);
+        else if (!strcmp(argv[i], "--tube-angles")) tube_angles = atoi(argv[i + 1]);   /* 1: tube_angles over pipe and cylinder nodes */
         else die("unknown argument");
     }
     if (!pack || !config || !report || length <= 0) die("usage: see rivals_gp_main.c");
@@ -232,6 +235,13 @@ int main(int argc, char** argv) {
             const int32_t room = (P.surface && surface.wrap_mask && (at.flags & surface.wrap_mask) == surface.wrap_value)
                                ? (int32_t)(((int64_t)at.half_width * 411775) >> 17) + 1 : at.half_width;   /* a tube: half its round */
             if (!(v->flags & SH2Z_VEH_EXTERNAL) && (v->t.lateral > room || v->t.lateral < -room)) ++offtrack;
+            if (tube_angles && !(v->flags & (SH2Z_VEH_EXTERNAL | SH2Z_VEH_FINISHED | SH2Z_VEH_RETIRED)) &&
+                ((at.flags & 0x01c0u) == 0x0080u || (at.flags & 0x01c0u) == 0x00c0u) && at.half_width) {
+                /* the lateral is an arc of radius half_width round the line (the engine's tube pose) */
+                double a = fabs((double)v->t.lateral) / at.half_width * 57.29578;   /* both Q8 */
+                while (a > 180.0) a = fabs(a - 360.0);
+                ++tube_bin[a < 30 ? 0 : a < 60 ? 1 : a < 90 ? 2 : 3]; ++tube_ticks;
+            }
             if (v->rank != prev_rank[i]) { changed = 1; ++rank_swaps; }
             prev_rank[i] = v->rank;
             if (!(v->flags & (SH2Z_VEH_FINISHED | SH2Z_VEH_RETIRED))) {
@@ -270,7 +280,9 @@ int main(int argc, char** argv) {
             offtrack, stuck, through, (unsigned)F.steps, race_ticks > 0 ? ns / race_ticks : 0.0, (unsigned)sh2z_field_hash(&F));
     fprintf(o, " \"spread_every_600_ticks\": [");
     for (int i = 0; i < marks; ++i) fprintf(o, "%s%.0f", i ? "," : "", spread_at[i]);
-    fprintf(o, "],\n \"racers\": [\n");
+    fprintf(o, "],\n");
+    if (tube_angles) fprintf(o, " \"tube_ticks\": %ld, \"tube_angle_bins\": [%ld,%ld,%ld,%ld],\n", tube_ticks, tube_bin[0], tube_bin[1], tube_bin[2], tube_bin[3]);
+    fprintf(o, " \"racers\": [\n");
     for (int i = 0; i < count; ++i) {
         const sh2z_field_brain_t* b = &brain[i];
         fprintf(o, "  {\"id\": %d, \"grid\": %d, \"target_lap_ms\": %d, \"chase\": %d, \"lap_end_ticks\": [%d,%d,%d], \"finish_tick\": %d, \"final_pos\": %d,"

@@ -20,6 +20,8 @@
 int rb_gp_init(int difficulty, unsigned seed, const short* cpu_line);
 int rb_gp_tuning_course(int n);
 void rb_racer(int i, float f[5], int n[8]);
+float rb_racer_up(int i);
+void rb_racer_disp(int i, float d[3]);
 float rb_course_length(void);
 void rb_gp_frame(void);
 void rb_gp_zones(void);
@@ -39,8 +41,39 @@ static unsigned char* read_file(const char* path, size_t* n) {
     return b;
 }
 
+/* Tube angles (claude/jack-gp): RIVALS.PAK's nodes (16-byte records, then 32 bytes of pose each) give
+ * each pipe (shape 0x80) and cylinder (0xC0) span; a CPU racer's tick on one is binned by its angle round
+ * the tube from the drive line (cylinder: from the top, the displacement's up; pipe: from the bottom). */
+#define TUBE_BINS 4
+static int32_t tube_start[4096]; static uint16_t tube_flags[4096], tube_hw[4096]; static int16_t tube_lat[4096]; static int tube_n, tube_last;
+static long tube_ticks, tube_bin[TUBE_BINS];
+static void tube_load(const char* path) {
+    size_t n; unsigned char* b = read_file(path, &n);
+    if (!n || n % 48 || n / 48 > 4096) die("tube pack is not nodes x 48");
+    tube_n = (int)(n / 48);
+    for (int i = 0; i < tube_n; ++i) {
+        const unsigned char* p = b + 16 * i;
+        tube_start[i] = (int32_t)(((uint32_t)p[0] << 24) | ((uint32_t)p[1] << 16) | ((uint32_t)p[2] << 8) | p[3]);
+        tube_hw[i] = (uint16_t)((p[8] << 8) | p[9]); tube_lat[i] = (int16_t)((p[4] << 8) | p[5]); tube_flags[i] = (uint16_t)((p[10] << 8) | p[11]);
+    }
+    free(b);
+}
+static int tube_shape(double dist_units, double length) {
+    double d = fmod(dist_units, length); if (d < 0) d += length;
+    const int32_t q8 = (int32_t)(d * 256.0);
+    int lo = 0, hi = tube_n - 1;
+    while (lo < hi) { const int mid = (lo + hi + 1) / 2; if (tube_start[mid] <= q8) lo = mid; else hi = mid - 1; }
+    tube_last = lo;
+    const int shape = tube_flags[lo] & 0x01c0;
+    return shape == 0x0080 ? 1 : shape == 0x00c0 ? 2 : 0;
+}
+static void tube_add(double angle_deg) {
+    const int k = angle_deg < 30 ? 0 : angle_deg < 60 ? 1 : angle_deg < 90 ? 2 : 3;
+    ++tube_bin[k]; ++tube_ticks;
+}
+
 int main(int argc, char** argv) {
-    const char *course = 0, *rom = 0, *line = 0, *report = 0, *trace = 0;
+    const char *course = 0, *rom = 0, *line = 0, *report = 0, *trace = 0, *tube_pack = 0;
     int difficulty = 1, max_ticks = 14000, player_cpu = 1, tuning_course = 0, zones = 0;
     unsigned seed = 1;
     for (int i = 1; i + 1 < argc; i += 2) {
@@ -54,7 +87,8 @@ int main(int argc, char** argv) {
         else if (!strcmp(argv[i], "--ticks")) max_ticks = atoi(argv[i + 1]);
         else if (!strcmp(argv[i], "--player-cpu")) player_cpu = atoi(argv[i + 1]);
         else if (!strcmp(argv[i], "--tuning-course")) tuning_course = atoi(argv[i + 1]);
-        else if (!strcmp(argv[i], "--zones")) zones = atoi(argv[i + 1]);   /* 1: the surface zones, jumps and mines (rivals_bake.c) */
+        else if (!strcmp(argv[i], "--zones")) zones = atoi(argv[i + 1]);
+        else if (!strcmp(argv[i], "--tube-pack")) tube_pack = argv[i + 1];   /* RIVALS.PAK: tube_angles over its pipe and cylinder nodes */   /* 1: the surface zones, jumps and mines (rivals_bake.c) */
         else die("unknown argument");
     }
     if (!course || !rom || !line || !report) die("usage: see gp_ref_main.c");
@@ -68,6 +102,7 @@ int main(int argc, char** argv) {
     if (n != 0x400) die("CPU line must be 0x400 bytes");
     static short cpu_line[0x200];
     for (int i = 0; i < 0x200; ++i) cpu_line[i] = (short)((lb[2 * i] << 8) | lb[2 * i + 1]);
+    if (tube_pack) tube_load(tube_pack);
     if (ref_load_course(rec, 1) != 0 || ref_race_init() != 0) die("race set-up failed");
     if (rb_gp_tuning_course(tuning_course) != 0) die("--tuning-course is the original course index, 0..23");
     const int total = rb_gp_init(difficulty, seed, cpu_line);
@@ -104,6 +139,17 @@ int main(int argc, char** argv) {
                 if ((v[2] & ST_RETIRED) && retire_tick[i] < 0) { retire_tick[i] = t - start_tick; ++retired; }
                 if (v[1] != prev_pos[i]) { changed = 1; ++rank_swaps; }
                 if (!(v[2] & (ST_FINISHED | ST_RETIRED))) {
+                    if (tube_pack && i > 0) {
+                        const int shape = tube_shape(f[0], length);
+                        if (shape) {
+                            const double up = rb_racer_up(i), a = atan2(fabs((double)f[1]), shape == 2 ? up : -up) * 57.29578;
+                            tube_add(a);
+                            if (getenv("FZX_TUBE_DEBUG") && t % 50 == 0) {
+                                float dw[3]; rb_racer_disp(i, dw);
+                                fprintf(stderr, "tube t %d i %d shape %d dist %.0f lat %.1f up %.1f angle %.0f node_lat %d hw %d world_up %.1f\n", t, i, shape, f[0], f[1], up, a, tube_lat[tube_last], tube_hw[tube_last], dw[1]);
+                            }
+                        }
+                    }
                     if (f[0] > lead) lead = f[0];
                     if (f[0] < last) last = f[0];
                     speed_sum[i] += f[2]; speed_n[i]++;
@@ -128,7 +174,9 @@ int main(int argc, char** argv) {
     fprintf(o, " \"ticks\": %d, \"race_start_tick\": %d, \"course_length\": %.3f, \"finished\": %d, \"retired\": %d,\n", ticks, start_tick, length, finished, retired);
     fprintf(o, " \"rank_change_ticks\": %d, \"rank_swaps\": %d, \"spread_mean\": %.1f, \"spread_max\": %.1f,\n \"spread_every_600_ticks\": [", rank_change_ticks, rank_swaps / 2, spread_n ? spread_sum / spread_n : 0.0, spread_max);
     for (int i = 0; i < spread_marks; ++i) fprintf(o, "%s%.0f", i ? "," : "", spread_at[i]);
-    fprintf(o, "],\n \"racers\": [\n");
+    fprintf(o, "],\n");
+    if (tube_pack) fprintf(o, " \"tube_ticks\": %ld, \"tube_angle_bins\": [%ld,%ld,%ld,%ld],\n", tube_ticks, tube_bin[0], tube_bin[1], tube_bin[2], tube_bin[3]);
+    fprintf(o, " \"racers\": [\n");
     for (int i = 0; i < MAXR; ++i) {
         fprintf(o, "  {\"id\": %d, \"character\": %d, \"grid\": %d, \"grid_dist\": %.2f, \"grid_lateral\": %.2f, \"target_lap_ms\": %d, \"chase\": %d, \"pace_rank\": %d, \"max_energy\": %.2f,"
                    " \"lap_end_ticks\": [%d,%d,%d], \"finish_tick\": %d, \"final_pos\": %d, \"retire_tick\": %d, \"mean_speed\": %.3f,"

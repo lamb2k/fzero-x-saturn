@@ -164,6 +164,34 @@ static void line_pose_fast(const sh2z_track_state_t *t, int32_t pos[3], int16_t 
                - (int32_t)((l * lat) >> 14) + (int32_t)(((int64_t)u * hover) >> 14);
     }
 }
+#if ENG_ATTACKS
+/* The draw's poses (fzx_field_cars) kept for the contact (engine_attacks.c): a contact on the
+ * same state, before the next field tick (the contact run ahead), takes the draw's pose instead
+ * of computing it again. line_pose_fast reads only the node, distance and lateral (and the load's
+ * hover and stations), so equal keys give the same pose. */
+typedef struct { uint32_t node; int32_t dist, lateral; int32_t pos[3]; int16_t rows[3][3]; } pose_memo_t;
+static pose_memo_t pose_memo[FZX_FIELD_CARS];
+volatile uint32_t fzx_field_pose_memo[2];   /* contact poses from the draw, computed */
+static void pose_keep(uint32_t i, const sh2z_track_state_t *t, const int32_t pos[3], const int16_t rows[3][3]) {
+    pose_memo_t *m = &pose_memo[i];
+    m->node = t->node; m->dist = t->dist; m->lateral = t->lateral;
+    memcpy(m->pos, pos, sizeof(m->pos)); memcpy(m->rows, rows, sizeof(m->rows));
+}
+static void contact_pose(const sh2z_track_state_t *t, int32_t pos[3], int16_t rows[3][3]) {
+    const uintptr_t off = (uintptr_t)t - (uintptr_t)&veh[0].t;
+    const uint32_t i = (uint32_t)(off / sizeof(veh[0]));
+    if (off % sizeof(veh[0]) == 0u && i < FZX_FIELD_CARS) {
+        const pose_memo_t *m = &pose_memo[i];
+        if (m->node == t->node && m->dist == t->dist && m->lateral == t->lateral) {
+            memcpy(pos, m->pos, sizeof(m->pos)); memcpy(rows, m->rows, sizeof(m->rows));
+            ++fzx_field_pose_memo[0];
+            return;
+        }
+    }
+    ++fzx_field_pose_memo[1];
+    line_pose_fast(t, pos, rows);
+}
+#endif
 #endif
 
 #if E2_PACK
@@ -352,7 +380,8 @@ bool fzx_field_load(const sh2z_vd_track_t *track, const sh2z_vd_body_t *player) 
         params.contact_lat = 0;
         params.wall_energy = 0;
         fzx_atk_field_t a;
-        a.field = &field; a.veh = veh; a.brain = brain; a.line = &line; a.pose = line_pose_fast;
+        a.field = &field; a.veh = veh; a.brain = brain; a.line = &line; a.pose = contact_pose;
+        for (uint32_t i = 0; i < FZX_FIELD_CARS; ++i) pose_memo[i].node = UINT32_MAX;   /* no pose kept */
         a.config = &fzx_rivals_field[0][0]; a.config_stride = (uint32_t)(sizeof(fzx_rivals_field[0]) / sizeof(fzx_rivals_field[0][0]));
         a.count = FZX_FIELD_CARS;
         fzx_atk_init(&a, FZX_RIVALS_FIELD_SEED);
@@ -453,6 +482,9 @@ unsigned fzx_field_cars(fzx_field_car_t *out, const sh2z_vd_body_t *player) {
 #if E2_FASTPOSE
         fzx_field_car_t *o = &out[i];
         line_pose_fast(&veh[i].t, o->pos, o->basis);
+#if ENG_ATTACKS
+        pose_keep(i, &veh[i].t, o->pos, o->basis);
+#endif
         o->id = (uint16_t)i;
         dist[i] = dist_sq(o->pos, player->pos);
         if (dist[i] < DLIM(NEAR_UNITS)) ++near;

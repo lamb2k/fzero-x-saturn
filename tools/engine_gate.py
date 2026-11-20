@@ -18,11 +18,23 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 TOOLS = REPO / 'tools'
 GATE = TOOLS / 'engine_gate'
-DEF_EVIDENCE = Path(os.environ.get('FZX_GATE_EVIDENCE', r'C:\Users\lambd\fzx-evidence\host\claude-gate'))
-DEF_RECEIPTS = Path(os.environ.get('FZX_GATE_RECEIPTS', r'C:\Users\lambd\fzx-evidence\host\gate-receipts'))
-DEF_HARNESS = Path(os.environ.get('FZX_GATE_HARNESS', r'C:\Users\lambd\fzx-evidence\host\tools\ymir-gate\ymir-gate.exe'))
-DEF_BIOS = Path(os.environ.get('FZX_GATE_BIOS', r'C:\Game Dev\Emulators\Sega Saturn BIOS\Sega Saturn BIOS\Bios Saturn 1.01a (U) [!].bin'))
-DEF_SH2ZAM = Path(os.environ.get('FZX_GATE_SH2ZAM', r'C:\Users\lambd\SH2ZAM'))
+# Local paths: environment first, then <evidence root>/host/tools/ymir-gate/local.json (outside git), then defaults
+# relative to the evidence root ($FZX_EVIDENCE, else ~/fzx-evidence) and to this checkout.
+EV_ROOT = Path(os.environ.get('FZX_EVIDENCE') or Path.home() / 'fzx-evidence')
+HARNESS_DIR = EV_ROOT / 'host' / 'tools' / 'ymir-gate'
+LOCAL = json.loads((HARNESS_DIR / 'local.json').read_text()) if (HARNESS_DIR / 'local.json').exists() else {}
+
+
+def local(env, key, default):
+    return Path(os.environ.get(env) or LOCAL.get(key) or default)
+
+
+DEF_EVIDENCE = local('FZX_GATE_EVIDENCE', 'evidence', EV_ROOT / 'host' / 'claude-gate')
+DEF_RECEIPTS = local('FZX_GATE_RECEIPTS', 'receipts', EV_ROOT / 'host' / 'gate-receipts')
+DEF_HARNESS = local('FZX_GATE_HARNESS', 'harness', HARNESS_DIR / 'ymir-gate.exe')
+DEF_BIOS = local('FZX_GATE_BIOS', 'bios', HARNESS_DIR / 'bios.bin')
+DEF_SH2ZAM = local('FZX_GATE_SH2ZAM', 'sh2zam', REPO.parent / 'SH2ZAM')
+DEF_MUSIC = local('FZX_GATE_MUSIC', 'music', EV_ROOT / 'host' / 'claude-snd' / 'music-all')
 DISTRO = os.environ.get('FZX_GATE_DISTRO', 'Ubuntu-24.04')
 FIELD_MS = 1000.0 / 59.94
 PAINT = 0xa55aa55a
@@ -856,7 +868,7 @@ def main():
     ap.add_argument('--harness', default=str(DEF_HARNESS))
     ap.add_argument('--bios', default=str(DEF_BIOS))
     ap.add_argument('--sh2zam', default=str(DEF_SH2ZAM))
-    ap.add_argument('--music', default=os.environ.get('FZX_GATE_MUSIC', r'C:\Users\lambd\fzx-evidence\host\claude-snd\music-all'),
+    ap.add_argument('--music', default=str(DEF_MUSIC),
                     help='bgm_cdda.py output (local, ROM-derived) for the shipping mixed-mode discs')
     ap.add_argument('--jobs', type=int, default=max(2, min(12, (os.cpu_count() or 4) - 2)))
     ap.add_argument('--clips', action='store_true', help='keep the scripts\' clip windows')

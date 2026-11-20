@@ -118,13 +118,15 @@ Never change a limit after seeing a result. A change needs the integrator, and t
 ## Setup
 
 - **Harness.** `ymir-gate.exe` links Ymir, which is GPL-3.0, while this repository is MIT. So its source stays
-  outside git, in `C:\Users\lambd\fzx-evidence\host\tools\ymir-gate\`: `ymir-gate.cpp`, `build.cmd` and
-  `compile.rsp`. It builds against `Ymir-baseline-a9f0cdae` (`Full-x86-64-AVX2-MSVC-Release`), the same Ymir as
+  outside git, in `<evidence>/host/tools/ymir-gate/` (`<evidence>` is `$FZX_EVIDENCE`, else `~/fzx-evidence`):
+  `ymir-gate.cpp`, `build.cmd` and `compile.rsp`. Local paths (BIOS, music, SH2ZAM clone) come from the
+  environment (`FZX_GATE_BIOS`, `FZX_GATE_MUSIC`, `FZX_GATE_SH2ZAM`, `FZX_GATE_HARNESS`) or from `local.json` in that
+  folder; nothing machine-specific is in the repository. It builds against `Ymir-baseline-a9f0cdae` (`Full-x86-64-AVX2-MSVC-Release`), the same Ymir as
   every earlier lane harness. It is headless, with the software renderer unthreaded, the SH-2 cache on, the 4 MB
   DRAM cartridge and formatted internal backup RAM. It merges the race harness (`ymir-look`) and the scenes harness
   (`ymir-snd-scn`). The new parts are pokes by address or pointer (`*_sym+off`), per-field scene words and pixel
   hashes, and an `exit` line. Set its path with `FZX_GATE_HARNESS` and the BIOS with `FZX_GATE_BIOS`.
-- **Stage.** WSL `/root/yaul-image/claude-gate-*`, driven by `tools/engine_gate/stage.sh`. Create one per lane
+- **Stage.** WSL `yaul-image/claude-gate-*` in root's home (`FZX_YAUL_IMAGE`), driven by `tools/engine_gate/stage.sh`. Create one per lane
   with `--seed-stage <a stage with generated assets> --stage claude-gate-<lane>`.
   - The seed's `generated/` is copied, not hard-linked, so other lanes' regenerations cannot reach it.
   - Each gated tree gets the SH2ZAM pin from `saturn/engine/sh2zam.pin` and the legacy submodule pin, both

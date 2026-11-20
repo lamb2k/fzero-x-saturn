@@ -1,6 +1,6 @@
 #!/bin/bash
 # Engine gate: WSL side (run as root, outside the chroot). Driven by tools/engine_gate.py; usable by hand.
-#   stage.sh init STAGE SEED_STAGE           create /root/yaul-image/STAGE: generated (copied) and upstream (linked)
+#   stage.sh init STAGE SEED_STAGE           create $HOME/yaul-image/STAGE (root: the chroot image): generated (copied) and upstream (linked)
 #                                            from SEED_STAGE, the work tree w/ (empty)
 #   stage.sh tree STAGE TAR SUBPIN           replace w/ with the tree in TAR (git archive from Windows); link
 #                                            generated, upstream and third_party/SH2ZAM (lib-SUBPIN, the legacy line's)
@@ -15,7 +15,7 @@ set -euo pipefail
 set -u
 cmd=${1:?}; stage=${2:?}
 case "$stage" in claude-gate-*) ;; *) echo "stage must be claude-gate-*" >&2; exit 9;; esac
-R=/root/yaul-image; S=$R/$stage
+R=${FZX_YAUL_IMAGE:-$HOME/yaul-image}; S=$R/$stage
 [ -n "$S" ] && [ "$S" != "/" ] && [ "$S" != "$R/" ] || exit 9
 
 chroot_run() { chroot $R /bin/bash "$@"; }

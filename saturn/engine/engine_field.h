@@ -62,8 +62,14 @@ extern volatile uint32_t fzx_field_report[16];
 
 /* E2 field lane: [0] pack (1 ok, 2 refused, 3 count/length, 4 starts), [1] max node start delta Q8,
  * [2] cars drawn last frame, [3] max drawn, [4] culled behind, [5] culled far, [6] culled off screen,
- * [7] shadows last frame, [8] culled total, [9]..[15] spare. */
+ * [7] shadows last frame, [8] culled total, [9] node 0 offset, [10] zones, [11] dash from,
+ * [12] class raced and [13] its pace rows' sum (ENG_RIVAL_CLASS), [14]..[15] spare. */
 extern volatile uint32_t fzx_e2_report[16];
+#if defined(ENG_RIVAL_CLASS) && ENG_RIVAL_CLASS
+/* line-field-5 (d): the class whose rows a non-scenes image races (0 novice .. 3 master; default 1), read at
+ * fzx_field_load. Scenes images race fzx_session.difficulty. */
+extern volatile uint32_t fzx_field_class;
+#endif
 #if defined(ENG_RIVAL_BEHAVE) && ENG_RIVAL_BEHAVE
 /* line-field-5 events, in tick order (the attacks glue and the KO reward read them): kind FALL (the rival left the
  * line; by = the vehicle of its last contact incident or -1; tick = the fall tick), KO (its fall was credited to

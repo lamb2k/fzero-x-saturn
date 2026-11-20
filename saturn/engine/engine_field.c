@@ -28,6 +28,43 @@
 #error the reference field has fewer vehicles than E1_FIELD + 1
 #endif
 #endif
+#ifndef ENG_RIVAL_CLASS
+#define ENG_RIVAL_CLASS 0
+#endif
+#if ENG_RIVAL_CLASS && !E2_PACK
+#error ENG_RIVAL_CLASS needs E2_PACK=1
+#endif
+#if ENG_RIVAL_CLASS
+/* line-field-5 (d): the field's rows for the class raced (C-097: cpu.c's target tables are course * 4 + gDifficulty).
+ * One row set per class, from the reference GP at that class (tools/rivals_field_header.py --classes), grid column
+ * included (Master's tier grid moves places). Scenes images race fzx_session.difficulty; other images
+ * fzx_field_class (0 novice .. 3 master), read at fzx_field_load. */
+#if defined(ENG_COURSE_SELECT) && ENG_COURSE_SELECT
+#include "course_class.h"
+#define FIELD_ROWS (fzx_course_field_class[fzx_cid - fzx_course_ids][field_class_now])
+#else
+#include "rivals_field_class.h"
+#if FZX_RIVALS_FIELD_CLASS_SEED != FZX_RIVALS_FIELD_SEED
+#error the class rows come from another seed than rivals_field.h
+#endif
+#define FIELD_ROWS (fzx_rivals_field_class[field_class_now])
+#endif
+#if defined(ENG_SCENES) && ENG_SCENES
+#include "engine_scenes.h"
+extern fzx_session_t fzx_session;
+#endif
+volatile uint32_t fzx_field_class = 1u;
+static uint32_t field_class_now = 1u;
+static void field_class_pick(void) {
+#if defined(ENG_SCENES) && ENG_SCENES
+    field_class_now = fzx_session.difficulty & 3u;
+#else
+    field_class_now = fzx_field_class & 3u;
+#endif
+}
+#else
+#define FIELD_ROWS CSEL(field,fzx_rivals_field)
+#endif
 #ifndef ENG_RIVAL_SURFACE
 #define ENG_RIVAL_SURFACE 0
 #endif
@@ -284,7 +321,7 @@ volatile uint32_t fzx_field_grid_src;
  * the previous finish reversed, the player included. The cup's grid[] is that finish (entrant
  * by place, set at NEXT), so a retry of a round starts from the same grid. */
 static void grid_places(void) {
-    for (uint32_t i = 0; i < FZX_FIELD_CARS; ++i) fzx_field_grid[i] = (uint8_t)CSEL(field,fzx_rivals_field)[i][0];
+    for (uint32_t i = 0; i < FZX_FIELD_CARS; ++i) fzx_field_grid[i] = (uint8_t)FIELD_ROWS[i][0];
     fzx_field_grid_src = 1;
     const fzx_cup_t *c = fzx_cup();
     if ((c->state != FZX_CUP_READY && c->state != FZX_CUP_RACING) || c->round == 0u || c->entrants.count != FZX_FIELD_CARS) return;
@@ -305,6 +342,15 @@ bool fzx_field_load(const sh2z_vd_track_t *track, const sh2z_vd_body_t *player) 
     memset((void *)fzx_field_report, 0, sizeof(fzx_field_report));
     trk = track;
     if (!build_line(track)) { fzx_field_report[0] = 2; return false; }
+#if ENG_RIVAL_CLASS
+    {
+        /* [12] the class raced, [13] a sum over its rows' pace columns (target lap ms, finish ms, chase cap) */
+        field_class_pick();
+        uint32_t sum = 0;
+        for (uint32_t i = 0; i < FZX_FIELD_CARS; ++i) sum = sum * 31u + (uint32_t)FIELD_ROWS[i][1] + (uint32_t)FIELD_ROWS[i][6] * 7u + (uint32_t)FIELD_ROWS[i][7];
+        fzx_e2_report[12] = field_class_now; fzx_e2_report[13] = sum;
+    }
+#endif
 #if E2_PACK
     /* RIVALS.PAK is the HOST bake on course-line-1: the same station count and line length as
      * the line built from the physics course (whose spans' arc lengths are approximate, so the
@@ -398,10 +444,10 @@ bool fzx_field_load(const sh2z_vd_track_t *track, const sh2z_vd_body_t *player) 
 #define GRID_PLACE(i, cf) ((uint32_t)(cf)[0])
 #endif
         sh2z_track_state_t ps;
-        sh2z_field_grid_slot(&line, GRID_PLACE(0, CSEL(field,fzx_rivals_field)[0]) - 1u, U(146), U(100), U(50), 4, &ps);
+        sh2z_field_grid_slot(&line, GRID_PLACE(0, FIELD_ROWS[0]) - 1u, U(146), U(100), U(50), 4, &ps);
         const int64_t shift = ((int64_t)veh[0].t.lap * line.length + veh[0].t.dist) - ((int64_t)ps.lap * line.length + ps.dist);
         for (uint32_t i = 0; i < FZX_FIELD_CARS; ++i) {
-            const int32_t *cf = CSEL(field,fzx_rivals_field)[i];
+            const int32_t *cf = FIELD_ROWS[i];
             const int32_t ms = cf[1], chase = cf[2], maxe = cf[3], aggr = cf[4];
             sh2z_track_state_t slot;
             sh2z_field_grid_slot(&line, GRID_PLACE(i, cf) - 1u, U(146), U(100), U(50), 4, &slot);

@@ -5,8 +5,9 @@
 #
 #   make -C saturn/engine SH2ZAM_ROOT=<checkout of the engine pin> [FZX_VDP1_DBANK=0|1]
 #
-# The SH2ZAM pin is saturn/engine/sh2zam.pin: SH2ZAM main accd505, merge train 7 (PR #56: vehicle-dynamics-2,
-# pipes and cylinders), after train 6 (PR #55: line-field-3, the first-lap chase cap). Before it, branch
+# The SH2ZAM pin is saturn/engine/sh2zam.pin: SH2ZAM main 63449de, merge train 9 (PR #61: body-contact-1,
+# vehicle-dynamics-3, effect-pool-1, rotation-sprites-4). Before it, main accd505, merge train 7 (PR #56:
+# vehicle-dynamics-2, pipes and cylinders), after train 6 (PR #55: line-field-3, the first-lap chase cap). Before it, branch
 # claude/jack-train 8449e35 (the same library sources). Before that, main 5a94dbe, merge train 5 (PR #51: dual-claim-1,
 # compiled only with ENG_BAL_CLOUDS=2, and line-field-2, whose second-lap re-target is off while a brain's
 # finish_ticks is 0). Before it, main 93b3774 (train 4, PR #48): rotation-sprites-2/-3, line-follower-1,

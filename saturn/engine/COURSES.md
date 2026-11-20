@@ -382,3 +382,50 @@ Frames from tick 420.
   identical, 4,519 x 2F. Pixel hash 9750aeb61b9128fb with the balance defaults; with `ENG_BAL_CLOUDS=0
   ENG_BAL_EARLY=0 ENG_BAL_PREWARM=0` it is c8d8ff834422fd3, line-field-3's hash (as line-field-2's 84b959e1 became
   994dd847 with the balance on).
+
+## 10. Jack Cup Grand Prix (lane `claude/jack-gp`, 2026-11-20)
+
+HOST and EMULATOR (Ymir headless) tiers; timings MODELLED; hardware UNRUN. Evidence: `fzx-evidence/host/claude-jgp/`.
+Pin: SH2ZAM main 6125bb8 (merge train 8, line-field-4; byte-identical images to ed55d38).
+
+**Skyline refusal (status 30).** The texture-CD FNV check (status 8) refused SKYL2.PAK: all 8,320 bytes arrived,
+the last sector as zeros. Cause: a sound CD command (the TOC read) left road_cd's stream open; `jack-wip` was based
+before 8cae676 (every sound CD command now ends the stream). `jack-wip` rebuilt here (e3443d32) fails at field 986;
+the same tree with 8cae676 alone races Sand Ocean. A second, rarer arrival fault showed on a GP NEXT load
+(SKYL1.PAK's sectors 3 and 4 arrived as an ISO span 128 bytes off a sector boundary, stream open, no sound command
+in flight): whole-file loads that fail the copy check or the FNV are now read again from a new stream, up to twice,
+and counted (`fzx_texture_cd_retries`). Control: SKYL2.PAK with one byte flipped on the disc is still refused
+(fault 30 after 2 retries). The root cause of that second fault is open.
+
+**All six courses from one select image** (driver mode, sound on, rival surface on): race times equal HOST (104,040,
+90,563, 92,553, 108,038, 126,928 ms; Port Town retires as HOST); every interval 2F, 0 over two; critical path p99/max
+MC 24.88/27.29, Silence 24.62/25.51, Sand Ocean 26.63/28.03, Devil's Forest 24.13/25.44, Big Blue 23.24/24.81,
+Port Town 23.47/25.32 ms; master stack unused 59,568 B; slave guard 0 trips.
+
+**Rival bands (HOST, line-field-4 at the pin):** 14/14 and exact on all six courses (`all6.sh`). Control: Port Town
+without zones fails 5 bands.
+
+**Rivals round the tubes (3D).** `line_pose` / `line_pose_fast` place a pipe or cylinder rival on the tube's surface,
+its up turned about forward by lateral / half width. Still pairs (`ENG_RIVAL_SURFACE` 1 against 0): rivals ride
+Sand Ocean's pipe walls and sit on Big Blue's cylinder surface. **Open gap (tube wrap):** the tube-angle check
+(`fzx-gp-ref --tube-pack`, `fzx-rivals-gp --tube-angles`, 6 seeds) gives the share of tube ticks beyond 60 degrees
+from the drive line: Big Blue reference 0.56-0.65, native 0.09-0.12, wrap off 0.000; Sand Ocean reference
+0.18-0.22, native 0.09-0.10, wrap off 0.000. The source's CPU racers go all round the cylinder (about 40% of their
+tube time below the axis; the same with world up); ours stay within about 60 degrees of the top. The band is Codex's
+call; the fix is a line-field-5 card with the rival drift, walls and falls.
+
+**GP grid.** From round two the grid is the previous finish reversed (cpu.c: position = N - D_80115D50[i] + 1, set
+at NEXT in menus.c), the player included; round one, its retries and other modes keep the course header's tier grid.
+The grid is placed round the player's start body, as round one already does (moving the body put it past the line).
+Scenes images only; `fzx_field_grid` / `fzx_field_grid_src` report it.
+
+**Cup runs** (diag catalog `FZX_CUP_DIAG_CATALOG=1`, driver mode, sound on; image gp-fix3 5da8bdf6):
+- Six rounds at Novice: from round two every grid equals the previous finish reversed (5/5); points non-increasing by
+  place and `last_place` consistent every round; race times equal HOST on rounds 1-5; 0 disc reads under music
+  (3,951 reads); every race interval 2F, 0 over two; menus 0 over two. Critical path p99/max by round: 24.99/27.99,
+  25.18/28.43, 27.41/31.12 (Sand Ocean from a GP grid), 24.27/25.72, 25.06/27.29, 24.08/25.97 ms.
+- Round 6 (Port Town) ends in a retirement: the HOST-equal driver retires there, as the R01 reference does (also with
+  E1_DRIVER_KH 1.5, 2.0, 3.5). A finished sixth round needs a driver that finishes Port Town.
+- Three rounds at Standard: the same checks pass. Rival results equal Novice's: the engine's rival tuning does not
+  depend on the class yet (headers baked at difficulty 1); the class sets only the spare machines.
+- One whole-file re-read in the six rounds (status 8 on the round-2 load), none in the three.

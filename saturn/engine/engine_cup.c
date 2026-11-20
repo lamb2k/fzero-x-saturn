@@ -7,10 +7,19 @@
 /* ---- Catalog ------------------------------------------------------------------------------
  * Until the courses lane supplies its rows and per-course packs: course 0 runs Time Attack;
  * course 1 is listed, unavailable. */
+#if defined(FZX_CUP_DIAG_CATALOG) && FZX_CUP_DIAG_CATALOG
+/* Diagnostic build only (FZX_CUP_DIAG_CATALOG=1): Jack's six rounds GP-available on course 0's
+ * assets, for the GP flow and pause-retry checks before the courses lane lands. */
+static const fzx_course_row_t catalog[] = {
+    { 0u, 0u, FZX_AVAIL_TA | FZX_AVAIL_GP, 0u }, { 1u, 1u, FZX_AVAIL_GP, 0u }, { 2u, 2u, FZX_AVAIL_GP, 0u },
+    { 3u, 3u, FZX_AVAIL_GP, 0u }, { 4u, 4u, FZX_AVAIL_GP, 0u }, { 5u, 5u, FZX_AVAIL_GP, 0u },
+};
+#else
 static const fzx_course_row_t catalog[] = {
     { 0u, 0u, FZX_AVAIL_TA, 0u },
     { 1u, 1u, 0u, 0u },
 };
+#endif
 #define CATALOG_COUNT (sizeof(catalog) / sizeof(catalog[0]))
 
 const fzx_course_row_t *fzx_course_catalog(unsigned *count) {

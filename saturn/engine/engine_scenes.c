@@ -994,8 +994,56 @@ static void race_snapshot(uint32_t reason) {
     fzx_scn_report[13] = reason;
 }
 
+/* The pause menu (SCENES.md 11.4). START pauses a race in progress: the drive holds at its tick
+ * (frames keep presenting, physics and rivals frozen, no catch-up after). RETRY produces the
+ * PAUSE_RETRY outcome: in GP the manager applies it (fzx_cup_accept checks the lock before any
+ * change; a refusal keeps the race paused); in Time Attack it restarts the run. QUIT ends the
+ * race as the forced QUIT does. fzx_scn_pause: [0] pauses, [1] retries produced, [2] retries
+ * refused (locked), [3] resumes, [4] quits, [5] the menu cursor. */
+volatile uint32_t fzx_scn_pause[8];
+extern volatile uint32_t fzx_e0_hold_tick;
+#define HOLD (*(volatile uint32_t *)((uintptr_t)&fzx_e0_hold_tick | CPU_CACHE_THROUGH))
+static bool paused;
+static unsigned pause_at;
+static void pause_draw(bool locked) {
+    static const char *const item[3] = { "CONTINUE", "RETRY", "QUIT" };
+    dbgio_printf("\x1b[H\x1b[2J\n\n\n\n\n\n\n\n             PAUSE\n\n");
+    for (unsigned i = 0; i < 3u; ++i)
+        dbgio_printf("           %s %s%s\n", i == pause_at ? ">" : " ", item[i], i == 1u && locked ? " (NO SPARES)" : "");
+    dbgio_flush();
+    fzx_scn_pause[5] = pause_at;
+}
+static void pause_end(void) {
+    paused = false; HOLD = 0u;
+    dbgio_printf("\x1b[H\x1b[2J");
+    dbgio_flush();
+}
+static void race_quit(void);
+static void race_pause_retry(void);
+static void pause_tick(void) {
+    const bool gp = fzx_cup()->state == FZX_CUP_RACING;
+    const bool locked = gp && fzx_cup_live()->retry_locked;
+    if (input.repeat & (PAD_UP | PAD_DOWN)) {
+        pause_at = (pause_at + ((input.repeat & PAD_UP) ? 2u : 1u)) % 3u;
+        pause_draw(locked);
+    }
+    if (!(input.edges & (PAD_A | PAD_START))) return;
+    sh2z_scene_input_consume(&input);
+    if (pause_at == 0u || (input.edges & PAD_START && !(input.edges & PAD_A))) { ++fzx_scn_pause[3]; pause_end(); }
+    else if (pause_at == 1u) race_pause_retry();
+    else { ++fzx_scn_pause[4]; pause_end(); race_quit(); }
+}
+
 static void race_tick(void *u, uint32_t s) {
     (void)u; (void)s;
+    if (paused) { pause_tick(); return; }
+    if (end_reason == FZX_END_NONE && (input.edges & PAD_START) && fzx_drive_tick() > 0u) {
+        paused = true; pause_at = 0u; HOLD = fzx_drive_tick();
+        ++fzx_scn_pause[0];
+        sh2z_scene_input_consume(&input);
+        pause_draw(fzx_cup()->state == FZX_CUP_RACING && fzx_cup_live()->retry_locked);
+        return;
+    }
     const sh2z_vd_body_t *b = fzx_drive_state();
     const uint32_t kmh = (uint32_t)(((int64_t)(b->speed < 0 ? -b->speed : b->speed) * 216) / (65536 * 10));
     if (kmh > max_kmh) max_kmh = kmh;
@@ -1019,8 +1067,37 @@ static void race_tick(void *u, uint32_t s) {
     }
 }
 
+static void race_quit(void) {
+    end_reason = FZX_END_QUIT; end_wait = 30u;
+    race_snapshot(end_reason);
+    if (fzx_cup()->state == FZX_CUP_RACING) {
+        const fzx_cl_key_t k = cls_key(FZX_OUT_QUIT);
+        (void)fzx_cl_outcome_only(&scn_cls, &k);
+        cls_done = true;
+    }
+}
+static void race_pause_retry(void) {
+    if (fzx_cup()->state == FZX_CUP_RACING) {
+        fzx_classification_t c;
+        const fzx_cl_key_t k = cls_key(FZX_OUT_PAUSE_RETRY);
+        if (!fzx_cl_outcome_only(&c, &k) || !fzx_cup_accept(&c)) {
+            ++fzx_scn_pause[2]; /* locked (no spares at race start): no debit, no transition */
+            pause_draw(true);
+            return;
+        }
+        scn_cls = c; cls_done = true;
+    }
+    ++fzx_scn_pause[1];
+    end_reason = FZX_END_PAUSE_RETRY;
+    race_snapshot(end_reason);
+    pause_end();
+    retry_pending = true; /* same course: the resident set is reused */
+    (void)request(FZX_SCN_LOAD, RANK_GOTO);
+}
+
 static void race_release(void *u, uint32_t s) {
     (void)u; (void)s;
+    paused = false; HOLD = 0u;
     fzx_race_render_callback(false);
     race_regs = *vdp2_regs_get();
     race_regs_kept = true;

@@ -12,7 +12,7 @@
 
 enum { FZX_SCN_BOOT, FZX_SCN_TITLE, FZX_SCN_SELECT, FZX_SCN_LOAD, FZX_SCN_RACE, FZX_SCN_RESULTS, FZX_SCN_RECORDS,
        FZX_SCN_COUNT };
-enum { FZX_END_NONE, FZX_END_FINISH, FZX_END_RETIRE, FZX_END_QUIT };
+enum { FZX_END_NONE, FZX_END_FINISH, FZX_END_RETIRE, FZX_END_QUIT, FZX_END_PAUSE_RETRY };
 
 /* Session selection (SCENES.md section 3), outside every scene arena. */
 typedef struct {

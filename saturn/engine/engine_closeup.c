@@ -82,6 +82,15 @@ static float fixed_to_float(int32_t v, unsigned shift) {
     return r.f;
 }
 
+#if ENG_BAL_PREWARM
+/* Prewarm (claude/balance): every bank and slot's native tables and templates at load, for the
+ * player's LOD (slot 0) and the field's 3D rival LOD (fzx_field_k bits 8..15; the other slots),
+ * so the first race frame of each bank does not build them (8 to 9 ms each in Ymir). */
+static void prewarm(void);
+#define PREWARM() prewarm()
+#else
+#define PREWARM() ((void)0)
+#endif
 #if ENG_SCENES
 /* The pack loaded: file, sizes, checks and body colour. */
 typedef struct {
@@ -139,6 +148,7 @@ static uint32_t load_pack(const pack_id_t *id, const vdp1_vram_partitions_t *par
     fzx_ab_report[10] = (uint32_t)((uintptr_t)shades[0][0] & 0x7ffffu);
     fzx_ab_report[11] = (uint32_t)((uintptr_t)shades[1][0] & 0x7ffffu);
     fzx_ab_report[12] = (uint32_t)(((uintptr_t)shades[1][FZX_CLOSEUP_CARS - 1u] + SHADE_BYTES) & 0x7ffffu);
+    PREWARM();
     fzx_ab_report[0] = 1;
     return floor;
 }
@@ -161,6 +171,7 @@ void fzx_closeup_reset(void) {
     memset(shades[0][0], 0, 2u * FZX_CLOSEUP_CARS * SHADE_BYTES);
     memset(&work, 0, sizeof(work));
     memset(tables, 0, sizeof(tables));
+    PREWARM();
     for (unsigned i = 1; i < 16u; ++i) if (i < 9u || i > 12u) fzx_ab_report[i] = 0;
 }
 #else
@@ -215,6 +226,7 @@ uint32_t fzx_closeup_load(const vdp1_vram_partitions_t *parts, uint32_t ceiling,
     fzx_ab_report[10] = (uint32_t)((uintptr_t)shades[0][0] & 0x7ffffu);
     fzx_ab_report[11] = (uint32_t)((uintptr_t)shades[1][0] & 0x7ffffu);
     fzx_ab_report[12] = (uint32_t)(((uintptr_t)shades[1][FZX_CLOSEUP_CARS - 1u] + SHADE_BYTES) & 0x7ffffu);
+    PREWARM();
     fzx_ab_report[0] = 1;
     return floor;
 }
@@ -284,3 +296,25 @@ unsigned fzx_closeup_draw_pose(vdp1_cmdt_t *commands, unsigned capacity, const f
     state.source_lod = 1;
     return n;
 }
+
+#if ENG_BAL_PREWARM
+static void prewarm(void) {
+    static vdp1_cmdt_t scratch_cmd[1];
+#if defined(E1_FIELD) && E1_FIELD
+    extern volatile uint32_t fzx_field_k;
+    const uint32_t k_lod = (fzx_field_k >> 8) & 0xffu;
+    const uint32_t rival = k_lod >= 1u && k_lod <= 5u ? k_lod : 1u; /* as fzx_closeup_draw_pose */
+#else
+    const uint32_t rival = 1u;
+#endif
+    for (unsigned b = 0; b < 2u; ++b)
+        for (unsigned s = 0; s < FZX_CLOSEUP_CARS; ++s) {
+            work.tables = &tables[b][s];
+            const fzx_vehicle_target_t target = {
+                .commands = (uint32_t (*)[8])(void *)scratch_cmd, .capacity = 1u, .pixels = pixels, .shades = shades[b][s],
+                .palette_bytes = PALETTE_NOW, .gouraud_bytes = GOURAUD_NOW,
+                .texture_ctrl = texture_ctrl, .texture_pmod = texture_pmod, .solid_ctrl = solid_ctrl, .solid_pmod = solid_pmod};
+            if (!fzx_vehicle_native_prewarm(&pack, s ? (int)rival : 1, &work, &target)) ++fzx_ab_report[5];
+        }
+}
+#endif

@@ -347,6 +347,16 @@ static bool native_templates(const fzx_vehicle_lod_t *model,unsigned lod,fzx_veh
     }
     tab->template_key[0]=(uintptr_t)target->pixels;tab->template_key[1]=(uintptr_t)target->shades;tab->template_lod=(uint16_t)(lod+1);return true;
 }
+#if defined(ENG_BAL_PREWARM)&&ENG_BAL_PREWARM
+/* Engine (claude/balance): build a work's native tables and command templates for a source
+ * LOD and target ahead of the race, as the first draw would. Both are pure functions of the
+ * pack, the LOD and the target addresses, so the draws that follow are unchanged. */
+bool fzx_vehicle_native_prewarm(const fzx_vehicle_pack_t *pack,int source_lod,fzx_vehicle_work_t *work,const fzx_vehicle_target_t *target){
+    if(!pack||!pack->data||!work||!work->tables||source_lod<1||source_lod>6)return false;
+    const unsigned lod=source_lod<=3?0u:source_lod==4?1u:2u;const fzx_vehicle_lod_t *model=pack->lod+lod;
+    return native_tables(pack,model,lod,work)&&(!target||native_templates(model,lod,work,target));
+}
+#endif
 /* No library calls in the per-draw path: the Saturn build has no builtin memcpy. */
 static uint32_t corner_word(const sh2z_view_vertex_t *a){return pack_words((uint16_t)a->sx,(uint16_t)a->sy);}
 /* Two Gouraud words in memory order g0 g1 | g2 g3 (big-endian VDP1 VRAM on the Saturn). */

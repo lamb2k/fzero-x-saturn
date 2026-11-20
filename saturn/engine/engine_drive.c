@@ -81,8 +81,36 @@ static signed char driver_stick(void) {
 /* Close-up 3D-N: the rival field steps after the player, every tick (FRT time summed for the frame row). */
 volatile uint32_t fzx_field_sim_ticks;
 #endif
+#if E1_FIELD && ENG_BAL_EARLY
+/* ENG_BAL_EARLY: the player's state after each tick of this frame, for the field. A frame
+ * steps at most 4 ticks; a longer run steps the field in order before taking more. */
+enum { FIELD_PENDING_MAX = 8u };
+static sh2z_vd_body_t field_bodies[FIELD_PENDING_MAX];
+static unsigned field_pending;
+void fzx_drive_field_run(void) {
+    for (unsigned k = 0; k < field_pending; ++k) {
+        const uint16_t f0 = cpu_frt_count_get();
+        fzx_field_tick(&field_bodies[k]);
+        fzx_field_sim_ticks += (uint16_t)(cpu_frt_count_get() - f0);
+    }
+    field_pending = 0;
+}
+#elif ENG_BAL_EARLY
+void fzx_drive_field_run(void) {}
+#endif
+#if defined(ENG_SCENES) && ENG_SCENES
+/* SCENES.md 11.3: one menu update per simulation tick; the timer counts the updates that
+ * observe the player's finish, the first (the tick that sets the flag) being 1. */
+void (*volatile fzx_drive_finish_hook)(uint32_t timer, uint32_t tick);
+static uint32_t finish_timer;
+#endif
 static void step_once(sh2z_vd_input_t *in) {
 #if ENG_ATTACKS
+#if E1_FIELD && ENG_BAL_EARLY
+    /* Contact needs every rival at this tick: step the field's pending ticks first (the last tick of a
+     * frame still steps after the kick). */
+    fzx_drive_field_run();
+#endif
     /* Every racer-racer contact first (engine_attacks.c), then the player's step with its share. */
     sh2z_vd_contact_t contact;
     fzx_atk_contact(&body, &contact);
@@ -93,7 +121,11 @@ static void step_once(sh2z_vd_input_t *in) {
 #if ENG_SND
     engine_snd_tick(&body, &course.vehicle, course.track.laps); /* reads the state only */
 #endif
-#if E1_FIELD
+#if E1_FIELD && ENG_BAL_EARLY
+    /* The field steps after the kick (fzx_drive_field_run) on this tick's player state. */
+    if (field_pending >= FIELD_PENDING_MAX) fzx_drive_field_run();
+    field_bodies[field_pending++] = body;
+#elif E1_FIELD
     {
         const uint16_t f0 = cpu_frt_count_get();
         fzx_field_tick(&body);
@@ -101,6 +133,17 @@ static void step_once(sh2z_vd_input_t *in) {
     }
 #endif
     ++ticks;
+#if defined(ENG_SCENES) && ENG_SCENES
+    if ((body.flags & SH2Z_VD_FINISHED) && finish_timer < 0xFFFFu) {
+        ++finish_timer;
+        if (fzx_drive_finish_hook) {
+#if E1_FIELD && ENG_BAL_EARLY
+            fzx_drive_field_run(); /* the hook reads the field: step it to this tick first */
+#endif
+            fzx_drive_finish_hook(finish_timer, ticks);
+        }
+    }
+#endif
     if (ticks % CHECKPOINT_EVERY == 0u && ticks / CHECKPOINT_EVERY <= CHECKPOINTS) {
         const uint64_t h = fnv64_body(&body);
         fzx_e1_checkpoints[ticks / CHECKPOINT_EVERY - 1u][0] = (uint32_t)(h >> 32);
@@ -415,7 +458,10 @@ uint32_t fzx_drive_texture_floor(void) { return fzx_e1_vram[14]; }
 static void field_state_reset(void);
 #endif
 void fzx_drive_reset(void) {
-    body = course.start; prev_n64 = 0; ticks = 0;
+    body = course.start; prev_n64 = 0; ticks = 0; finish_timer = 0;
+#if E1_FIELD && ENG_BAL_EARLY
+    field_pending = 0; /* player states a left race never handed to the field */
+#endif
 #if E1_FIELD
     /* The rival field back to its grid (the pack is resident; no CD read) and the per-car draw state. */
     (void)fzx_field_load(&course.track, &body);

@@ -59,6 +59,12 @@ void fzx_drive_slave_fill(void);
 extern volatile uint32_t fzx_e1_vram[16], fzx_e1_cache[12], fzx_e1_sprite_pos[4];
 /* Steps the physics `ticks` times (60 Hz), reading the pad once. */
 void fzx_drive_step(uint32_t ticks);
+#if ENG_BAL_EARLY
+/* ENG_BAL_EARLY: fzx_drive_step keeps the player's state after each tick and the rival
+ * field steps here instead, after the slave's kick (the field reads the player and
+ * never writes it). Same ticks, same order of field inputs. */
+void fzx_drive_field_run(void);
+#endif
 uint32_t fzx_drive_tick(void);
 /* The chase camera for the current state; focal and tan_half from `lens`. */
 void fzx_drive_camera(fzx_engine_cam_t *cam, const fzx_engine_cam_t *lens);

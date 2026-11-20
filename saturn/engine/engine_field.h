@@ -74,4 +74,11 @@ bool fzx_field_load(const sh2z_vd_track_t *track, const sh2z_vd_body_t *player);
 void fzx_field_tick(const sh2z_vd_body_t *player);
 /* This frame's cars (player first) with the K/D selection applied; returns the count. */
 unsigned fzx_field_cars(fzx_field_car_t *out, const sh2z_vd_body_t *player);
+#if defined(ENG_SCENES) && ENG_SCENES
+/* SCENES.md 11.2 / 11.3: the cup entrants (the player, then the field's rivals) and each car's
+ * state at the classification trigger (fills key frame, course length and laps). */
+#include "engine_cup.h"
+bool fzx_field_entrants(fzx_entrants_t *out, uint8_t player_machine, uint8_t player_skin);
+unsigned fzx_field_classify_in(fzx_cl_in_t *out, int32_t player_ms, fzx_cl_key_t *key);
+#endif
 #endif

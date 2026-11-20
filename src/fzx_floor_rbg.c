@@ -9,6 +9,9 @@
 #ifndef FZX_RBG_LEAN
 #define FZX_RBG_LEAN 0
 #endif
+#ifndef FZX_RBG_NEAR0
+#define FZX_RBG_NEAR0 0
+#endif
 #if FZX_RBG_FAST
 #include "fzx_rbg_fast.h"
 #endif
@@ -337,10 +340,34 @@ bool fzx_floor_rbg_prepare(const fzx_view_t *view,const RefBackdrop *source,
     if(!mapping(view,source->vertices,(const int32_t (*)[3])positions,out))return false;
 #endif
     FZX_SCP(BANDS);
-    if(!polygon((const int32_t (*)[2])xy,count,0,out,emit,context))return false;
 #if FZX_RBG_LEAN && FZX_RBG_SHARE
     band_edge_t edges[16];unsigned edge_count=0;
 #endif
+#if FZX_RBG_NEAR0 && FZX_RBG_LEAN && FZX_RBG_SHARE
+    /* FZX_RBG_NEAR0 (engine, exact): bands 1-7 of both halves overdraw the whole
+     * quad from fraction 1/14 outwards, so band 0 is drawn only over the near
+     * strip between the two halves' 1/14 lines (band 1's low edges, which the
+     * band loop below reuses from the cache). */
+    {
+        const int32_t near=65536/14;
+        const band_edge_t *a=band_edge(edges,&edge_count,view,(const int32_t (*)[3])positions,0,near,2);
+        const band_edge_t *b=band_edge(edges,&edge_count,view,(const int32_t (*)[3])positions,1,near,2);
+        if(!band_shared(view,a,b,xy,&count)) {
+            static const uint8_t rail[4][2]={{0,0},{0,1},{1,1},{1,0}}; /* half, side: the outer quad's order */
+            for(unsigned i=0;i<4;++i) {
+                const unsigned half=rail[i][0],side=rail[i][1];
+#if ENG_DSP_BANDS
+                fzx_band_point(0,outer[i],(const int32_t (*)[3])positions,half,side,near);
+#else
+                const unsigned inner=half?4+side:2+side,edge=half?6+side:side;
+                for(unsigned j=0;j<3;++j)outer[i][j]=positions[inner][j]+(int32_t)(((int64_t)positions[edge][j]-positions[inner][j])*near/65536);
+#endif
+            }
+            if(!BAND_PROJECTED(view,(const int32_t (*)[3])outer,xy,&count))return fail(out,2);
+        }
+    }
+#endif
+    if(!polygon((const int32_t (*)[2])xy,count,0,out,emit,context))return false;
     for(unsigned half=0;half<2;++half)for(unsigned band=1;band<8;++band) {
         /* Thresholds are halfway between the same eight source fog levels as
          * the native tile atlas. Geometry stays on the authored two halves. */

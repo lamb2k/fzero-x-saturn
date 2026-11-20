@@ -81,6 +81,18 @@
 #if ENG_CDDA
 #include "engine_cdda.h"
 #endif
+#ifndef ENG_FX
+#define ENG_FX 0
+#endif
+#if ENG_FX
+#if !E1_FIELD || !E2_EARLY
+#error ENG_FX draws after the staged cars: it needs E1_FIELD with E2_EARLY
+#endif
+#include "engine_fx.h"
+#define FX_COMMANDS FZX_FX_SLOTS
+#else
+#define FX_COMMANDS 0u
+#endif
 #ifndef ENG_SND
 #define ENG_SND 0
 #endif
@@ -136,7 +148,7 @@ enum {
      * (close-up arm A: and the 3D model's commands). */
     CLOSEUP_SLOTS = CLOSEUP_COMMANDS,
     DRIVE_SLOTS = FZX_E1_DRIVE ? 3u + CLOSEUP_SLOTS : 0u,
-    CMD_CAPACITY = SCENE_CAPACITY + 3u + DRIVE_SLOTS,
+    CMD_CAPACITY = SCENE_CAPACITY + 3u + DRIVE_SLOTS + FX_COMMANDS,
     PATH_BASE = 0x00200000u, PATH_CAPACITY = 0x0008C000u, /* Makefile: sat_stub_data_end follows */
     ROW_MAGIC = 0x45305246u, /* "E0RF" */
     ROW_WORDS = 9u + (FZX_E1_DRIVE ? 3u : 0u) + (E1_FIELD ? 3u : 0u)
@@ -823,6 +835,10 @@ static void kick(const fzx_engine_cam_t *cam, uint32_t tick) {
  * VBlank the master only runs the prelude and one copy, so the list reaches VDP1 sooner. */
 static vdp1_cmdt_t field_stage_cmds[DRIVE_SLOTS];
 static unsigned field_stage_n;
+#if ENG_FX
+static vdp1_cmdt_t fx_stage_cmds[FZX_FX_SLOTS];
+static unsigned fx_stage_n;
+#endif
 static uint16_t field_stage_c3d, field_stage_emit, field_stage_sprites;
 static uint8_t field_stage_near, field_stage_n3d;
 static void field_stage(const fzx_engine_cam_t *cam) {
@@ -841,13 +857,22 @@ static void field_stage(const fzx_engine_cam_t *cam) {
 #if ENG_SND
     engine_snd_cars(fzx_drive_body(), field_cars, ncars);
 #endif
+#if ENG_FX
+    fzx_fx_pose(field_cars, ncars); /* spin turns and jitter, render only */
+#endif
     PROF(5, vp);
     for (unsigned i = 0; i < FZX_FIELD_K_MAX; ++i) { car_stage_n[i] = 0; car_stage_p[i] = car_stage[i]; }
     for (unsigned i = 0; i < ncars; ++i) {
         const fzx_field_car_t *c = &field_cars[i];
         if (!c->is3d) continue;
         car_stage_n[c->slot] = (uint16_t)(c->id == 0
+#if ENG_FX
+            ? (fzx_fx_player_posed()
+                   ? fzx_closeup_draw_player_pose(car_stage[c->slot], FIELD_CAR_COMMANDS, &fzx_native_view, cam, vbank, c->slot, c->pos, c->basis)
+                   : fzx_closeup_draw(car_stage[c->slot], FIELD_CAR_COMMANDS, &fzx_native_view, cam, vbank))
+#else
             ? fzx_closeup_draw(car_stage[c->slot], FIELD_CAR_COMMANDS, &fzx_native_view, cam, vbank)
+#endif
             : (fzx_closeup_lod = (fzx_field_k >> 8) & 0xffu,
                fzx_closeup_draw_pose(car_stage[c->slot], FIELD_CAR_COMMANDS, &fzx_native_view, cam, vbank, c->slot, c->pos, c->basis)));
     }
@@ -857,6 +882,9 @@ static void field_stage(const fzx_engine_cam_t *cam) {
     vp = v1;
 #endif
     field_stage_n = fzx_drive_cars(field_stage_cmds, DRIVE_SLOTS, &fzx_native_view, cam, field_cars, ncars, car_stage_p, car_stage_n);
+#if ENG_FX
+    fx_stage_n = field_stage_n ? fzx_fx_emit(fx_stage_cmds, FZX_FX_SLOTS, &fzx_native_view, cam, field_cars, ncars) : 0u;
+#endif
     field_stage_c3d = (uint16_t)(v1 - v0);
     field_stage_emit = (uint16_t)(cpu_frt_count_get() - v1);
     PROF(7, vp);
@@ -1005,7 +1033,13 @@ static void build(row_t *row, const fzx_engine_cam_t *cam, uint32_t tick, uint16
         const fzx_field_car_t *c = &field_cars[i];
         if (!c->is3d) continue;
         car_stage_n[c->slot] = (uint16_t)(c->id == 0
+#if ENG_FX
+            ? (fzx_fx_player_posed()
+                   ? fzx_closeup_draw_player_pose(car_stage[c->slot], FIELD_CAR_COMMANDS, &fzx_native_view, cam, vbank, c->slot, c->pos, c->basis)
+                   : fzx_closeup_draw(car_stage[c->slot], FIELD_CAR_COMMANDS, &fzx_native_view, cam, vbank))
+#else
             ? fzx_closeup_draw(car_stage[c->slot], FIELD_CAR_COMMANDS, &fzx_native_view, cam, vbank)
+#endif
             : (fzx_closeup_lod = (fzx_field_k >> 8) & 0xffu,
                fzx_closeup_draw_pose(car_stage[c->slot], FIELD_CAR_COMMANDS, &fzx_native_view, cam, vbank, c->slot, c->pos, c->basis)));
     }
@@ -1095,6 +1129,11 @@ static void build(row_t *row, const fzx_engine_cam_t *cam, uint32_t tick, uint16
             memcpy(&commands[CMD_FIRST + draws], field_stage_cmds, m * sizeof(vdp1_cmdt_t));
 #endif
             draws += m;
+#if ENG_FX
+            /* The race effects after the cars (their user clip still applies). */
+            memcpy(&commands[CMD_FIRST + draws], fx_stage_cmds, fx_stage_n * sizeof(vdp1_cmdt_t));
+            draws += fx_stage_n;
+#endif
             row->car_cmds = (uint16_t)(m ? m - 1u : 0u); row->sprites = field_stage_sprites;
             row->near = field_stage_near; row->n3d = field_stage_n3d;
             row->cars3d_ticks = field_stage_c3d;
@@ -1294,6 +1333,12 @@ void fzx_race_load(void) {
 #endif
         if (!closeup_floor) fail(53, "VEHICLE LOAD", fzx_ab_report[0] * 100u + fzx_texture_cd_status.status);
         if (offset > closeup_floor) fail(51, "SPRITE VRAM OVERLAP", offset);
+#if ENG_FX
+        /* The race effects' art (FX.PAK) just below the 3D player. */
+        const uint32_t fx_floor = fzx_fx_load(&partitions, closeup_floor, (void *)scratch, 0x0028D000u - 32u - scratch);
+        if (!fx_floor) fail(55, "FX LOAD", fzx_fx_report[0] * 100u + fzx_texture_cd_status.status);
+        if (offset > fx_floor) fail(51, "SPRITE VRAM OVERLAP", offset);
+#endif
         SCN_STAMP(5);
 #endif
         if (offset > fzx_drive_texture_floor()) fail(51, "SPRITE VRAM OVERLAP", offset);

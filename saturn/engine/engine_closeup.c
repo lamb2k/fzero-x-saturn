@@ -281,6 +281,25 @@ unsigned fzx_closeup_draw(vdp1_cmdt_t *commands, unsigned capacity, const fzx_vi
     return draw_state(commands, capacity, view, cam, bank, 0, t0);
 }
 
+#if defined(ENG_FX) && ENG_FX
+/* Race effects (engine_fx.c): the body colour the next draw shades with (the white flash and the
+ * low-energy flicker); the palettes follow it as on a change of machine. */
+void fzx_closeup_body_get(uint8_t rgb[3]) { rgb[0] = state.body[0]; rgb[1] = state.body[1]; rgb[2] = state.body[2]; }
+void fzx_closeup_body_set(const uint8_t rgb[3]) { state.body[0] = rgb[0]; state.body[1] = rgb[1]; state.body[2] = rgb[2]; }
+/* The player from a pose the effects turned (a spin attack): the player's own LOD and slot. */
+unsigned fzx_closeup_draw_player_pose(vdp1_cmdt_t *commands, unsigned capacity, const fzx_view_t *view,
+                                      const fzx_engine_cam_t *cam, uint32_t bank, uint32_t slot,
+                                      const int32_t pos[3], const int16_t basis[3][3]) {
+    if (fzx_ab_report[0] != 1 || bank > 1u || slot >= FZX_CLOSEUP_CARS) return 0;
+    const uint16_t t0 = cpu_frt_count_get();
+    for (unsigned i = 0; i < 3u; ++i) {
+        state.model_pos[i] = fixed_to_float(pos[i], 16);
+        for (unsigned j = 0; j < 3u; ++j) state.model_basis[i][j] = fixed_to_float(basis[i][j], 14);
+    }
+    return draw_state(commands, capacity, view, cam, bank, slot, t0);
+}
+#endif
+
 unsigned fzx_closeup_draw_pose(vdp1_cmdt_t *commands, unsigned capacity, const fzx_view_t *view,
                                const fzx_engine_cam_t *cam, uint32_t bank, uint32_t slot,
                                const int32_t pos[3], const int16_t basis[3][3]) {

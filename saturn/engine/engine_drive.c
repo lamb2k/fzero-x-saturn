@@ -92,6 +92,12 @@ void fzx_drive_field_run(void) {
 #elif ENG_BAL_EARLY
 void fzx_drive_field_run(void) {}
 #endif
+#if defined(ENG_SCENES) && ENG_SCENES
+/* SCENES.md 11.3: one menu update per simulation tick; the timer counts the updates that
+ * observe the player's finish, the first (the tick that sets the flag) being 1. */
+void (*volatile fzx_drive_finish_hook)(uint32_t timer, uint32_t tick);
+static uint32_t finish_timer;
+#endif
 static void step_once(sh2z_vd_input_t *in) {
     sh2z_vd_step(&body, &course.track, &course.vehicle, &fzx_phys_rules, in);
 #if ENG_SND
@@ -109,6 +115,17 @@ static void step_once(sh2z_vd_input_t *in) {
     }
 #endif
     ++ticks;
+#if defined(ENG_SCENES) && ENG_SCENES
+    if ((body.flags & SH2Z_VD_FINISHED) && finish_timer < 0xFFFFu) {
+        ++finish_timer;
+        if (fzx_drive_finish_hook) {
+#if E1_FIELD && ENG_BAL_EARLY
+            fzx_drive_field_run(); /* the hook reads the field: step it to this tick first */
+#endif
+            fzx_drive_finish_hook(finish_timer, ticks);
+        }
+    }
+#endif
     if (ticks % CHECKPOINT_EVERY == 0u && ticks / CHECKPOINT_EVERY <= CHECKPOINTS) {
         const uint64_t h = fnv64_body(&body);
         fzx_e1_checkpoints[ticks / CHECKPOINT_EVERY - 1u][0] = (uint32_t)(h >> 32);
@@ -414,7 +431,10 @@ uint32_t fzx_drive_texture_floor(void) { return fzx_e1_vram[14]; }
 static void field_state_reset(void);
 #endif
 void fzx_drive_reset(void) {
-    body = course.start; prev_n64 = 0; ticks = 0;
+    body = course.start; prev_n64 = 0; ticks = 0; finish_timer = 0;
+#if E1_FIELD && ENG_BAL_EARLY
+    field_pending = 0; /* player states a left race never handed to the field */
+#endif
 #if E1_FIELD
     /* The rival field back to its grid (the pack is resident; no CD read) and the per-car draw state. */
     (void)fzx_field_load(&course.track, &body);

@@ -455,3 +455,47 @@ unsigned fzx_field_cars(fzx_field_car_t *out, const sh2z_vd_body_t *player) {
     fzx_field_report[15] = sh2z_field_hash(&field);
     return FZX_FIELD_CARS;
 }
+
+#if defined(ENG_SCENES) && ENG_SCENES
+/* SCENES.md 11.3: each car's state at the trigger, in the original's terms. Times use the race
+ * clock (ticks x 50 / 3 ms, physics_native.c) for everyone; distances are Q8 line units as
+ * floats (the projection's units cancel). The field keeps no rank at retirement: a retired
+ * car's rank at the trigger stands in for it. */
+#include "engine_cup.h"
+bool fzx_field_entrants(fzx_entrants_t *out, uint8_t player_machine, uint8_t player_skin) {
+    uint8_t machine[FZX_ENTRANTS_MAX] = { 0 };
+#if E2_PACK
+    for (unsigned i = 1; i < FZX_FIELD_CARS; ++i) machine[i] = (uint8_t)fzx_rivals_field[i][5];
+#else
+    for (unsigned i = 1; i < FZX_FIELD_CARS; ++i) machine[i] = (uint8_t)(i % 30u);
+#endif
+    return fzx_entrants_build(out, FZX_FIELD_CARS, player_machine, player_skin, machine);
+}
+static int32_t clock_ms(int32_t t) { return t > 0 ? (int32_t)(((int64_t)t * 50) / 3) : 0; }
+unsigned fzx_field_classify_in(fzx_cl_in_t *out, int32_t player_ms, fzx_cl_key_t *key) {
+    if (fzx_field_report[0] != 1 || !field.started) return 0u;
+    const int32_t now = (int32_t)(field.tick - field.start_tick);
+    for (unsigned i = 0; i < FZX_FIELD_CARS; ++i) {
+        const sh2z_vehicle_t *v = &veh[i];
+        const sh2z_field_brain_t *b = &brain[i];
+        fzx_cl_in_t *c = &out[i];
+        memset(c, 0, sizeof(*c));
+        c->entrant = (uint8_t)i; c->position = (uint8_t)(v->rank + 1u);
+        c->laps_done = (uint8_t)(b->laps_seen > 0 ? (b->laps_seen < (int16_t)params.laps ? b->laps_seen : params.laps) : 0);
+        for (unsigned k = 0; k < 3u; ++k) {
+            const int32_t end = b->lap_tick[k], from = k ? b->lap_tick[k - 1u] : 0;
+            c->lap_ms[k] = (end >= 0 && from >= 0) ? clock_ms(end - from) : 0;
+        }
+        if (i == 0u) { c->state = FZX_CLIN_FINISHED; c->race_ms = player_ms; }
+        else if (v->flags & SH2Z_VEH_FINISHED) { c->state = FZX_CLIN_FINISHED; c->race_ms = clock_ms(b->finish_tick); }
+        else if (v->flags & SH2Z_VEH_RETIRED) {
+            c->state = FZX_CLIN_RETIRED; c->retire_frame = b->retire_tick; c->retire_position = c->position;
+        } else {
+            c->state = FZX_CLIN_RUNNING; c->race_ms = clock_ms(now);
+            c->race_distance = (float)((int64_t)v->t.lap * line.length + v->t.dist);
+        }
+    }
+    key->frame = now; key->course_length = (float)line.length; key->laps = params.laps;
+    return FZX_FIELD_CARS;
+}
+#endif

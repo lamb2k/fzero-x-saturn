@@ -701,7 +701,12 @@ bool fzx_drive_roster_load(void *scratch, uint32_t scratch_bytes, uintptr_t cart
             for (unsigned j = 0; j < nf; ++j) if (fams[j] == (uint8_t)fam) seen = true;
             if (!seen) fams[nf++] = (uint8_t)fam;
         }
-        if (!fzx_roster_select_load(fams, nf, base, cart_limit, scratch, scratch_bytes)) { fzx_e2_roster[0] = 2; return false; }
+        extern volatile uint32_t fzx_scn_roster[8];
+        extern uint32_t video_fields_get(void);
+        const uint32_t r0 = video_fields_get();
+        const bool ok = fzx_roster_select_load(fams, nf, base, cart_limit, scratch, scratch_bytes);
+        fzx_scn_roster[0] = video_fields_get() - r0; /* the roster's share of LOAD, in fields */
+        if (!ok) { fzx_e2_roster[0] = 2; return false; }
         fzx_e2_roster[4] = (uint32_t)base; fzx_e2_roster[5] = fzx_roster_report[2];
     }
 #else

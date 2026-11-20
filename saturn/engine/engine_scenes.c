@@ -595,26 +595,19 @@ static void load_tick(void *u, uint32_t s) {
         }
         fzx_race_load();
 #if ENG_ROSTER
-        {   /* The roster LOAD phase: the field's near and far sets, compressed, into the
-             * cartridge after the player's sprite set. */
-            static const uint8_t field[30] = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19,
-                                               20, 21, 22, 23, 24, 25, 26, 27, 28, 29 };
-            const uint32_t r0 = video_fields_get();
-            void *const area = dram_cart_area_get();
-            const uintptr_t cart = (uintptr_t)area, limit = cart + dram_cart_size_get();
-            const uintptr_t base = ((uintptr_t)fzx_e1_vram[7] + fzx_e1_vram[8] + 2047u) & ~(uintptr_t)2047u;
-            (void)cart;
-            const uintptr_t scratch = 0x0028C000u; /* the CD scratch the race load uses (sat_stub_data_end) */
-            if (!fzx_roster_select_load(field, 30u, base, limit, (void *)scratch, 4096u)) {
-                fzx_scn_roster[0] = video_fields_get() - r0;
-                fault(70u + fzx_roster_report[0], "ROSTER LOAD");
-            }
-            fzx_scn_roster[0] = video_fields_get() - r0;
-            fzx_scn_roster[1] = roster_inflate_fnv(0, FZX_ROSTER_NEAR);
+        {   /* The roster: fzx_race_load has loaded the field's families selectively
+             * (fzx_drive_roster_load, fzx_scn_roster[0] its fields). Check: the first
+             * loaded family's near set, inflated back to RSP1 1.1, against its raw FNV. */
+            uint32_t fam = 0;
+            while (fam < 30u && !fzx_roster_set(fam, FZX_ROSTER_NEAR)) ++fam;
+            const char key[5] = { 'c', (char)('0' + fam / 10u), (char)('0' + fam % 10u), 's', '1' };
+            fzx_scn_roster[1] = fam < 30u ? roster_inflate_fnv(fam, FZX_ROSTER_NEAR) : 0u;
+            fzx_scn_roster[2] = 0;
             for (unsigned i = 0; i < FZX_RZ_SETS; ++i)
-                if (!memcmp(fzx_rz_sets[i].key, "c00s1", 5) && !memcmp(fzx_rz_sets[i].prof, "near", 4))
+                if (!memcmp(fzx_rz_sets[i].key, key, 5) && !memcmp(fzx_rz_sets[i].prof, "near", 4))
                     fzx_scn_roster[2] = fzx_rz_sets[i].raw_fnv;
             fzx_scn_roster[3] = fzx_scn_roster[1] && fzx_scn_roster[1] == fzx_scn_roster[2];
+            fzx_scn_roster[4] = fam;
             fzx_scn_stamp(7);
         }
 #endif

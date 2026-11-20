@@ -97,8 +97,8 @@ bool fzx_texture_cd_load(const char *name,uint32_t bytes,uint32_t expected,
 }
 /* Scenes image: bytes [offset, offset + bytes) of a file into dest (CPU 32-bit stores;
  * offset, bytes and dest 4-byte aligned), FNV-1a of the bytes checked against expected as
- * they arrive. fzx_texture_cd_fault (captures) flips one byte of the first sector read, so
- * the check must refuse it. */
+ * they arrive. fzx_texture_cd_fault = n (captures) flips one byte of the first sector of the
+ * n-th range read from then on (1: the next one), so the check must refuse it. */
 volatile uint32_t fzx_texture_cd_fault;
 bool fzx_texture_cd_load_range(const char *name,uint32_t file_bytes,uint32_t offset,uint32_t bytes,uint32_t expected,
                                void *dest,void *scratch,uint32_t scratch_bytes) {
@@ -123,7 +123,7 @@ bool fzx_texture_cd_load_range(const char *name,uint32_t file_bytes,uint32_t off
         const int rc=fzx_road_sector_read(file->starting_fad+sector,&workspace->sector);
         if(rc){fzx_texture_cd_status.io_result=rc;return fail(3);}
         volatile uint32_t *const fault=(volatile uint32_t *)((uintptr_t)&fzx_texture_cd_fault|CPU_CACHE_THROUGH);
-        if(*fault){workspace->sector.buffer8[(offset%CDFS_SECTOR_SIZE)]^=0x5Au;*fault=0;}
+        if(*fault&&!done){if(*fault==1u)workspace->sector.buffer8[(offset%CDFS_SECTOR_SIZE)]^=0x5Au;--*fault;}
         uint32_t from=sector==offset/CDFS_SECTOR_SIZE?offset%CDFS_SECTOR_SIZE:0u;
         uint32_t n=CDFS_SECTOR_SIZE-from;if(n>bytes-done)n=bytes-done;
         hash=hash_bytes(hash,workspace->sector.buffer8+from,n);

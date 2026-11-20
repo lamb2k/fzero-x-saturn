@@ -18,7 +18,14 @@
  *    boosting, yellow on a dash plate; within 400 units a tail to speed x 0.9 behind; none
  *    beyond 900 units, as the source's booster LOD.
  *  - Damage: crashed racers throw sparks and smoke (gSmokes); the 3D player's body flickers
- *    to red below half energy, as the source.
+ *    to red below half energy, as the source (its palettes go to its own table only).
+ *  - Attack highlight: a side attack's red shell, a spin attack's yellow-to-red pulsing shell, a
+ *    wreck's yellow flash: the car's own commands again behind it, scaled, in one colour
+ *    (fzx_fx_shell, drawn by fzx_drive_cars).
+ *  - Boost flare: an accelerator press grows the player's booster glow (racer.c unk_214).
+ * Cost: the frame's emit runs on whichever SH-2 claims it first (dual-claim-1, engine_main.c);
+ * the budget keeps the nearest FZX_FX_SLOTS commands; the effects' own projection is
+ * effect-pool-1's one-divide spot.
  * Effects read the simulation and never write it: their random numbers are their own and
  * nothing in the race state depends on them (HOST checkpoints and the race are unchanged).
  * Needs ENG_ATTACKS=1 (the events) and E2_EARLY (the staged car list). */

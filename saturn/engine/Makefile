@@ -142,9 +142,10 @@ E2_EMIT_YAW ?= $(if $(filter 1,$(E2_EMIT_POSE)),$(E2_EMIT_EXACT),0)
 ENG_ATTACKS ?= 0
 # ENG_FX (lane claude/fx, generated/FX-PLAN.md): the race's effects from the source art (sparks, spin-out
 #   puffs and turns, the retire explosion and debris, boosters, wreck smoke, the 3D player's flash and
-#   low-energy flicker) as at most FZX_FX_SLOTS VDP1 commands after the cars (engine_fx.c, SH2ZAM
-#   effect-pool-1). Render only: the race is unchanged. Needs ENG_ATTACKS=1, the effect art
-#   (tools/fx_assets.py, local) and an SH2ZAM checkout with effect-pool-1. Default 0.
+#   low-energy flicker, attack highlight shells, the booster flare) as at most FZX_FX_SLOTS (96, nearest kept)
+#   VDP1 commands after the cars (engine_fx.c, SH2ZAM effect-pool-1; the emit on either SH-2 by
+#   dual-claim-1). Render only: the race is unchanged. Field and scenes images. Needs ENG_ATTACKS=1, the
+#   effect art (tools/fx_assets.py, local) and an SH2ZAM checkout with effect-pool-1. Default 0.
 ENG_FX ?= 0
 # ENG_PACE: frame pacing. 0 as built (a frame as soon as it is ready); 1 adaptive (a two-field gap
 #   after a VDP1 draw longer than a field); 2 the 30 fps lock (presents never one field apart);

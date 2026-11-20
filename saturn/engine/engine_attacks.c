@@ -18,6 +18,7 @@ uint32_t fzx_atk_chk[FZX_ATK_CHECKPOINTS];
 /* The original's numbers (racer.c, cpu.c; generated/ATTACKS-PLAN.md section 1). */
 enum {
     REACH_LONG_Q8 = 92 * 256,     /* along-line pair gap tested */
+    PRE_Q8 = 92 * 256,            /* line-space box around a body that can hold a contact (reach 46, the lines' 15-unit mismatch) */
     HIT_TICKS = 60,               /* unk_208: no grip after an attack lands */
     CREDIT_TICKS = 60,            /* func_8008DBB8(victim, 60) */
     SPIN_OUT_TICKS = 150,         /* spinOutTimer */
@@ -63,6 +64,7 @@ static uint32_t last_touch[FZX_ATK_MAX * (FZX_ATK_MAX - 1u) / 2u];
 static sh2z_bc_field_t bcf;
 static sh2z_bc_rules_t rules;
 static uint8_t order[FZX_ATK_MAX];
+static int16_t pose_rows[FZX_ATK_MAX][3][3];
 static int32_t along[FZX_ATK_MAX];
 static uint32_t rng, n_kos, reverse_run;
 static int32_t regain_pending, player_max_q8;
@@ -210,15 +212,22 @@ void fzx_atk_contact(const sh2z_vd_body_t *p, sh2z_vd_contact_t *out) {
         while (j > 0 && (along[order[j - 1]] < along[k] || (along[order[j - 1]] == along[k] && order[j - 1] > k))) { order[j] = order[j - 1]; --j; }
         order[j] = k;
     }
-    /* Candidates: a neighbour within the along-line reach (pose work only for them). */
+    /* Candidates: another vehicle within PRE_Q8 along and across the line. Two bodies in reach (46)
+     * are within it on any part of the course, so only candidates get a world pose and enter the walk;
+     * a pair that leaves it simply loses its contact history, as one out of reach does. */
     uint8_t cand[FZX_ATK_MAX];
     memset(cand, 0, sizeof(cand));
     for (uint32_t s = 0; s < n; ++s) {
-        const uint32_t a = order[s], b = order[s + 1u < n ? s + 1u : 0u];
-        int32_t gap = along[a] - along[b];
-        if (gap < 0) gap += length;
-        if (gap > half) gap = length - gap;
-        if (gap <= REACH_LONG_Q8) cand[a] = cand[b] = 1;
+        const uint32_t a = order[s];
+        for (uint32_t k = 1; k < n; ++k) {
+            const uint32_t b = order[s + k < n ? s + k : s + k - n];
+            int32_t gap = along[a] - along[b];
+            if (gap > half) gap -= length;
+            else if (gap <= -half) gap += length;
+            if (gap > PRE_Q8) break;
+            if (gap < 0) continue;
+            if (iabs(F.veh[a].t.lateral - F.veh[b].t.lateral) <= PRE_Q8) cand[a] = cand[b] = 1;
+        }
     }
     for (uint32_t i = 0; i < n; ++i) {
         sh2z_bc_body_t *b = &body[i];
@@ -235,7 +244,7 @@ void fzx_atk_contact(const sh2z_vd_body_t *p, sh2z_vd_contact_t *out) {
         const rival_t *r = &R[i];
         const sh2z_vehicle_t *v = &F.veh[i];
         if ((r->mode & M_GONE) || (v->flags & SH2Z_VEH_STOPPED)) continue;
-        int16_t rows[3][3];
+        int16_t (*rows)[3] = pose_rows[i];
         F.pose(&v->t, b->pos, rows);
         const int32_t lv = (r->mode & M_EXT) ? r->lv : v->t.lat_vel;
         for (int c = 0; c < 3; ++c)   /* forward x speed, right (= -left) x lateral speed; Q14 x Q8 -> Q16 */
@@ -257,8 +266,7 @@ void fzx_atk_contact(const sh2z_vd_body_t *p, sh2z_vd_contact_t *out) {
         r->push_fwd = r->push_lat = 0;
         if (!b->flags) continue;
         if (b->push[0] | b->push[1] | b->push[2]) {
-            int32_t pos[3]; int16_t rows[3][3];
-            F.pose(&F.veh[i].t, pos, rows);
+            int16_t (*rows)[3] = pose_rows[i];   /* this tick's pose, from above */
             int64_t pf = 0, pl = 0;
             for (int c = 0; c < 3; ++c) { pf += (int64_t)rows[0][c] * b->push[c]; pl -= (int64_t)rows[2][c] * b->push[c]; }
             r->push_fwd = (int32_t)(pf >> 22);   /* Q14 x Q16 -> Q8 */

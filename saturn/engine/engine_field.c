@@ -7,6 +7,15 @@
 #if E1_FIELD < 1 || E1_FIELD > 29
 #error E1_FIELD must be 1..29 when built
 #endif
+#ifndef ENG_ATTACKS
+#define ENG_ATTACKS 0
+#endif
+#if ENG_ATTACKS
+#include "engine_attacks.h"
+#if !E2_PACK || !E2_FASTPOSE
+#error ENG_ATTACKS needs E2_PACK=1 and E2_FASTPOSE=1
+#endif
+#endif
 #ifndef E2_PACK
 #define E2_PACK 0
 #endif
@@ -177,7 +186,11 @@ static void player_into_field(const sh2z_vd_body_t *p) {
 #endif
     v->t.node = sh2z_line_locate(&line, v->t.dist, v->t.node);
     v->kick_lat = 0; v->kick_speed = 0; /* not applied: the player's race stays as E1's */
+#if ENG_ATTACKS
+    v->energy = p->energy >> 8;         /* contact reaches the player through its own step (engine_attacks.c) */
+#else
     v->energy = v->max_energy;
+#endif
 }
 
 volatile uint32_t fzx_e2_report[16];
@@ -320,6 +333,18 @@ bool fzx_field_load(const sh2z_vd_track_t *track, const sh2z_vd_body_t *player) 
     sh2z_field_init(&field, &line, &params, veh, brain, order, slot_of, rank_order, FZX_FIELD_CARS, FZX_RIVALS_FIELD_SEED);
     field.focus = 0;
     memset(is3d, 0, sizeof(is3d)); memset(want_run, 0, sizeof(want_run));
+#if ENG_ATTACKS
+    {
+        /* One contact rule for everyone (engine_attacks.c, SH2ZAM body-contact-1): the field's own box
+         * contact and its flat wall charge are off; walls hurt through the attacks' own rule. */
+        params.contact_lat = 0;
+        params.wall_energy = 0;
+        fzx_atk_field_t a;
+        a.field = &field; a.veh = veh; a.brain = brain; a.line = &line; a.pose = line_pose_fast;
+        a.config = fzx_rivals_field; a.count = FZX_FIELD_CARS;
+        fzx_atk_init(&a, FZX_RIVALS_FIELD_SEED);
+    }
+#endif
     fzx_field_report[0] = 1;
     return true;
 #else
@@ -360,7 +385,13 @@ void fzx_field_tick(const sh2z_vd_body_t *player) {
     if (fzx_field_report[0] != 1) return;
     player_into_field(player);
     if (!field.started && player->race_time > 0) { sh2z_field_start(&field); fzx_field_report[4] = field.tick; }
+#if ENG_ATTACKS
+    fzx_atk_move(player);
+#endif
     sh2z_field_step(&field);
+#if ENG_ATTACKS
+    fzx_atk_after(player);
+#endif
     fzx_field_report[3] = field.tick; fzx_field_report[5] = field.contacts;
     fzx_field_report[11] = field.finished; fzx_field_report[12] = field.retired;
 }

@@ -1,0 +1,159 @@
+/* Duel reference driver (attacks lane, claude/attacks): the original race code with two pad-driven
+ * racers (ref/duel_probe.c). HOST reference role only. MIT; see ../LICENSE.
+ *
+ *   fzx-duel --course RECORD --rom BOOT --scenario NAME [--machines c0,e0,c1,e1] [--ticks N]
+ *            [--trace OUT.tsv] [--pads OUT.txt] [--bake-at T --bake0 SRC0 --bake1 SRC1]
+ *
+ * Scenarios (racer 0 the player P, racer 1 the opponent O; both closed-loop steered to a target
+ * lateral, as the R01 driver with gains 0.02 and 2.5, A held from tick 460):
+ *   bump    P steers onto O's line: plain contacts (shared impact, push while closing)
+ *   side    P comes alongside O and double-taps toward it (side attacks), every 90 ticks
+ *   spin    P holds the far lean and double-taps the near one beside O (spin attacks)
+ *   cpu     O comes alongside P and side-attacks it (an opponent's attack: no x10)
+ *   ko      side attacks until O spins out (KO credit), then both drive on to its retirement
+ * --pads writes every tick's integer pads for both racers ("t b0 x0 b1 x1"): the native windows
+ * replay them. --trace: one line per tick and racer (see duel_state). --bake-at T writes both
+ * racers' physics pack sources after tick T (the native window's start state). The course record
+ * and the ROM are the owner's: everything written is local only. */
+#include <math.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#include "ref.h"
+
+void ref_handling_race_features(void);
+int duel_setup(int character0, float engine0, int character1, float engine1);
+void duel_tick(unsigned short b0, signed char x0, signed char y0, unsigned short b1, signed char x1, signed char y1);
+void duel_state(int k, float f[12], int n[8]);
+typedef void (*DuelEmit)(const char* key, int a, int b, const float* v, int n);
+void duel_bake(int k, DuelEmit emit);
+float rb_course_length(void);
+
+static void die(const char* m) { fprintf(stderr, "fzx-duel: %s\n", m); exit(2); }
+static unsigned char* read_file(const char* path, size_t* n) {
+    FILE* f = fopen(path, "rb");
+    if (!f) die("cannot open input");
+    fseek(f, 0, SEEK_END); *n = (size_t)ftell(f); fseek(f, 0, SEEK_SET);
+    unsigned char* b = malloc(*n ? *n : 1);
+    if (!b || fread(b, 1, *n, f) != *n) die("short read");
+    fclose(f);
+    return b;
+}
+
+static FILE* bake_out;
+static void bake_emit(const char* key, int a, int b, const float* v, int n) {
+    fprintf(bake_out, "%s %d %d", key, a, b);
+    for (int k = 0; k < n; k++) fprintf(bake_out, " %a", (double)v[k]);
+    fputc('\n', bake_out);
+}
+static void bake(int k, const char* path, int tick) {
+    if ((bake_out = fopen(path, "w")) == NULL) die("cannot write a bake source");
+    fprintf(bake_out, "# fzx-physics-source v1 after tick %d\n", tick);
+    duel_bake(k, bake_emit);
+    fclose(bake_out);
+}
+
+#define N64_A 0x8000u
+#define N64_Z 0x2000u
+#define N64_R 0x0010u
+#define ST_SPIN (1 << 14)
+#define ST_RETIRED (1 << 18)
+
+static signed char steer(const float f[12], float target, float kl) {
+    float s = kl * (f[8] - target) + 2.5f * f[9];
+    if (s > 1.0f) s = 1.0f;
+    if (s < -1.0f) s = -1.0f;
+    return (signed char)(s >= 0.0f ? (int)(s * 63.0f + 0.5f) : -(int)(-s * 63.0f + 0.5f));
+}
+
+int main(int argc, char** argv) {
+    const char *course = 0, *rom = 0, *scenario = "bump", *trace = 0, *pads = 0, *bake0 = 0, *bake1 = 0;
+    int ticks = 2400, bake_at = -1, c0 = 0, c1 = 9;
+    float e0 = 0.0f, e1 = 0.0f;
+    for (int i = 1; i + 1 < argc; i += 2) {
+        if (!strcmp(argv[i], "--course")) course = argv[i + 1];
+        else if (!strcmp(argv[i], "--rom")) rom = argv[i + 1];
+        else if (!strcmp(argv[i], "--scenario")) scenario = argv[i + 1];
+        else if (!strcmp(argv[i], "--ticks")) ticks = atoi(argv[i + 1]);
+        else if (!strcmp(argv[i], "--trace")) trace = argv[i + 1];
+        else if (!strcmp(argv[i], "--pads")) pads = argv[i + 1];
+        else if (!strcmp(argv[i], "--bake-at")) bake_at = atoi(argv[i + 1]);
+        else if (!strcmp(argv[i], "--bake0")) bake0 = argv[i + 1];
+        else if (!strcmp(argv[i], "--bake1")) bake1 = argv[i + 1];
+        else if (!strcmp(argv[i], "--machines")) { if (sscanf(argv[i + 1], "%d,%f,%d,%f", &c0, &e0, &c1, &e1) != 4) die("--machines c0,e0,c1,e1"); }
+        else die("unknown argument");
+    }
+    if (!course || !rom) die("usage: see duel_main.c");
+    size_t n;
+    unsigned char* rec = read_file(course, &n);
+    if (n != REF_COURSE_RECORD_SIZE) die("course record must be 0x7E0 bytes");
+    unsigned char* r = read_file(rom, &n);
+    if (n < REF_ROM_BOOT_SIZE) die("short ROM boot");
+    ref_set_rom_boot(r);
+    if (ref_load_course(rec, 1) != 0 || ref_race_init() != 0) die("race set-up failed");
+    ref_handling_race_features();
+    if (duel_setup(c0, e0, c1, e1) != 2) die("the duel did not set up two racers");
+    const int sc = !strcmp(scenario, "bump") ? 0 : !strcmp(scenario, "side") ? 1 : !strcmp(scenario, "spin") ? 2 :
+                   !strcmp(scenario, "cpu") ? 3 : !strcmp(scenario, "ko") ? 4 : !strcmp(scenario, "free") ? 5 : -1;
+    if (sc < 0) die("unknown scenario");
+    const float length = rb_course_length();
+    FILE* tf = trace ? fopen(trace, "w") : NULL;
+    FILE* pf = pads ? fopen(pads, "w") : NULL;
+    if ((trace && !tf) || (pads && !pf)) die("cannot write an output");
+    float f0[12], f1[12]; int n0[8], n1[8];
+    duel_state(0, f0, n0); duel_state(1, f1, n1);
+    int tap_at = -1000, tap_dir = 0, attacker = sc == 3 ? 1 : 0;
+    for (int t = 0; t < ticks; ++t) {
+        unsigned short b[2] = { 0, 0 };
+        signed char x[2] = { 0, 0 };
+        if (t >= 460) { b[0] = N64_A; b[1] = N64_A; }
+        /* gap: O ahead of P along the lap (+), wrapped */
+        float gap = f1[10] - f0[10];
+        if (gap > length * 0.5f) gap -= length;
+        if (gap < -length * 0.5f) gap += length;
+        const float lane_o = 60.0f;   /* O keeps 60 left of the line */
+        float target0 = 0.0f, target1 = lane_o;
+        const float* fa = attacker ? f1 : f0;   /* the attacker's and the victim's state */
+        const float* fv = attacker ? f0 : f1;
+        const float vgap = attacker ? -gap : gap;
+        switch (sc) {
+        case 0: target0 = f1[8]; break;                                   /* onto O */
+        case 1: case 2: case 4: target0 = f1[8] + (f0[8] > f1[8] ? 38.0f : -38.0f); break; /* beside O */
+        case 3: target0 = 0.0f; target1 = f0[8] + (f1[8] > f0[8] ? 38.0f : -38.0f); break;  /* O beside P */
+        }
+        if (sc >= 1 && t >= 700) {
+            /* Attack when beside the victim: two presses two ticks apart toward it, every 90 ticks. */
+            const int k = attacker;
+            if (t - tap_at >= 90 && fabsf(vgap) < 25.0f && fabsf(fv[8] - fa[8]) < 75.0f && !(n0[0] & ST_SPIN) && !(n1[0] & ST_SPIN) &&
+                !(n1[0] & ST_RETIRED)) {
+                tap_at = t + (sc == 2 ? 2 : 0); tap_dir = fv[8] > fa[8] ? -1 : 1;   /* victim to the left (+lateral) -> Z, else R */
+            }
+            const int dt = t - tap_at;
+            if (dt == 0 || dt == 2) b[k] |= tap_dir < 0 ? N64_Z : N64_R;
+            if (sc == 2 && dt >= -2 && dt <= 4) b[k] |= tap_dir < 0 ? N64_R : N64_Z;   /* hold the far one: spin */
+        }
+        /* Both keep level: whichever is more than 15 ahead lifts off the throttle. */
+        if (sc <= 4 && t >= 460 && gap > 15.0f) b[1] &= (unsigned short)~N64_A;
+        if (sc <= 4 && t >= 460 && gap < -15.0f) b[0] &= (unsigned short)~N64_A;
+        if (n0[0] & ST_SPIN) target0 = f0[8];
+        x[0] = steer(f0, target0, 0.004f);
+        x[1] = steer(f1, target1, 0.004f);
+        duel_tick(b[0], x[0], 0, b[1], x[1], 0);
+        if (pf) fprintf(pf, "%d %u %d %u %d\n", t, b[0], x[0], b[1], x[1]);
+        duel_state(0, f0, n0); duel_state(1, f1, n1);
+        if (tf) {
+            const float* fs[2] = { f0, f1 }; const int* ns[2] = { n0, n1 };
+            for (int k = 0; k < 2; ++k)
+                fprintf(tf, "%d\t%d\t%.6f\t%.6f\t%.6f\t%.6f\t%.6f\t%.6f\t%.6f\t%.6f\t%.6f\t%.6f\t%.6f\t%d\t%d\t%d\t%d\t%d\t%d\t%.6f\n", t, k,
+                        fs[k][0], fs[k][1], fs[k][2], fs[k][3], fs[k][4], fs[k][5], fs[k][6], fs[k][7], fs[k][8], fs[k][9], fs[k][10],
+                        ns[k][0], ns[k][1], ns[k][2], ns[k][3], ns[k][4], ns[k][5], fs[k][11]);
+        }
+        if (t == bake_at && bake0 && bake1) { bake(0, bake0, t); bake(1, bake1, t); }
+    }
+    if (tf) fclose(tf);
+    if (pf) fclose(pf);
+    printf("duel %s: ticks %d kos %d O energy %.2f flags %08x P energy %.2f\n", scenario, ticks, n1[3], f1[7], (unsigned)n1[0], f0[7]);
+    return 0;
+}

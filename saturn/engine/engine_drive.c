@@ -21,6 +21,12 @@
 #if E1_FIELD
 #include "engine_field.h"
 #endif
+#ifndef ENG_ATTACKS
+#define ENG_ATTACKS 0
+#endif
+#if ENG_ATTACKS
+#include "engine_attacks.h"
+#endif
 
 #ifndef E1_DRIVER
 #define E1_DRIVER 0
@@ -76,7 +82,14 @@ static signed char driver_stick(void) {
 volatile uint32_t fzx_field_sim_ticks;
 #endif
 static void step_once(sh2z_vd_input_t *in) {
+#if ENG_ATTACKS
+    /* Every racer-racer contact first (engine_attacks.c), then the player's step with its share. */
+    sh2z_vd_contact_t contact;
+    fzx_atk_contact(&body, &contact);
+    sh2z_vd_step_contact(&body, &course.track, &course.vehicle, &fzx_phys_rules, in, &contact);
+#else
     sh2z_vd_step(&body, &course.track, &course.vehicle, &fzx_phys_rules, in);
+#endif
 #if ENG_SND
     engine_snd_tick(&body, &course.vehicle, course.track.laps); /* reads the state only */
 #endif
@@ -105,6 +118,15 @@ void fzx_drive_step(uint32_t n) {
                 sx = driver_stick();
                 if (E1_DRIVER_BOOST > 0 && ticks % E1_DRIVER_BOOST == 0u) button |= N64_B;
             }
+#if ENG_ATTACKS
+            /* fzx_e1_driver 2: the scripted hunter (engine_attacks.c), the 5-KO scenario. */
+            if (fzx_e1_driver == 2u && body.intro == 0) {
+                uint16_t hb; int8_t hs;
+                (void)fzx_atk_hunter(&body, &hb, &hs);
+                if (ticks >= RACE_START_TICK) button = hb;
+                sx = hs;
+            }
+#endif
             sh2z_vd_input_t in;
             in.held = fzx_phys_buttons_n64(button);
             in.pressed = fzx_phys_buttons_n64((uint16_t)((prev_n64 ^ button) & button));

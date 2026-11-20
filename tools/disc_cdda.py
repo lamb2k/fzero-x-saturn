@@ -180,9 +180,9 @@ def write_header(path: Path, table: list):
     import hashlib as _h
     tools = Path(__file__).resolve().parent
     sha = lambda f: _h.sha256(Path(f).read_bytes()).hexdigest()
-    (path.parent / "cdda.receipt").write_text(
+    (path.parent / "cdda.receipt").write_bytes((   # LF on every host (check_receipt.sh)
         "# fzx generation receipt v1; regenerate, never edit\n"
-        "generator %s disc_cdda.py\noutput %s %s\n" % (sha(tools / "disc_cdda.py"), sha(path), path.name))
+        "generator %s disc_cdda.py\noutput %s %s\n" % (sha(tools / "disc_cdda.py"), sha(path), path.name)).encode())
 
 
 def _write_header(path: Path, table: list):

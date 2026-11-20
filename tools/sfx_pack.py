@@ -174,7 +174,7 @@ def write_receipt(out: Path, receipt: str, generators: tuple, outputs: tuple):
     lines = ['# fzx generation receipt v1; regenerate, never edit']
     lines += ['generator %s %s' % (sha(tools / g), g) for g in generators]
     lines += ['output %s %s' % (sha(out / o), o) for o in outputs]
-    (out / receipt).write_text('\n'.join(lines) + '\n')
+    (out / receipt).write_bytes(('\n'.join(lines) + '\n').encode())   # LF on every host (check_receipt.sh)
 
 
 def write_outputs(out: Path, pack: dict):

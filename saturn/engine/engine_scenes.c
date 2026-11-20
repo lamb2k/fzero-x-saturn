@@ -1644,9 +1644,9 @@ void fzx_scn_main(void) {
     if (!sh2z_scene_init(&seq, table, FZX_SCN_COUNT, FZX_SCN_BOOT, FADE_FRAMES, RETIRE_MIN, RANK_RESET, NULL))
         fault(1, "INIT");
 #ifndef FZX_P3_BASELINE
-    /* Boot's two CD reads can return anywhere in a field. Start the menu
-     * scheduler on a display boundary, just as later drawing frames do. */
-    vdp2_sync(); vdp2_sync_wait();
+    /* Queue the manager's black VDP1 list after the CD reads, so its first
+     * visible frame starts with the same active display pipeline as later ones. */
+    own_frame();
 #endif
     frame_fields = video_fields_get();
     for (;;) {

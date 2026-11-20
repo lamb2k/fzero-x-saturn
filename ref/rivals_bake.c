@@ -79,12 +79,39 @@ int rb_gp_tuning_course(int n) {
     return 0;
 }
 
+/* Diagnostic (claude/rival-class): the race target time func_i3_80116974 set (D_i3_80141990), the course's
+ * record slot 0 it refines against at Expert and Master, and the class's untouched table row (slot 0 after
+ * rb_gp_tuning_course). HOST reference only. */
+extern s32 D_i3_80141990;
+void rb_gp_target(int out[3]) {
+    out[0] = D_i3_80141990;
+    out[1] = gCurrentCourseInfo->timeRecord[0];
+    out[2] = (int)D_i3_8013E328[gDifficulty];
+}
+
+/* Save state (claude/rival-class). At Expert and Master func_i3_80116974 lowers the race target by the margin the
+ * course's best record (timeRecord[0]) beats the staff ghost's time. A fresh save holds MAX_TIMER in every record
+ * slot (save.c, the course records' clear), so the target stays the class's table row. The HOST bridge left the
+ * records at 0 and the generated stub of Save_LoadStaffGhostRecord left the ghost's raceTime as stack garbage:
+ * Big Blue and Sand Ocean then raced Expert and Master against a target near -9e8 ms (fzx-gp-ref --fresh-save 0
+ * keeps that old state as a control). With fresh_save the records are MAX_TIMER and the staff ghost reads
+ * MAX_TIMER, which stands for any staff time: against a fresh record the comparison is false for all of them. */
+int rb_gp_fresh_save = 1;
+s32 Save_LoadStaffGhostRecord(GhostInfo* ghostInfo, s32 courseIndex) {
+    (void)courseIndex;
+    if (rb_gp_fresh_save) ghostInfo->raceTime = MAX_TIMER;
+    return 0;
+}
+
 /* After ref_race_init(): re-run the race set-up as a 30-racer Grand Prix race.
  * cpu_line is the course's CPU line in host order (0x200 s16); the hooks skip the ROM read. */
 int rb_gp_init(int difficulty, unsigned seed, const short* cpu_line) {
     int i;
     static s16 line[0x200];
     for (i = 0; i < 0x200; ++i) line[i] = cpu_line[i];
+    if (rb_gp_fresh_save) {
+        for (i = 0; i < 5; ++i) gCurrentCourseInfo->timeRecord[i] = MAX_TIMER;
+    }
     gGameMode = GAMEMODE_GP_RACE;
     gDifficulty = difficulty;
     gNumPlayers = 1;

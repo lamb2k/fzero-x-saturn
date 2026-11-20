@@ -19,6 +19,8 @@
 
 int rb_gp_init(int difficulty, unsigned seed, const short* cpu_line);
 int rb_gp_tuning_course(int n);
+void rb_gp_target(int out[3]);
+extern int rb_gp_fresh_save;
 void rb_racer(int i, float f[5], int n[8]);
 float rb_racer_up(int i);
 void rb_racer_disp(int i, float d[3]);
@@ -95,6 +97,7 @@ int main(int argc, char** argv) {
         else if (!strcmp(argv[i], "--zones")) zones = atoi(argv[i + 1]);
         else if (!strcmp(argv[i], "--tube-pack")) tube_pack = argv[i + 1];   /* RIVALS.PAK: tube_angles over its pipe and cylinder nodes */   /* 1: the surface zones, jumps and mines (rivals_bake.c) */
         else if (!strcmp(argv[i], "--diag")) diag = argv[i + 1];
+        else if (!strcmp(argv[i], "--fresh-save")) rb_gp_fresh_save = atoi(argv[i + 1]);   /* 0: the old records-at-0 state (rivals_bake.c) */
         else if (!strcmp(argv[i], "--ko-probe")) ko_probe = argv[i + 1];   /* RACER:TICK:AGE:BY, see KO PROBE below */   /* line-field-5: per racer and tick, see DIAG below */
         else die("unknown argument");
     }
@@ -115,6 +118,7 @@ int main(int argc, char** argv) {
     const int total = rb_gp_init(difficulty, seed, cpu_line);
     if (total != MAXR) die("the reference did not set up 30 racers");
     if (zones) rb_gp_zones();
+    { int tg[3]; rb_gp_target(tg); printf("gp-ref: target %d record0 %d table %d\n", tg[0], tg[1], tg[2]); }
     if (player_cpu) ref_set_cpu_driver(1);
     const double length = rb_course_length();
 

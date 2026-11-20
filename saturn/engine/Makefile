@@ -377,9 +377,8 @@ SH2ZAM_UNITS := sh2zam.c sh2zam_angles.c sh2zam_batch_sh2.c sh2zam_box2.c sh2zam
     $(if $(filter-out 0,$(E1_FIELD)),$(if $(filter 1,$(E2_EMIT_CMD) $(E2_EMIT_POSE) $(E2_EMIT_YAW)),sh2zam_rotation_sprite3.c,),) \
     $(if $(filter 1,$(E1_CLOSEUP)),sh2zam_vehicle.c sh2zam_view_indexed.c sh2zam_pose.c,) \
     $(if $(filter-out 0,$(E1_FIELD)),sh2zam_line_follower.c sh2zam_line_field.c,) \
-    $(if $(filter 1,$(ENG_ATTACKS)),sh2zam_body_contact.c sh2zam_vehicle_contact.c,) \
-    $(if $(filter 1,$(ENG_FX)),sh2zam_effect_pool.c sh2zam_trig12.c,) \
-    $(if $(filter 1,$(ENG_SCENES)),sh2zam_scene.c,)     $(if $(filter 2,$(ENG_BAL_CLOUDS)),sh2zam_dual_claim.c,)
+    $(if $(filter 1,$(ENG_ATTACKS)),sh2zam_body_contact.c sh2zam_vehicle_contact.c $(if $(filter 1,$(ENG_TUBES)),sh2zam_vehicle_contact2.c,),) \
+    $(if $(filter 1,$(ENG_FX)),sh2zam_effect_pool.c sh2zam_trig12.c,) \n    $(if $(filter 1,$(ENG_SCENES)),sh2zam_scene.c,)     $(if $(filter 2,$(ENG_BAL_CLOUDS)),sh2zam_dual_claim.c,)
 
 SH_SRCS := engine_main.c engine_scene.c engine_path.c \
     ../sky_native.c ../skyline_native.c ../planes_native.c ../floor_rbg_native.c ../clouds_vdp2_native.c \

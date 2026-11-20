@@ -2,9 +2,18 @@
 #include <string.h>
 #include "engine_attacks.h"
 #include "attacks_tables.h"
+#ifdef ATK_PROF
+#include <time.h>
+uint64_t atk_prof[8];
+static uint64_t pn(void) { struct timespec ts; clock_gettime(CLOCK_MONOTONIC, &ts); return (uint64_t)ts.tv_sec * 1000000000ull + (uint64_t)ts.tv_nsec; }
+#define PROF(k) do { const uint64_t q_ = pn(); atk_prof[k] += q_ - prof_t; prof_t = q_; } while (0)
+#else
+#define PROF(k) do { } while (0)
+#endif
 
 volatile uint32_t fzx_atk_difficulty = 1, fzx_atk_vis_gate = 1, fzx_atk_ai = 1;
 volatile uint32_t fzx_atk_report[16];
+volatile uint32_t fzx_atk_dmg_src[3][2];
 fzx_atk_ko_t fzx_atk_kos[FZX_ATK_KO_LOG];
 uint8_t fzx_atk_ko_count[FZX_ATK_MAX];
 int32_t fzx_atk_retire_tick[FZX_ATK_MAX];
@@ -65,6 +74,8 @@ static sh2z_bc_field_t bcf;
 static sh2z_bc_rules_t rules;
 static uint8_t order[FZX_ATK_MAX];
 static int16_t pose_rows[FZX_ATK_MAX][3][3];
+static uint8_t cand_list[FZX_ATK_MAX], prev_push[FZX_ATK_MAX];
+static uint32_t ncand, nprev_push;
 static int32_t along[FZX_ATK_MAX];
 static uint32_t rng, n_kos, reverse_run;
 static int32_t regain_pending, player_max_q8;
@@ -98,19 +109,20 @@ void fzx_atk_init(const fzx_atk_field_t *f, uint32_t seed) {
     F = *f;
     memset(R, 0, sizeof(R));
     memset((void *)fzx_atk_report, 0, sizeof(fzx_atk_report));
+    memset((void *)fzx_atk_dmg_src, 0, sizeof(fzx_atk_dmg_src));
     memset(fzx_atk_kos, 0, sizeof(fzx_atk_kos));
     memset(fzx_atk_ko_count, 0, sizeof(fzx_atk_ko_count));
     for (uint32_t i = 0; i < FZX_ATK_MAX; ++i) { fzx_atk_retire_tick[i] = -1; fzx_atk_retire_place[i] = 0; }
     memset(body, 0, sizeof(body));
     for (uint32_t i = 0; i < F.count; ++i) {
-        uint32_t c = (uint32_t)F.config[i][5];
+        uint32_t c = (uint32_t)F.config[i * F.config_stride + 5u];
         if (c >= 30u) c = 0u;
         R[i].character = (uint8_t)c;
         R[i].strength = fzx_atk_machine[c][0];
         R[i].last_press = 0xFFFFFF00u;
         body[i].strength = R[i].strength;
     }
-    player_max_q8 = F.config[0][3];
+    player_max_q8 = F.config[3];
     sh2z_bc_field_init(&bcf, body, last_touch, F.count);
     memset(&rules, 0, sizeof(rules));
     rules.reach_long = REACH_LONG_Q8; rules.reach = Q16(46.0); rules.near = Q16(0.01);
@@ -120,6 +132,7 @@ void fzx_atk_init(const fzx_atk_field_t *f, uint32_t seed) {
     if (!rng) rng = 1u;
     n_kos = 0; reverse_run = 0; regain_pending = 0;
     hunt_tap_at = 0; hunt_cool = 0; hunt_dir = 0;
+    ncand = 0; nprev_push = 0;
     memset(fzx_atk_chk, 0, sizeof(fzx_atk_chk));
     live = F.count >= 2u && F.count <= FZX_ATK_MAX;
 }
@@ -213,7 +226,11 @@ void fzx_atk_contact(const sh2z_vd_body_t *p, sh2z_vd_contact_t *out) {
     memset(out, 0, sizeof(*out));
     if (!live) return;
     out->regain = regain_pending; regain_pending = 0;
+#ifdef ATK_PROF
+    uint64_t prof_t = pn();
+#endif
     sh2z_bc_field_begin(&bcf);
+    PROF(0);
     const uint32_t n = F.count;
     const int32_t length = F.line->length, half = length / 2;
     /* Physical order by current distance (the field's order, nearly sorted, fixed by insertion). */
@@ -224,27 +241,39 @@ void fzx_atk_contact(const sh2z_vd_body_t *p, sh2z_vd_contact_t *out) {
         while (j > 0 && (along[order[j - 1]] < along[k] || (along[order[j - 1]] == along[k] && order[j - 1] > k))) { order[j] = order[j - 1]; --j; }
         order[j] = k;
     }
+    PROF(1);
     /* Candidates: another vehicle within PRE_Q8 along and across the line. Two bodies in reach (46)
      * are within it on any part of the course, so only candidates get a world pose and enter the walk;
-     * a pair that leaves it simply loses its contact history, as one out of reach does. */
-    uint8_t cand[FZX_ATK_MAX];
+     * a pair that leaves it simply loses its contact history, as one out of reach does. Only vehicles
+     * current on this tick take part (the player, rivals driven here, and agents the field stepped on
+     * its last tick): far from the player the field's level of detail steps agents every 2, 4 or 8
+     * ticks, and a pair is resolved on the ticks both are current, as line-field-1's own contact did. */
+    uint8_t cand[FZX_ATK_MAX], cur[FZX_ATK_MAX];
     memset(cand, 0, sizeof(cand));
+    for (uint32_t i = 0; i < n; ++i)
+        cur[i] = (uint8_t)(i == 0u || (F.veh[i].flags & SH2Z_VEH_EXTERNAL) || F.brain[i].last_tick == F.field->tick);
     for (uint32_t s = 0; s < n; ++s) {
         const uint32_t a = order[s];
+        if (!cur[a]) continue;
         for (uint32_t k = 1; k < n; ++k) {
             const uint32_t b = order[s + k < n ? s + k : s + k - n];
             int32_t gap = along[a] - along[b];
             if (gap > half) gap -= length;
             else if (gap <= -half) gap += length;
             if (gap > PRE_Q8) break;
-            if (gap < 0) continue;
+            if (gap < 0 || !cur[b]) continue;
             if (iabs(F.veh[a].t.lateral - F.veh[b].t.lateral) <= PRE_Q8) cand[a] = cand[b] = 1;
         }
     }
-    for (uint32_t i = 0; i < n; ++i) {
+    PROF(2);
+    /* Last tick's candidates leave the walk; this tick's enter it. */
+    for (uint32_t ci = 0; ci < ncand; ++ci) body[cand_list[ci]].flags = 0;
+    ncand = 0;
+    for (uint32_t i = 0; i < n; ++i) if (cand[i]) cand_list[ncand++] = (uint8_t)i;
+    for (uint32_t ci = 0; ci < ncand; ++ci) {
+        const uint32_t i = cand_list[ci];
         sh2z_bc_body_t *b = &body[i];
         b->flags = 0;
-        if (!cand[i]) continue;
         if (i == 0) {
             if (!(p->flags & SH2Z_VD_ACTIVE)) continue;
             for (int c = 0; c < 3; ++c) { b->pos[c] = p->pos[c]; b->vel[c] = p->vel[c]; }
@@ -265,18 +294,25 @@ void fzx_atk_contact(const sh2z_vd_body_t *p, sh2z_vd_contact_t *out) {
         if (r->mode & (M_SIDE | M_SPIN)) b->flags |= SH2Z_BC_ATTACK;
         if (r->mode & M_CRASHED) b->flags |= SH2Z_BC_WEAK;
     }
+    PROF(3);
     const uint32_t touching = sh2z_bc_field_resolve(&bcf, order, along, length, &rules);
+    PROF(4);
     fzx_atk_report[1] = bcf.tested; fzx_atk_report[2] = touching; fzx_atk_report[0] = bcf.contacts;
     /* The player: everything through its own step. */
     out->push[0] = body[0].push[0]; out->push[1] = body[0].push[1]; out->push[2] = body[0].push[2];
     out->damage = body[0].damage; out->hit = body[0].hit;
     fzx_atk_report[10] += (uint32_t)((body[0].damage + 128) >> 8);
     /* Rivals: damage now (before anyone moves, as the original), the push in this tick's move. */
-    for (uint32_t i = 1; i < n; ++i) {
+    for (uint32_t ci = 0; ci < nprev_push; ++ci) R[prev_push[ci]].push_fwd = R[prev_push[ci]].push_lat = 0;
+    nprev_push = 0;
+    for (uint32_t ci = 0; ci < ncand; ++ci) {
+        const uint32_t i = cand_list[ci];
+        if (i == 0u) continue;
         rival_t *r = &R[i];
         const sh2z_bc_body_t *b = &body[i];
         r->push_fwd = r->push_lat = 0;
         if (!b->flags) continue;
+        prev_push[nprev_push++] = (uint8_t)i;
         if (b->push[0] | b->push[1] | b->push[2]) {
             int16_t (*rows)[3] = pose_rows[i];   /* this tick's pose, from above */
             int64_t pf = 0, pl = 0;
@@ -292,8 +328,13 @@ void fzx_atk_contact(const sh2z_vd_body_t *p, sh2z_vd_contact_t *out) {
             r->hit_t = HIT_TICKS;
             F.veh[i].flags |= SH2Z_VEH_EXTERNAL;
         }
+        if (b->damage > 0) {
+            const int src = b->hit || (b->flags & SH2Z_BC_ATTACK) ? 1 : 0;
+            fzx_atk_dmg_src[src][0]++; fzx_atk_dmg_src[src][1] += (uint32_t)((b->damage + 128) >> 8);
+        }
         damage_rival(p, i, b->damage);
     }
+    PROF(5);
 }
 
 /* ---- rivals driven here -------------------------------------------------------------------- */
@@ -364,7 +405,11 @@ static void move_external(const sh2z_vd_body_t *p, uint32_t i) {
             lv -= m16(lv, (r->mode & M_SPUN) ? BOUNCE_SPIN : BOUNCE);
             t->speed = m16(t->speed, WALL_KEEP);
             ++fzx_atk_report[13];
-            if (into > WALL_MIN) { FX_WALL(i, lat > 0 ? 1 : -1, into); damage_rival(p, i, m16(into << 8, WALL_DAMAGE)); }
+            if (into > WALL_MIN) {
+                FX_WALL(i, lat > 0 ? 1 : -1, into);
+                fzx_atk_dmg_src[2][0]++; fzx_atk_dmg_src[2][1] += (uint32_t)((m16(into << 8, WALL_DAMAGE) + 128) >> 8);
+                damage_rival(p, i, m16(into << 8, WALL_DAMAGE));
+            }
         }
     }
     t->lateral = lat;
@@ -409,7 +454,11 @@ void fzx_atk_move(const sh2z_vd_body_t *p) {
             const int32_t into = iabs(r->push_lat);
             lat = lat > 0 ? at.half_width : -at.half_width;
             ++fzx_atk_report[13];
-            if (into > WALL_MIN) { FX_WALL(i, lat > 0 ? 1 : -1, into); damage_rival(p, i, m16(into << 8, WALL_DAMAGE)); }
+            if (into > WALL_MIN) {
+                FX_WALL(i, lat > 0 ? 1 : -1, into);
+                fzx_atk_dmg_src[2][0]++; fzx_atk_dmg_src[2][1] += (uint32_t)((m16(into << 8, WALL_DAMAGE) + 128) >> 8);
+                damage_rival(p, i, m16(into << 8, WALL_DAMAGE));
+            }
         }
         v->t.lateral = lat;
         v->t.speed += r->push_fwd;
@@ -434,6 +483,12 @@ static void press(uint32_t i, int dir) {
     r->last_press = now;
 }
 
+static bool road_wide(const sh2z_vehicle_t *v) {
+    sh2z_line_sample_t at;
+    sh2z_line_sample(F.line, v->t.node, v->t.dist, &at);
+    return at.half_width * 2 > 138 * 256;
+}
+
 static void think(const sh2z_vd_body_t *p, uint32_t i) {
     rival_t *r = &R[i];
     sh2z_vehicle_t *v = &F.veh[i];
@@ -449,11 +504,10 @@ static void think(const sh2z_vd_body_t *p, uint32_t i) {
     const uint32_t race = race_ticks();
     bool vis = false, vis_known = false;
 #define VIS() (vis_known ? vis : (vis_known = true, vis = fzx_atk_visible(p, i)))
-    sh2z_line_sample_t at;
-    sh2z_line_sample(F.line, v->t.node, v->t.dist, &at);
-    const bool wide = at.half_width * 2 > 138 * 256;
+    bool wide = false, wide_known = false;
+#define WIDE() (wide_known ? wide : (wide_known = true, wide = road_wide(v)))
     /* Chasers on their target. */
-    if (b->chase >= 0 && (uint32_t)b->chase < F.count && race > THINK_AFTER_TICKS && wide &&
+    if (b->chase >= 0 && (uint32_t)b->chase < F.count && race > THINK_AFTER_TICKS && WIDE() &&
         !(r->mode & (M_SIDE | M_SPIN))) {
         const sh2z_vehicle_t *c = &F.veh[b->chase];
         if (!(c->flags & (SH2Z_VEH_RETIRED | SH2Z_VEH_FINISHED)) && iabs(near_gap(c, v)) < 184 * 256 && VIS()) {
@@ -495,6 +549,7 @@ static void think(const sh2z_vd_body_t *p, uint32_t i) {
         iabs(pl->t.lateral - v->t.lateral) < 138 * 256 && iabs(near_gap(pl, v)) < 500 * 256)
         start_attack(i, true, (rnd() & 1u) ? -1 : 1);
 #undef VIS
+#undef WIDE
 }
 
 static uint32_t mix(uint32_t h, uint32_t x) { return (h ^ x) * 16777619u; }
@@ -509,10 +564,11 @@ void fzx_atk_after(const sh2z_vd_body_t *p) {
             if ((i & 3u) == (tick & 3u)) think(p, i);
     }
     ++fzx_atk_report[15];
-    fzx_atk_report[14] = fzx_atk_hash();
     const uint32_t t = F.field->tick;
-    if ((t & 255u) == 0u && t / 256u >= 1u && t / 256u <= FZX_ATK_CHECKPOINTS)
+    if ((t & 255u) == 0u && t / 256u >= 1u && t / 256u <= FZX_ATK_CHECKPOINTS) {
+        fzx_atk_report[14] = fzx_atk_hash();   /* at the checkpoints only */
         fzx_atk_chk[t / 256u - 1u] = fzx_atk_report[14] ^ sh2z_field_hash(F.field);
+    }
 }
 
 /* ---- the scripted hunter ------------------------------------------------------------------- */

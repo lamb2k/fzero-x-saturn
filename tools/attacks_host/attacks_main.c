@@ -13,6 +13,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #include "physics_native.h"
 #include "engine_field.h"
@@ -78,6 +79,8 @@ static unsigned char *read_all(const char *path, size_t *n) {
     return b;
 }
 
+static uint64_t ns_now(void) { struct timespec ts; clock_gettime(CLOCK_MONOTONIC, &ts); return (uint64_t)ts.tv_sec * 1000000000ull + (uint64_t)ts.tv_nsec; }
+static uint64_t t_contact, t_step, t_field;
 static uint32_t ko_hook_calls;
 static void ko_hook(uint32_t victim) { (void)victim; ++ko_hook_calls; }
 
@@ -134,13 +137,25 @@ int main(int argc, char **argv) {
         in.stick_x = sx; in.stick_y = 0;
         prev = button;
         sh2z_vd_contact_t contact;
+        const uint64_t a0 = ns_now();
         fzx_atk_contact(&body, &contact);
+        const uint64_t a1 = ns_now();
         sh2z_vd_step_contact(&body, &course.track, &course.vehicle, &fzx_phys_rules, &in, &contact);
+        const uint64_t a2 = ns_now();
         fzx_field_tick(&body);
+        const uint64_t a3 = ns_now();
+        t_contact += a1 - a0; t_step += a2 - a1; t_field += a3 - a2;
         if ((t + 1u) % 256u == 0u && (t + 1u) / 256u <= 64u) printf("body %u %016llx\n", t + 1u, (unsigned long long)fnv64_body(&body));
         if (tf) fprintf(tf, "%u\t%d\t%d\t%u\t%u\t%u\n", t, body.energy, body.speed, (unsigned)body.flags, fzx_atk_report[3], fzx_atk_report[5]);
     }
     if (tf) fclose(tf);
+#ifdef ATK_PROF
+    { extern uint64_t atk_prof[8]; fprintf(stderr, "contact parts ns/tick: begin %.0f sort %.0f candidates %.0f bodies %.0f resolve %.0f outputs %.0f\n", (double)atk_prof[0] / t, (double)atk_prof[1] / t, (double)atk_prof[2] / t, (double)atk_prof[3] / t, (double)atk_prof[4] / t, (double)atk_prof[5] / t); }
+#endif
+    printf("damage sources (rivals): contact %u / %.1f, attack %u / %.1f, wall %u / %.1f\n", fzx_atk_dmg_src[0][0],
+           fzx_atk_dmg_src[0][1] / 256.0, fzx_atk_dmg_src[1][0], fzx_atk_dmg_src[1][1] / 256.0, fzx_atk_dmg_src[2][0],
+           fzx_atk_dmg_src[2][1] / 256.0);
+    fprintf(stderr, "HOST ns per tick: contact %.0f, player step %.0f, field tick (attacks move/after inside) %.0f\n", (double)t_contact / t, (double)t_step / t, (double)t_field / t);
     for (unsigned i = 0; i < FZX_ATK_CHECKPOINTS; ++i) if (fzx_atk_chk[i]) printf("chk %u %08x\n", (i + 1u) * 256u, fzx_atk_chk[i]);
     printf("ticks %u race_ms %d finished %u kos %u ko_hook %u spun %u retired_by_damage %u field_retired %u contacts %u cpu_side %u cpu_spin %u hits %u player_hits %u held_off_screen %u player_damage %u hash %08x\n",
            t, body.race_time, (unsigned)fzx_field_report[11], fzx_atk_report[3], ko_hook_calls, fzx_atk_report[4], fzx_atk_report[5],

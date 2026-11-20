@@ -344,7 +344,8 @@ bool fzx_field_load(const sh2z_vd_track_t *track, const sh2z_vd_body_t *player) 
         params.wall_energy = 0;
         fzx_atk_field_t a;
         a.field = &field; a.veh = veh; a.brain = brain; a.line = &line; a.pose = line_pose_fast;
-        a.config = fzx_rivals_field; a.count = FZX_FIELD_CARS;
+        a.config = &fzx_rivals_field[0][0]; a.config_stride = (uint32_t)(sizeof(fzx_rivals_field[0]) / sizeof(fzx_rivals_field[0][0]));
+        a.count = FZX_FIELD_CARS;
         fzx_atk_init(&a, FZX_RIVALS_FIELD_SEED);
     }
 #endif

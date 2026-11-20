@@ -116,11 +116,19 @@ void fzx_drive_field_run(void) {}
 void (*volatile fzx_drive_finish_hook)(uint32_t timer, uint32_t tick);
 static uint32_t finish_timer;
 #endif
+#if ENG_ATTACKS
+/* fzx_phys_step with contact: the tube tick on tube courses (vehicle-dynamics-3 sh2z_vd_step2_contact). */
+static inline void phys_step_contact(const FzxPhysCourse *c, sh2z_vd_body_t *b, const sh2z_vd_rules_t *r,
+                                     const sh2z_vd_input_t *in, const sh2z_vd_contact_t *k) {
+#if FZX_PHYS_TUBES
+    sh2z_vd_step2_contact(b, &c->track2, &c->vehicle, r, in, k);
+#else
+    sh2z_vd_step_contact(b, &c->track, &c->vehicle, r, in, k);
+#endif
+}
+#endif
 static void step_once(sh2z_vd_input_t *in) {
 #if ENG_ATTACKS
-#if FZX_PHYS_TUBES
-#error "ENG_ATTACKS has no tube step with contact yet (vehicle-dynamics-3 is on the road step only); build with ENG_TUBES=0"
-#endif
 #if E1_FIELD && ENG_BAL_EARLY
     /* Contact needs every rival at this tick: step the field's pending ticks first (the last tick of a
      * frame still steps after the kick). */
@@ -132,7 +140,7 @@ static void step_once(sh2z_vd_input_t *in) {
 #if ENG_FX
     fzx_fx_tick(&body); /* race effects: read only (engine_fx.c) */
 #endif
-    sh2z_vd_step_contact(&body, &course.track, &course.vehicle, &fzx_phys_rules, in, &contact);
+    phys_step_contact(&course, &body, &fzx_phys_rules, in, &contact);
 #if ENG_FX
     fzx_fx_player(&body, course.vehicle.max_energy);
 #endif

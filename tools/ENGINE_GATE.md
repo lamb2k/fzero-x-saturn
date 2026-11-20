@@ -22,6 +22,8 @@ python tools/engine_gate.py --full --only loop,cancel --courses sand-ocean-1
 - **`--identity-vars`** gives the make variables for the identity builds, so a lane whose switch defaults to on
   can show that the switch's off position keeps the base's images.
 - **`--expect image=prefix,...`** checks BINs that were already reported for the same code.
+- **`--rescore`** scores an earlier run's evidence again (same `--label`) without building or running anything.
+- **`--control-names`** limits `--controls` to the named controls.
 - **`--keep`** keeps the discs, dumps and stills. By default they are deleted after scoring and listed in
   `cleanup-manifest.txt`.
 - **Exit status:** 0 when every check passes and, with `--controls`, every control fails. Otherwise 1.
@@ -146,10 +148,12 @@ Never change a limit after seeing a result. A change needs the integrator, and t
 | One engine build | about 42 s |
 | One legacy build | 30 to 40 s |
 | Mute City race in the harness | about 2.7 min (9,465 fields; about 57 fields/s) |
-| Loop (3 races, reboot) | see the baseline receipt |
-| `--quick` | see the baseline receipt |
-| `--full` | see the baseline receipt |
-| `--full --controls` | see the baseline receipt |
+| Loop (3 races, reboot) | about 7.5 min alone; up to 8 min with 12 parallel jobs |
+| `--quick` (5 runs, base BINs cached) | 7.7 min (460 s) |
+| `--full --controls` (9 images, legacy pair, 28 runs, 12 at a time) | about 22 min |
+
+Ymir slows down with 12 or more parallel jobs: one Mute City race takes 2.7 min alone and about 5 min under load.
+Lower `--jobs` when other lanes share the machine.
 
 ## Baseline
 

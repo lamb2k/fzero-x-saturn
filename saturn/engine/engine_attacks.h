@@ -49,7 +49,8 @@ typedef struct {
     const sh2z_line_t *line;
     /* Q16 world position and Q1.14 rows (forward, up, left) of a line-space state. */
     void (*pose)(const sh2z_track_state_t *t, int32_t pos[3], int16_t rows[3][3]);
-    const int32_t (*config)[6];   /* per vehicle: grid, lap ms, chase, max energy Q8, aggression, character */
+    const int32_t *config;        /* per vehicle, config_stride words: grid, lap ms, chase, max energy Q8, aggression, character, ... */
+    uint32_t config_stride;
     uint32_t count;
 } fzx_atk_field_t;
 

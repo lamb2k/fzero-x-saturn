@@ -149,6 +149,9 @@ int main(int argc, char **argv) {
         if (tf) fprintf(tf, "%u\t%d\t%d\t%u\t%u\t%u\n", t, body.energy, body.speed, (unsigned)body.flags, fzx_atk_report[3], fzx_atk_report[5]);
     }
     if (tf) fclose(tf);
+#ifdef ATK_PROF
+    { extern uint64_t atk_prof[8]; fprintf(stderr, "contact parts ns/tick: begin %.0f sort %.0f candidates %.0f bodies %.0f resolve %.0f outputs %.0f\n", (double)atk_prof[0] / t, (double)atk_prof[1] / t, (double)atk_prof[2] / t, (double)atk_prof[3] / t, (double)atk_prof[4] / t, (double)atk_prof[5] / t); }
+#endif
     fprintf(stderr, "HOST ns per tick: contact %.0f, player step %.0f, field tick (attacks move/after inside) %.0f\n", (double)t_contact / t, (double)t_step / t, (double)t_field / t);
     for (unsigned i = 0; i < FZX_ATK_CHECKPOINTS; ++i) if (fzx_atk_chk[i]) printf("chk %u %08x\n", (i + 1u) * 256u, fzx_atk_chk[i]);
     printf("ticks %u race_ms %d finished %u kos %u ko_hook %u spun %u retired_by_damage %u field_retired %u contacts %u cpu_side %u cpu_spin %u hits %u player_hits %u held_off_screen %u player_damage %u hash %08x\n",

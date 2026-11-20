@@ -125,6 +125,13 @@ void duel_bake(int k, DuelEmit emit) {
                         s->threeQuarterMarkPos.x, s->threeQuarterMarkPos.y, s->threeQuarterMarkPos.z,
                         s->quarterMarkLength, s->halfMarkLength, s->threeQuarterMarkLength };
         emit("seg", i, s->trackSegmentInfo, w, 23);
+        /* Tube spans carry their joins (as ref_handling_bake). */
+        if ((s->trackSegmentInfo & TRACK_SHAPE_MASK) == TRACK_SHAPE_PIPE ||
+            (s->trackSegmentInfo & TRACK_SHAPE_MASK) == TRACK_SHAPE_CYLINDER ||
+            (s->trackSegmentInfo & TRACK_SHAPE_MASK) == TRACK_SHAPE_HALF_PIPE) {
+            float jv[3] = { s->previousJoinEndTValue, s->nextJoinStartTValue, s->joinScale };
+            emit("join", i, 0, jv, 3);
+        }
         for (e = s->effectsStart; e != NULL && e != s->effectsEnd; e++) {
             float v[8] = { e->segmentTValueStart, e->segmentTValueEnd, e->unk_0C.x, e->unk_0C.y, e->unk_0C.z,
                            e->unk_18.x, e->unk_18.y, e->unk_18.z };

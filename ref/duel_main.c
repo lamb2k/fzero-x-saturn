@@ -11,6 +11,7 @@
  *   spin    P holds the far lean and double-taps the near one beside O (spin attacks)
  *   cpu     O comes alongside P and side-attacks it (an opponent's attack: no x10)
  *   ko      side attacks until O spins out (KO credit), then both drive on to its retirement
+ * --attack-from T: the first tick an attack may start (default 700). --length-out FILE: the lap length.
  * --pads writes every tick's integer pads for both racers ("t b0 x0 b1 x1"): the native windows
  * replay them. --trace: one line per tick and racer (see duel_state). --bake-at T writes both
  * racers' physics pack sources after tick T (the native window's start state). The course record
@@ -70,7 +71,8 @@ static signed char steer(const float f[12], float target, float kl) {
 
 int main(int argc, char** argv) {
     const char *course = 0, *rom = 0, *scenario = "bump", *trace = 0, *pads = 0, *bake0 = 0, *bake1 = 0;
-    int ticks = 2400, bake_at = -1, c0 = 0, c1 = 9;
+    int ticks = 2400, bake_at = -1, c0 = 0, c1 = 9, attack_from = 700;
+    const char *length_out = 0;
     float e0 = 0.0f, e1 = 0.0f;
     for (int i = 1; i + 1 < argc; i += 2) {
         if (!strcmp(argv[i], "--course")) course = argv[i + 1];
@@ -80,6 +82,8 @@ int main(int argc, char** argv) {
         else if (!strcmp(argv[i], "--trace")) trace = argv[i + 1];
         else if (!strcmp(argv[i], "--pads")) pads = argv[i + 1];
         else if (!strcmp(argv[i], "--bake-at")) bake_at = atoi(argv[i + 1]);
+        else if (!strcmp(argv[i], "--attack-from")) attack_from = atoi(argv[i + 1]);
+        else if (!strcmp(argv[i], "--length-out")) length_out = argv[i + 1];
         else if (!strcmp(argv[i], "--bake0")) bake0 = argv[i + 1];
         else if (!strcmp(argv[i], "--bake1")) bake1 = argv[i + 1];
         else if (!strcmp(argv[i], "--machines")) { if (sscanf(argv[i + 1], "%d,%f,%d,%f", &c0, &e0, &c1, &e1) != 4) die("--machines c0,e0,c1,e1"); }
@@ -99,6 +103,7 @@ int main(int argc, char** argv) {
                    !strcmp(scenario, "cpu") ? 3 : !strcmp(scenario, "ko") ? 4 : !strcmp(scenario, "free") ? 5 : -1;
     if (sc < 0) die("unknown scenario");
     const float length = rb_course_length();
+    if (length_out) { FILE* lf = fopen(length_out, "w"); if (!lf) die("cannot write the length"); fprintf(lf, "%.6f\n", length); fclose(lf); }
     FILE* tf = trace ? fopen(trace, "w") : NULL;
     FILE* pf = pads ? fopen(pads, "w") : NULL;
     if ((trace && !tf) || (pads && !pf)) die("cannot write an output");
@@ -123,7 +128,7 @@ int main(int argc, char** argv) {
         case 1: case 2: case 4: target0 = f1[8] + (f0[8] > f1[8] ? 38.0f : -38.0f); break; /* beside O */
         case 3: target0 = 0.0f; target1 = f0[8] + (f1[8] > f0[8] ? 38.0f : -38.0f); break;  /* O beside P */
         }
-        if (sc >= 1 && t >= 700) {
+        if (sc >= 1 && t >= attack_from) {
             /* Attack when beside the victim: two presses two ticks apart toward it, every 90 ticks. */
             const int k = attacker;
             if (t - tap_at >= 90 && fabsf(vgap) < 25.0f && fabsf(fv[8] - fa[8]) < 75.0f && !(n0[0] & ST_SPIN) && !(n1[0] & ST_SPIN) &&

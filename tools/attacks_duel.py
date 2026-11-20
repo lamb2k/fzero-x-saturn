@@ -25,17 +25,29 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import physics_pack  # noqa: E402
 
-SCENARIOS = {  # name: (machines for the reference c0,e0,c1,e1; native c0,c1; ticks)
-    'bump': ('0,0,9,0', '0,9', 4000),
-    'side': ('0,0,0,0', '0,0', 4000),
-    'spin': ('0,0,0,0', '0,0', 4000),
-    'cpu': ('0,0,0,0', '0,0', 4000),
-    'ko': ('0,0,0,0', '0,0', 4000),
+# name: (script, reference machines c0,e0,c1,e1, native c0,c1, ticks, course (1: --course, 2: --course2), attack from)
+SCENARIOS = {
+    'bump': ('bump', '0,0,9,0', '0,9', 4000, 1, 700),
+    'side': ('side', '0,0,0,0', '0,0', 4000, 1, 700),
+    'spin': ('spin', '0,0,0,0', '0,0', 4000, 1, 700),
+    'cpu': ('cpu', '0,0,0,0', '0,0', 4000, 1, 700),
+    'ko-m9': ('ko', '0,0,9,0', '0,9', 4000, 1, 700),
+    'ko-m15': ('ko', '0,0,15,0', '0,15', 4000, 1, 700),
+    'ko-m3': ('ko', '0,0,3,0', '0,3', 4000, 1, 700),
+    'ko-late': ('ko', '0,0,0,0', '0,0', 4000, 1, 1500),
+    'ko-m13': ('ko', '0,0,13,0', '0,13', 4000, 1, 1100),
+    'bump-t': ('bump', '0,0,9,0', '0,9', 4000, 2, 700),
+    'side-t': ('side', '0,0,0,0', '0,0', 4000, 2, 700),
+    'spin-t': ('spin', '0,0,0,0', '0,0', 4000, 2, 700),
+    'ko-t-m9': ('ko', '0,0,9,0', '0,9', 4000, 2, 700),
+    'ko-t-m15': ('ko', '0,0,15,0', '0,15', 4000, 2, 700),
+    'ko-t-m3': ('ko', '0,0,3,0', '0,3', 4000, 2, 700),
+    'ko-t-late': ('ko', '0,0,0,0', '0,0', 4000, 2, 1500),
+    'ko-t-m13': ('ko', '0,0,13,0', '0,13', 4000, 2, 1100),
 }
 START, GRID, LEAD, LEN, POS_TOL, SPEED_TOL, QUANTUM = 460, 300, 30, 90, 32.0, 0.005, 1.0 / 65536
 LONG = {'spin_out': 200, 'retire': 60}
 ST_RETIRED = 1 << 18
-COURSE_LENGTH = 79028.0  # the first course's lap length, for wrapping the along gap only
 CLASSES = ['contact', 'side', 'spin', 'damage', 'spin_out', 'retire', 'ko']
 MUTATIONS = {'impact1.2': 'damage', 'share-swap': 'damage', 'heavy9': 'damage', 'push2.5': 'side', 'reach45': 'contact',
              'spin140': 'retire', 'credit-off': 'ko', 'heavy5': 'spin_out'}   # mutation: the class whose windows must fail
@@ -110,20 +122,25 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--ref', required=True); ap.add_argument('--native', required=True)
     ap.add_argument('--course', required=True); ap.add_argument('--rom', required=True)
+    ap.add_argument('--course2', default=None, help='a second course record (the tube course)')
+    ap.add_argument('--native2', default=None, help='the native duel runner built with FZX_PHYS_TUBES=1')
     ap.add_argument('--out', required=True, type=Path); ap.add_argument('--mutate', default='')
     ap.add_argument('--scenarios', default=','.join(SCENARIOS)); ap.add_argument('--jobs', type=int, default=8)
     a = ap.parse_args()
     out = a.out; out.mkdir(parents=True, exist_ok=True)
-    base = ['--course', a.course, '--rom', a.rom]
     summary = {'mutation': a.mutate, 'windows': 0, 'passed': 0, 'endpoints': 0, 'classes': {}, 'scenarios': {}}
-    for sc in a.scenarios.split(','):
-        mref, mnat, ticks = SCENARIOS[sc]
+    names = [n for n in a.scenarios.split(',') if SCENARIOS[n][4] == 1 or a.course2]
+    for sc in names:
+        script, mref, mnat, ticks, cid, afrom = SCENARIOS[sc]
+        base = ['--course', a.course if cid == 1 else a.course2, '--rom', a.rom, '--attack-from', str(afrom)]
+        native = a.native if cid == 1 else (a.native2 or a.native)
         d = out / sc; d.mkdir(exist_ok=True)
         tr, pads = d / 'ref.tsv', d / 'ref.pads'
         if not tr.exists():
-            run([a.ref] + base + ['--scenario', sc, '--machines', mref, '--ticks', str(ticks), '--trace', str(tr), '--pads', str(pads)])
+            run([a.ref] + base + ['--scenario', script, '--machines', mref, '--ticks', str(ticks), '--trace', str(tr), '--pads', str(pads),
+                                  '--length-out', str(d / 'length.txt')])
         rows = load(tr)
-        length = COURSE_LENGTH
+        length = float((d / 'length.txt').read_text())
         ref_ev = events(rows, 0, ticks - 1, length)
         starts = {}
         last_event = max((e[1] for e in ref_ev), default=ticks)
@@ -139,7 +156,7 @@ def main():
             w = d / ('w%05d' % t); w.mkdir(exist_ok=True)
             s0, s1 = w / 'p0.src', w / 'p1.src'
             if not (w / 'p1.pack').exists():
-                run([a.ref] + base + ['--scenario', sc, '--machines', mref, '--ticks', str(t + 1), '--bake-at', str(t),
+                run([a.ref] + base + ['--scenario', script, '--machines', mref, '--ticks', str(t + 1), '--bake-at', str(t),
                                       '--bake0', str(s0), '--bake1', str(s1)])
                 for k in (0, 1):
                     src = w / ('p%d.src' % k)
@@ -149,7 +166,7 @@ def main():
             gap = abs(((r1['lapd'] - r0['lapd']) + length / 2) % length - length / 2)
             touching = int(math.dist(r0['pos'], r1['pos']) <= 46 and gap <= 92)
             nt = w / ('native%s.tsv' % ('-' + a.mutate if a.mutate else ''))
-            cmd = [a.native, '--pack0', str(w / 'p0.pack'), '--pack1', str(w / 'p1.pack'), '--pads', str(pads), '--from', str(t),
+            cmd = [native, '--pack0', str(w / 'p0.pack'), '--pack1', str(w / 'p1.pack'), '--pads', str(pads), '--from', str(t),
                    '--ticks', str(n), '--machines', mnat, '--since', str(r1['since']), '--toucher', str(r1['toucher']),
                    '--touching', str(touching), '--trace', str(nt)]
             for k in (0, 1):   # the spin-out side the reference drew, for a spin-out inside the window

@@ -133,7 +133,11 @@ int main(int argc, char **argv) {
             c.push[0] = bc[k].push[0]; c.push[1] = bc[k].push[1]; c.push[2] = bc[k].push[2];
             c.damage = bc[k].damage; c.hit = bc[k].hit; c.regain = k == 0 ? regain : 0;
             if (k == 0) regain = 0;
+#if FZX_PHYS_TUBES
+            sh2z_vd_step2_contact(&b[k], &course[k].track2, &course[k].vehicle, &rules, &in, &c);
+#else
             sh2z_vd_step_contact(&b[k], &course[k].track, &course[k].vehicle, &rules, &in, &c);
+#endif
         }
         /* The spin-out side is a random draw in the original: take the reference's (--spin-side*). */
         for (int k = 0; k < 2; ++k) {

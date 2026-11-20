@@ -344,6 +344,9 @@ static void own_frame(void) { list_frame(&bare_list); }
  * (without its END), then the scene's span, then END. */
 static vdp1_cmdt_list_t backdrop_list;
 static void text_frame(bool printed) {
+#if E0_HW_COUNTER
+    if (fzx_hw_overlay(printed, 21u)) printed = true; /* under the screen's own text; once a second */
+#endif
     if (printed) dbgio_flush();
     span_build(seq.current);
     if (backdrop && seq.current == FZX_SCN_RESULTS) {
@@ -1138,6 +1141,9 @@ static void race_release(void *u, uint32_t s) {
     (void)u; (void)s;
     paused = false; HOLD = 0u;
     fzx_race_render_callback(false);
+#if E0_HW_COUNTER
+    fzx_hw_race_break(); /* no race present until the next race's first starts a new run */
+#endif
     race_regs = *vdp2_regs_get();
     race_regs_kept = true;
     if (seq.next == FZX_SCN_RESULTS) {
@@ -1264,6 +1270,9 @@ void fzx_scn_main(void) {
          * that iteration was a manager frame that ran no blocking load. */
         if (menu_frame_prev && steps > fzx_scn_ctl[6]) fzx_scn_ctl[6] = steps;
         if (menu_frame_prev && steps > 2u) { ++fzx_scn_ctl[7]; fzx_scn_gap_at[fzx_scn_ctl[7] & 7u] = (menu_scene_prev << 16) | menu_phase_prev << 8 | steps; }
+#if E0_HW_COUNTER
+        if (menu_frame_prev) fzx_hw_menu_gap(steps);
+#endif
         frame_fields = now;
         if (steps == 0u) steps = 1u;
         if (steps > 4u) steps = 4u;

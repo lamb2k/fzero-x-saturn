@@ -305,17 +305,82 @@ __asm__(
  * flythrough frame, for an on-screen readout a TV can show. gaps[k]: gaps of
  * k+1 fields, gaps[3]: four or more. */
 volatile uint32_t fzx_hw_frames, fzx_hw_first_field, fzx_hw_last_field, fzx_hw_worst, fzx_hw_over2, fzx_hw_gaps[4];
+/* fzx_hw_open: 0 = the next present starts a new run (its gap is not counted: the scenes
+ * image breaks the run at each race start and end); fzx_hw_span: fields over counted gaps. */
+volatile uint32_t fzx_hw_open, fzx_hw_span;
+static uint32_t hw_next;
+#if !FZX_E1_DRIVE
+static uint32_t hw_loops, hw_mark_frames;
+#endif
 static void hw_count(void) {
     const uint32_t now = video_fields;
-    if (fzx_hw_frames) {
+    if (fzx_hw_open) {
         const uint32_t gap = now - fzx_hw_last_field;
         if (gap > fzx_hw_worst) fzx_hw_worst = gap;
         if (gap > 2u) ++fzx_hw_over2;
         if (gap) ++fzx_hw_gaps[gap > 4u ? 3u : gap - 1u];
-    } else fzx_hw_first_field = now;
+        fzx_hw_span += gap;
+    } else {
+        if (!fzx_hw_frames) fzx_hw_first_field = now;
+        fzx_hw_open = 1u;
+    }
     fzx_hw_last_field = now;
     ++fzx_hw_frames;
 }
+#if FZX_E1_DRIVE
+/* The drive and scenes readout, inside TV overscan: text rows 21-25 under every placeholder
+ * screen; rows 6-10 in the race, over the sky (clear of the HUD and the car). RACE: presented race frames,
+ * from the present callback; MENU: the scene manager's frames outside the race and the
+ * blocking loads (engine_scenes.c, fzx_hw_menu_gap). Nothing is flushed here: the caller's
+ * flush carries it (the race HUD's at its present; the menu text frame's). */
+volatile uint32_t fzx_hw_races, fzx_hw_menu_frames, fzx_hw_menu_span, fzx_hw_menu_worst, fzx_hw_menu_over2,
+    fzx_hw_menu_gaps[4];
+static uint32_t hw_race_mark, hw_mark_field, hw_race_fps, hw_race_restart;
+void fzx_hw_menu_gap(uint32_t gap) {
+    if (!gap) return;
+    if (gap > fzx_hw_menu_worst) fzx_hw_menu_worst = gap;
+    if (gap > 2u) ++fzx_hw_menu_over2;
+    ++fzx_hw_menu_gaps[gap > 4u ? 3u : gap - 1u];
+    fzx_hw_menu_span += gap;
+    ++fzx_hw_menu_frames;
+}
+void fzx_hw_race_break(void) { fzx_hw_open = 0u; hw_race_restart = 1u; }
+bool fzx_hw_overlay(bool force, uint32_t row) {
+    const uint32_t now = video_fields;
+    const bool race = row < 21u; /* called from the race frame */
+    if (!hw_next || (race && hw_race_restart)) {
+        /* A new one-second window at power-on and at each race's first readout, so FPS covers race
+         * frames only; outside the race it keeps the last race second's value. */
+        hw_next = now + 60u; hw_mark_field = now; hw_race_mark = fzx_hw_frames;
+        if (race) hw_race_restart = 0u;
+    }
+    const bool due = (int32_t)(now - hw_next) >= 0;
+    if (!due && !force) return false;
+    if (due) {
+        const uint32_t window = now - hw_mark_field, races = fzx_hw_frames;
+        if (race && window) hw_race_fps = ((races - hw_race_mark) * 60u + window / 2u) / window;
+        hw_race_mark = races; hw_mark_field = now; hw_next = now + 60u;
+    }
+    const uint32_t secs = now / 60u, rspan = fzx_hw_span, mspan = fzx_hw_menu_span;
+    const uint32_t rgaps = fzx_hw_gaps[0] + fzx_hw_gaps[1] + fzx_hw_gaps[2] + fzx_hw_gaps[3];
+    const uint32_t rmean = rspan ? rgaps * 600u / rspan : 0u, mmean = mspan ? fzx_hw_menu_frames * 600u / mspan : 0u;
+    /* At most 36 columns from column 4 (the 40-column plane, inset for overscan). FPS: race frames
+     * in the last second; MEAN: frames per second over every counted gap since power-on. */
+    dbgio_printf("\x1b[%lu;4HRACE %lu  FPS %lu  MEAN %lu.%lu  %02lu:%02lu   ", (unsigned long)row,
+                 (unsigned long)fzx_hw_races, (unsigned long)hw_race_fps, (unsigned long)(rmean / 10u),
+                 (unsigned long)(rmean % 10u), (unsigned long)(secs / 60u % 100u), (unsigned long)(secs % 60u));
+    dbgio_printf("\x1b[%lu;4H WORST %luF  OVER2 %lu       ", (unsigned long)row + 1u, (unsigned long)fzx_hw_worst,
+                 (unsigned long)fzx_hw_over2);
+    dbgio_printf("\x1b[%lu;4H GAPS %lu/%lu/%lu/%lu       ", (unsigned long)row + 2u, (unsigned long)fzx_hw_gaps[0],
+                 (unsigned long)fzx_hw_gaps[1], (unsigned long)fzx_hw_gaps[2], (unsigned long)fzx_hw_gaps[3]);
+    dbgio_printf("\x1b[%lu;4HMENU MEAN %lu.%lu  WORST %luF  OVER2 %lu   ", (unsigned long)row + 3u,
+                 (unsigned long)(mmean / 10u), (unsigned long)(mmean % 10u), (unsigned long)fzx_hw_menu_worst,
+                 (unsigned long)fzx_hw_menu_over2);
+    dbgio_printf("\x1b[%lu;4H GAPS %lu/%lu/%lu/%lu       ", (unsigned long)row + 4u, (unsigned long)fzx_hw_menu_gaps[0],
+                 (unsigned long)fzx_hw_menu_gaps[1], (unsigned long)fzx_hw_menu_gaps[2], (unsigned long)fzx_hw_menu_gaps[3]);
+    return true;
+}
+#endif
 #endif
 
 #ifndef ENG_PACE
@@ -1355,6 +1420,9 @@ void fzx_race_begin(void) {
     tick = 0; remainder = 0; previous = video_fields; row_index = 0; pending_row = 0;
     fzx_e0_report[1] = 0; fzx_e0_report[4] = previous;
     fzx_e0_done = 0; fzx_e0_status = 1;
+#if E0_HW_COUNTER
+    fzx_hw_race_break(); ++fzx_hw_races; /* the first present of this race starts a new run */
+#endif
 #if ENG_PACE == 4
     {   /* The pacing pipeline restarts empty: a race that ended (or was left) mid-flight leaves
          * a frame counted as submitted and never presented; and the manager's last list must be
@@ -1390,9 +1458,6 @@ bool fzx_race_frame(void) {
                            before the loop takes its time origin, so the first frame keeps its phase */
 #endif
     uint32_t tick = 0, remainder = 0, previous = video_fields, row_index = 0;
-#if E0_HW_COUNTER
-    uint32_t hw_loops = 0, hw_next = 0, hw_mark_frames = 0;
-#endif
     fzx_e0_report[4] = previous;
     fzx_e0_status = 1;
     for (;;) {
@@ -1577,11 +1642,13 @@ bool fzx_race_frame(void) {
             row->hud_ticks = (uint16_t)(cpu_frt_count_get() - h0);
         }
 #endif
-#if E0_HW_COUNTER
+#if E0_HW_COUNTER && FZX_E1_DRIVE
+        (void)fzx_hw_overlay(false, 6u); /* once a second, into this frame's HUD text, over the sky */
+#elif E0_HW_COUNTER
         {   /* Once a second (60 fields): the readout, inset from the top left for TV overscan. */
-            const uint32_t frames = fzx_hw_frames, last = fzx_hw_last_field;
+            const uint32_t frames = fzx_hw_frames;
             if (frames > 1u && field >= hw_next) {
-                const uint32_t fields = last - fzx_hw_first_field, secs = (field - fzx_hw_first_field) / 60u;
+                const uint32_t fields = fzx_hw_span, secs = (field - fzx_hw_first_field) / 60u;
                 const uint32_t mean10 = fields ? (frames - 1u) * 600u / fields : 0u;
                 dbgio_printf("\x1b[H\n\n    E0 HW  %02lu:%02lu  LOOP %lu\n"
                              "    FRAMES %lu  FIELDS %lu\n"

@@ -59,6 +59,26 @@ extern s16* D_i3_8013DBE8;
 extern void Racer_Init(void);
 extern void func_i3_80116C4C(void);
 
+/* The CPU tuning tables (cpu.c) are indexed by gCourseIndex, which the bridge leaves at the
+ * first course while the served record fills that slot. For another course (its original
+ * index n, gp_ref_main.c --tuning-course), its rows are copied into slot 0 before rb_gp_init. */
+extern f32 D_i3_8013DC18[], D_i3_8013DFA0[];
+extern u32 D_i3_8013E328[], D_i3_8013E4A8[], D_i3_8013E628[];
+extern s16 D_i3_8013E94C[];
+int rb_gp_tuning_course(int n) {
+    int d;
+    if (n < 0 || n >= 24) return -1;
+    for (d = 0; d < 4 && n > 0; ++d) {
+        D_i3_8013DC18[d] = D_i3_8013DC18[n * 4 + d];
+        D_i3_8013DFA0[d] = D_i3_8013DFA0[n * 4 + d];
+        D_i3_8013E328[d] = D_i3_8013E328[n * 4 + d];
+        D_i3_8013E4A8[d] = D_i3_8013E4A8[n * 4 + d];
+        D_i3_8013E628[d] = D_i3_8013E628[n * 4 + d];
+    }
+    D_i3_8013E94C[0] = D_i3_8013E94C[n];
+    return 0;
+}
+
 /* After ref_race_init(): re-run the race set-up as a 30-racer Grand Prix race.
  * cpu_line is the course's CPU line in host order (0x200 s16); the hooks skip the ROM read. */
 int rb_gp_init(int difficulty, unsigned seed, const short* cpu_line) {

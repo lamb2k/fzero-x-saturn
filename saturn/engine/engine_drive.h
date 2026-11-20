@@ -87,6 +87,10 @@ extern unsigned fzx_emit_nsegs;
 #endif
 const sh2z_vd_body_t *fzx_drive_body(void);
 #endif
+#if FZX_PHYS_TUBES
+/* 0 while the player is inside a pipe away from its joins (the road plan's outer bit). */
+uint8_t fzx_drive_outer(void);
+#endif
 /* HUD text (dbgio, VDP2). */
 void fzx_drive_hud(void);
 /* The HUD text only, into the dbgio buffer; the caller flushes it (dbgio_flush). */

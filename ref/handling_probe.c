@@ -132,6 +132,15 @@ void ref_handling_bake(RefBakeEmit emit) {
                         s->threeQuarterMarkPos.x, s->threeQuarterMarkPos.y, s->threeQuarterMarkPos.z,
                         s->quarterMarkLength, s->halfMarkLength, s->threeQuarterMarkLength };
         emit("seg", i, s->trackSegmentInfo, w, 23);
+        /* Tube spans (pipe, cylinder, half-pipe) also carry their joins: the t where the join
+         * with the previous span ends, where the one with the next starts, and the join scale
+         * (racer.c func_8008EC98 / func_8008F550). Road courses keep their source unchanged. */
+        if ((s->trackSegmentInfo & TRACK_SHAPE_MASK) == TRACK_SHAPE_PIPE ||
+            (s->trackSegmentInfo & TRACK_SHAPE_MASK) == TRACK_SHAPE_CYLINDER ||
+            (s->trackSegmentInfo & TRACK_SHAPE_MASK) == TRACK_SHAPE_HALF_PIPE) {
+            float jv[3] = { s->previousJoinEndTValue, s->nextJoinStartTValue, s->joinScale };
+            emit("join", i, 0, jv, 3);
+        }
         if (s->segmentIndex != i || s->next != &c->courseSegments[(i + 1) % c->segmentCount] ||
             s->prev != &c->courseSegments[(i + c->segmentCount - 1) % c->segmentCount])
             emit("error-unlinked", i, 0, w, 0);

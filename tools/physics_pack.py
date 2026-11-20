@@ -8,6 +8,13 @@ marks), the surface zones, jumps and mines Race_Init adds, the machine's derived
 constants and racer 0's starting state. Every value is a C99 hex float, so the
 conversion to fixed point is exact up to the one rounding below.
 
+Tube courses (pipe, cylinder or half-pipe spans; the source has "join" lines) get format
+version 3: after the mines, one join record per node (the t where the join with the previous
+span ends, where the one with the next starts, Q30, and the join scale, Q30; a node without
+joins gets 0, 1, 1). The source marks a side without a join with t -99 or 99 and a span
+without joins with scale -1: those become -1 and 1.5 (never reached by t in [0, 1)) and
+scale 1. Every other course keeps version 2 byte for byte.
+
 Output: big-endian 32-bit words, round to nearest (ties away from zero):
     Q16 positions, widths, speeds, forces, energies;  Q30 unit vectors, tension, t;
     Q12 arc lengths along the line (node start, span length, mark lengths, lap distance).
@@ -26,6 +33,7 @@ from pathlib import Path
 
 MAGIC = 0x465A5850  # "FZXP"
 VERSION = 2
+VERSION_TUBES = 3
 ZONES_BY_SIDE = 0x8000000
 SHAPE_MASK = 0x1C0
 
@@ -39,7 +47,7 @@ def fx(value, bits):
 
 
 def parse(path):
-    src = {"seg": [], "zone": [], "jump": [], "mine": []}
+    src = {"seg": [], "zone": [], "jump": [], "mine": [], "join": []}
     for line in Path(path).read_text().splitlines():
         if not line or line.startswith("#"):
             continue
@@ -61,7 +69,15 @@ def build(src, laps=3):
         raise ValueError("segments out of order")
     per = lambda kind: [[x for x in src[kind] if x[0] == i] for i in range(count)]
     zones, jumps, mines = per("zone"), per("jump"), per("mine")
-    w = [MAGIC, VERSION, count, len(src["zone"]), len(src["jump"]), len(src["mine"]), fx(length, 12), laps]
+    tubes = {}
+    for a, _, v in src.get("join", []):
+        if not 0 <= a < count or len(v) != 3:
+            raise ValueError("bad join record")
+        prev_end, next_start = max(v[0], -1.0), min(v[1], 1.5)
+        if not v[2] > 0 and (prev_end > 0 or next_start < 1):
+            raise ValueError("join without a scale at %d" % a)
+        tubes[a] = (prev_end, next_start, v[2] if v[2] > 0 else 1.0)
+    w = [MAGIC, VERSION_TUBES if tubes else VERSION, count, len(src["zone"]), len(src["jump"]), len(src["mine"]), fx(length, 12), laps]
     m = src["machine"][2]
     q16 = lambda *k: [fx(m[i], 16) for i in k]
     q30 = lambda *k: [fx(m[i], 30) for i in k]
@@ -87,6 +103,10 @@ def build(src, laps=3):
     for group in mines:
         for _, _, v in group:
             w += [fx(x, 16) for x in v]
+    if tubes:
+        for i in range(count):
+            prev_end, next_start, scale = tubes.get(i, (0.0, 1.0, 1.0))
+            w += [fx(prev_end, 30), fx(next_start, 30), fx(scale, 30)]
     flags, node, st = src["state"]
     lap, laps_done, ticks, race_time, intro, _boost = (int(x) for x in st)
     w += [flags & 0xFFFFFFFF, node, intro, lap, laps_done, ticks, race_time]
@@ -134,7 +154,7 @@ def main():
     src = parse(args.source)
     if args.receipt:
         args.receipt.write_text(json.dumps({
-            "tool": "tools/physics_pack.py", "format": "FZXP v%d" % VERSION, "laps": args.laps,
+            "tool": "tools/physics_pack.py", "format": "FZXP v%d" % (VERSION_TUBES if src["join"] else VERSION), "laps": args.laps,
             "source_sha256": hashlib.sha256(args.source.read_bytes()).hexdigest(),
             "pack_sha256": hashlib.sha256(data).hexdigest(), "pack_bytes": len(data),
             "course_line_hash": "%016x" % line_hash(src)}, indent=1) + "\n")

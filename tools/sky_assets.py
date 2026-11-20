@@ -35,13 +35,14 @@ def generate(source,out):
     output_location(out)
     subprocess.run(['bash',str(ROOT/'tools/check_receipt.sh'),str(source/'backdrop.receipt')],check=True)
     manifest=json.loads((source/'backdrop.json').read_text())
-    if manifest['bindings']['sky']['texture']!='aSkyboxPurpleTex':raise ArtError('Unexpected source sky binding')
-    records=[r for r in manifest['assets'] if r['symbol']=='aSkyboxPurpleTex']
+    sky=manifest['bindings']['sky']['texture']
+    if not sky.startswith('aSkybox') or not sky.endswith('Tex'):raise ArtError('Unexpected source sky binding')
+    records=[r for r in manifest['assets'] if r['symbol']==sky]
     if len(records)!=1:raise ArtError('Missing/ambiguous source sky')
     row=records[0]
     if (row['format'],row['width'],row['height'],row['native_stride'])!=('RGBA16',64,1,64):
         raise ArtError('Unexpected sky format or dimensions')
-    if row['native_file']!='aSkyboxPurpleTex.rgb1555':raise ArtError('Unexpected native sky path')
+    if row['native_file']!=sky+'.rgb1555':raise ArtError('Unexpected native sky path')
     pixels=source/row['native_file'];data=pixels.read_bytes()
     if hashlib.sha256(data).hexdigest()!=row['native_sha256']:raise ArtError('Native sky hash mismatch')
     state=('#include "global.h"\n#include "fzx_camera.h"\n#include "background.h"\n'

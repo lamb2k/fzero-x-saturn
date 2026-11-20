@@ -18,6 +18,15 @@
 #include "engine_records.h"
 #include "engine_cup.h"
 #include "engine_field.h"
+#ifndef ENG_COURSE_SELECT
+#define ENG_COURSE_SELECT 0
+#endif
+#ifndef ENG_COURSE_INDEX
+#define ENG_COURSE_INDEX 0
+#endif
+#if ENG_COURSE_SELECT
+#include "engine_courses.h"
+#endif
 #ifndef ENG_ROSTER
 #define ENG_ROSTER 0
 #endif
@@ -150,6 +159,9 @@ static void session_defaults(void) {
     fzx_session.version = 1; fzx_session.menu_mode = 1; /* Time Attack */
     fzx_session.machine_id = 0; fzx_session.skin = 1; fzx_session.player_render = 1; /* 3D */
     fzx_session.slider_bits = 0x3F000000u; /* 0.5 */
+#if ENG_COURSE_INDEX
+    fzx_session.course = ENG_COURSE_INDEX; /* the course this image carries (ENG_COURSE) */
+#endif
 }
 
 /* The catalog bit a session's mode needs (SCENES.md 11.1): GP 0, otherwise Time Attack. */
@@ -435,6 +447,13 @@ static void select_tick(void *u, uint32_t s) {
     if (select_mode && (input.repeat & (PAD_LEFT | PAD_RIGHT))) {
         const uint8_t c = fzx_course_step(course_cursor, (input.repeat & PAD_LEFT) ? -1 : 1, mode_avail(select_mode));
         if (c != FZX_COURSE_NONE && c != course_cursor) { course_cursor = c; text_dirty = true; }
+    }
+    if (probe & 0x200u) {
+        /* Script hook (claude/courses): course `probe & 0xFF` under the cursor, if the mode lists it. */
+        const uint8_t c = (uint8_t)(probe & 0xFFu);
+        if (course_ok(c, select_mode)) course_cursor = c;
+        text_dirty = true;
+        POKED(fzx_scn_probe) = 0;
     }
     uint32_t n = 0, visible[MACHINE_COUNT];
     for (unsigned i = 0; i < MACHINE_COUNT; ++i) if (machine_allowed(machines[i].id)) visible[n++] = i;
@@ -786,7 +805,14 @@ static bool load_enter(void *u, uint32_t s) {
      * printed, so the interrupt animates them while the CPU sits in the CD loads. */
     const char *name = "?";
     for (unsigned i = 0; i < MACHINE_COUNT; ++i) if (machines[i].id == fzx_session.machine_id) name = machines[i].name;
+#if ENG_COURSE_SELECT
+    const fzx_course_info_t *ci = fzx_course_info_row(
+        fzx_session.menu_mode == 0u && fzx_cup()->state != FZX_CUP_IDLE ? fzx_cup_next_course() : fzx_session.course);
+    dbgio_printf("\x1b[H\x1b[2J\n\n\n\n\n     %s\n\n     TIME ATTACK\n\n     %s\n\n\n\n   |/-\\  LOADING\n",
+                 ci ? ci->key : "?", name);
+#else
     dbgio_printf("\x1b[H\x1b[2J\n\n\n\n\n     MUTE CITY\n\n     TIME ATTACK\n\n     %s\n\n\n\n   |/-\\  LOADING\n", name);
+#endif
     dbgio_flush();
     for (unsigned k = 0; k < 4u; ++k) spin_words[k] = *(volatile uint16_t *)(NBG3_MAP + (SPIN_ROW * 64u + 3u + k) * 2u);
     dbgio_printf("\x1b[14;5H   ");
@@ -825,6 +851,14 @@ static void load_tick(void *u, uint32_t s) {
         }
         load_course = fzx_cup_next_course();
     }
+#if ENG_COURSE_SELECT
+    if (course_ok(load_course, fzx_session.menu_mode) && !fzx_course_use(load_course)) { /* no packs for it on this disc: back to select */
+        fzx_scn_report[16] = 61u;
+        load_done = true;
+        (void)request(FZX_SCN_SELECT, RANK_GOTO);
+        return;
+    }
+#endif
     if (!fzx_session.confirmed || !machine_allowed(family) || !fzx_closeup_has_family(family) || !course_ok(load_course, fzx_session.menu_mode)) {
         fzx_scn_report[16] = 60u; /* refused: back to select */
         load_done = true;
@@ -835,7 +869,12 @@ static void load_tick(void *u, uint32_t s) {
     load_ran = true;
     spin_fields = 0;
     fzx_scn_vblank_hook = spin_hook;
-    if (retry_pending && resident_key == family + 1u) {
+#if ENG_COURSE_SELECT
+    const uint32_t key = ((uint32_t)load_course << 16) + family + 1u; /* course and family */
+#else
+    const uint32_t key = family + 1u;
+#endif
+    if (retry_pending && resident_key == key) {
         /* Retry: everything is resident; only race-local state goes back to its start. */
         fzx_drive_reset();
         fzx_closeup_reset();
@@ -889,7 +928,7 @@ static void load_tick(void *u, uint32_t s) {
         fzx_cd_yield = NULL;
         bar_total = fzx_cd_stats[0] - s0;
         race_regs_kept = false; retry_entering = false;
-        resident_key = family + 1u;
+        resident_key = key;
         ++fzx_scn_report[8];
         fzx_scn_report[11] = 1;
     }

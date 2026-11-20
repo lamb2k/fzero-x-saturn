@@ -5,21 +5,43 @@
 #include "engine_cup.h"
 
 /* ---- Catalog ------------------------------------------------------------------------------
- * Until the courses lane supplies its rows and per-course packs: course 0 runs Time Attack;
- * course 1 is listed, unavailable. */
+ * The courses lane's rows (claude/courses, claude/jack). One disc for every course
+ * (ENG_COURSE_SELECT): the six Jack rows, Time Attack where the bundle has the course's packs
+ * (FZX_COURSE_BUNDLE_MASK, tools/course_bundle.py). Otherwise the image carries one course
+ * (ENG_COURSE_INDEX): course 0 and 1 are listed and only the image's course runs Time Attack.
+ * The HOST test builds the default: course 0 Time Attack, course 1 listed, unavailable. */
+#ifndef ENG_COURSE_SELECT
+#define ENG_COURSE_SELECT 0
+#endif
+#ifndef ENG_COURSE_INDEX
+#define ENG_COURSE_INDEX 0
+#endif
+/* Diagnostic build only (FZX_CUP_DIAG_CATALOG=1, default 0): GP on every course the bundle carries, for
+ * the GP flow and pause-retry checks before the GP field path is qualified per course. */
 #if defined(FZX_CUP_DIAG_CATALOG) && FZX_CUP_DIAG_CATALOG
-/* Diagnostic build only (FZX_CUP_DIAG_CATALOG=1): Jack's six rounds GP-available on course 0's
- * assets, for the GP flow and pause-retry checks before the courses lane lands. */
+#define DIAG_GP FZX_AVAIL_GP
+#else
+#define DIAG_GP 0u
+#endif
+#if ENG_COURSE_SELECT
+#include "course_ids.h"
+#define AV(c) ((((FZX_COURSE_BUNDLE_MASK) >> (c)) & 1u) ? (FZX_AVAIL_TA | DIAG_GP) : 0u)
 static const fzx_course_row_t catalog[] = {
-    { 0u, 0u, FZX_AVAIL_TA | FZX_AVAIL_GP, 0u }, { 1u, 1u, FZX_AVAIL_GP, 0u }, { 2u, 2u, FZX_AVAIL_GP, 0u },
-    { 3u, 3u, FZX_AVAIL_GP, 0u }, { 4u, 4u, FZX_AVAIL_GP, 0u }, { 5u, 5u, FZX_AVAIL_GP, 0u },
+    { 0u, 0u, AV(0), 0u }, { 1u, 1u, AV(1), 0u }, { 2u, 2u, AV(2), 0u },
+    { 3u, 3u, AV(3), 0u }, { 4u, 4u, AV(4), 0u }, { 5u, 5u, AV(5), 0u },
 };
 #else
+#define AV(c) ((c) == ENG_COURSE_INDEX ? FZX_AVAIL_TA : 0u)
 static const fzx_course_row_t catalog[] = {
-    { 0u, 0u, FZX_AVAIL_TA, 0u },
-    { 1u, 1u, 0u, 0u },
+    { 0u, 0u, AV(0), 0u },
+    { 1u, 1u, AV(1), 0u },
+#if ENG_COURSE_INDEX > 1
+    { (uint8_t)ENG_COURSE_INDEX, (uint8_t)ENG_COURSE_INDEX, FZX_AVAIL_TA, 0u },
+#endif
 };
 #endif
+#undef AV
+#undef DIAG_GP
 #define CATALOG_COUNT (sizeof(catalog) / sizeof(catalog[0]))
 
 const fzx_course_row_t *fzx_course_catalog(unsigned *count) {

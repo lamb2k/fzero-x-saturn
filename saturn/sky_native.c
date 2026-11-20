@@ -2,6 +2,7 @@
 #include "sky_colors.h"
 #include <mm/tlsf.h>
 #include <string.h>
+#include "course_select.h"
 _Static_assert(!FZX_SKY_FIXTURE,"Original-race sky requires local source art");
 RefBackdrop fzx_source_backdrop;
 fzx_sky_stats_t fzx_sky_stats;
@@ -113,9 +114,9 @@ bool fzx_sky_native(vdp1_cmdt_t *commands,unsigned capacity,const fzx_view_t *vi
     if(capacity>FZX_SKY_MAX_COMMANDS)capacity=FZX_SKY_MAX_COMMANDS;
     fzx_sky_busy=1;
     submit_t submit={commands,shade_bank,0};
-    if(!fzx_sky_draw_bands(view,&fzx_source_backdrop.vertices[8],fzx_sky_colors,
+    if(!fzx_sky_draw_bands(view,&fzx_source_backdrop.vertices[8],CSEL(sky_colors,fzx_sky_colors),
 #if FZX_SKY_SIMPLIFY
-                     fzx_sky_breaks,sizeof(fzx_sky_breaks),
+                     CSEL(sky_breaks,fzx_sky_breaks),CSEL(sky_breaks_count,sizeof(fzx_sky_breaks)),
 #else
                      NULL,0,
 #endif

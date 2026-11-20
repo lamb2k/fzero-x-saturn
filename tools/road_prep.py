@@ -44,13 +44,16 @@ def main():
     ap.add_argument('--sh2zam', required=True, type=Path)
     ap.add_argument('--cc', default='gcc')
     ap.add_argument('--output', type=Path, default=G / 'road_prep')
+    ap.add_argument('--bake', type=Path, default=G / 'road_bake', help='road_bake.py output for this course')
+    ap.add_argument('--texture-limit', type=int, help='the track texture budget the bake used (road_bake.py --texture-limit)')
     a = ap.parse_args()
-    bake = G / 'road_bake'
+    bake = a.bake.resolve()
+    defines = [*DEFINES, *(['-DFZX_ROAD_STREAM_TEXTURE_LIMIT=%du' % a.texture_limit] if a.texture_limit else [])]
     subprocess.run(['sh', str(ROOT / 'tools/check_receipt.sh'), str(bake / 'road_bake.receipt')], check=True, stdout=subprocess.DEVNULL)
     lib = a.sh2zam
     with tempfile.TemporaryDirectory() as t:
         exe = Path(t) / 'road_prep_host'
-        args = [a.cc, '-std=c11', '-O2', '-Wall', '-Wextra', '-Werror', *DEFINES,
+        args = [a.cc, '-std=c11', '-O2', '-Wall', '-Wextra', '-Werror', *defines,
                 '-I' + str(ROOT / 'include'), '-I' + str(ROOT / 'src'), '-I' + str(ROOT / 'ref'), '-I' + str(bake),
                 '-I' + str(lib / 'saturn/include'), str(ROOT / 'tools/road_prep_host.c'),
                 *[str(ROOT / s) for s in SOURCES], *[str(lib / 'saturn/src' / u) for u in SH2ZAM_UNITS], '-o', str(exe)]
@@ -81,7 +84,7 @@ def main():
     (out / 'road_prep_identity.h').write_bytes(ident)
     rec = ['# fzx generation receipt v1; regenerate, never edit']
     rec += ['generator %s %s' % (sha(ROOT / g), os.path.relpath(ROOT / g, ROOT / 'tools').replace('\\', '/')) for g in GENERATORS]
-    rec += ['generator %s %s' % (sha(bake / 'road_bake.receipt'), '../generated/road_bake/road_bake.receipt'),
+    rec += ['generator %s %s' % (sha(bake / 'road_bake.receipt'), os.path.relpath(bake / 'road_bake.receipt', ROOT / 'tools').replace('\\', '/')),
             'input %s ROADLOD.PAK' % sha(bake / 'ROADLOD.PAK'), 'input %s ROADLTX.PAK' % sha(bake / 'ROADLTX.PAK'),
             'output %s ROADPREP.PAK' % hashlib.sha256(data).hexdigest(),
             'output %s road_prep_identity.h' % hashlib.sha256(ident).hexdigest()]

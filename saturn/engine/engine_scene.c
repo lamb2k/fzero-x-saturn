@@ -4,6 +4,18 @@
  * the source game's; the arithmetic is this engine's own. */
 #include "engine_scene.h"
 #include <string.h>
+#ifndef ENG_COURSE_SKYLINE
+#define ENG_COURSE_SKYLINE 0
+#endif
+#ifndef ENG_COURSE_SELECT
+#define ENG_COURSE_SELECT 0
+#endif
+#if ENG_COURSE_SKYLINE && !ENG_COURSE_SELECT
+#include "skyline_ring.h"
+#endif
+#if ENG_COURSE_SELECT
+#include "course_select.h"
+#endif
 
 typedef int64_t i64;
 
@@ -145,12 +157,24 @@ bool fzx_engine_backdrop(RefBackdrop *out, const fzx_engine_cam_t *cam,
 }
 
 bool fzx_engine_skyline(RefSkyline *out, const fzx_engine_cam_t *cam) {
+#if ENG_COURSE_SELECT
+    /* The selected course's skyline (tools/course_bundle.py). */
+    const int32_t (*const ring)[2] = fzx_cid->ring;
+    const uint8_t *const ids = fzx_cid->ring_ids, *const tint = fzx_cid->tint;
+#elif ENG_COURSE_SKYLINE
+    /* The course's own skyline (tools/skyline_assets.py skyline_ring.h): ring positions
+     * as below for its angles; id 0 marks an unused slot, which stays hidden. */
+    static const int32_t ring[REF_SKYLINE_COUNT][2] = FZX_SKYLINE_RING;
+    static const uint8_t ids[REF_SKYLINE_COUNT] = FZX_SKYLINE_IDS;
+    static const uint8_t tint[3] = FZX_SKYLINE_TINT;
+#else
     /* Ring positions relative to the eye: -sin(a)*8000, -cos(a)*8000 for
      * a = 0, 60, 120, 150, 240, 300 degrees, Q16.16. */
     static const int32_t ring[REF_SKYLINE_COUNT][2] = {
         { 0, -524288000 }, { -454046727, -262144000 }, { -454046727, 262144000 },
         { -262144000, 454046727 }, { 454046727, 262144000 }, { 454046727, -262144000 } };
     static const uint8_t ids[REF_SKYLINE_COUNT] = { 1, 2, 3, 4, 1, 2 };
+#endif
     static const short quad[4][5] = { { -32, 32, 0, 0, 255 }, { 32, 32, 0x800, 0, 255 },
                                       { -32, -32, 0, 0x800, 0 }, { 32, -32, 0x800, 0x800, 0 } };
     if (!out) return false;
@@ -171,7 +195,11 @@ bool fzx_engine_skyline(RefSkyline *out, const fzx_engine_cam_t *cam) {
         m[8] = (int32_t)((-fx * s) >> 14); m[9] = (int32_t)((-fy * s) >> 14); m[10] = (int32_t)((-fz * s) >> 14); m[11] = 0;
     }
     out->count = REF_SKYLINE_COUNT;
+#if ENG_COURSE_SKYLINE || ENG_COURSE_SELECT
+    out->tint[0] = tint[0]; out->tint[1] = tint[1]; out->tint[2] = tint[2]; out->tint[3] = 255;
+#else
     out->tint[0] = 200; out->tint[1] = 130; out->tint[2] = 240; out->tint[3] = 255;
+#endif
     for (unsigned i = 0; i < 4; ++i) {
         RefBackdropVertex *v = &out->vertices[i];
         v->position[0] = quad[i][0]; v->position[1] = quad[i][1];
@@ -182,6 +210,9 @@ bool fzx_engine_skyline(RefSkyline *out, const fzx_engine_cam_t *cam) {
         RefSkylineInstance *o = &out->instances[i];
         const i64 x = (i64)cam->eye[0] + ring[i][0], z = (i64)cam->eye[2] + ring[i][1];
         o->sprite_id = ids[i];
+#if ENG_COURSE_SKYLINE || ENG_COURSE_SELECT
+        if (!ids[i]) continue;
+#endif
         o->visible = x <= Q16(FZX_ENGINE_SKYLINE_LIMIT) && x >= -Q16(FZX_ENGINE_SKYLINE_LIMIT) &&
                      z <= Q16(FZX_ENGINE_SKYLINE_LIMIT) && z >= -Q16(FZX_ENGINE_SKYLINE_LIMIT);
         if (!o->visible) continue;

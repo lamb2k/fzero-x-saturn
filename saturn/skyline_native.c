@@ -10,6 +10,7 @@ extern unsigned char sat_stub_data_end[];
 #include "skyline_pixels.h"
 #endif
 #include <string.h>
+#include "course_select.h"
 _Static_assert(!FZX_SKYLINE_FIXTURE,"Original race skyline requires local source art");
 #if !FZX_SKYLINE_CD
 _Static_assert(sizeof(fzx_skyline_pixels)==FZX_SKYLINE_VRAM_BYTES,"skyline VRAM span");
@@ -26,7 +27,7 @@ bool fzx_skyline_load(void *vram) {
     const uintptr_t begin=((uintptr_t)sat_stub_data_end+31u)&~(uintptr_t)31u;
     if(begin<0x00200000u || begin>=0x00300000u ||
        fzx_texture_cd_scratch_bytes()>0x00300000u-begin)return false;
-    return fzx_texture_cd_load("SKYLINE.PAK",FZX_SKYLINE_PACK_BYTES,FZX_SKYLINE_PACK_HASH,
+    return fzx_texture_cd_load(CNAME(FZX_CF_SKYLINE,"SKYLINE.PAK"),CSEL(skyline_bytes,FZX_SKYLINE_PACK_BYTES),CSEL(skyline_hash,FZX_SKYLINE_PACK_HASH),
                                vram,(void *)begin,0x00300000u-begin);
 #else
     if(!vram || ((uintptr_t)vram&7u))return false;

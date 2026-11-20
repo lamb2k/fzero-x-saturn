@@ -31,6 +31,7 @@
  * replaces the synthetic grid. */
 #include "rivals_course.h"
 #include "rivals_field.h"
+#include "course_select.h"
 #include "texture_cd.h"
 #if FZX_RIVALS_FIELD_COUNT < FZX_FIELD_CARS
 #error the reference field has fewer vehicles than E1_FIELD + 1
@@ -195,10 +196,10 @@ static void player_into_field(const sh2z_vd_body_t *p) {
 
 volatile uint32_t fzx_e2_report[16];
 #if E2_PACK
-static uint32_t pack_buf[(FZX_RIVALS_PACK_BYTES + 7u) / 4u] __attribute__((aligned(8)));
+static uint32_t pack_buf[(CMAX(FZX_COURSE_MAX_RIVALS_BYTES,FZX_RIVALS_PACK_BYTES) + 7u) / 4u] __attribute__((aligned(8)));
 static bool pack_ok;
 bool fzx_field_pack_load(void *scratch, uint32_t scratch_bytes) {
-    pack_ok = fzx_texture_cd_load("RIVALS.PAK", FZX_RIVALS_PACK_BYTES, FZX_RIVALS_PACK_HASH, pack_buf, scratch, scratch_bytes);
+    pack_ok = fzx_texture_cd_load(CNAME(FZX_CF_RIVALS,"RIVALS.PAK"), CSEL(rivals_bytes,FZX_RIVALS_PACK_BYTES), CSEL(rivals_hash,FZX_RIVALS_PACK_HASH), pack_buf, scratch, scratch_bytes);
     fzx_e2_report[0] = pack_ok ? 1u : 2u;
     return pack_ok;
 }
@@ -215,7 +216,7 @@ bool fzx_field_load(const sh2z_vd_track_t *track, const sh2z_vd_body_t *player) 
      * poses (source units Q4 -> the physics' Q16: << 12; rows as baked) replace the built ones, so
      * the field runs on exactly the line the HOST bands were checked on. Station 0 must agree with
      * the built one (same point, distance 0) to within one unit. */
-    if (!pack_ok || FZX_RIVALS_NODE_COUNT != line.count || (int32_t)FZX_RIVALS_LINE_LENGTH != line.length) {
+    if (!pack_ok || CSEL(rivals_nodes,FZX_RIVALS_NODE_COUNT) != line.count || (int32_t)CSEL(rivals_length,FZX_RIVALS_LINE_LENGTH) != line.length) {
         fzx_field_report[0] = 4; fzx_e2_report[0] = 3; return false;
     }
     {
@@ -290,13 +291,13 @@ bool fzx_field_load(const sh2z_vd_track_t *track, const sh2z_vd_body_t *player) 
      * source grid (146 back, 100 per place, 4 columns of 100), shifted so the player's own
      * place is where E1's physics puts the player. */
     {
-        uint32_t rs = FZX_RIVALS_FIELD_SEED * 2654435761u + 12345u;
+        uint32_t rs = CSEL(field_seed,FZX_RIVALS_FIELD_SEED) * 2654435761u + 12345u;
 #define RND() (rs ^= rs << 13, rs ^= rs >> 17, rs ^= rs << 5, rs)
         sh2z_track_state_t ps;
-        sh2z_field_grid_slot(&line, (uint32_t)(fzx_rivals_field[0][0] - 1), U(146), U(100), U(50), 4, &ps);
+        sh2z_field_grid_slot(&line, (uint32_t)(CSEL(field,fzx_rivals_field)[0][0] - 1), U(146), U(100), U(50), 4, &ps);
         const int64_t shift = ((int64_t)veh[0].t.lap * line.length + veh[0].t.dist) - ((int64_t)ps.lap * line.length + ps.dist);
         for (uint32_t i = 0; i < FZX_FIELD_CARS; ++i) {
-            const int32_t *cf = fzx_rivals_field[i];
+            const int32_t *cf = CSEL(field,fzx_rivals_field)[i];
             const int32_t ms = cf[1], chase = cf[2], maxe = cf[3], aggr = cf[4];
             sh2z_track_state_t slot;
             sh2z_field_grid_slot(&line, (uint32_t)(cf[0] - 1), U(146), U(100), U(50), 4, &slot);
@@ -321,6 +322,8 @@ bool fzx_field_load(const sh2z_vd_track_t *track, const sh2z_vd_body_t *player) 
             b->chase = (int16_t)(chase == 255 ? -1 : chase);
             b->chase_lead = (int16_t)chase_lead;
             b->aggression = (uint8_t)aggr;
+            b->finish_ticks = cf[6] > 0 ? cf[6] * 60 / 1000 : 0; /* line-field-2: finish target from lap 2 (0 none) */
+            b->first_lap_cap = cf[7] > 0 ? cf[7] : 0;            /* line-field-3: a chaser's first-lap cap (0 none) */
         }
 #undef RND
     }
@@ -330,7 +333,7 @@ bool fzx_field_load(const sh2z_vd_track_t *track, const sh2z_vd_body_t *player) 
         params.lod_near[0] = U(lod[0]); params.lod_near[1] = U(lod[1]); params.lod_near[2] = U(lod[2]);
     }
 #endif
-    sh2z_field_init(&field, &line, &params, veh, brain, order, slot_of, rank_order, FZX_FIELD_CARS, FZX_RIVALS_FIELD_SEED);
+    sh2z_field_init(&field, &line, &params, veh, brain, order, slot_of, rank_order, FZX_FIELD_CARS, CSEL(field_seed,FZX_RIVALS_FIELD_SEED));
     field.focus = 0;
     memset(is3d, 0, sizeof(is3d)); memset(want_run, 0, sizeof(want_run));
 #if ENG_ATTACKS

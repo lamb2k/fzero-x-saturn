@@ -23,11 +23,16 @@ extern void (*volatile fzx_cd_yield)(void);
 #else
 #define LOAD_TURN() ((void)0)
 #endif
+/* Track texture budget (tools/road_bake.py --texture-limit): the first course's 150,000 B unless the
+ * engine image of a later course raises it (its VDP1 placement is checked at load). */
+#ifndef FZX_ROAD_STREAM_TEXTURE_LIMIT
+#define FZX_ROAD_STREAM_TEXTURE_LIMIT 150000u
+#endif
 /* Boot-only: cold (optimized for size, kept out of the hot text). */
 __attribute__((cold)) bool fzx_road_stream_open(fzx_road_stream_pack_t *out,const void *data,uint32_t bytes,
                           uint32_t hash,uint32_t texture_bytes) {
     const uint8_t *p=data;
-    if(!out || !p || bytes<160 || bytes>160000 || texture_bytes<64 || texture_bytes>150000 ||
+    if(!out || !p || bytes<160 || bytes>160000 || texture_bytes<64 || texture_bytes>FZX_ROAD_STREAM_TEXTURE_LIMIT ||
        !hash || (!FZX_LOAD_VERIFIED && fzx_road_hash(p,bytes)!=hash) || memcmp(p,"FZXRLD01",8) ||
        U32(p+8)!=1 || U32(p+12)!=bytes || U32(p+16)!=1 || p[155]!=255 || !zero(p+156,4))return false;
 #if !FZX_LOAD_VERIFIED

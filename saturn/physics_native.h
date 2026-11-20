@@ -17,6 +17,14 @@
 
 #define FZX_PHYS_MAGIC 0x465A5850u /* "FZXP" */
 #define FZX_PHYS_VERSION 2u
+#define FZX_PHYS_VERSION_TUBES 3u /* v2 plus one join record per node (tube courses) */
+
+/* FZX_PHYS_TUBES=1: pipe and cylinder spans (SH2ZAM vehicle-dynamics-2, sh2z_vd_step2) and
+ * version-3 packs. Off, the glue is the vehicle-dynamics-1 glue it always was and refuses a
+ * version-3 pack. */
+#ifndef FZX_PHYS_TUBES
+#define FZX_PHYS_TUBES 0
+#endif
 
 #define FZX_PHYS_MAX_NODES 128
 #define FZX_PHYS_MAX_ZONES 128
@@ -33,9 +41,26 @@ typedef struct {
     sh2z_vd_mine_t mines[FZX_PHYS_MAX_MINES];
     uint32_t state_offset;   /* byte offset of the starting state in the pack */
     uint16_t prev_buttons;   /* N64 buttons applied on the tick the state follows (restarts) */
+#if FZX_PHYS_TUBES
+    sh2z_vd_track2_t track2; /* track (copied after the load), the joins and the tube rules */
+    sh2z_vd_join_t joins[FZX_PHYS_MAX_NODES];
+#endif
 } FzxPhysCourse;
 
 extern const sh2z_vd_rules_t fzx_phys_rules;
+#if FZX_PHYS_TUBES
+extern const sh2z_vd_tube_rules_t fzx_phys_tube_rules;
+#endif
+
+/* One tick of the course's model: vehicle-dynamics-2 with tubes, vehicle-dynamics-1 without. */
+static inline void fzx_phys_step(const FzxPhysCourse* c, sh2z_vd_body_t* b, const sh2z_vd_rules_t* r,
+                                 const sh2z_vd_input_t* in) {
+#if FZX_PHYS_TUBES
+    sh2z_vd_step2(b, &c->track2, &c->vehicle, r, in);
+#else
+    sh2z_vd_step(b, &c->track, &c->vehicle, r, in);
+#endif
+}
 
 /* Loads a pack image (big-endian words). zones == 0 drops surface zones, jumps and
  * mines (the legacy bridge's races). Returns 0, or a negative error. */

@@ -62,10 +62,15 @@ static double dot30(const int32_t a[3], const int32_t b[3]) {
 }
 
 /* The fixtures' driver, as tools/physics_host/physics_main.c computes it (float). */
+/* The R01 test driver's heading gain (E1-PLAYS-RIGHT.md); a course whose corners the nominal 2.5 cannot
+ * hold without wall contact uses a documented variant (COURSES.md), the same on HOST. */
+#ifndef E1_DRIVER_KH
+#define E1_DRIVER_KH 2.5f
+#endif
 static signed char driver_stick(void) {
     const float lateral = (float)(sh2z_vd_body_lateral(&body) / 65536.0);
     const float heading = (float)dot30(body.body[0], body.road[2]);
-    float steer = 0.004f * (lateral - 0.0f) + 2.5f * heading;
+    float steer = 0.004f * (lateral - 0.0f) + E1_DRIVER_KH * heading;
     if (steer > 1.0f) steer = 1.0f;
     if (steer < -1.0f) steer = -1.0f;
     return (signed char)(steer >= 0.0f ? (int)(steer * 63.0f + 0.5f) : -(int)(-steer * 63.0f + 0.5f));

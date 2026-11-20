@@ -308,6 +308,7 @@ bool fzx_field_load(const sh2z_vd_track_t *track, const sh2z_vd_body_t *player) 
             b->chase = (int16_t)(chase == 255 ? -1 : chase);
             b->chase_lead = (int16_t)chase_lead;
             b->aggression = (uint8_t)aggr;
+            b->finish_ticks = cf[6] > 0 ? cf[6] * 60 / 1000 : 0; /* line-field-2: finish target from lap 2 (0 none) */
         }
 #undef RND
     }

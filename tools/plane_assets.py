@@ -5,7 +5,7 @@ import argparse,hashlib,json,os,struct,subprocess
 from import_source_art import ROOT,ArtError,output_location
 from skyline_assets import BAYER
 
-def atlas(floor,cloud,fog,*,cloud_only=False):
+def atlas(floor,cloud,fog,*,cloud_only=False,clouds=True):
     if len(floor)!=4096 or len(cloud)!=2048 or len(fog)!=3:raise ArtError('Expected original 64x32 floor/cloud')
     words=struct.unpack('>2048H',floor)
     if any(not c&0x8000 for c in words):raise ArtError('Floor must be opaque')
@@ -20,7 +20,8 @@ def atlas(floor,cloud,fog,*,cloud_only=False):
                     value=0x8000|sum(((((words[i]>>(5*j))&31)*(255-shade)+fog5[j]*shade+127)//255)<<(5*j) for j in range(3))
                 else:
                     alpha=(cloud[i]&15)*17*(255-shade)
-                    covered=alpha*32>(2*BAYER[(i//64)&3][i&3]+1)*255*255
+                    # A sky without SKYBOX_CLOUDY (night) draws no cloud layer: every texel uncovered.
+                    covered=clouds and alpha*32>(2*BAYER[(i//64)&3][i&3]+1)*255*255
                     intensity=((cloud[i]>>4)*31+7)//15
                     value=(0x8000|intensity|(intensity<<5)|(intensity<<10)) if covered else 0
                 pixels.append(value)
@@ -46,7 +47,8 @@ def generate(source,out,cloud_only=False):
     fp=source/floor['native_file'];cp=source/cloud['raw_file']
     if hashlib.sha256(fp.read_bytes()).hexdigest()!=floor['native_sha256'] or hashlib.sha256(cp.read_bytes()).hexdigest()!=cloud['source_sha256']:
         raise ArtError('Source plane identity mismatch')
-    data,fog,mean=atlas(fp.read_bytes(),cp.read_bytes(),bindings['sky']['course_fog'],cloud_only=cloud_only)
+    clouds='SKYBOX_CLOUDY' in bindings['sky']['flags'].split(' | ')
+    data,fog,mean=atlas(fp.read_bytes(),cp.read_bytes(),bindings['sky']['course_fog'],cloud_only=cloud_only,clouds=clouds)
     checksum=2166136261
     for byte in data:checksum=((checksum^byte)*16777619)&0xffffffff
     header=('/* Generated original floor/cloud bank; regenerate, never edit. */\n'
@@ -61,6 +63,8 @@ def generate(source,out,cloud_only=False):
     description={'source_textures':[floor['symbol'],cloud['symbol']],'bytes':len(data),'variants':8,'subdivision_levels':4,
         'adaptations':['native affine tile interpolation','eight fog levels with mean-color Gouraud correction','eight cloud fade levels with 4x4 ordered coverage'],
         'native_sha256':hashlib.sha256(data).hexdigest()}
+    if not clouds:
+        description.update(clouds=False)
     if cloud_only:
         description.update(cloud_only=True,combined_source_offset=131072,
             adaptations=['original cloud half retained byte-for-byte; floor rendered by RBG0',

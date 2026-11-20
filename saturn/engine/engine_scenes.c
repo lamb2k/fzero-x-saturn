@@ -16,6 +16,15 @@
 #include "engine_scenes.h"
 #include "engine_closeup.h"
 #include "engine_records.h"
+#ifndef ENG_COURSE_SELECT
+#define ENG_COURSE_SELECT 0
+#endif
+#ifndef ENG_COURSE_INDEX
+#define ENG_COURSE_INDEX 0
+#endif
+#if ENG_COURSE_SELECT
+#include "engine_courses.h"
+#endif
 #ifndef ENG_ROSTER
 #define ENG_ROSTER 0
 #endif
@@ -140,6 +149,9 @@ static void session_defaults(void) {
     fzx_session.version = 1; fzx_session.menu_mode = 1; /* Time Attack */
     fzx_session.machine_id = 0; fzx_session.skin = 1; fzx_session.player_render = 1; /* 3D */
     fzx_session.slider_bits = 0x3F000000u; /* 0.5 */
+#if ENG_COURSE_INDEX
+    fzx_session.course = ENG_COURSE_INDEX; /* the course this image carries (ENG_COURSE) */
+#endif
 }
 
 /* SELECT's only write path (SCENES.md section 3). */
@@ -392,7 +404,12 @@ static void select_tick(void *u, uint32_t s) {
 static void select_draw(void) {
     if (!text_dirty) return;
     text_dirty = false;
+#if ENG_COURSE_SELECT
+    dbgio_printf("\x1b[H\x1b[2J\n\n   [PLACEHOLDER SELECT]\n\n   MODE   TIME ATTACK\n   COURSE %s\n\n   MACHINE (3D PLAYER)\n\n",
+                 fzx_course_selected() ? fzx_course_selected()->key : "?");
+#else
     dbgio_printf("\x1b[H\x1b[2J\n\n   [PLACEHOLDER SELECT]\n\n   MODE   TIME ATTACK\n   COURSE MUTE CITY\n\n   MACHINE (3D PLAYER)\n\n");
+#endif
     for (unsigned i = 0; i < MACHINE_COUNT; ++i) {
         if (!machine_allowed(machines[i].id)) continue;
         dbgio_printf("   %s %-14s %s\n", i == cursor ? ">" : " ", machines[i].name,
@@ -540,7 +557,12 @@ static bool load_enter(void *u, uint32_t s) {
      * printed, so the interrupt animates them while the CPU sits in the CD loads. */
     const char *name = "?";
     for (unsigned i = 0; i < MACHINE_COUNT; ++i) if (machines[i].id == fzx_session.machine_id) name = machines[i].name;
+#if ENG_COURSE_SELECT
+    dbgio_printf("\x1b[H\x1b[2J\n\n\n\n\n     %s\n\n     TIME ATTACK\n\n     %s\n\n\n\n   |/-\\  LOADING\n",
+                 fzx_course_selected() ? fzx_course_selected()->key : "?", name);
+#else
     dbgio_printf("\x1b[H\x1b[2J\n\n\n\n\n     MUTE CITY\n\n     TIME ATTACK\n\n     %s\n\n\n\n   |/-\\  LOADING\n", name);
+#endif
     dbgio_flush();
     for (unsigned k = 0; k < 4u; ++k) spin_words[k] = *(volatile uint16_t *)(NBG3_MAP + (SPIN_ROW * 64u + 3u + k) * 2u);
     dbgio_printf("\x1b[14;5H   ");
@@ -564,6 +586,15 @@ static void load_tick(void *u, uint32_t s) {
     if (!engine_snd_quiet()) return; /* no disc read until the music has faded and the drive paused */
 #endif
     const uint32_t family = fzx_session.machine_id;
+#if ENG_COURSE_SELECT
+    const fzx_course_row_t *row = fzx_course_row(fzx_session.course);
+    if (!row || !row->time_attack) { /* a course this image has no packs for: back to select */
+        fzx_scn_report[16] = 61u;
+        load_done = true;
+        (void)request(FZX_SCN_SELECT, RANK_GOTO);
+        return;
+    }
+#endif
     if (!fzx_session.confirmed || !machine_allowed(family) || !fzx_closeup_has_family(family)) {
         fzx_scn_report[16] = 60u; /* refused: back to select */
         load_done = true;

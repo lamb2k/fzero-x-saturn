@@ -5,7 +5,8 @@
  *                 [--player-trace TRACE.bin --start-tick T] [--ticks MAX] [--lod 0|1] [--hash-every N]
  *                 [--control none|no-avoid|no-contact|stuck]
  *
- * FIELD.txt has one line per vehicle: id grid(1..) target_lap_ms chase(255 none) max_energy aggression.
+ * FIELD.txt has one line per vehicle: id grid(1..) target_lap_ms chase(255 none) max_energy aggression
+ * [finish_ms]: the optional finish target from the second lap on (line-field-2; 0 or absent = none).
  * Vehicle 0 is the player. With --player-trace it is external (float32 dist, lateral, speed per tick
  * from a reference run); without it, vehicle 0 is one more agent.
  * The report has the same shape as fzx-gp-ref's, so one script computes the bands for both. */
@@ -111,10 +112,13 @@ int main(int argc, char** argv) {
     memset(veh, 0, sizeof veh); memset(brain, 0, sizeof brain);
     f = fopen(config, "r");
     if (!f) die("cannot open config");
-    int count = 0, id, g, ms, chase, aggr; double maxe;
+    int count = 0, id, g, ms, chase, aggr, finish; double maxe;
+    char row[256];
     uint32_t rs = seed * 2654435761u + 12345u;   /* set-up variation, separate from the field's generator */
     #define RND() (rs ^= rs << 13, rs ^= rs >> 17, rs ^= rs << 5, rs)
-    while (fscanf(f, "%d %d %d %d %lf %d", &id, &g, &ms, &chase, &maxe, &aggr) == 6) {
+    while (fgets(row, sizeof row, f)) {
+        finish = 0;
+        if (sscanf(row, "%d %d %d %d %lf %d %d", &id, &g, &ms, &chase, &maxe, &aggr, &finish) < 6) break;
         if (id != count || count >= MAXV) die("config ids must run 0..n-1");
         sh2z_vehicle_t* v = &veh[id]; sh2z_field_brain_t* b = &brain[id];
         sh2z_field_grid_slot(&L, (uint32_t)(g - 1), U(146), U(100), U(50), 4, &v->t);   /* the source grid: 146 back, 100 per place, 4 columns of 100 */
@@ -130,6 +134,7 @@ int main(int argc, char** argv) {
         b->chase = (int16_t)(chase == 255 ? -1 : chase);
         b->chase_lead = (int16_t)(chase == 0 ? (int)(RND() % 400) - 10 : 30);   /* the source's offset ranges */
         b->aggression = (uint8_t)aggr;
+        b->finish_ticks = finish > 0 ? finish * 60 / 1000 : 0;   /* line-field-2: race ticks */
         count++;
     }
     fclose(f);

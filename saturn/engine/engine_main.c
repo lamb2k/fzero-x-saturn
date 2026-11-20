@@ -675,6 +675,17 @@ static uint32_t bal_fnv(uint32_t h, const volatile void *p, uint32_t bytes) {
 #endif
 #endif
 
+#if ENG_FX && E1_FIELD && E2_EARLY
+/* The race effects' commands: emitted by whichever SH-2 claims the frame's job first (SH2ZAM
+ * dual-claim-1, as the clouds): the slave after its track, fills and clouds, or the master just
+ * before it waits for the track. Either way the emit runs while the other CPU is still busy. */
+#include "sh2zam/dual_claim_experimental.h"
+static vdp1_cmdt_t fx_stage_cmds[FZX_FX_SLOTS] __attribute__((aligned(32)));
+static unsigned fx_stage_n;
+static sh2z_claim_t fx_claim __uncached;
+static volatile uint32_t fx_tag __uncached, fx_done __uncached, fx_slave_n __uncached;
+static bool fx_mine;
+#endif
 #if FZX_E1_DRIVE
 void fzx_engine_slave_after(void) {
 #if E1_FIELD && E2_EARLY
@@ -685,7 +696,7 @@ void fzx_engine_slave_after(void) {
 #if ENG_BAL_CLOUDS
     bal_slave();
 #endif
-#if ENG_FX
+#if ENG_FX && E1_FIELD && E2_EARLY
     {
         const uint32_t tag = fx_tag;
         if (sh2z_claim_b(&fx_claim, tag)) {
@@ -845,17 +856,6 @@ static void kick(const fzx_engine_cam_t *cam, uint32_t tick) {
  * VBlank the master only runs the prelude and one copy, so the list reaches VDP1 sooner. */
 static vdp1_cmdt_t field_stage_cmds[DRIVE_SLOTS];
 static unsigned field_stage_n;
-#if ENG_FX
-/* The race effects' commands: emitted by whichever SH-2 claims the frame's job first (SH2ZAM
- * dual-claim-1, as the clouds): the slave after its track, fills and clouds, or the master just
- * before it waits for the track. Either way the emit runs while the other CPU is still busy. */
-#include "sh2zam/dual_claim_experimental.h"
-static vdp1_cmdt_t fx_stage_cmds[FZX_FX_SLOTS] __attribute__((aligned(32)));
-static unsigned fx_stage_n;
-static sh2z_claim_t fx_claim __uncached;
-static volatile uint32_t fx_tag __uncached, fx_done __uncached, fx_slave_n __uncached;
-static bool fx_mine;
-#endif
 static uint16_t field_stage_c3d, field_stage_emit, field_stage_sprites;
 static uint8_t field_stage_near, field_stage_n3d;
 static void field_stage(const fzx_engine_cam_t *cam) {

@@ -22,7 +22,7 @@
  * --boost-reserve R: the C-059 energy-aware driver, as in the reference driver.
  * --mutate NAME plants one model mutation for the controls: grip+5%, turn+2%, damp0.9968,
  * wall1.6, boost99, zones-off, stick+1 (a one-unit stick offset on non-zero input), gravity+5%,
- * boost+30, ramp+10%, laps-1, air-10%, gravity+20% (C-076 event-class controls).
+ * boost+30, ramp+10%, laps-1, air-10%, gravity+20% (C-076 event-class controls), length*3, boostcost+10%, spin+10 (trigger controls).
  * Output: the fzx-handling v1 trace, and "ticks N hash H" with H = FNV-1a 64 over the
  * raw fixed-point body state of every tick (the bit-exact check between builds). */
 #include <stdint.h>
@@ -166,6 +166,9 @@ int main(int argc, char** argv) {
         else if (strcmp(mutate, "boost+30") == 0) rules.boost_ticks += 30;
         else if (strcmp(mutate, "ramp+10%") == 0) rules.ramp_gain += rules.ramp_gain / 10;
         else if (strcmp(mutate, "laps-1") == 0) course.track.laps -= 1;
+        else if (strcmp(mutate, "length*3") == 0) course.track.length *= 3;
+        else if (strcmp(mutate, "spin+10") == 0) rules.spin_ticks += 10;
+        else if (strcmp(mutate, "boostcost+10%") == 0) course.vehicle.boost_cost += course.vehicle.boost_cost / 10;
         else if (strcmp(mutate, "air-10%") == 0) {
             rules.air_road -= rules.air_road / 10;
             rules.air_walled -= rules.air_walled / 10;

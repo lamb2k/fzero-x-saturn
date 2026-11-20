@@ -99,6 +99,11 @@ uint32_t fzx_atk_fx_mode(uint32_t i, int32_t *spin_t, int32_t *dir) {
     return R[i].mode;
 }
 const sh2z_bc_field_t *fzx_atk_fx_contacts(void) { return &bcf; }
+uint32_t fzx_atk_fx_busy(void) {
+    uint32_t m = 0;
+    for (uint32_t i = 1; i < F.count && i < 32u; ++i) if (R[i].mode & ~M_EXT) m |= 1u << i;
+    return m;
+}
 #define FX_WALL(i, side, into) do { if (fzx_atk_fx_wall) fzx_atk_fx_wall((i), (side), (into)); } while (0)
 #else
 #define FX_WALL(i, side, into) do { } while (0)

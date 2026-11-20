@@ -52,6 +52,7 @@ typedef struct {
     uint8_t flare;        /* the boosters' flare after an accelerator press (racer.c unk_214: 27, -1 a tick) */
 } car_fx_t;
 static car_fx_t car[CARS];
+static uint32_t whites, linger, seen_contacts;   /* bit i: car i flashes white / has an effect state running */
 static uint32_t rng = 0x2f6b9e1du, fx_ticks;
 static uintptr_t art;          /* VDP1 byte offset of FX.PAK */
 static uintptr_t shell_clut;   /* VDP1 byte offset of the eight highlight colour tables (yellow .. red) */
@@ -108,6 +109,7 @@ static void reset(void) {
     (void)sh2z_ep_init(&p_smoke, it_smoke, 16u, 32u, Q16(1.02), 65536);
     (void)sh2z_ep_init(&p_debris, it_debris, 128u, 64u, 65536, Q16(0.98));
     memset(car, 0, sizeof(car));
+    whites = 0; linger = 0; seen_contacts = fzx_atk_fx_contacts()->contacts;
     view_ok = false; player_posed = false; fx_ticks = 0; player_flags_prev = 0;
 }
 
@@ -224,7 +226,7 @@ static void spawn(sh2z_ep_pool_t *p, const int32_t pos[3], const int32_t vel[3],
 /* Effects_SpawnCollisionSparks: refused while the owner flashes white; sets its flash. */
 static bool spark(const int32_t pos[3], const int32_t vel[3], int32_t scale, uint32_t owner) {
     if (car[owner].white) return false;
-    car[owner].white = WHITE_TICKS;
+    car[owner].white = WHITE_TICKS; whites |= 1u << owner;
     spawn(&p_spark, pos, vel, scale, owner);
     ++fzx_fx_report[4];
     return true;
@@ -318,10 +320,15 @@ void fzx_fx_tick(const sh2z_vd_body_t *player) {
     tick_player = player;
     fzx_atk_fx_wall = rival_wall;
     ++fx_ticks;
-    for (uint32_t i = 0; i < CARS; ++i) if (car[i].white) --car[i].white;
-    /* Contacts that started this tick (body-contact-1: first contacts and the pair history). */
+    if (whites) {
+        for (uint32_t i = 0; i < CARS; ++i) if (car[i].white && !--car[i].white) whites &= ~(1u << i);
+    }
+    /* Contacts that started this tick (body-contact-1: first contacts and the pair history); the
+     * scan only on a tick whose contact count moved. */
     const sh2z_bc_field_t *bc = fzx_atk_fx_contacts();
-    for (uint32_t a = 0; a < bc->count; ++a) {
+    const bool fresh = bc->contacts != seen_contacts;
+    seen_contacts = bc->contacts;
+    for (uint32_t a = 0; fresh && a < bc->count; ++a) {
         if (!bc->body[a].first) continue;
         for (uint32_t b = a + 1u; b < bc->count; ++b) {
             if (!bc->body[b].first || bc->last[b * (b - 1u) / 2u + a] != bc->tick) continue;
@@ -346,12 +353,18 @@ void fzx_fx_tick(const sh2z_vd_body_t *player) {
             int16_t rows[3][3]; int32_t p0[3], v0[3];
             racer_state(a, player, p0, rows, v0);
             along(mid, mid, Q16(6.0), rows[1]);
-            if (spark(mid, vel, impact + Q16(12.0), b)) car[a].white = car[b].white;
+            if (spark(mid, vel, impact + Q16(12.0), b)) { car[a].white = car[b].white; whites |= 1u << a; }
         }
     }
     prof2(0);
-    /* Rivals: spin-out, spin attacks, retirement, wrecks. */
-    for (uint32_t i = 1; i < CARS; ++i) {
+    /* Rivals: spin-out, spin attacks, retirement, wrecks: those with an attack mode now or an
+     * effect state still running (linger). */
+    uint32_t todo = fzx_atk_fx_busy() | linger;
+    linger = 0;
+    while (todo) {
+        const uint32_t i = (uint32_t)__builtin_ctz(todo);
+        todo &= todo - 1u;
+        if (i >= CARS) break;
         int32_t spin_t, dir;
         const uint32_t mode = fzx_atk_fx_mode(i, &spin_t, &dir);
         car_fx_t *c = &car[i];
@@ -371,6 +384,7 @@ void fzx_fx_tick(const sh2z_vd_body_t *player) {
         spin_turn(c);
         attack_motion(c);
         c->mode = (uint8_t)mode;
+        if (c->mode || c->steer || c->atk_angle) linger |= 1u << i;
     }
     prof2(1);
     /* One step of every ring; gravity along the player's up (the source: each racer's own). */

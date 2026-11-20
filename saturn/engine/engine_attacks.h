@@ -114,6 +114,8 @@ enum { FZX_ATK_FX_EXT = 1, FZX_ATK_FX_SIDE = 2, FZX_ATK_FX_SPIN = 4, FZX_ATK_FX_
 uint32_t fzx_atk_fx_mode(uint32_t i, int32_t *spin_t, int32_t *dir);
 /* The contact field of the last fzx_atk_contact (bodies, pair history, tick). */
 const sh2z_bc_field_t *fzx_atk_fx_contacts(void);
+/* Bit i set: rival i has a mode the effects follow (anything but FZX_ATK_FX_EXT alone). */
+uint32_t fzx_atk_fx_busy(void);
 /* Called on each wall hit of a rival driven here: side +1 right, -1 left; into Q8 per tick. */
 extern void (*volatile fzx_atk_fx_wall)(uint32_t i, int32_t side, int32_t into);
 #endif

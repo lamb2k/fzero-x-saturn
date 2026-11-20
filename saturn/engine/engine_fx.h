@@ -33,7 +33,7 @@
 #include "sh2zam/vehicle_dynamics_experimental.h"
 
 /* VDP1 commands the effects may add per frame (the fixed budget). */
-#define FZX_FX_SLOTS 64u
+#define FZX_FX_SLOTS 96u
 
 /* [0] status (1 ok; 2 pack load, 3 VRAM), [1] commands last frame, [2] max, [3] particles live,
  * [4] sparks spawned, [5] puffs (spin-out), [6] retire explosions, [7] debris spawned,

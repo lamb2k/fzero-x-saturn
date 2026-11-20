@@ -38,8 +38,24 @@ def main():
                  contact_incidents_max=max(contacts), contact_incidents_limit=CONTACT_LIMIT)
     exact_ok = exact['offtrack_ticks'] == 0 and exact['stuck_events'] == 0 and exact['through_ticks'] == 0 and exact['rivals_pass_each_other'] and max(contacts) <= CONTACT_LIMIT
     res = dict(verdict='PASS' if ok and exact_ok else 'FAIL', runs=len(runs), bands=rows, exact=exact, exact_verdict='PASS' if exact_ok else 'FAIL')
+    # C-100: the revised off-track predicate (grounded ticks only; airborne and fallen ticks scored apart), side by side
+    # with the accepted one above, which stays the verdict. It also needs the geometry trace clean: no AIR without an
+    # air node, no air node without AIR, no suppressed fall. Runs without the split (older reports) leave it out.
+    if all('offtrack_split' in d for d in runs):
+        sp = [d['offtrack_split'] for d in runs]; geo = [d.get('geometry', {}) for d in runs]
+        if any(x['old'] != sum(x['oob']) or x['revised'] != x['oob'][0] or x['old'] != d.get('offtrack_ticks') for x, d in zip(sp, runs)):
+            raise SystemExit('offtrack_split does not add up (old = sum of the three classes, revised = grounded)')
+        rev = dict(exact, offtrack_ticks=sum(x['revised'] for x in sp),
+                   eligible=[sum(x['eligible'][k] for x in sp) for k in range(3)], oob=[sum(x['oob'][k] for x in sp) for k in range(3)],
+                   geometry={k: sum(g.get(k, 0) for g in geo) for k in ('air_unexplained', 'air_missing', 'fall_suppressed')})
+        rev_ok = (rev['offtrack_ticks'] == 0 and not any(rev['geometry'].values()) and exact['stuck_events'] == 0 and exact['through_ticks'] == 0
+                  and exact['rivals_pass_each_other'] and max(contacts) <= CONTACT_LIMIT)
+        res.update(exact_revised=rev, exact_revised_verdict='PASS' if rev_ok else 'FAIL', verdict_revised='PASS' if ok and rev_ok else 'FAIL')
     for r in rows: print('%-22s ref %s  accept %s  native %s  %s' % (r['metric'], r['reference'], r['accepted'], r['native'], r['verdict']))
-    print('exact', exact, res['exact_verdict']); print('VERDICT', res['verdict'])
+    print('exact', exact, res['exact_verdict'])
+    if 'exact_revised' in res: print('exact-revised', res['exact_revised'], res['exact_revised_verdict'])
+    print('VERDICT', res['verdict'])
+    if 'verdict_revised' in res: print('VERDICT-REVISED', res['verdict_revised'])
     if out: json.dump(res, open(out, 'w'), indent=1)
     sys.exit(0 if res['verdict'] == 'PASS' else 1)
 main()

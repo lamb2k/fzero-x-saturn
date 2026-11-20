@@ -42,6 +42,7 @@ int main(int argc, char** argv) {
     /* line-field-5: --sources 1 adds rivals' energy losses by source (contact, wall, boost, other), wall incidents
      * and the near-edge share, as tools judge the reference's (fzx-gp-ref --diag). */
     int use_behave = 0; double tube_clamp = 0;
+    const char* fixture = "";
     int sources = 0; double src_amount[4] = {0, 0, 0, 0}; long src_n[4] = {0, 0, 0, 0}, wall_inc = 0, edge_ticks = 0, road_ticks = 0;
     int32_t tune_accel = 40, tune_grip = U(6), tune_lane = 30;
     long length = 0, dash = 0; unsigned seed = 1; int max_ticks = 14000, start_tick = 420, lod = 1, hash_every = 0;
@@ -65,6 +66,7 @@ int main(int argc, char** argv) {
         else if (!strcmp(argv[i], "--tube-clamp")) tube_clamp = atof(argv[i + 1]);   /* C-095 control: angles held below this (degrees) */   /* 1: tube_angles over pipe and cylinder nodes */
         else if (!strcmp(argv[i], "--sources")) sources = atoi(argv[i + 1]);
         else if (!strcmp(argv[i], "--behave")) use_behave = atoi(argv[i + 1]);   /* line-field-5 behaviours, defaults below */
+        else if (!strcmp(argv[i], "--fixture")) fixture = argv[i + 1];   /* C-100 fixtures: relabel, stuck, suppress */
         else die("unknown argument");
     }
     if (!pack || !config || !report || length <= 0) die("usage: see rivals_gp_main.c");
@@ -226,6 +228,25 @@ int main(int argc, char** argv) {
 
     static int prev_rank[MAXV];
     int rank_change_ticks = 0, rank_swaps = 0, ticks = 0, offtrack = 0, stuck = 0, through = 0;
+    /* C-100 (line-field-5 part 2). The off-track population is every non-external agent on every race tick (the
+     * accepted E2 exact predicate: offtrack_ticks). It is split into three exclusive classes, precedence fallen >
+     * airborne > grounded: fallen = SH2Z_VEH_FALLING or brain.fall_tick >= 0 (set once at the fall start, never reset:
+     * the fall, then the retirement fall_ticks later, then the stopped car to the end of the run); airborne =
+     * SH2Z_VEH_AIR; grounded = the rest (retired-without-fall and finished agents included). offtrack_ticks = the sum
+     * of the three out-of-bounds counts; the revised predicate is the grounded count alone.
+     * Geometry trace, independent of the agents' flags: the node under each agent at the start of its last step (the
+     * position it held before the step, as the library samples it) and the node after it, from the pack's flags.
+     * air_unexplained: AIR set but the step began on no air node (or on a tube, or the agent was finished/retired);
+     * air_missing: the step began on an air node, the agent active, but no AIR and no fall; fall_suppressed: the step
+     * began on an air node and ended beyond half width + fall_margin on an open-edge node, but the agent is not falling. */
+    static long ot_elig[3], ot_oob[3];
+    static long geo_unexplained, geo_missing, geo_suppressed;
+    static int32_t pre_node[MAXV], pre_dist[MAXV];
+    static uint16_t step_node_flags[MAXV]; static int stepped_any[MAXV];
+    static int air_run[MAXV]; static long air_eps, air_landed, air_fell, air_ticks, air_max, air_out_eps;
+    static int air_out[MAXV];
+    static long fall_eps, fall_retired, fall_open, fall_max; static int fall_start_t[MAXV];
+    static int fix_done, fix_agent = -1, fix_ticks;
     static int slow_ticks[MAXV];
     double spread_sum = 0, spread_max = 0; int spread_n = 0; double spread_at[32]; int marks = 0;
     double speed_sum[MAXV] = {0}; int speed_n[MAXV] = {0};
@@ -251,7 +272,7 @@ int main(int argc, char** argv) {
             veh[0].energy = veh[0].max_energy;   /* the trace carries its own outcome */
         }
         static int32_t e_before[MAXV]; static uint16_t f_before[MAXV];
-        for (int i = 0; i < count; ++i) { e_before[i] = veh[i].energy; f_before[i] = veh[i].flags; }
+        for (int i = 0; i < count; ++i) { e_before[i] = veh[i].energy; f_before[i] = veh[i].flags; pre_node[i] = veh[i].t.node; pre_dist[i] = veh[i].t.dist; }
         if (t == start_tick) sh2z_field_start(&F);
         clock_gettime(CLOCK_MONOTONIC, &t0);
         sh2z_field_step(&F);
@@ -260,6 +281,30 @@ int main(int argc, char** argv) {
         ticks = t + 1;
         if (hf && F.started && (t - start_tick) % hash_every == 0) fprintf(hf, "%d %08x\n", t - start_tick, (unsigned)sh2z_field_hash(&F));
         if (!F.started) continue;
+        /* C-100 fixtures: each must fail the geometry trace or the grounded check (see the comment at ot_elig). */
+        if (*fixture && t - start_tick > 600) {
+            if (!strcmp(fixture, "relabel") && !fix_done) {   /* a grounded agent pushed off the road and flagged AIR */
+                for (int i = 1; i < count && !fix_done; ++i) {
+                    sh2z_vehicle_t* v = &veh[i];
+                    if (v->flags & (SH2Z_VEH_AIR | SH2Z_VEH_FALLING | SH2Z_VEH_FINISHED | SH2Z_VEH_RETIRED) || brain[i].fall_tick >= 0) continue;
+                    sh2z_line_sample_t at; sh2z_line_sample(&L, v->t.node, v->t.dist, &at);
+                    if (P.surface && surface.wrap_mask && (at.flags & surface.wrap_mask) == surface.wrap_value) continue;
+                    if ((at.flags & 0x01c0u) == 0x0180u) continue;
+                    v->t.lateral = at.half_width + U(10); v->flags |= SH2Z_VEH_AIR; fix_done = 1; fix_agent = i;
+                }
+            } else if (!strcmp(fixture, "stuck")) {   /* after a landing, AIR stays set for 30 ticks */
+                if (fix_agent < 0) {
+                    for (int i = 1; i < count; ++i)
+                        if ((f_before[i] & SH2Z_VEH_AIR) && !(veh[i].flags & (SH2Z_VEH_AIR | SH2Z_VEH_FALLING)) && brain[i].fall_tick < 0) { fix_agent = i; break; }
+                }
+                if (fix_agent > 0 && fix_ticks < 30) { veh[fix_agent].flags |= SH2Z_VEH_AIR; ++fix_ticks; }
+            } else if (!strcmp(fixture, "suppress")) {   /* the first fall is undone, every tick */
+                for (int i = 1; i < count; ++i) {
+                    if (!(veh[i].flags & SH2Z_VEH_FALLING) || (fix_agent >= 0 && fix_agent != i)) continue;
+                    fix_agent = i; veh[i].flags = (uint16_t)((veh[i].flags & ~SH2Z_VEH_FALLING) | SH2Z_VEH_AIR); brain[i].fall_tick = -1; ++fix_ticks;
+                }
+            } else if (strcmp(fixture, "relabel") && strcmp(fixture, "stuck") && strcmp(fixture, "suppress")) die("--fixture relabel|stuck|suppress");
+        }
         if (sources) for (int i = 1; i < count; ++i) {
             const sh2z_vehicle_t* v = &veh[i];
             if (f_before[i] & (SH2Z_VEH_RETIRED | SH2Z_VEH_FINISHED)) continue;
@@ -278,8 +323,45 @@ int main(int argc, char** argv) {
             sh2z_line_sample(&L, v->t.node, v->t.dist, &at);
             const int32_t room = (P.surface && surface.wrap_mask && (at.flags & surface.wrap_mask) == surface.wrap_value)
                                ? (int32_t)(((int64_t)at.half_width * 411775) >> 17) + 1 : at.half_width;   /* a tube: half its round */
-            /* line-field-5: an agent in the air or falling has left the surface by design (air drift, falls). */
-            if (!(v->flags & (SH2Z_VEH_EXTERNAL | SH2Z_VEH_FALLING | SH2Z_VEH_AIR)) && brain[i].fall_tick < 0 && (v->t.lateral > room || v->t.lateral < -room)) ++offtrack;
+            if (!(v->flags & SH2Z_VEH_EXTERNAL)) {
+                /* The accepted E2 exact predicate (offtrack_ticks) and its C-100 partition. */
+                const int oob = v->t.lateral > room || v->t.lateral < -room;
+                const int cls = ((v->flags & SH2Z_VEH_FALLING) || brain[i].fall_tick >= 0) ? 2 : (v->flags & SH2Z_VEH_AIR) ? 1 : 0;
+                ++ot_elig[cls];
+                if (oob) { ++ot_oob[cls]; ++offtrack; }
+                /* Geometry trace (the library steps an agent when it sets brain.last_tick to the field tick). */
+                if (use_behave) {
+                    const sh2z_field_behave_t* bh = &behave;
+                    const int fin = (f_before[i] & (SH2Z_VEH_FINISHED | SH2Z_VEH_RETIRED)) != 0;
+                    if (brain[i].last_tick == F.tick && !(f_before[i] & SH2Z_VEH_FALLING) && !(f_before[i] & SH2Z_VEH_STOPPED)) {
+                        sh2z_line_sample_t pre;
+                        sh2z_line_sample(&L, pre_node[i], pre_dist[i], &pre);
+                        const int pre_tube = P.surface && surface.wrap_mask && (pre.flags & surface.wrap_mask) == surface.wrap_value;
+                        step_node_flags[i] = (uint16_t)((((pre.flags & bh->air_mask) == bh->air_value) && !pre_tube && !fin) ? 1u : 0u);
+                        stepped_any[i] = 1;
+                        if (step_node_flags[i] && !(v->flags & SH2Z_VEH_FALLING)) {
+                            const int now_tube = P.surface && surface.wrap_mask && (at.flags & surface.wrap_mask) == surface.wrap_value && at.half_width > 0;
+                            const int32_t al = v->t.lateral < 0 ? -v->t.lateral : v->t.lateral;
+                            if (!now_tube && (at.flags & bh->open_mask) == bh->open_value && al > at.half_width + bh->fall_margin) ++geo_suppressed;
+                        }
+                    }
+                    const int geo_air = stepped_any[i] && step_node_flags[i];
+                    if ((v->flags & SH2Z_VEH_AIR) && !geo_air) ++geo_unexplained;
+                    if (geo_air && !(v->flags & (SH2Z_VEH_AIR | SH2Z_VEH_FALLING | SH2Z_VEH_RETIRED | SH2Z_VEH_FINISHED))) ++geo_missing;
+                    /* Episodes: AIR runs (landed or fell) and falls (retired or still falling at the end). */
+                    if (v->flags & SH2Z_VEH_AIR) { if (!air_run[i]) { ++air_eps; air_out[i] = 0; } ++air_run[i]; ++air_ticks; if (oob) air_out[i] = 1; }
+                    else if (air_run[i]) {
+                        if (v->flags & SH2Z_VEH_FALLING) ++air_fell; else ++air_landed;
+                        if (air_run[i] > air_max) air_max = air_run[i];
+                        air_out_eps += air_out[i];
+                        air_run[i] = 0;
+                    }
+                    if ((v->flags & SH2Z_VEH_FALLING) && !(f_before[i] & SH2Z_VEH_FALLING)) { ++fall_eps; fall_start_t[i] = t; }
+                    if ((v->flags & SH2Z_VEH_RETIRED) && (f_before[i] & SH2Z_VEH_FALLING)) {
+                        ++fall_retired; if (t - fall_start_t[i] > fall_max) fall_max = t - fall_start_t[i];
+                    }
+                }
+            }
             if (tube_angles && !(v->flags & (SH2Z_VEH_EXTERNAL | SH2Z_VEH_FINISHED | SH2Z_VEH_RETIRED)) &&
                 ((at.flags & 0x01c0u) == 0x0080u || (at.flags & 0x01c0u) == 0x00c0u) && at.half_width) {
                 /* the lateral is an arc of radius half_width round the line (the engine's tube pose) */
@@ -316,6 +398,7 @@ int main(int argc, char** argv) {
         if (trace && t >= trace_ticks + 3000) break;
     }
     if (hf) fclose(hf);
+    for (int i = 0; i < count; ++i) if (veh[i].flags & SH2Z_VEH_FALLING) ++fall_open;
     FILE* o = fopen(report, "w");
     if (!o) die("cannot write report");
     const int race_ticks = ticks - start_tick;
@@ -328,6 +411,16 @@ int main(int argc, char** argv) {
     for (int i = 0; i < marks; ++i) fprintf(o, "%s%.0f", i ? "," : "", spread_at[i]);
     fprintf(o, "],\n");
     if (use_behave) fprintf(o, " \"falls\": %u, \"kos\": %u,\n",(unsigned)F.falls, (unsigned)F.kos);
+    /* C-100: the partition (eligible and out-of-bounds ticks per class: grounded, airborne, fallen), the revised count
+     * (grounded out-of-bounds), the geometry trace and the episodes. */
+    fprintf(o, " \"offtrack_split\": {\"eligible\": [%ld,%ld,%ld], \"oob\": [%ld,%ld,%ld], \"old\": %d, \"revised\": %ld},\n",
+            ot_elig[0], ot_elig[1], ot_elig[2], ot_oob[0], ot_oob[1], ot_oob[2], offtrack, ot_oob[0]);
+    if (use_behave) fprintf(o, " \"geometry\": {\"air_unexplained\": %ld, \"air_missing\": %ld, \"fall_suppressed\": %ld}, \"fixture\": \"%s\", \"fixture_agent\": %d,\n"
+                               " \"episodes\": {\"air\": %ld, \"air_landed\": %ld, \"air_fell\": %ld, \"air_open_at_end\": %ld, \"air_ticks\": %ld, \"air_max_ticks\": %ld, \"air_out_of_bounds\": %ld,"
+                               " \"falls\": %ld, \"falls_retired\": %ld, \"falls_open_at_end\": %ld, \"fall_max_ticks\": %ld},\n",
+                            geo_unexplained, geo_missing, geo_suppressed, fixture, fix_agent,
+                            air_eps, air_landed, air_fell, air_eps - air_landed - air_fell, air_ticks, air_max, air_out_eps,
+                            fall_eps, fall_retired, fall_open, fall_max);
     if (sources) fprintf(o, " \"damage\": {\"contact\": [%ld, %.1f], \"wall\": [%ld, %.1f], \"boost\": [%ld, %.1f], \"other\": [%ld, %.1f]}, \"wall_incidents\": %ld, \"near_edge_share\": %.4f,\n",
                          src_n[0], src_amount[0], src_n[1], src_amount[1], src_n[2], src_amount[2], src_n[3], src_amount[3], wall_inc,
                          road_ticks ? (double)edge_ticks / road_ticks : 0.0);

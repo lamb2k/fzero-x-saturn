@@ -33,6 +33,10 @@
 #if ENG_ROSTER
 #include "engine_roster.h"
 #include "rosterz_identity.h"
+#include "roster_identity.h"
+#ifndef FZX_STOCK_RIVAL_SKIN
+#define FZX_STOCK_RIVAL_SKIN '1' /* earlier generated roster headers */
+#endif
 /* The roster LOAD phase's field: the stock families of a full grid (time attack has no
  * rivals; this measures the E2 field's load). [0] fields, [1] raw FNV of the inflated
  * check set (family 0 near), [2] its expected FNV, [3] check result (1 equal). */
@@ -53,7 +57,7 @@ static uint32_t roster_inflate_fnv(uint32_t family, unsigned prof) {
     uint32_t header = 0;
     {   /* The header region (header, cell table, CLUTs) as stored; the rest zero, then the cells. */
         static const char names[2][4] = { { 'n', 'e', 'a', 'r' }, { 'f', 'a', 'r', 0 } };
-        const char key[8] = { 'c', (char)('0' + family / 10u), (char)('0' + family % 10u), 's', '1', 0, 0, 0 };
+        const char key[8] = { 'c', (char)('0' + family / 10u), (char)('0' + family % 10u), 's', FZX_STOCK_RIVAL_SKIN, 0, 0, 0 };
         for (unsigned i = 0; i < FZX_RZ_SETS; ++i)
             if (!memcmp(fzx_rz_sets[i].key, key, 8) && !memcmp(fzx_rz_sets[i].prof, names[prof & 1u], 4)) header = fzx_rz_sets[i].header_bytes;
     }
@@ -912,7 +916,7 @@ static void load_tick(void *u, uint32_t s) {
              * loaded family's near set, inflated back to RSP1 1.1, against its raw FNV. */
             uint32_t fam = 0;
             while (fam < 30u && !fzx_roster_set(fam, FZX_ROSTER_NEAR)) ++fam;
-            const char key[5] = { 'c', (char)('0' + fam / 10u), (char)('0' + fam % 10u), 's', '1' };
+            const char key[5] = { 'c', (char)('0' + fam / 10u), (char)('0' + fam % 10u), 's', FZX_STOCK_RIVAL_SKIN };
             fzx_scn_roster[1] = fam < 30u ? roster_inflate_fnv(fam, FZX_ROSTER_NEAR) : 0u;
             fzx_scn_roster[2] = 0;
             for (unsigned i = 0; i < FZX_RZ_SETS; ++i)

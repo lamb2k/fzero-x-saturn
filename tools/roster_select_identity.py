@@ -42,13 +42,25 @@ def main():
     while dir_at % 8:
         dir_at += 1
     ent = struct.Struct('>8s4sIIIII')
+    raw_entry = struct.Struct('>8s4sIIIHHI')
+    raw_sets = {}
+    for offset in range(0, len(src) - raw_entry.size + 1, raw_entry.size):
+        key, prof, at, size, raw_hash, raw_version, framing, _ = raw_entry.unpack_from(src, offset)
+        if raw_version != 0x101:
+            break
+        if framing == 2:
+            raw_sets[(key, prof)] = raw_hash
     rows = []
     for i in range(count):
         key, prof, h_at, hb, st_at, sb, raw_fnv = ent.unpack_from(z, dir_at + i * ent.size)
+        if raw_sets.pop((key, prof), None) != raw_fnv:
+            print('roster: compressed set does not match source roster', file=sys.stderr); return 1
         end = st_at + sb
         end = (end + 7) & ~7
         block = z[h_at:end]
         rows.append((key, prof, h_at, end - h_at, fnv(block), hb, st_at - h_at, raw_fnv))
+    if raw_sets:
+        print('roster: compressed directory missing source sets', file=sys.stderr); return 1
     lens = z[8:8 + 16 * 30]
     o = Path(out)
     o.mkdir(parents=True, exist_ok=True)

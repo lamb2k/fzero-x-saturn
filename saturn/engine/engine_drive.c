@@ -850,6 +850,9 @@ unsigned fzx_emit_nsegs;
  * stock family 0..29) picks its near (20 yaw x 3 pitch) and far (8 yaw) sets; guest and Super
  * families are never bound. Each set's CLUT goes to the CLUT slots after the player's. */
 #include "roster_identity.h"
+#ifndef FZX_STOCK_RIVAL_SKIN
+#define FZX_STOCK_RIVAL_SKIN '1' /* earlier generated roster headers */
+#endif
 #include "rivals_field.h"
 typedef struct { const sh2z_rspr_set_t *set; int64_t scale_num; uint16_t clut; uint8_t convex; } roster_set_t;
 static roster_set_t roster[FZX_FIELD_CARS][2]; /* [id][0 near, 1 far] */
@@ -904,7 +907,7 @@ bool fzx_drive_roster_load(void *scratch, uint32_t scratch_bytes, uintptr_t cart
     for (uint32_t id = 1; id < FZX_FIELD_CARS; ++id) {
         const int32_t fam = CSEL(field,fzx_rivals_field)[id][5];
         if (fam < 0 || fam > 29) { fzx_e2_roster[0] = 3; return false; }
-        const char key[8] = { 'c', (char)('0' + fam / 10), (char)('0' + fam % 10), 's', '1', 0, 0, 0 };
+        const char key[8] = { 'c', (char)('0' + fam / 10), (char)('0' + fam % 10), 's', FZX_STOCK_RIVAL_SKIN, 0, 0, 0 };
         for (unsigned k = 0; k < 2u; ++k) {
 #if ENG_ROSTER
             (void)key; (void)prof;

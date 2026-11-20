@@ -4,6 +4,10 @@
 #include "engine_roster.h"
 #include "texture_cd.h"
 #include "rosterz_identity.h"
+#include "roster_identity.h"
+#ifndef FZX_STOCK_RIVAL_SKIN
+#define FZX_STOCK_RIVAL_SKIN '1' /* earlier generated roster headers */
+#endif
 
 volatile uint32_t fzx_roster_report[16];
 
@@ -15,7 +19,7 @@ static const uint8_t *block_at[FZX_RZ_SETS]; /* loaded block of each set, NULL i
 
 static int find(uint32_t family, unsigned prof) {
     static const char names[2][4] = { { 'n', 'e', 'a', 'r' }, { 'f', 'a', 'r', 0 } };
-    const char key[8] = { 'c', (char)('0' + family / 10u), (char)('0' + family % 10u), 's', '1', 0, 0, 0 };
+    const char key[8] = { 'c', (char)('0' + family / 10u), (char)('0' + family % 10u), 's', FZX_STOCK_RIVAL_SKIN, 0, 0, 0 };
     for (unsigned i = 0; i < FZX_RZ_SETS; ++i)
         if (!memcmp(fzx_rz_sets[i].key, key, 8) && !memcmp(fzx_rz_sets[i].prof, names[prof & 1u], 4)) return (int)i;
     return -1;

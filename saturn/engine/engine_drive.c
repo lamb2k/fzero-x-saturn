@@ -105,7 +105,7 @@ void (*volatile fzx_drive_finish_hook)(uint32_t timer, uint32_t tick);
 static uint32_t finish_timer;
 #endif
 static void step_once(sh2z_vd_input_t *in) {
-    sh2z_vd_step(&body, &course.track, &course.vehicle, &fzx_phys_rules, in);
+    fzx_phys_step(&course, &body, &fzx_phys_rules, in);
 #if ENG_SND
     engine_snd_tick(&body, &course.vehicle, course.track.laps); /* reads the state only */
 #endif
@@ -185,6 +185,16 @@ void fzx_drive_step(uint32_t n) {
 }
 
 uint32_t fzx_drive_tick(void) { return ticks; }
+#if FZX_PHYS_TUBES
+/* Whether the camera is outside the track surface (the road plan's outer bit; course.c
+ * D_800F89D8): inside a pipe span it is not, except over the span's joins, where the
+ * tube opens into road. Read from the player's located span and t. */
+uint8_t fzx_drive_outer(void) {
+    const uint32_t n = body.node < course.track.count ? body.node : 0u;
+    if (course.nodes[n].shape != SH2Z_VD_SHAPE_PIPE) return 1u;
+    return (body.t < course.joins[n].prev_end || course.joins[n].next_start < body.t) ? 1u : 0u;
+}
+#endif
 #if E1_CLOSEUP == 1 || E1_FIELD
 /* Arm A (engine_closeup.c) poses the 3D model from the body itself. */
 const sh2z_vd_body_t *fzx_drive_body(void) { return &body; }

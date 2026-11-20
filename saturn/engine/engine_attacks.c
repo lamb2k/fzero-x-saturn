@@ -2,6 +2,7 @@
 #include <string.h>
 #include "engine_attacks.h"
 #include "attacks_tables.h"
+#include "engine_atk_prof.h"
 #ifdef ATK_PROF
 #include <time.h>
 uint64_t atk_prof[8];
@@ -228,6 +229,7 @@ void fzx_atk_contact(const sh2z_vd_body_t *p, sh2z_vd_contact_t *out) {
 #ifdef ATK_PROF
     uint64_t prof_t = pn();
 #endif
+    APROF_T(sp);
     sh2z_bc_field_begin(&bcf);
     PROF(0);
     const uint32_t n = F.count;
@@ -240,7 +242,7 @@ void fzx_atk_contact(const sh2z_vd_body_t *p, sh2z_vd_contact_t *out) {
         while (j > 0 && (along[order[j - 1]] < along[k] || (along[order[j - 1]] == along[k] && order[j - 1] > k))) { order[j] = order[j - 1]; --j; }
         order[j] = k;
     }
-    PROF(1);
+    PROF(1); APROF(0, sp);
     /* Candidates: another vehicle within PRE_Q8 along and across the line. Two bodies in reach (46)
      * are within it on any part of the course, so only candidates get a world pose and enter the walk;
      * a pair that leaves it simply loses its contact history, as one out of reach does. Only vehicles
@@ -264,7 +266,7 @@ void fzx_atk_contact(const sh2z_vd_body_t *p, sh2z_vd_contact_t *out) {
             if (iabs(F.veh[a].t.lateral - F.veh[b].t.lateral) <= PRE_Q8) cand[a] = cand[b] = 1;
         }
     }
-    PROF(2);
+    PROF(2); APROF(1, sp);
     /* Last tick's candidates leave the walk; this tick's enter it. */
     for (uint32_t ci = 0; ci < ncand; ++ci) body[cand_list[ci]].flags = 0;
     ncand = 0;
@@ -295,9 +297,9 @@ void fzx_atk_contact(const sh2z_vd_body_t *p, sh2z_vd_contact_t *out) {
         if (r->mode & (M_SIDE | M_SPIN)) b->flags |= SH2Z_BC_ATTACK;
         if (r->mode & M_CRASHED) b->flags |= SH2Z_BC_WEAK;
     }
-    PROF(3);
+    PROF(3); APROF(2, sp);
     const uint32_t touching = sh2z_bc_field_resolve(&bcf, order, along, length, &rules);
-    PROF(4);
+    PROF(4); APROF(3, sp);
     fzx_atk_report[1] = bcf.tested; fzx_atk_report[2] = touching; fzx_atk_report[0] = bcf.contacts;
     /* The player: everything through its own step. */
     out->push[0] = body[0].push[0]; out->push[1] = body[0].push[1]; out->push[2] = body[0].push[2];
@@ -335,7 +337,7 @@ void fzx_atk_contact(const sh2z_vd_body_t *p, sh2z_vd_contact_t *out) {
         }
         damage_rival(p, i, b->damage);
     }
-    PROF(5);
+    PROF(5); APROF(4, sp);
 }
 
 /* ---- rivals driven here -------------------------------------------------------------------- */
@@ -557,17 +559,20 @@ void fzx_atk_after(const sh2z_vd_body_t *p) {
     if (!live) return;
     /* Reverse driving: the player's speed along the line below zero, in a row. */
     reverse_run = F.veh[0].t.speed <= 0 && race_ticks() > 0 ? reverse_run + 1u : 0u;
+    APROF_T(sp);
     if (fzx_atk_ai && F.field->started) {
         const uint32_t tick = F.field->tick;
         for (uint32_t i = 1; i < F.count; ++i)
             if ((i & 3u) == (tick & 3u)) think(p, i);
     }
+    APROF(8, sp);
     ++fzx_atk_report[15];
     const uint32_t t = F.field->tick;
     if ((t & 255u) == 0u && t / 256u >= 1u && t / 256u <= FZX_ATK_CHECKPOINTS) {
         fzx_atk_report[14] = fzx_atk_hash();   /* at the checkpoints only */
         fzx_atk_chk[t / 256u - 1u] = fzx_atk_report[14] ^ sh2z_field_hash(F.field);
     }
+    APROF(9, sp);
 }
 
 /* ---- the scripted hunter ------------------------------------------------------------------- */

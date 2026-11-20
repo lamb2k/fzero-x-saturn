@@ -2,6 +2,7 @@
 #include <string.h>
 #include <stddef.h>
 #include "engine_drive.h"
+#include "engine_atk_prof.h"
 #if ENG_SND
 #include "engine_snd.h"
 #endif
@@ -27,6 +28,10 @@
 #endif
 #if ENG_ATTACKS
 #include "engine_attacks.h"
+#endif
+#if ENG_ATK_PROF
+uint16_t fzx_atk_prof[FZX_ATK_PROF_ROWS][FZX_ATK_PROF_COLS];
+uint32_t fzx_atk_prof_row = FZX_ATK_PROF_ROWS;
 #endif
 
 #ifndef E1_DRIVER
@@ -126,14 +131,22 @@ static void step_once(sh2z_vd_input_t *in) {
 #if E1_FIELD && ENG_BAL_EARLY
     /* Contact needs every rival at this tick: step the field's pending ticks first (the last tick of a
      * frame still steps after the kick). */
-    fzx_drive_field_run();
+    {
+        APROF_T(fr);
+        fzx_drive_field_run();
+        APROF(10, fr);
+    }
 #endif
     /* Every racer-racer contact first (engine_attacks.c), then the player's step with its share. */
     sh2z_vd_contact_t contact;
     fzx_atk_contact(&body, &contact);
+    APROF_T(ps);
     phys_step_contact(&course, &body, &fzx_phys_rules, in, &contact);
+    APROF(5, ps);
 #else
+    APROF_T(ps);
     fzx_phys_step(&course, &body, &fzx_phys_rules, in);
+    APROF(5, ps);
 #endif
 #if ENG_SND
     engine_snd_tick(&body, &course.vehicle, course.track.laps); /* reads the state only */

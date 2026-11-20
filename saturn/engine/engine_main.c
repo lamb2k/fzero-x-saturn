@@ -35,6 +35,7 @@
 #endif
 #if FZX_E1_DRIVE
 #include "engine_drive.h"
+#include "engine_atk_prof.h"
 #endif
 #ifndef E1_CLOSEUP
 #define E1_CLOSEUP 0
@@ -1423,6 +1424,9 @@ bool fzx_race_frame(void) {
         const uint32_t hold = HOLD_TICK;
         if (advance > 4u) advance = 4u;
         if (hold && fzx_drive_tick() + advance > hold) advance = fzx_drive_tick() < hold ? hold - fzx_drive_tick() : 0u;
+#if ENG_ATK_PROF
+        fzx_atk_prof_row = row_index < row_capacity && row_index < FZX_ATK_PROF_ROWS && !fzx_e0_done ? row_index : FZX_ATK_PROF_ROWS;
+#endif
         const uint16_t p0 = cpu_frt_count_get();
 #if E1_FIELD
         fzx_field_sim_ticks = 0;
@@ -1482,6 +1486,9 @@ bool fzx_race_frame(void) {
         STAGE_READY = 0u; /* the slave's sprite fills wait for this frame's staging */
 #endif
         const uint16_t kicked = cpu_frt_count_get();
+#if FZX_E1_DRIVE && ENG_ATK_PROF
+        if (fzx_atk_prof_row < FZX_ATK_PROF_ROWS) fzx_atk_prof[fzx_atk_prof_row][11] = (uint16_t)(kicked - p0);
+#endif
 #if FZX_E1_DRIVE
         kick(cam, shown);
 #if ENG_BAL_EARLY

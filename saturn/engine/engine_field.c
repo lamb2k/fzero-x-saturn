@@ -1,6 +1,7 @@
 /* Engine E1 close-up 3D-N test: the rival field (see engine_field.h). */
 #include <string.h>
 #include "engine_field.h"
+#include "engine_atk_prof.h"
 #include "sh2zam/line_field_experimental.h"
 #include "sh2zam/unit30_experimental.h"
 
@@ -389,10 +390,13 @@ void fzx_field_tick(const sh2z_vd_body_t *player) {
     if (fzx_field_report[0] != 1) return;
     player_into_field(player);
     if (!field.started && player->race_time > 0) { sh2z_field_start(&field); fzx_field_report[4] = field.tick; }
+    APROF_T(fp);
 #if ENG_ATTACKS
     fzx_atk_move(player);
 #endif
+    APROF(6, fp);
     sh2z_field_step(&field);
+    APROF(7, fp);
 #if ENG_ATTACKS
     fzx_atk_after(player);
 #endif

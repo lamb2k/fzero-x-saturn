@@ -1445,6 +1445,9 @@ bool fzx_race_frame(void) {
         vdp1_sync();
 #endif
         vdp2_sync();
+#if ENG_SND
+        engine_snd_late(); /* off the build's critical path */
+#endif
 #if FZX_VDP1_DBANK
         sh2z_vdp1_banks_submitted(&fzx_dbank_banks, true);
 #endif

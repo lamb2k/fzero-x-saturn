@@ -277,7 +277,18 @@ static uint32_t engine_ratio(int32_t speed_q16) {
 #if E1_FIELD
 /* The two nearest rivals by squared distance in 32 bits (coordinates in 4-unit steps); the square
  * root, the pan and the speed only for those two. */
+/* engine_snd_cars only notes the frame's cars; the search runs in engine_snd_late, after the
+ * frame's submit, while the master waits for the swap (off the build's critical path). The
+ * rival engines then follow one frame behind the cars. */
+static const sh2z_vd_body_t *late_body;
+static const fzx_field_car_t *late_cars;
+static unsigned late_n;
+
 void engine_snd_cars(const sh2z_vd_body_t *body, const fzx_field_car_t *cars, unsigned n) {
+    late_body = body; late_cars = cars; late_n = n;
+}
+
+static void nearest_rivals(const sh2z_vd_body_t *body, const fzx_field_car_t *cars, unsigned n) {
     const uint16_t t0 = cpu_frt_count_get();
     const uint32_t dt = ticks - last_cars_tick;
     last_cars_tick = ticks;
@@ -429,6 +440,12 @@ void engine_snd_leave(uint32_t frames) {
     for (uint32_t s = 0; s < SH2Z_SND_SLOTS; ++s) if (s != 16u && s != 17u) sh2z_snd_stop(&snd, s);
     for (unsigned p = 0; p < SND_RACE_EVENT_PARTS; ++p) { player_slot[p] = -1; rival_slot[0][p] = -1; rival_slot[1][p] = -1; }
     cpu_intc_mask_set(mask);
+}
+
+void engine_snd_late(void) {
+#if E1_FIELD
+    if (late_cars) { nearest_rivals(late_body, late_cars, late_n); late_cars = NULL; }
+#endif
 }
 
 bool engine_snd_quiet(void) {

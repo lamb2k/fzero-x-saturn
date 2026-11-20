@@ -44,6 +44,8 @@ void engine_snd_build(void);
 void engine_snd_seal(void);
 void engine_snd_vblank(bool presented);
 void engine_snd_frame(void);
+/* After the frame's submit (the master is waiting for the swap): the nearest-rival search. */
+void engine_snd_late(void);
 void engine_snd_leave(uint32_t frames);
 bool engine_snd_quiet(void);
 /* Frames outside the race (menus, LOAD): the CD player only (fade, pause, status). */

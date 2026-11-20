@@ -122,7 +122,9 @@ static void step_once(sh2z_vd_input_t *in) {
 #endif
     ++ticks;
 #if defined(ENG_SCENES) && ENG_SCENES
-    if ((body.flags & SH2Z_VD_FINISHED) && finish_timer < 0xFFFFu) {
+    /* The timer restarts with every race, cold load or retry: it runs only while finished. */
+    if (!(body.flags & SH2Z_VD_FINISHED)) finish_timer = 0;
+    else if (finish_timer < 0xFFFFu) {
         ++finish_timer;
         if (fzx_drive_finish_hook) {
 #if E1_FIELD && ENG_BAL_EARLY

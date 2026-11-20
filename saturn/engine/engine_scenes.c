@@ -1105,7 +1105,7 @@ static void card_track(unsigned course) {
     };
     volatile uint16_t *color = (volatile uint16_t *)VDP2_CRAM_MODE_1_OFFSET(0, 0, 977);
     card_saved_track_color = *color;
-    *color = RGB1555(1, 24, 8, 8);
+    *color = RGB1555(1, 24, 8, 8).raw;
     volatile uint16_t *tiles = (volatile uint16_t *)VDP2_VRAM_ADDR(3, 0x1a000);
     for (unsigned i = 0; i < sizeof(card_tracks[0]); ++i) {
         const uint8_t row = card_tracks[course][i];

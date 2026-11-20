@@ -12,9 +12,9 @@ Course index = cup x 6 + round (`course_select/course_model.c`). The table is `t
 | --- | --- | --- | --- | --- | --- | --- |
 | 0 | Mute City | 0 | 0 purple, clouds | 0 | road, walled, 1 tunnel, 1 air | the first course |
 | 1 | Silence | 9 | 4 night, stars | 1 | road, walled, tunnel | runs (section 5) |
-| 2 | Sand Ocean | 3 | 2 desert, clouds | 2 | 13 road, **15 pipe** | needs pipes (section 6) |
+| 2 | Sand Ocean | 3 | 2 desert, clouds | 2 | 13 road, **15 pipe** | races; rivals on tubes open (section 7) |
 | 3 | Devil's Forest | 4 | 5 orange, clouds | 5 | road, tunnel; 7 dirt zones | runs (section 5) |
-| 4 | Big Blue | 2 | 7 sky blue, clouds | 4 | 10 road, **10 cylinder** | needs cylinders (section 6) |
+| 4 | Big Blue | 2 | 7 sky blue, clouds | 4 | 10 road, **10 cylinder** | races; rivals on tubes open (section 7) |
 | 5 | Port Town | 1 | 6 sunset, clouds | 3 | road, walled, tunnel; 3 ice zones | runs (section 5) |
 
 ## 2. Baking a course
@@ -87,8 +87,8 @@ A pack that would reach the 3D player or the pool is refused at load (fail 35 pa
 
 | Feature | Courses | State |
 | --- | --- | --- |
-| Pipes (driving round the inside of a tube) | Sand Ocean (15 points), later cups | physics treats them as road; the road bake already accepts the pipe geometry; section 6 |
-| Cylinders (driving round the outside) | Big Blue (10 points), later cups | physics as road; the road bake refuses the cylinder strip pairing |
+| Pipes (driving round the inside of a tube) | Sand Ocean (15 points), later cups | player physics and road done (section 7); rivals stay in line space |
+| Cylinders (driving round the outside) | Big Blue (10 points), later cups | player physics and road done (section 7); rivals stay in line space |
 | Half-pipes | later cups | physics as road |
 | Stars (night sky) | Silence | not drawn: the night sky is the gradient and the skyline only |
 | Flashing skyline windows (night) | Silence | not animated |
@@ -181,3 +181,66 @@ Estimate before building. Section 4 says what exists.
 
 **Total:** about 7 to 9 days for both courses, in this order: Sand Ocean physics and pick (its road
 already bakes), then the tube render, then the Big Blue strip pairing and cylinder physics.
+
+## 7. Pipes and cylinders: results (lane `claude/tubes`, 2026-11-20)
+
+HOST and EMULATOR (Ymir) tiers; timings MODELLED; hardware UNRUN. Evidence: `fzx-evidence/host/claude-tub/`.
+
+**Physics.** The player runs SH2ZAM `vehicle-dynamics-2` (`sh2z_vd_step2`, PR #54; pin `claude/tubes-train`
+b68b859 = courses-train aa0a587 + the PR). It ports `racer.c` `func_8008EC98` (pipe) and `func_8008F550`
+(cylinder) with their joins.
+- The reference bake (`ref/handling_probe.c`) writes each tube span's join t values and scale.
+- Tube courses get physics pack v3 (a join table); every other course keeps v2 byte for byte.
+- `ENG_TUBES` is on by default for sand-ocean-1 and big-blue-1 only. `ENG_TUBES=0` links
+  vehicle-dynamics-1, which refuses the v3 pack (the control).
+- The vehicle-dynamics-1 object is byte-identical, and so are all 44 library objects.
+- Half-pipes are not modelled.
+
+| Gate (HOST) | Sand Ocean | Big Blue |
+| --- | --- | --- |
+| R01 against the reference | -0.003% (92,553 against 92,556 ms; was +1.268% with pipes as road) | +0.000% (126,928 ms) |
+| C-076 windows over every tube span and join (7 driver arms) | 368/368, endpoints 368/368 (worst 9.2 units) | 330/330 (worst 2.7 units) |
+| Tube classes (passing/exercising) | pipe 368/368, join 143/143, tube_in 63/63, tube_out 81/81 | cylinder 330/330, join 69/69 |
+| Mutation controls (windows still passing) | tubes-off 17/368, join-scale+10% 275, join-lever-half 233, pipe-rim-30 292 | tubes-off 0/330, join-scale+10% 283 |
+| Whole-race guardrail | 4 finishing arms within 0.05%; lateral-target arms retire in both | 6 arms within 0.001%; the boost arm retires at the same tick in both |
+
+- Mutations that change nothing: pipe-rim+5, and cyl-reach-50/-150, because no arm leaves the
+  cylinder. Leaving the cylinder is covered by the SH2ZAM host test and its control.
+- **Tools:** `tools/physics_host/build.sh` (`TUBES=1`) and the tube mutations in `fzx-phys`. The judge is
+  `claude-tub/harness/tubjudge.py`.
+
+**Road.** Big Blue now bakes.
+- Its 8 cylinder-join pairs without constant-S edges get their own corner copies with snapped S
+  (`tools/road_tiles.py`): approximate texturing on those 8 quads of 2,262.
+- The road_bake and road_prep outputs of the other five courses are unchanged.
+- The pick takes the road plan's outer bit from the player's span and t (`fzx_drive_outer`).
+  It is 0 inside a pipe away from its joins (course.c `D_800F89D8`), so the tube's outer shell is
+  not drawn there.
+- The winding cull needs no change: the pipe's inner quads face the axis.
+- **Not done:**
+  - the original's darker fog inside a pipe (fog colour / 4);
+  - closing the VDP2 floor and clouds inside a pipe;
+  - tunnels' outer bit (still 1).
+- Big Blue's camera path stops at tick 1,045, where a dash-plate boost changes the projection. The
+  field image takes its lens before that.
+
+**Ymir, field image, whole race** (29 rivals; HOST checkpoints from `fzx-phys --checkpoints 256`, tubes build):
+
+| Course | Race | Checkpoints | Intervals | Master p99 / max | Slave p99 | VDP1 p99 | Road cmds max | Pixel hash |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Sand Ocean | 92,553 ms, as HOST | 36 + final equal | 4,519 x 2F, 0 over | 25.7 / 26.4 ms | 24.0 ms | 11.3 ms | 199 | 74c04953cdbf9ac8 |
+| Big Blue | 126,928 ms, as HOST | 36 + final equal | 4,519 x 2F, 0 over | 27.7 / 29.5 ms | 16.9 ms | 8.9 ms | 130 | ea59e2727ee8661f |
+
+**Default images unchanged** (against 17e1f84 with pin aa0a587, same stage):
+- E0 9d4db29d;
+- Mute City field 0e510d9b, drive 079e73e7, scenes 7d8513eb;
+- Silence field 513abdfb, Devil's Forest 5dbe5bae, Port Town 7c48a88d.
+
+**Rivals (E2 bands, 6 seeds, line-field-2):**
+- Sand Ocean passes 14/14.
+- Big Blue fails `finished` and `retired`: the native field retires 1 to 3 rivals and the
+  reference none. The line field charges wall energy at the line's edge (`fld_wall`). A tube span
+  has no edge, so the rival should wrap round it instead.
+- Next card: a line-field change that gives tube spans no edge and a wrapped lateral, and a per-point
+  shape in RIVALS.PAK. It also needs the 3D placement of rivals round the tube; today they sit on
+  the road plane.

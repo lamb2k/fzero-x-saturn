@@ -264,28 +264,21 @@ void fzx_atk_contact(const sh2z_vd_body_t *p, sh2z_vd_contact_t *out) {
      * current on this tick take part (the player, rivals driven here, and agents the field stepped on
      * its last tick): far from the player the field's level of detail steps agents every 2, 4 or 8
      * ticks, and a pair is resolved on the ticks both are current, as line-field-1's own contact did. */
-    uint8_t cand[FZX_ATK_MAX], sc[FZX_ATK_MAX];
-    int32_t sa[FZX_ATK_MAX], sl[FZX_ATK_MAX];   /* along, lateral and current, in physical order */
+    uint8_t cand[FZX_ATK_MAX], cur[FZX_ATK_MAX];
     memset(cand, 0, sizeof(cand));
-    const uint32_t ftick = F.field->tick;
+    for (uint32_t i = 0; i < n; ++i)
+        cur[i] = (uint8_t)(i == 0u || (F.veh[i].flags & SH2Z_VEH_EXTERNAL) || F.brain[i].last_tick == F.field->tick);
     for (uint32_t s = 0; s < n; ++s) {
-        const uint32_t i = order[s];
-        const sh2z_vehicle_t *v = &F.veh[i];
-        sa[s] = along[i]; sl[s] = v->t.lateral;
-        sc[s] = (uint8_t)(i == 0u || (v->flags & SH2Z_VEH_EXTERNAL) || F.brain[i].last_tick == ftick);
-    }
-    for (uint32_t s = 0; s < n; ++s) {
-        if (!sc[s]) continue;
-        const int32_t aa = sa[s], al = sl[s];
-        uint32_t t = s;
+        const uint32_t a = order[s];
+        if (!cur[a]) continue;
         for (uint32_t k = 1; k < n; ++k) {
-            if (++t == n) t = 0;
-            int32_t gap = aa - sa[t];
+            const uint32_t b = order[s + k < n ? s + k : s + k - n];
+            int32_t gap = along[a] - along[b];
             if (gap > half) gap -= length;
             else if (gap <= -half) gap += length;
             if (gap > PRE_Q8) break;
-            if (gap < 0 || !sc[t]) continue;
-            if (iabs(al - sl[t]) <= PRE_Q8) cand[order[s]] = cand[order[t]] = 1;
+            if (gap < 0 || !cur[b]) continue;
+            if (iabs(F.veh[a].t.lateral - F.veh[b].t.lateral) <= PRE_Q8) cand[a] = cand[b] = 1;
         }
     }
     PROF(2); APROF(1, sp);

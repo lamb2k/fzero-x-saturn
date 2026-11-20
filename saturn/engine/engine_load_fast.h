@@ -7,6 +7,8 @@
 #include "engine_path.h"
 #include "fzx_road_pack.h"
 bool fzx_engine_path_open_verified(fzx_engine_path_t *out, const void *data, uint32_t bytes, uint32_t expected_hash);
+bool fzx_engine_path_open_head(fzx_engine_path_t *out, const void *data, uint32_t head_bytes, uint32_t bytes,
+                               uint32_t expected_hash);
 bool fzx_road_pack_open_verified(fzx_road_pack_t *out, const void *data, uint32_t bytes,
                                  uint32_t expected_hash, uint32_t expected_course, bool fixture);
 #endif

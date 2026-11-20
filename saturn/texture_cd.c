@@ -95,6 +95,45 @@ bool fzx_texture_cd_load(const char *name,uint32_t bytes,uint32_t expected,
         if(workspace->guard_before[i]!=GUARD || workspace->guard_after[i]!=GUARD)return fail(9);
     fzx_texture_cd_status.status=1;return true;
 }
+/* Scenes image: bytes [offset, offset + bytes) of a file into dest (CPU 32-bit stores;
+ * offset, bytes and dest 4-byte aligned), FNV-1a of the bytes checked against expected as
+ * they arrive. fzx_texture_cd_fault = n (captures) flips one byte of the first sector of the
+ * n-th range read from then on (1: the next one), so the check must refuse it. */
+volatile uint32_t fzx_texture_cd_fault;
+bool fzx_texture_cd_load_range(const char *name,uint32_t file_bytes,uint32_t offset,uint32_t bytes,uint32_t expected,
+                               void *dest,void *scratch,uint32_t scratch_bytes) {
+    if(!kept_ok) {
+        /* The first use initialises the CD block and reads the directory (as any load). */
+        static uint32_t probe[2] __attribute__((aligned(8)));
+        (void)fzx_texture_cd_load(name,0xFFFFFFFCu,0,probe,scratch,scratch_bytes);
+        if(!kept_ok)return false;
+    }
+    fzx_texture_cd_status=(fzx_texture_cd_status_t){0};
+    if(!name||!bytes||(offset&3u)||(bytes&3u)||((uintptr_t)dest&3u)||!scratch||((uintptr_t)scratch&31u)||
+       scratch_bytes<sizeof(scratch_t))return fail(2);
+    workspace=scratch;
+    const cdfs_filelist_entry_t *file=NULL;
+    for(uint32_t i=0;i<kept_count;++i)
+        if(kept[i].type==CDFS_ENTRY_TYPE_FILE && !strcmp(kept[i].name,name))file=&kept[i];
+    if(!file)return fail(5);
+    if(file->size!=file_bytes||offset>file_bytes||bytes>file_bytes-offset)return fail(6);
+    uint32_t hash=2166136261u,done=0;
+    volatile uint32_t *out=(volatile uint32_t *)dest;
+    for(uint32_t sector=offset/CDFS_SECTOR_SIZE;done<bytes;++sector) {
+        const int rc=fzx_road_sector_read(file->starting_fad+sector,&workspace->sector);
+        if(rc){fzx_texture_cd_status.io_result=rc;return fail(3);}
+        volatile uint32_t *const fault=(volatile uint32_t *)((uintptr_t)&fzx_texture_cd_fault|CPU_CACHE_THROUGH);
+        if(*fault&&!done){if(*fault==1u)workspace->sector.buffer8[(offset%CDFS_SECTOR_SIZE)]^=0x5Au;--*fault;}
+        uint32_t from=sector==offset/CDFS_SECTOR_SIZE?offset%CDFS_SECTOR_SIZE:0u;
+        uint32_t n=CDFS_SECTOR_SIZE-from;if(n>bytes-done)n=bytes-done;
+        hash=hash_bytes(hash,workspace->sector.buffer8+from,n);
+        for(uint32_t k=0;k<n/4u;++k)out[(done/4u)+k]=workspace->sector.buffer32[(from/4u)+k];
+        done+=n;++fzx_texture_cd_status.sectors;fzx_texture_cd_status.bytes+=n;
+    }
+    fzx_texture_cd_status.hash=hash;
+    if(hash!=expected)return fail(8);
+    fzx_texture_cd_status.status=1;return true;
+}
 #else
 bool fzx_texture_cd_load(const char *name,uint32_t bytes,uint32_t expected,
                          void *vram,void *scratch,uint32_t scratch_bytes) {

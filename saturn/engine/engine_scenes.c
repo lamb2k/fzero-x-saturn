@@ -16,6 +16,51 @@
 #include "engine_scenes.h"
 #include "engine_closeup.h"
 #include "engine_records.h"
+#ifndef ENG_ROSTER
+#define ENG_ROSTER 0
+#endif
+#if ENG_ROSTER
+#include "engine_roster.h"
+#include "rosterz_identity.h"
+/* The roster LOAD phase's field: the stock families of a full grid (time attack has no
+ * rivals; this measures the E2 field's load). [0] fields, [1] raw FNV of the inflated
+ * check set (family 0 near), [2] its expected FNV, [3] check result (1 equal). */
+volatile uint32_t fzx_scn_roster[8];
+static uint8_t roster_check[60u * 1024u] __attribute__((aligned(4)));
+static void nibble_mirror(uint8_t *row, uint32_t bytes) {
+    for (uint32_t i = 0, j = bytes - 1u; i < j; ++i, --j) {
+        const uint8_t a = row[i], b = row[j];
+        row[i] = (uint8_t)((b << 4) | (b >> 4)); row[j] = (uint8_t)((a << 4) | (a >> 4));
+    }
+    if (bytes & 1u) row[bytes / 2u] = (uint8_t)((row[bytes / 2u] << 4) | (row[bytes / 2u] >> 4));
+}
+/* Inflates every cell of a loaded set back into the RSP1 1.1 layout and returns its FNV. */
+static uint32_t roster_inflate_fnv(uint32_t family, unsigned prof) {
+    const sh2z_rspr_set_t *set = fzx_roster_set(family, prof);
+    if (!set || set->bytes > sizeof(roster_check)) return 0;
+    const uint8_t *src = (const uint8_t *)set;
+    uint32_t header = 0;
+    {   /* The header region (header, cell table, CLUTs) as stored; the rest zero, then the cells. */
+        static const char names[2][4] = { { 'n', 'e', 'a', 'r' }, { 'f', 'a', 'r', 0 } };
+        const char key[8] = { 'c', (char)('0' + family / 10u), (char)('0' + family % 10u), 's', '1', 0, 0, 0 };
+        for (unsigned i = 0; i < FZX_RZ_SETS; ++i)
+            if (!memcmp(fzx_rz_sets[i].key, key, 8) && !memcmp(fzx_rz_sets[i].prof, names[prof & 1u], 4)) header = fzx_rz_sets[i].header_bytes;
+    }
+    for (uint32_t i = 0; i < set->bytes; ++i) roster_check[i] = i < header ? src[i] : 0u;
+    const uint32_t cells = (uint32_t)set->yaw_count * set->pitch_count;
+    const sh2z_rspr_cell_t *ct = sh2z_rspr_cells(set);
+    for (uint32_t c = 0; c < cells; ++c) {
+        uint32_t from; bool flip;
+        if (!fzx_roster_cell_source(family, prof, c, &from, &flip)) return 0;
+        uint8_t *dst = roster_check + ct[c].pixel_offset;
+        if (!fzx_roster_cell_decode(family, prof, from, (volatile uint16_t *)(void *)dst)) return 0;
+        if (flip) for (uint32_t y = 0; y < ct[c].height; ++y) nibble_mirror(dst + y * (ct[c].width / 2u), ct[c].width / 2u);
+    }
+    uint32_t h = 2166136261u;
+    for (uint32_t i = 0; i < set->bytes; ++i) h = (h ^ roster_check[i]) * 16777619u;
+    return h;
+}
+#endif
 #include "engine_drive.h"
 #include "sh2zam/scene_experimental.h"
 #include "sh2zam/vehicle_dynamics_experimental.h"
@@ -543,7 +588,9 @@ static void load_turn(void) {
 #define SPIN_COL 3u
 static volatile uint16_t spin_words[4];
 static volatile uint32_t spin_fields, spin_phase;
-static bool load_done;
+static bool load_done, load_ran, menu_frame_prev;
+static uint32_t menu_scene_prev, menu_phase_prev;
+volatile uint32_t fzx_scn_gap_at[8]; /* manager frames over two fields: scene << 16 | phase << 8 | fields */
 
 static volatile uint32_t card_updates;
 static void bar_draw(void);
@@ -592,6 +639,7 @@ static void load_tick(void *u, uint32_t s) {
         return;
     }
     const uint32_t f0 = video_fields_get();
+    load_ran = true;
     spin_fields = 0;
     fzx_scn_vblank_hook = spin_hook;
     if (retry_pending && resident_key == family + 1u) {
@@ -626,6 +674,23 @@ static void load_tick(void *u, uint32_t s) {
             return;
         }
         fzx_race_load();
+#if ENG_ROSTER
+        {   /* The roster: fzx_race_load has loaded the field's families selectively
+             * (fzx_drive_roster_load, fzx_scn_roster[0] its fields). Check: the first
+             * loaded family's near set, inflated back to RSP1 1.1, against its raw FNV. */
+            uint32_t fam = 0;
+            while (fam < 30u && !fzx_roster_set(fam, FZX_ROSTER_NEAR)) ++fam;
+            const char key[5] = { 'c', (char)('0' + fam / 10u), (char)('0' + fam % 10u), 's', '1' };
+            fzx_scn_roster[1] = fam < 30u ? roster_inflate_fnv(fam, FZX_ROSTER_NEAR) : 0u;
+            fzx_scn_roster[2] = 0;
+            for (unsigned i = 0; i < FZX_RZ_SETS; ++i)
+                if (!memcmp(fzx_rz_sets[i].key, key, 5) && !memcmp(fzx_rz_sets[i].prof, "near", 4))
+                    fzx_scn_roster[2] = fzx_rz_sets[i].raw_fnv;
+            fzx_scn_roster[3] = fzx_scn_roster[1] && fzx_scn_roster[1] == fzx_scn_roster[2];
+            fzx_scn_roster[4] = fam;
+            fzx_scn_stamp(7);
+        }
+#endif
         fzx_race_render_callback(false); /* until RACE enters */
         load_running = false;
         fzx_cd_yield = NULL;
@@ -643,12 +708,21 @@ static void load_tick(void *u, uint32_t s) {
     fzx_scn_report[29] = resident_key;
     retry_pending = false;
     load_done = true;
+    /* Settle VDP1 and VDP2 inside the load's own frame, and put the first list after the
+     * load here too: the first put after an idle VDP1 is shown three fields later, which
+     * the next manager frame would otherwise take (2026-11-19, Ymir probe on the first LOAD
+     * LEAVE frames). The load's frame then puts no list of its own (see fzx_scn_main), and
+     * the manager frames after it start at a frame change, on the two-field cadence. */
+    vdp1_sync_wait();
+    vdp2_sync_wait();
+    own_frame();
+    vdp1_sync_wait();
+    vdp2_sync_wait();
     (void)request(FZX_SCN_RACE, RANK_GOTO);
 }
 static void load_draw(void) {}
-/* The first manager frames after a cold load wait for VDP1 for about 17 fields in Ymir
- * (2026-11-19, under investigation): the VBlank spinner keeps the card moving until
- * LOAD leaves. */
+/* The VBlank spinner stays on until LOAD leaves, so the card moves from the first field
+ * of the load to the fade out. */
 static void load_leave(void *u, uint32_t s) { (void)u; (void)s; leaving = true; fzx_scn_vblank_hook = NULL; }
 
 /* ---- RACE ------------------------------------------------------------------ */
@@ -820,6 +894,11 @@ void fzx_scn_main(void) {
     for (;;) {
         const uint32_t now = video_fields_get();
         uint32_t steps = now - frame_fields;
+        /* Manager frame cadence outside RACE (fzx_scn_ctl[6] worst gap, [7] gaps over two
+         * fields): the gap measured here belongs to the previous iteration, counted only when
+         * that iteration was a manager frame that ran no blocking load. */
+        if (menu_frame_prev && steps > fzx_scn_ctl[6]) fzx_scn_ctl[6] = steps;
+        if (menu_frame_prev && steps > 2u) { ++fzx_scn_ctl[7]; fzx_scn_gap_at[fzx_scn_ctl[7] & 7u] = (menu_scene_prev << 16) | menu_phase_prev << 8 | steps; }
         frame_fields = now;
         if (steps == 0u) steps = 1u;
         if (steps > 4u) steps = 4u;
@@ -870,14 +949,20 @@ void fzx_scn_main(void) {
         const uint32_t before = seq.epoch;
         const uint32_t level = sh2z_scene_frame(&seq);
         if (seq.epoch != before) leaving = false;
-        for (uint32_t k = 1; k < steps && seq.phase <= SH2Z_SCENE_RUN && seq.current != FZX_SCN_RACE; ++k) {
+        /* Extra 60 Hz steps for the menus (LOAD starts its load from the frame's own tick, so
+         * the frame before it has reported RUN). */
+        for (uint32_t k = 1; k < steps && seq.phase <= SH2Z_SCENE_RUN && seq.current != FZX_SCN_RACE &&
+                             seq.current != FZX_SCN_LOAD; ++k) {
             (void)sh2z_scene_input_update(&input, chord_latched ? 0u : pad);
             if (seq.pending == SH2Z_SCENE_NONE) table[seq.current].tick(NULL, seq.current);
         }
         if (seq.phase == SH2Z_SCENE_FAULT) fault(2, "ENTER");
         apply_fade(level);
         snd_deliver();
-        if (sh2z_scene_drawing(&seq)) {
+        if (load_ran) {
+            /* The frame that ran a blocking load has put its list inside the load (load_tick);
+             * the card stays on screen, its spinner is VBlank-driven. */
+        } else if (sh2z_scene_drawing(&seq)) {
             own_frames = 0;
             if (seq.current == FZX_SCN_RACE) (void)fzx_race_frame();
             else { const bool printed = text_dirty; draw_current(); text_frame(printed); }
@@ -894,6 +979,9 @@ void fzx_scn_main(void) {
                 sh2z_scene_retired(&seq);
             }
         }
+        menu_scene_prev = seq.current; menu_phase_prev = seq.phase;
+        menu_frame_prev = seq.current != FZX_SCN_RACE && !load_ran && !(seq.phase <= SH2Z_SCENE_RUN && seq.current == FZX_SCN_RACE);
+        load_ran = false;
         fzx_scn_report[1] = seq.current; fzx_scn_report[2] = seq.phase; fzx_scn_report[3] = level;
         fzx_scn_report[4] = seq.epoch; fzx_scn_report[5] = seq.frames; fzx_scn_report[6] = seq.switches;
         fzx_scn_report[17] = menu_arena.high; fzx_scn_report[18] = race_arena.high;

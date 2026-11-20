@@ -34,6 +34,42 @@ volatile uint32_t fzx_floor_upload_ticks,fzx_floor_upload_blanking;
 static fzx_floor_rbg_t *floor_stage[2];
 static unsigned floor_bank;
 static sh2z_vdp1_queue_t floor_queue;
+#if FZX_VDP1_DBANK
+/* The VBlank-In present pops this queue inside the interrupt while the build
+ * pushes from the main loop. sh2z_vdp1_queue_push is a read-modify-write of the
+ * count and both slots, so a pop landing inside it loses an update: the count
+ * drifts from the entries and a later build finds its bank "queued" (E1 fault 25
+ * status 1 at tick 6095; E2's status 23). The push runs with interrupts masked.
+ * FZX_DBANK_QUEUE_ATOMIC=0 is the control. */
+#ifndef FZX_DBANK_QUEUE_ATOMIC
+#define FZX_DBANK_QUEUE_ATOMIC 1
+#endif
+/* FZX_DBANK_QUEUE_WIDEN=N (control only): the same push, with N spins between
+ * reading the count and storing it, so the race window is wide enough to hit in
+ * seconds instead of once a race. */
+#ifndef FZX_DBANK_QUEUE_WIDEN
+#define FZX_DBANK_QUEUE_WIDEN 0
+#endif
+static bool queue_push(sh2z_vdp1_queue_t *q,uint32_t bank,uint32_t tag) {
+#if FZX_DBANK_QUEUE_ATOMIC
+    const uint8_t mask=cpu_intc_mask_get();cpu_intc_mask_set(15);
+#endif
+#if FZX_DBANK_QUEUE_WIDEN
+    bool ok=false;
+    if(tag && sh2z_vdp1_queue_free(q,bank)) {
+        const uint32_t c=q->count;
+        for(volatile uint32_t spin=FZX_DBANK_QUEUE_WIDEN;spin;--spin){}
+        q->bank[c]=bank;q->tag[c]=tag;q->count=c+1u;ok=true;
+    }
+#else
+    const bool ok=sh2z_vdp1_queue_push(q,bank,tag);
+#endif
+#if FZX_DBANK_QUEUE_ATOMIC
+    cpu_intc_mask_set(mask);
+#endif
+    return ok;
+}
+#endif
 void fzx_floor_dbank(void *bank0,void *bank1){floor_stage[0]=bank0;floor_stage[1]=bank1;sh2z_vdp1_queue_init(&floor_queue);}
 void fzx_floor_dbank_select(unsigned bank){floor_bank=bank&1u;}
 #define FLOOR_STAGE (*floor_stage[floor_bank])
@@ -114,7 +150,7 @@ bool fzx_floor_native(vdp1_cmdt_t *commands,unsigned capacity,const fzx_view_t *
     if(!fzx_floor_rbg_prepare(view,source,&FLOOR_STAGE,emit,&submit)){fzx_floor_status=3;fzx_floor_busy=0;return false;}
     *count=submit.count+1;fzx_floor_ticks=(uint16_t)(cpu_frt_count_get()-start);
 #if FZX_VDP1_DBANK
-    (void)sh2z_vdp1_queue_push(&floor_queue,floor_bank,fzx_input_count?fzx_input_count:1u);
+    (void)queue_push(&floor_queue,floor_bank,fzx_input_count?fzx_input_count:1u);
 #endif
     fzx_floor_pending=fzx_input_count;fzx_floor_busy=0;return true;
 }

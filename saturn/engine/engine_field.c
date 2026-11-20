@@ -173,6 +173,14 @@ static void line_pose_fast(const sh2z_track_state_t *t, int32_t pos[3], int16_t 
 static uint8_t player_crossed;
 static int32_t player_last_dist = -1;
 #endif
+#if ENG_ATTACKS
+/* The player's distance along the line as player_into_field sets it (contact deferral). */
+int32_t fzx_field_player_dist(const sh2z_vd_body_t *p) {
+    sh2z_vd_line_view_t lv;
+    sh2z_vd_line_view(p, trk, &lv);
+    return lv.dist;
+}
+#endif
 static void player_into_field(const sh2z_vd_body_t *p) {
     sh2z_vd_line_view_t lv;
     sh2z_vd_line_view(p, trk, &lv);

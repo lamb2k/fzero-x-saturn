@@ -395,6 +395,13 @@ ENG_ATK_PROF ?= 0
 ifeq ($(ENG_ATK_PROF),1)
 SH_CFLAGS += -DENG_ATK_PROF=1
 endif
+# ENG_ATK_DEFER (with ENG_ATTACKS=1; lane claude/attacks-5): a tick's contact that provably cannot reach
+# the player waits, with the field tick before it, until after the slave's kick (same results). 1 default;
+# 0 is the control (contact before every step, as attacks-4).
+ENG_ATK_DEFER ?= 1
+ifeq ($(ENG_ATTACKS),1)
+SH_CFLAGS += -DENG_ATK_DEFER=$(ENG_ATK_DEFER)
+endif
 SH_CFLAGS += -DENG_BAL_CLOUDS=$(ENG_BAL_CLOUDS) -DENG_BAL_EARLY=$(ENG_BAL_EARLY) -DENG_BAL_FORCE=$(ENG_BAL_FORCE) -DENG_BAL_HASH=$(ENG_BAL_HASH) -DENG_BAL_PREWARM=$(ENG_BAL_PREWARM)
 SH_CFLAGS += -DENG_PACE=$(ENG_PACE) $(if $(filter 3,$(ENG_PACE)),-DENG_VDP1_INTERVAL=$(ENG_VDP1_INTERVAL),) $(if $(filter 4,$(ENG_PACE)),-DENG_PACE_LEAD=$(ENG_PACE_LEAD) -DENG_PACE_EARLY_CONTROL=$(ENG_PACE_EARLY_CONTROL) -DENG_PACE_HUD_LEAD=$(ENG_PACE_HUD_LEAD),) -DFZX_ENGINE=1 -DFZX_FRAME_PROFILE=1 -DFZX_VDP1_DBANK=$(FZX_VDP1_DBANK) \
     -DFZX_VDP1_DBANK_STALE=$(FZX_VDP1_DBANK_STALE) -DFZX_ROAD_STREAM_GUARD_MARGIN=$(E0_GUARD_MARGIN) \

@@ -1027,6 +1027,13 @@ static void build(row_t *row, const fzx_engine_cam_t *cam, uint32_t tick, uint16
 #endif
 #endif
 
+#if FZX_E1_DRIVE && E1_FIELD && E2_EARLY && ENG_BAL_EARLY && defined(ENG_ATTACKS) && ENG_ATTACKS
+    {   /* The next tick's contact while the slave builds the track (engine_drive.c), as physics time. */
+        const uint16_t a0 = cpu_frt_count_get();
+        fzx_drive_contact_ahead();
+        row->phys_ticks = (uint16_t)(row->phys_ticks + (uint16_t)(cpu_frt_count_get() - a0));
+    }
+#endif
     const uint16_t t1 = cpu_frt_count_get();
 #if E0_QUEUE_STRESS
     road_count = 0;

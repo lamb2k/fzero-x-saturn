@@ -34,6 +34,9 @@ uint16_t fzx_atk_prof[FZX_ATK_PROF_ROWS][FZX_ATK_PROF_COLS];
 uint32_t fzx_atk_prof_row = FZX_ATK_PROF_ROWS;
 #endif
 
+#ifndef ENG_ATK_DEFER
+#define ENG_ATK_DEFER 0
+#endif
 #ifndef E1_DRIVER
 #define E1_DRIVER 0
 #endif
@@ -98,16 +101,60 @@ volatile uint32_t fzx_field_sim_ticks;
 enum { FIELD_PENDING_MAX = 8u };
 static sh2z_vd_body_t field_bodies[FIELD_PENDING_MAX];
 static unsigned field_pending;
+#if ENG_ATTACKS
+/* With attacks, a tick's contact can wait in the same queue (field_contact[k]: the entry is that
+ * tick's contact on the player's state before its step, not a field tick) when it provably gives
+ * the player nothing (fzx_atk_player_clear): the field tick before it and the contact then run
+ * after the slave's kick, in the original order. field_contacts counts the contacts queued. */
+static uint8_t field_contact[FIELD_PENDING_MAX];
+static unsigned field_contacts;
+#if ENG_ATK_DEFER
+/* [0] contacts deferred, [1] live, [2] deferred with a player output (must stay 0), [3] deferral tests,
+ * [4] contacts run ahead, [5] ahead contacts taken, [6] ahead contact found with a queue (must stay 0). */
+volatile uint32_t fzx_atk_defer_report[8];
+/* The next tick's contact, run after this frame's field ticks while the slave builds the track
+ * (fzx_drive_contact_ahead): it reads only the field after its last tick and the player's state now,
+ * which nothing changes before the next step_once takes it. */
+static sh2z_vd_contact_t ahead_contact;
+static uint8_t ahead_ok;
+#endif
+#endif
 void fzx_drive_field_run(void) {
     for (unsigned k = 0; k < field_pending; ++k) {
         const uint16_t f0 = cpu_frt_count_get();
+#if ENG_ATTACKS
+        if (field_contact[k]) {
+            sh2z_vd_contact_t c;
+            fzx_atk_contact(&field_bodies[k], &c);
+#if ENG_ATK_DEFER
+            if (c.push[0] | c.push[1] | c.push[2] | c.damage | c.hit | c.regain) ++fzx_atk_defer_report[2];
+#endif
+        } else
+#endif
         fzx_field_tick(&field_bodies[k]);
         fzx_field_sim_ticks += (uint16_t)(cpu_frt_count_get() - f0);
     }
     field_pending = 0;
+#if ENG_ATTACKS
+    field_contacts = 0;
+#endif
 }
+#if ENG_ATTACKS && ENG_ATK_DEFER
+void fzx_drive_contact_ahead(void) {
+    if (ahead_ok || field_pending) return;
+    if (fzx_e1_driver && ticks >= RACE_END_TICK) return;
+    fzx_atk_hold_hooks(true);
+    fzx_atk_contact(&body, &ahead_contact);
+    fzx_atk_hold_hooks(false);
+    ahead_ok = 1;
+    ++fzx_atk_defer_report[4];
+}
+#else
+void fzx_drive_contact_ahead(void) {}
+#endif
 #elif ENG_BAL_EARLY
 void fzx_drive_field_run(void) {}
+void fzx_drive_contact_ahead(void) {}
 #endif
 #if defined(ENG_SCENES) && ENG_SCENES
 /* SCENES.md 11.3: one menu update per simulation tick; the timer counts the updates that
@@ -128,18 +175,44 @@ static inline void phys_step_contact(const FzxPhysCourse *c, sh2z_vd_body_t *b, 
 #endif
 static void step_once(sh2z_vd_input_t *in) {
 #if ENG_ATTACKS
+    sh2z_vd_contact_t contact;
 #if E1_FIELD && ENG_BAL_EARLY
     /* Contact needs every rival at this tick: step the field's pending ticks first (the last tick of a
-     * frame still steps after the kick). */
-    {
+     * frame still steps after the kick). With ENG_ATK_DEFER, this tick's contact instead waits behind
+     * the one field tick still queued when it provably gives the player nothing
+     * (fzx_atk_player_clear); both then run after the slave's kick, in the original order. */
+    bool deferred = false;
+#if ENG_ATK_DEFER
+    if (ahead_ok) {
+        ahead_ok = 0;
+        if (field_pending) ++fzx_atk_defer_report[6];
+        contact = ahead_contact;
+        fzx_atk_release_hooks();
+        deferred = true;
+        ++fzx_atk_defer_report[5];
+    } else if (field_pending == 1u && !field_contacts) {
+        ++fzx_atk_defer_report[3];
+        if (fzx_atk_player_clear(&body, fzx_field_player_dist(&body), true)) {
+            field_bodies[field_pending] = body; field_contact[field_pending] = 1u; ++field_pending; ++field_contacts;
+            memset(&contact, 0, sizeof(contact));
+            deferred = true;
+            ++fzx_atk_defer_report[0];
+        }
+    }
+#endif
+    if (!deferred) {
         APROF_T(fr);
         fzx_drive_field_run();
         APROF(10, fr);
-    }
+#if ENG_ATK_DEFER
+        ++fzx_atk_defer_report[1];
 #endif
-    /* Every racer-racer contact first (engine_attacks.c), then the player's step with its share. */
-    sh2z_vd_contact_t contact;
+        /* Every racer-racer contact first (engine_attacks.c), then the player's step with its share. */
+        fzx_atk_contact(&body, &contact);
+    }
+#else
     fzx_atk_contact(&body, &contact);
+#endif
     APROF_T(ps);
     phys_step_contact(&course, &body, &fzx_phys_rules, in, &contact);
     APROF(5, ps);
@@ -154,6 +227,9 @@ static void step_once(sh2z_vd_input_t *in) {
 #if E1_FIELD && ENG_BAL_EARLY
     /* The field steps after the kick (fzx_drive_field_run) on this tick's player state. */
     if (field_pending >= FIELD_PENDING_MAX) fzx_drive_field_run();
+#if ENG_ATTACKS
+    field_contact[field_pending] = 0;
+#endif
     field_bodies[field_pending++] = body;
 #elif E1_FIELD
     {
@@ -506,6 +582,12 @@ void fzx_drive_reset(void) {
     body = course.start; prev_n64 = 0; ticks = 0; finish_timer = 0;
 #if E1_FIELD && ENG_BAL_EARLY
     field_pending = 0; /* player states a left race never handed to the field */
+#if ENG_ATTACKS
+    field_contacts = 0;
+#if ENG_ATK_DEFER
+    ahead_ok = 0; /* a contact run ahead for a tick the left race never took (its held hooks are dropped) */
+#endif
+#endif
 #endif
 #if E1_FIELD
     /* The rival field back to its grid (the pack is resident; no CD read) and the per-car draw state. */

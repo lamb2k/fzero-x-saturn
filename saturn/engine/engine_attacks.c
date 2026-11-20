@@ -82,6 +82,15 @@ static uint32_t rng, n_kos, reverse_run;
 static int32_t regain_pending, player_max_q8;
 static bool live;
 static uint32_t hunt_tap_at, hunt_cool;
+/* KO hooks raised by a contact run ahead of its tick (fzx_atk_hold_hooks) wait for that tick. */
+static bool hook_hold;
+static uint8_t held[FZX_ATK_MAX];
+static uint32_t n_held;
+void fzx_atk_hold_hooks(bool on) { hook_hold = on; }
+void fzx_atk_release_hooks(void) {
+    for (uint32_t k = 0; k < n_held; ++k) if (fzx_atk_ko_hook) fzx_atk_ko_hook(held[k]);
+    n_held = 0;
+}
 static int hunt_dir;
 
 static int32_t m16(int32_t a, int32_t b) { return (int32_t)(((int64_t)a * b + 0x8000) >> 16); }
@@ -132,7 +141,9 @@ void fzx_atk_init(const fzx_atk_field_t *f, uint32_t seed) {
     if (!rng) rng = 1u;
     n_kos = 0; reverse_run = 0; regain_pending = 0;
     hunt_tap_at = 0; hunt_cool = 0; hunt_dir = 0;
+    hook_hold = false; n_held = 0;
     ncand = 0; nprev_push = 0;
+    for (uint32_t i = 0; i < F.count; ++i) order[i] = F.field->order[i];
     memset(fzx_atk_chk, 0, sizeof(fzx_atk_chk));
     live = F.count >= 2u && F.count <= FZX_ATK_MAX;
 }
@@ -195,7 +206,10 @@ static void start_spin_out(const sh2z_vd_body_t *p, uint32_t i) {
         if (fzx_atk_ko_count[0] < 255u) ++fzx_atk_ko_count[0];
         ++fzx_atk_report[3];
         regain_pending += (player_max_q8 << 8) / 8;   /* Q16: energyRegain += maxEnergy * 0.125 */
-        if (fzx_atk_ko_hook) fzx_atk_ko_hook(i);
+        if (fzx_atk_ko_hook) {
+            if (hook_hold) { if (n_held < FZX_ATK_MAX) held[n_held++] = (uint8_t)i; }
+            else fzx_atk_ko_hook(i);
+        }
     }
 }
 
@@ -234,8 +248,9 @@ void fzx_atk_contact(const sh2z_vd_body_t *p, sh2z_vd_contact_t *out) {
     PROF(0);
     const uint32_t n = F.count;
     const int32_t length = F.line->length, half = length / 2;
-    /* Physical order by current distance (the field's order, nearly sorted, fixed by insertion). */
-    for (uint32_t s = 0; s < n; ++s) { order[s] = F.field->order[s]; }
+    /* Physical order by current distance: last tick's order, nearly sorted, fixed by insertion. The key
+     * (distance down, index up) is a strict order, so the result does not depend on the starting
+     * permutation (attacks-4 started from the field's order: the same result). */
     for (uint32_t i = 0; i < n; ++i) along[i] = F.veh[i].t.dist;
     for (uint32_t s = 1; s < n; ++s) {
         const uint8_t k = order[s]; uint32_t j = s;
@@ -338,6 +353,50 @@ void fzx_atk_contact(const sh2z_vd_body_t *p, sh2z_vd_contact_t *out) {
         damage_rival(p, i, b->damage);
     }
     PROF(5); APROF(4, sp);
+}
+
+/* ---- contact deferral (lane claude/attacks-5) ----------------------------------------------
+ * The player takes part in a tick's contact only as a candidate: another vehicle within PRE_Q8 along
+ * the line (and across). Its output is zero, and the contact may run later, when no rival can be within
+ * PRE_Q8 along at that tick and no regain can be pending. Rivals are known after the last field tick
+ * that ran; with field_pending, one more field tick moves each rival forward (speeds never go below 0)
+ * by at most m * s: s the largest of its speed plus this tick's forward push (applied in fzx_atk_move),
+ * its top speed plus the boost and its target speed (sh2z_follow_step and move_external accelerate
+ * toward a target capped there); m the ticks the field steps it (tick + 1 - last_tick, sh2z_follow_step
+ * caps 64) and at least 2 (a driven rival returning to the field moves once here and once in the field
+ * step). A KO credited to the player in that field tick would leave a regain for the contact: any rival
+ * the player touched within the credit window blocks the deferral. */
+bool fzx_atk_player_clear(const sh2z_vd_body_t *p, int32_t pd, bool field_pending) {
+    if (!live) return true;
+    if (regain_pending) return false;
+    const uint32_t n = F.count;
+    for (uint32_t i = 1; i < n; ++i)
+        if (body[i].toucher == 0 && body[i].since <= rules.credit_window + 1u) return false;
+    if (!(p->flags & SH2Z_VD_ACTIVE)) return true;   /* the player's body is never active in the walk */
+    const int32_t length = F.line->length, half = length / 2;
+    const int32_t boost = F.field->params->boost_speed;
+    const uint32_t next = F.field->tick + 1u;
+    for (uint32_t i = 1; i < n; ++i) {
+        if (R[i].mode & M_GONE) continue;
+        const sh2z_vehicle_t *v = &F.veh[i];
+        int32_t g = v->t.dist - pd;
+        if (g > half) g -= length; else if (g <= -half) g += length;
+        int64_t d = 0;
+        if (field_pending) {
+            int32_t s = v->t.speed + (R[i].push_fwd > 0 ? R[i].push_fwd : 0);
+            const int32_t top = v->top_speed + boost, want = F.brain[i].target_speed;
+            if (top > s) s = top;
+            if (want > s) s = want;
+            uint32_t m = next - F.brain[i].last_tick;
+            if (m > 64u) m = 64u;
+            if (m < 2u) m = 2u;
+            d = (int64_t)s * m;
+        }
+        if (g > PRE_Q8) { if ((int64_t)g + d >= (int64_t)length - PRE_Q8) return false; }
+        else if (g < -PRE_Q8) { if ((int64_t)g + d >= -(int64_t)PRE_Q8) return false; }
+        else return false;
+    }
+    return true;
 }
 
 /* ---- rivals driven here -------------------------------------------------------------------- */
@@ -508,10 +567,10 @@ static void think(const sh2z_vd_body_t *p, uint32_t i) {
     bool wide = false, wide_known = false;
 #define WIDE() (wide_known ? wide : (wide_known = true, wide = road_wide(v)))
     /* Chasers on their target. */
-    if (b->chase >= 0 && (uint32_t)b->chase < F.count && race > THINK_AFTER_TICKS && WIDE() &&
-        !(r->mode & (M_SIDE | M_SPIN))) {
+    /* The cheap tests first (all without side effects; the random draws follow only VIS()). */
+    if (b->chase >= 0 && (uint32_t)b->chase < F.count && race > THINK_AFTER_TICKS && !(r->mode & (M_SIDE | M_SPIN))) {
         const sh2z_vehicle_t *c = &F.veh[b->chase];
-        if (!(c->flags & (SH2Z_VEH_RETIRED | SH2Z_VEH_FINISHED)) && iabs(near_gap(c, v)) < 184 * 256 && VIS()) {
+        if (!(c->flags & (SH2Z_VEH_RETIRED | SH2Z_VEH_FINISHED)) && iabs(near_gap(c, v)) < 184 * 256 && WIDE() && VIS()) {
             const uint32_t u = rnd() & 0x7fffu;
             if (iabs(c->t.lateral - v->t.lateral) < 92 * 256) {
                 const bool cpu_target = b->chase != 0;

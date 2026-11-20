@@ -110,6 +110,18 @@ instructions and pulls work off course.
   the frame table. Say what looks wrong.
 - **Hardware.** Each milestone's disc goes to the owner with the sheet in
   docs/HARDWARE_TEST.md. No frame-rate claim without a hardware run.
+- **Added 2026-11-20** (from docs/RETRO_PLAN_20261120.md):
+  - One shared gate script in the repo; lanes and the integrator run the same
+    one, across images, sound on and off, scenes on and off, and courses.
+  - A lane hands over at about 400k tokens or one milestone, pushes at every
+    report, and ends with a handover file.
+  - A measuring spike comes before any optimisation lane; no lane starts from
+    an estimate.
+  - Race systems qualify on two courses (one with tubes) and on real packs.
+  - `engine` takes merges in batches and is frozen while a lane gates on it.
+  - Routine merges, SH2ZAM trains that pass the runbook, and owner discs need
+    no owner approval. The owner gets one digest per milestone event or
+    decision, not progress pings.
 
 ## Evidence
 

@@ -11,6 +11,9 @@ This page is the plan for the engine line. It replaces the gate order of
 [POC_PLAN.md](POC_PLAN.md) for new work. POC_PLAN stays as the record of the
 legacy line and for its memory, evidence and source-art rules, which still apply.
 
+Current state, retrospective and the plan from here (2026-11-20):
+[RETRO_PLAN_20261120.md](RETRO_PLAN_20261120.md). Its phases P0 to P5 order the work after E0 to E4.
+
 ## 1. Why the old path could not get there
 
 Measured on the legacy recipe, emulator, timing modelled:

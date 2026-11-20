@@ -330,6 +330,25 @@ static int16_t rs_guard[4]; /* set per frame from the view's clip rectangle */
 #define RS_GX1 900
 #define RS_GY1 900
 #endif
+#ifndef FZX_ROAD_STREAM_ROW_CLIP
+#define FZX_ROAD_STREAM_ROW_CLIP 0
+#endif
+/* The rectangle a row-cut quad must fit to be drawn unclipped: 0 the guard band,
+ * N > 0 +/-N pixels (at most 900). */
+#ifndef FZX_ROAD_STREAM_ROW_ACCEPT
+#define FZX_ROAD_STREAM_ROW_ACCEPT 0
+#endif
+#if FZX_ROAD_STREAM_ROW_ACCEPT
+#define RS_AX0 (-FZX_ROAD_STREAM_ROW_ACCEPT)
+#define RS_AY0 (-FZX_ROAD_STREAM_ROW_ACCEPT)
+#define RS_AX1 FZX_ROAD_STREAM_ROW_ACCEPT
+#define RS_AY1 FZX_ROAD_STREAM_ROW_ACCEPT
+#else
+#define RS_AX0 RS_GX0
+#define RS_AY0 RS_GY0
+#define RS_AX1 RS_GX1
+#define RS_AY1 RS_GY1
+#endif
 /* Inputs to area are clipped to +/-900, bounding the 16-corner sum in int32. */
 static int32_t area(const sh2z_view_vertex_t *const *v,unsigned count){
     int32_t sum=0;for(unsigned i=0;i<count;++i){unsigned j=i+1<count?i+1:0;
@@ -434,8 +453,49 @@ static bool piece(draw_t *d,const vref_t v[4],unsigned quad,unsigned piece_id,
     FZX_RSP(QPIECE);FZX_RSP_COUNT(PIECES,1);
     if(classify(v,&safe)){++d->stats->culled;return true;}
     int n=4;
+#if FZX_ROAD_STREAM_ROW_CLIP
+    sh2z_view_vertex_t cut[4];bool cut_quad=false;
+#endif
     if(!safe){const int16_t guard[4]={RS_GX0,RS_GY0,RS_GX1,RS_GY1};
         FZX_RSP(CLIP);FZX_RSP_COUNT(PIECE_CLIPS,1);
+#if FZX_ROAD_STREAM_ROW_CLIP
+        if(!solid&&height>1u){
+            /* FZX_ROAD_STREAM_ROW_CLIP: the guard clip carries each corner's row (attr 0,
+             * 0 at the start rail ends, 65536 at the end), so its output gives the rows
+             * the band can show. The piece is cut to those rows on both rails at once,
+             * from the rails' own points: if the cut quad fits the band it is drawn
+             * unclipped, with its texture starting at its first row (balanced rails,
+             * exact spans); otherwise the clipped polygon is drawn as before, with the
+             * texture limited to those rows. Rows outside the band are not drawn. */
+            clip_input(d->hot,v);
+            for(unsigned i=0;i<4;++i)d->hot->clip_in[i].attr[0]=i<2u?0:65536;
+            n=sh2z_view_clip_guard_src_center_divu(d->hot->clip_out,&d->view,guard,d->hot->clip_in,4,1,10);
+            if(n<0)return fail(d,FZX_RS_CLIP);
+            if(n<3){++d->stats->culled;return true;}
+            int32_t t0=65536,t1=0;
+            for(int i=0;i<n;++i){const int32_t t=d->hot->clip_out[i].attr[0];if(t<t0)t0=t;if(t>t1)t1=t;}
+            const fzx_road_stream_material_t *m0=&w->images[image].variant[0];
+            const uint32_t stride=m0->mode?m0->width/2u:m0->width*2u;
+            unsigned align=1;while(align<8u&&((align*stride)&7u))align<<=1;
+            unsigned k0=(unsigned)(((int64_t)(t0<0?0:t0)*height)>>16),k1=(unsigned)(((int64_t)(t1>65536?65536:t1)*height+65535)>>16);
+            k0-=k0%align;if(k1>height)k1=height;
+            if(k1>k0&&(k0>0u||k1<height)){
+                bool ok=true;
+                if(k0){if(!sh2z_view_edge_steps_center_divu(&cut[0],&d->view,v[0],v[3],(uint16_t)k0,1,(uint16_t)height,1)||
+                           !sh2z_view_edge_steps_center_divu(&cut[1],&d->view,v[1],v[2],(uint16_t)k0,1,(uint16_t)height,1))ok=false;}
+                else {cut[0]=*v[0];cut[1]=*v[1];}
+                if(k1<height){if(!sh2z_view_edge_steps_center_divu(&cut[3],&d->view,v[0],v[3],(uint16_t)k1,1,(uint16_t)height,1)||
+                                 !sh2z_view_edge_steps_center_divu(&cut[2],&d->view,v[1],v[2],(uint16_t)k1,1,(uint16_t)height,1))ok=false;}
+                else {cut[2]=*v[2];cut[3]=*v[3];}
+                if(ok)for(unsigned i=0;i<4;++i)
+                    if((cut[i].outcode&SH2Z_OUT_NEAR)||cut[i].sx<RS_AX0||cut[i].sx>RS_AX1||cut[i].sy<RS_AY0||cut[i].sy>RS_AY1)ok=false;
+                cut_quad=ok;row+=k0;height=k1-k0;
+            }
+            FZX_RSP(QPIECE);
+            if(!cut_quad)++d->stats->clipped;
+        } else
+#endif
+        {
 #if FZX_ROAD_STREAM_LEAN_CLIP
         n=lean_clip(d,v,guard);
         if(n<0)
@@ -446,9 +506,15 @@ static bool piece(draw_t *d,const vref_t v[4],unsigned quad,unsigned piece_id,
         if(n<0)return fail(d,FZX_RS_CLIP);
         if(n<3){++d->stats->culled;return true;}
         ++d->stats->clipped;
+        }
     }
     const sh2z_view_vertex_t *corners[SH2Z_VIEW_GUARD_MAX_OUT];
+#if FZX_ROAD_STREAM_ROW_CLIP
+    const unsigned count=cut_quad?(corners[0]=&cut[0],corners[1]=&cut[1],corners[2]=&cut[2],corners[3]=&cut[3],4u):
+        corners_of(d->hot,v,safe,n,corners);
+#else
     const unsigned count=corners_of(d->hot,v,safe,n,corners);
+#endif
     if(!area(corners,count)){++d->stats->culled;return true;}
     uint16_t shades[16];
     FZX_RSP(FOG);

@@ -355,9 +355,16 @@ void engine_snd_build(void) {
     const uint16_t t0 = cpu_frt_count_get();
     stage_t *st = &stage[build_stage];
     st->count = 0u;
-    st->start_engines = (uint8_t)(start_pending == 1u);
-    /* The CD commands a few frames into the race, once its pacing has settled. */
-    if (start_pending && ++start_pending > START_CD_FRAME) { start_pending = 0u; start_cd(); }
+    st->start_engines = 0u;
+    /* The race's first frames carry no sound work at all (the pacing pipeline is filling and its
+     * first presents are the tightest); the engines and the music start START_CD_FRAME frames in,
+     * and any event of those frames is delivered then. */
+    if (start_pending) {
+        if (++start_pending <= START_CD_FRAME) { st->pitch_ok[0][0] = 0u; return; }
+        start_pending = 0u;
+        st->start_engines = 1u;
+        start_cd();
+    }
     sh2z_snd_queue_drain(&queue, collect, st);
     pitch_into(SND_RACE_EV_ENGINE_PLAYER, engine_ratio(player_speed), st->player_oct, st->player_fns, st->pitch_ok[0]);
     for (unsigned r = 0; r < 2u; ++r) {
@@ -395,8 +402,11 @@ static void level_if_changed(int8_t slot, uint8_t level) {
     last_level[slot] = level; last_valid[slot] |= 2u; ++engine_snd_prof[9];
 }
 
+static uint32_t voices_live;
+
 static void apply(const stage_t *st) {
-    if (st->start_engines) start_engines();
+    if (st->start_engines) { start_engines(); voices_live = 1u; }
+    if (!voices_live) return;
     for (uint32_t i = 0; i < st->count; ++i) {
         sh2z_snd_event_t e; e.id = st->ev[i]; e.arg = 0; e.epoch = epoch_now;
         deliver(&e, NULL);
@@ -416,8 +426,17 @@ static void apply(const stage_t *st) {
 }
 
 void engine_snd_vblank(bool presented) {
+    if (presented && sealed < 2u && (voices_live || stage[sealed].start_engines)) {
+        const uint16_t t0 = cpu_frt_count_get();
+        apply(&stage[sealed]);
+        sealed = 0xFFu;
+        sh2z_snd_frame(&snd);
+        prof_add(2u, t0);
+        return;
+    }
+    if (presented) sealed = 0xFFu;
+    if (!voices_live) return;   /* nothing playing: the VBlank-In stays as it is without sound */
     const uint16_t t0 = cpu_frt_count_get();
-    if (presented && sealed < 2u) { apply(&stage[sealed]); sealed = 0xFFu; }
     sh2z_snd_frame(&snd);   /* one-shot lengths count fields */
     prof_add(2u, t0);
 }
@@ -437,6 +456,7 @@ void engine_snd_leave(uint32_t frames) {
     stage[0].count = stage[1].count = 0u;
     stage[0].start_engines = stage[1].start_engines = 0u;
     start_pending = 0u;
+    voices_live = 0u;
     sh2z_snd_queue_close(&queue);
     sh2z_cdda_fade(&cd, frames);
     for (uint32_t s = 0; s < SH2Z_SND_SLOTS; ++s) if (s != 16u && s != 17u) sh2z_snd_stop(&snd, s);
@@ -446,6 +466,7 @@ void engine_snd_leave(uint32_t frames) {
 
 void engine_snd_late(void) {
 #if E1_FIELD
+    if (start_pending) { late_cars = NULL; return; }   /* the race's first frames: no sound work */
     if (late_cars) { nearest_rivals(late_body, late_cars, late_n); late_cars = NULL; }
 #endif
 }

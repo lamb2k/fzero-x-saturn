@@ -75,6 +75,8 @@ bool fzx_classify(fzx_classification_t *out, const fzx_cl_key_t *key, const fzx_
 /* A retire, quit or pause retry: the outcome-only record (count 0, no rows, place 0), made at
  * the event; no trigger wait, no projected times. */
 bool fzx_cl_outcome_only(fzx_classification_t *out, const fzx_cl_key_t *key);
+/* The current attempt's record (RESULTS reads it; engine_scenes.c). */
+const fzx_classification_t *fzx_cup_classification(void);
 /* SCENES.md 11.6. */
 uint32_t fzx_classification_result_hash(const fzx_classification_t *c);
 uint32_t fzx_classification_attempt_hash(const fzx_classification_t *c);

@@ -1,28 +1,31 @@
-/* HOST check for saturn/engine/emit_yaw.h (sprite emit lane, E2_EMIT_YAW): the climb against the
- * library's scan (rspr_select_core's yaw loop) on a rotation-sprite set file (RSP1).
+/* HOST check for E2_EMIT_YAW (sprite emit lane) on this game's own sets: SH2ZAM rotation-sprites-3
+ * sh2z_rspr_yaw_convex and sh2z_rspr_yaw_climb against the scan of sh2z_rspr_select's yaw rule, on a
+ * rotation-sprite set file (RSP1) built from the ROM. (SH2ZAM's own test covers synthetic tables.)
  *
- *   cc -O2 -Isaturn/engine tools/emit_yaw_host.c -o emit_yaw_host && ./emit_yaw_host SET.PAK [random|all]
+ *   L=<SH2ZAM pin checkout>/saturn
+ *   cc -O2 -I$L/include tools/emit_yaw_host.c $L/src/sh2zam_rotation_sprite3.c $L/src/sh2zam_divu.c -o emit_yaw_host
+ *   ./emit_yaw_host SET.PAK [random|all]
  *
  * Checks every (x, z) with |x|, |z| <= 1536, a grid over the whole input range (step 37), `random`
  * points (default 20,000,000) from the whole range, or with `all` every (x, z) with |x|, |z| <= 32767
  * (about 4.3e9 directions), and both directions perpendicular to every edge
  * (where two bins tie), each climbed from four starts. Controls, each must be caught: a table with two
- * bins swapped is refused by emit_yaw_convex; a climb without the tie rule and a climb that only moves
+ * bins swapped is refused by sh2z_rspr_yaw_convex; a climb without the tie rule and a climb that only moves
  * up the index differ from the scan. The set is read at run time; nothing derived from it is written.
  * Exit 0 when every check passes and every control is caught. */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "emit_yaw.h"
+#include "sh2zam/rotation_sprite_experimental.h"
 
-enum { MAX_YAW = 64 };
-static int16_t yaw[MAX_YAW][2];
+enum { MAX_YAW = SH2Z_RSPR_MAX_YAW };
+static sh2z_rspr_set_t set;
 static unsigned n;
 
 static unsigned scan(int32_t x, int32_t z, int32_t *best) {
     unsigned k_best = 0;
     for (unsigned k = 0; k < n; ++k) {
-        const int32_t v = yaw[k][0] * x + yaw[k][1] * z;
+        const int32_t v = set.yaw[k][0] * x + set.yaw[k][1] * z;
         if (k == 0 || v > *best) { *best = v; k_best = k; }
     }
     return k_best;
@@ -30,13 +33,13 @@ static unsigned scan(int32_t x, int32_t z, int32_t *best) {
 /* Controls: 1 no tie rule, 2 only climbs up the index. */
 static unsigned mutant(int mode, unsigned start, int32_t x, int32_t z) {
     unsigned k = start;
-    int32_t fk = yaw[k][0] * x + yaw[k][1] * z;
+    int32_t fk = set.yaw[k][0] * x + set.yaw[k][1] * z;
     for (;;) {
         const unsigned kn = k + 1u == n ? 0u : k + 1u, kp = k == 0u ? n - 1u : k - 1u;
-        const int32_t fn = yaw[kn][0] * x + yaw[kn][1] * z;
+        const int32_t fn = set.yaw[kn][0] * x + set.yaw[kn][1] * z;
         if (fn > fk) { k = kn; fk = fn; continue; }
         if (mode == 2) break;
-        const int32_t fp = yaw[kp][0] * x + yaw[kp][1] * z;
+        const int32_t fp = set.yaw[kp][0] * x + set.yaw[kp][1] * z;
         if (fp > fk) { k = kp; fk = fp; continue; }
         break;
     }
@@ -53,7 +56,7 @@ static void check(int32_t x, int32_t z) {
     const unsigned starts[4] = { (s + n / 2u) % n, next() % n, 0u, (s + 1u) % n };
     for (unsigned i = 0; i < 4u; ++i) {
         int32_t cb = 0;
-        const unsigned c = emit_yaw_climb((const int16_t (*)[2])yaw, n, starts[i], x, z, &cb);
+        const unsigned c = sh2z_rspr_yaw_climb(&set, starts[i], x, z, &cb);
         ++checked;
         if (c != s || cb != sb) {
             if (bad < 5u) printf("MISMATCH x %d z %d start %u: scan %u (%d) climb %u (%d)\n", x, z, starts[i], s, sb, c, cb);
@@ -75,17 +78,17 @@ int main(int argc, char **argv) {
     const unsigned flags = (unsigned)(h[12] << 8 | h[13]);
     if (n < 1u || n > MAX_YAW) { fprintf(stderr, "yaw count %u\n", n); return 2; }
     for (unsigned k = 0; k < n; ++k)
-        for (unsigned c = 0; c < 2u; ++c) yaw[k][c] = (int16_t)(h[24 + 4 * k + 2 * c] << 8 | h[25 + 4 * k + 2 * c]);
-    const bool convex = !(flags & 1u) && emit_yaw_convex((const int16_t (*)[2])yaw, n);
+        for (unsigned c = 0; c < 2u; ++c) set.yaw[k][c] = (int16_t)(h[24 + 4 * k + 2 * c] << 8 | h[25 + 4 * k + 2 * c]);
+    set.yaw_count = (uint16_t)n; set.flags = (uint16_t)flags;
+    const bool convex = sh2z_rspr_yaw_convex(&set);
     printf("set %s: %u yaw bins, flags %u, convex %s\n", argv[1], n, flags, convex ? "yes (climb)" : "no (scan)");
     int fail = 0;
     /* Control: two bins swapped must be refused. */
     {
-        int16_t t[MAX_YAW][2];
-        memcpy(t, yaw, sizeof(t));
-        const int16_t a0 = t[1][0], a1 = t[1][1];
-        t[1][0] = t[2][0]; t[1][1] = t[2][1]; t[2][0] = a0; t[2][1] = a1;
-        const bool refused = !emit_yaw_convex((const int16_t (*)[2])t, n);
+        sh2z_rspr_set_t t = set;
+        const int16_t a0 = t.yaw[1][0], a1 = t.yaw[1][1];
+        t.yaw[1][0] = t.yaw[2][0]; t.yaw[1][1] = t.yaw[2][1]; t.yaw[2][0] = a0; t.yaw[2][1] = a1;
+        const bool refused = !sh2z_rspr_yaw_convex(&t);
         printf("control swapped bins: %s\n", refused ? "refused (caught)" : "ACCEPTED (control failed)");
         if (!refused) fail = 1;
     }
@@ -99,7 +102,7 @@ int main(int argc, char **argv) {
     unsigned long long ties = 0, tie_caught_before = caught_tie;
     for (unsigned k = 0; k < n; ++k) {
         const unsigned k1 = (k + 1u) % n;
-        const int32_t dx = yaw[k1][0] - yaw[k][0], dz = yaw[k1][1] - yaw[k][1];
+        const int32_t dx = set.yaw[k1][0] - set.yaw[k][0], dz = set.yaw[k1][1] - set.yaw[k][1];
         int32_t px = dz, pz = -dx;
         while (px > 32767 || px < -32767 || pz > 32767 || pz < -32767) { px /= 2; pz /= 2; }
         check(px, pz); check(-px, -pz); ties += 2;

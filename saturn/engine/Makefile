@@ -5,9 +5,9 @@
 #
 #   make -C saturn/engine SH2ZAM_ROOT=<checkout of the engine pin> [FZX_VDP1_DBANK=0|1]
 #
-# The SH2ZAM pin is saturn/engine/sh2zam.pin (branch claude/dsp-engine-train-2: claude/scenes-train-2 e0c5c89
-# (claude/e2-field-train: claude/e1-train (segmesh-2, vehicle-dynamics-1, sprite-cache-1, rotation-sprites-2)
-# plus line-field-1; plus scene-1) plus dsp-1).
+# The SH2ZAM pin is saturn/engine/sh2zam.pin (branch claude/emit-train: claude/dsp-engine-train-2 5f3f142
+# (claude/scenes-train-2 e0c5c89 (claude/e2-field-train: claude/e1-train (segmesh-2, vehicle-dynamics-1,
+# sprite-cache-1, rotation-sprites-2) plus line-field-1; plus scene-1) plus dsp-1) plus rotation-sprites-3).
 # Assets come from ../../generated (owning generators, receipts checked here).
 ifeq ($(strip $(YAUL_INSTALL_ROOT)),)
 $(error Undefined YAUL_INSTALL_ROOT (install root directory))
@@ -102,18 +102,21 @@ E2_FASTSPRITE ?= 0
 #   roster_identity.h from tools/roster_identity.py, which refuses a pack with the wrong SHA-256).
 E2_ROSTER ?= 0
 # Sprite emit lane (claude/e2-emit, generated/E2-EMIT.md), field images; each 0 = the emit as it was.
-# E2_EMIT_EXACT=1 turns on every exact switch below that the image allows (HINT CMD SHADOW POSE SETUP LINK CULL YAW).
-E2_EMIT_EXACT ?= 0
+# E2_EMIT_EXACT: every exact switch below that the image allows (HINT CMD SHADOW POSE SETUP LINK CULL YAW).
+# Default 1 (coordinator 2026-11-19, generated/E2-EMIT.md); E2_EMIT_EXACT=0 is the emit as it was.
+# CMD, POSE and YAW call SH2ZAM rotation-sprites-3 (sh2zam_rotation_sprite3.c, pin claude/emit-train).
+E2_EMIT_EXACT ?= 1
 # E2_EMIT_PROF: diagnostic, per-call emit sub-step times (fzx_emit_prof); changes timing slightly.
 E2_EMIT_PROF ?= 0
 # E2_EMIT_HINT (exact): cache lookups probe each car's last slot before the pool scan.
 E2_EMIT_HINT ?= $(E2_EMIT_EXACT)
 # E2_EMIT_CMD (exact): the sprite and shadow commands written in one pass, corners in 32-bit products.
 E2_EMIT_CMD ?= $(E2_EMIT_EXACT)
-# E2_EMIT_SHADOW (exact; needs E2_FASTSPRITE=0): shadows posed with the car's own screen-up vector.
-E2_EMIT_SHADOW ?= $(if $(filter 1,$(E2_FASTSPRITE)),0,$(E2_EMIT_EXACT))
-# E2_EMIT_POSE (exact; needs E2_CULL=1 E2_FASTSPRITE=0): rival poses from the cull's terms, divisions overlapped.
-E2_EMIT_POSE ?= $(if $(filter 1:0,$(E2_CULL):$(E2_FASTSPRITE)),$(E2_EMIT_EXACT),0)
+# E2_EMIT_SHADOW (exact): shadows posed without the one-cell selection, with the car's own exact screen-up vector.
+E2_EMIT_SHADOW ?= $(E2_EMIT_EXACT)
+# E2_EMIT_POSE (exact; needs E2_CULL=1): rival poses from the cull's terms (sh2z_rspr_pose_terms; with
+#   E2_FASTSPRITE, the same fast pose), divisions overlapped.
+E2_EMIT_POSE ?= $(if $(filter 1,$(E2_CULL)),$(E2_EMIT_EXACT),0)
 # E2_EMIT_SETUP (exact): the sprite camera's scale numerators kept while the focal length is unchanged.
 E2_EMIT_SETUP ?= $(E2_EMIT_EXACT)
 # E2_EMIT_LINK (exact; needs E2_EARLY=1): the 3D cars' staged commands copied once, after the track.
@@ -122,8 +125,6 @@ E2_EMIT_LINK ?= $(if $(filter 1,$(E2_EARLY)),$(E2_EMIT_EXACT),0)
 E2_EMIT_CULL ?= $(if $(filter 1,$(E2_CULL)),$(E2_EMIT_EXACT),0)
 # E2_EMIT_YAW (exact; needs E2_EMIT_POSE=1): the yaw bin climbed from each car's last bin (convex bins only).
 E2_EMIT_YAW ?= $(if $(filter 1,$(E2_EMIT_POSE)),$(E2_EMIT_EXACT),0)
-# E2_EMIT_FAR (approximate; needs E2_EMIT_POSE=1): small rivals keep their cell and screen-up between turns.
-E2_EMIT_FAR ?= 0
 # ENG_PACE: frame pacing. 0 as built (a frame as soon as it is ready); 1 adaptive (a two-field gap
 #   after a VDP1 draw longer than a field); 2 the 30 fps lock (presents never one field apart);
 #   3 probe (Yaul's fixed interval ENG_VDP1_INTERVAL); 4 the pipelined 30 fps lock (frame N+1 is
@@ -225,7 +226,7 @@ endif
 E1_SPRITES := $(if $(filter 2,$(E1_CLOSEUP)),racer_sprites_hq,racer_sprites)
 comma := ,
 SH_OUTPUT_DIR := build-$(if $(filter-out 1,$(ENG_DSP_BANDS)),dspb$(ENG_DSP_BANDS)$(if $(filter 1,$(ENG_DSP_BANDS_CHECK)),c,)$(if $(filter 1,$(ENG_DSP_BANDS_CORRUPT)),x,)-,)$(if $(filter-out 4,$(ENG_PACE)),pace$(ENG_PACE)$(if $(filter 3,$(ENG_PACE)),i$(ENG_VDP1_INTERVAL),)-,$(if $(filter-out 1,$(ENG_PACE_LEAD)),pace4w$(ENG_PACE_LEAD)-,)$(if $(filter 1,$(ENG_PACE_EARLY_CONTROL)),pace4early-,)$(if $(filter 1,$(ENG_PACE_HUD_LEAD)),pace4hudlead-,))$(if $(filter 1,$(FZX_E1_DRIVE)),e1-d$(E1_DRIVER)$(if $(filter-out 0,$(E1_DRIVER_BOOST)),-b$(E1_DRIVER_BOOST),)$(if $(filter-out 0,$(E1_CLOSEUP)),-ab$(E1_CLOSEUP)$(if $(filter 1,$(E1_CLOSEUP_EARLY)),e,)$(if $(filter-out 0,$(E1_FIELD)),-f$(E1_FIELD)$(if $(filter 1,$(E2_PACK)),p,)$(if $(filter 1,$(E2_FASTPOSE)),q,)$(if $(filter 1,$(E2_CULL)),c,)$(if $(filter 1,$(E2_LOD)),l$(subst $(comma),_,$(E2_LOD_NEAR)),)$(if $(filter 1,$(E2_EARLY)),e,)$(if $(filter 1,$(E2_FASTSPRITE)),f,)$(if $(filter 1,$(E2_ROSTER)),r,)$(if $(filter 1,$(E2_PROF)),P,),)$(if $(filter 1,$(ENG_SCENES)),-scn$(if $(filter-out 0,$(FZX_GUEST_MASK)),-gm$(FZX_GUEST_MASK),)$(if $(filter 1,$(ENG_ROSTER)),-ro,),)$(if $(filter 0,$(E1_FIELD)),$(if $(filter 1,$(E2_EARLY)),E,),),)-,e0-)bank$(FZX_VDP1_DBANK)$(if $(filter 1,$(FZX_VDP1_DBANK_STALE)),-stale,)-g$(E0_GUARD_MARGIN)-c$(E0_FAST_CULL)-l$(E0_LOD_SHIFT)-f$(E0_FAN_FIX)-r$(E0_RBG_LEAN)-k$(E0_CLUSTERS)-w$(E0_WORK_HIGH)$(if $(filter-out 0,$(E0_CHUNK_CAP)),-cap$(E0_CHUNK_CAP),)-n$(E0_LEAN_CLIP)-e$(E0_FOG_EARLY)$(if $(filter 1,$(E0_HW_COUNTER)),-hw,)$(if $(filter 1,$(E0_VDP2_MAP)),-map,)$(if $(filter 1,$(E0_SENTINEL_CONTROL)),-sentinel,)$(if $(filter 1,$(E0_POP_LOG)),-pop,)$(if $(filter 1,$(E0_CAP_STABLE)),-stable,)$(if $(filter 1,$(E0_CLUSTER_AUDIT)),-audit,)$(if $(filter 0,$(E0_ISR_MAC_SAVE)),-nomac,)$(if $(filter 1,$(E0_MAC_PROBE)),-macprobe,)$(if $(filter 0,$(E0_QUEUE_ATOMIC)),-qrace,)$(if $(filter 1,$(E0_QUEUE_STRESS)),-qstress,)$(if $(filter-out 0,$(E0_QUEUE_WIDEN)),-qw$(E0_QUEUE_WIDEN),)$(if $(filter 1,$(E0_PHASES)),-phases,)$(if $(filter 0,$(E0_PRELUDE_SHARE)),-ps0,)$(if $(filter 0,$(E0_PRELUDE_WINDOW)),-pw0,)$(if $(filter 0,$(E0_PRELUDE_DIV)),-pd0,)
-EMIT_SWITCHES := $(E2_EMIT_PROF)$(E2_EMIT_HINT)$(E2_EMIT_CMD)$(E2_EMIT_SHADOW)$(E2_EMIT_POSE)$(E2_EMIT_SETUP)$(E2_EMIT_LINK)$(E2_EMIT_CULL)$(E2_EMIT_FAR)$(E2_EMIT_YAW)
+EMIT_SWITCHES := $(E2_EMIT_PROF)$(E2_EMIT_HINT)$(E2_EMIT_CMD)$(E2_EMIT_SHADOW)$(E2_EMIT_POSE)$(E2_EMIT_SETUP)$(E2_EMIT_LINK)$(E2_EMIT_CULL)$(E2_EMIT_YAW)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter-out 0,$(subst 0,,$(EMIT_SWITCHES))),-em$(EMIT_SWITCHES),)
 SH_BUILD_DIR := $(SH_OUTPUT_DIR)/yaul
 IMAGE_DIRECTORY := $(SH_OUTPUT_DIR)/cd
@@ -265,6 +266,7 @@ SH2ZAM_UNITS := sh2zam.c sh2zam_angles.c sh2zam_batch_sh2.c sh2zam_box2.c sh2zam
     sh2zam_view_guard_src.c sh2zam_view_guard_src_center.c sh2zam_view_round.c \
     sh2zam_view_merge_tier.c sh2zam_shade_fused.c sh2zam_view_rails.c sh2zam_segmesh.c sh2zam_segmesh_cull.c sh2zam_vdp1_banks.c \
     $(if $(filter 1,$(FZX_E1_DRIVE)),sh2zam_vehicle_dynamics.c sh2zam_unit30.c sh2zam_rotation_sprite.c sh2zam_sprite_cache.c sh2zam_vlc2.c,) \
+    $(if $(filter-out 0,$(E1_FIELD)),$(if $(filter 1,$(E2_EMIT_CMD) $(E2_EMIT_POSE) $(E2_EMIT_YAW)),sh2zam_rotation_sprite3.c,),) \
     $(if $(filter 1,$(E1_CLOSEUP)),sh2zam_vehicle.c sh2zam_view_indexed.c sh2zam_pose.c,) \
     $(if $(filter-out 0,$(E1_FIELD)),sh2zam_line_follower.c sh2zam_line_field.c,) \
     $(if $(filter 1,$(ENG_SCENES)),sh2zam_scene.c,)
@@ -318,26 +320,18 @@ ifneq ($(E1_FIELD),0)
 # FZX_CLOSEUP_CARS: 3D slots (engine_field.h FZX_FIELD_K_MAX).
 SH_CFLAGS += -DE1_FIELD=$(E1_FIELD) -DFZX_CLOSEUP_CARS=6
 SH_CFLAGS += -DE2_PACK=$(E2_PACK) -DE2_FASTPOSE=$(E2_FASTPOSE) -DE2_CULL=$(E2_CULL) -DE2_LOD=$(E2_LOD) -DE2_LOD_NEAR=$(E2_LOD_NEAR) -DE2_EARLY=$(E2_EARLY) -DE2_PROF=$(E2_PROF) -DE2_FASTSPRITE=$(E2_FASTSPRITE) -DE2_ROSTER=$(E2_ROSTER)
-SH_CFLAGS += -DE2_EMIT_PROF=$(E2_EMIT_PROF) -DE2_EMIT_HINT=$(E2_EMIT_HINT) -DE2_EMIT_CMD=$(E2_EMIT_CMD) -DE2_EMIT_SHADOW=$(E2_EMIT_SHADOW) -DE2_EMIT_POSE=$(E2_EMIT_POSE) -DE2_EMIT_SETUP=$(E2_EMIT_SETUP) -DE2_EMIT_LINK=$(E2_EMIT_LINK) -DE2_EMIT_CULL=$(E2_EMIT_CULL) -DE2_EMIT_FAR=$(E2_EMIT_FAR) -DE2_EMIT_YAW=$(E2_EMIT_YAW)
+SH_CFLAGS += -DE2_EMIT_PROF=$(E2_EMIT_PROF) -DE2_EMIT_HINT=$(E2_EMIT_HINT) -DE2_EMIT_CMD=$(E2_EMIT_CMD) -DE2_EMIT_SHADOW=$(E2_EMIT_SHADOW) -DE2_EMIT_POSE=$(E2_EMIT_POSE) -DE2_EMIT_SETUP=$(E2_EMIT_SETUP) -DE2_EMIT_LINK=$(E2_EMIT_LINK) -DE2_EMIT_CULL=$(E2_EMIT_CULL) -DE2_EMIT_YAW=$(E2_EMIT_YAW)
 ifeq ($(E2_EMIT_YAW):$(E2_EMIT_POSE),1:0)
 $(error E2_EMIT_YAW needs E2_EMIT_POSE=1)
 endif
 ifeq ($(E2_EMIT_CULL):$(E2_CULL),1:0)
 $(error E2_EMIT_CULL needs E2_CULL=1)
 endif
-ifeq ($(E2_EMIT_FAR):$(E2_EMIT_POSE),1:0)
-$(error E2_EMIT_FAR needs E2_EMIT_POSE=1)
-endif
 ifeq ($(E2_EMIT_LINK):$(E2_EARLY),1:0)
 $(error E2_EMIT_LINK needs E2_EARLY=1)
 endif
-ifeq ($(E2_EMIT_POSE),1)
-ifneq ($(E2_CULL):$(E2_FASTSPRITE),1:0)
-$(error E2_EMIT_POSE needs E2_CULL=1 E2_FASTSPRITE=0)
-endif
-endif
-ifeq ($(E2_EMIT_SHADOW):$(E2_FASTSPRITE),1:1)
-$(error E2_EMIT_SHADOW needs E2_FASTSPRITE=0 (it reuses the exact screen-up vector))
+ifeq ($(E2_EMIT_POSE):$(E2_CULL),1:0)
+$(error E2_EMIT_POSE needs E2_CULL=1)
 endif
 ifeq ($(E2_PACK),1)
 SH_CFLAGS += -I$(G)/rivals

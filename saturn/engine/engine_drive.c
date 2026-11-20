@@ -626,16 +626,51 @@ static int32_t cull_dot(const int16_t row[3], const int32_t d[3]) {
 #ifndef E2_FASTSPRITE
 #define E2_FASTSPRITE 0
 #endif
+#ifndef E2_EMIT_POSE
+#define E2_EMIT_POSE 0
+#endif
+#ifndef E2_EMIT_YAW
+#define E2_EMIT_YAW 0
+#endif
+#if E2_EMIT_POSE || E2_EMIT_YAW
+#include "sh2zam/rotation_sprite_experimental.h"
+#endif
+#if E2_EMIT_YAW
+/* E2_EMIT_YAW (exact; needs E2_EMIT_POSE): the yaw bin climbed from each car's previous bin instead of
+ * scanning every bin (SH2ZAM rotation-sprites-3 sh2z_rspr_yaw_climb), for sets whose bins form a strictly
+ * convex polygon around the origin (sh2z_rspr_yaw_convex, checked once per set; otherwise the scan). */
+volatile int32_t fzx_emit_yaw_convex = -1; /* the racer set: -1 not checked, 0 scan, 1 climb */
+static uint8_t yaw_prev[FZX_FIELD_CARS];
+#endif
 #if E2_FASTSPRITE
 /* E2_FASTSPRITE (render only, rivals): sh2z_rspr_pose with the cull's camera-space terms reused
  * (no second transform), the cell chosen by the same yaw/pitch rule, and the screen-up vector
  * normalised with one division and an octagonal length (within 4%) instead of a square root and
- * two divisions. Candidate for a SH2ZAM rotation-sprites revision once measured. */
+ * two divisions. With E2_EMIT_POSE (exact against this form) each division is started before
+ * independent work and collected after it; with E2_EMIT_YAW and a convex set the yaw bin is climbed. */
 static uint32_t fast_abs(int32_t v) { return v < 0 ? 0u - (uint32_t)v : (uint32_t)v; }
+#if E2_EMIT_POSE
+static inline void fast_div_start(sh2z_divu_t *t, int64_t n, int32_t d) {
+    const uint64_t raw = (uint64_t)n;
+    sh2z_divu_start64(t, (int32_t)(uint32_t)(raw >> 32), (uint32_t)raw, d);
+}
+#endif
 static bool fast_pose(sh2z_rspr_pick_t *pick, sh2z_rspr_place_t *place, const int32_t d[3], int32_t tz,
-                      int64_t fqx, int64_t fqy, const int16_t b[3][3], const sh2z_rspr_set_t *set, int64_t scale_num) {
+                      int64_t fqx, int64_t fqy, const int16_t b[3][3], const sh2z_rspr_set_t *set, int64_t scale_num
+#if E2_EMIT_YAW
+                      , uint8_t *yaw_hint
+#endif
+                      ) {
+#if E2_EMIT_POSE
+    sh2z_divu_t dv;
+    fast_div_start(&dv, scale_num, tz);
+#endif
     int32_t x = -cull_dot(b[2], d), y = -cull_dot(b[1], d), z = -cull_dot(b[0], d);
+#if E2_EMIT_POSE
+    if (!x && !y && !z) { (void)sh2z_divu_finish(&dv, NULL); return false; }
+#else
     if (!x && !y && !z) return false;
+#endif
     uint32_t largest = fast_abs(x);
     if (fast_abs(y) > largest) largest = fast_abs(y);
     if (fast_abs(z) > largest) largest = fast_abs(z);
@@ -643,6 +678,10 @@ static bool fast_pose(sh2z_rspr_pick_t *pick, sh2z_rspr_place_t *place, const in
     uint8_t mirror = 0;
     if ((set->flags & SH2Z_RSPR_MIRROR) && x < 0) { x = -x; mirror = 1; }
     unsigned yaw = 0, pitch = 0; int32_t best = 0, top = 0;
+#if E2_EMIT_YAW
+    if (yaw_hint) { yaw = sh2z_rspr_yaw_climb(set, *yaw_hint, x, z, &best); *yaw_hint = (uint8_t)yaw; }
+    else
+#endif
     for (unsigned k = 0; k < set->yaw_count; ++k) {
         const int32_t v = set->yaw[k][0] * x + set->yaw[k][1] * z;
         if (k == 0 || v > best) { best = v; yaw = k; }
@@ -652,19 +691,38 @@ static bool fast_pose(sh2z_rspr_pick_t *pick, sh2z_rspr_place_t *place, const in
         const int32_t v = set->pitch[k][0] * y + set->pitch[k][1] * h;
         if (k == 0 || v > top) { top = v; pitch = k; }
     }
+    const int16_t *r0 = racer_camera.r[0], *r1 = racer_camera.r[1];
+#if E2_EMIT_POSE
+    const int32_t scale = sh2z_divu_finish(&dv, NULL);
+    fast_div_start(&dv, fqx, tz);
+    const int32_t ux = (int32_t)(((int64_t)r0[0] * b[1][0] + (int64_t)r0[1] * b[1][1] + (int64_t)r0[2] * b[1][2]) >> 14);
+    const int32_t uy = (int32_t)(((int64_t)r1[0] * b[1][0] + (int64_t)r1[1] * b[1][1] + (int64_t)r1[2] * b[1][2]) >> 14);
+    const uint32_t a = fast_abs(ux), c = fast_abs(uy), hi = a > c ? a : c, lo = a > c ? c : a;
+    const uint32_t len = hi + ((lo * 3u) >> 3) - (hi >> 5); /* octagonal |(ux, uy)| */
+    const int32_t qx = sh2z_divu_finish(&dv, NULL);
+    fast_div_start(&dv, fqy, tz);
+    const int32_t qy = sh2z_divu_finish(&dv, NULL);
+    const int64_t ax = (int64_t)racer_camera.center_x * 65536 + qx, ay = (int64_t)racer_camera.center_y * 65536 - qy;
+    const int32_t sx = (int32_t)(ax >> 16), sy = (int32_t)(ay >> 16);
+    if (sx < -1023 || sx > 1023 || sy < -1023 || sy > 1023) return false;
+    if (scale < 1 || scale > (1 << 24)) return false;
+    if (!len) return false;
+    fast_div_start(&dv, (int64_t)1 << 30, (int32_t)len);
+    const int32_t inv = sh2z_divu_finish(&dv, NULL); /* Q16 of 16384 / len */
+#else
     const int32_t qx = sh2z_divu_div64(fqx, tz, NULL), qy = sh2z_divu_div64(fqy, tz, NULL);
     const int64_t ax = (int64_t)racer_camera.center_x * 65536 + qx, ay = (int64_t)racer_camera.center_y * 65536 - qy;
     const int32_t sx = (int32_t)(ax >> 16), sy = (int32_t)(ay >> 16);
     if (sx < -1023 || sx > 1023 || sy < -1023 || sy > 1023) return false;
     const int32_t scale = sh2z_divu_div64(scale_num, tz, NULL);
     if (scale < 1 || scale > (1 << 24)) return false;
-    const int16_t *r0 = racer_camera.r[0], *r1 = racer_camera.r[1];
     const int32_t ux = (int32_t)(((int64_t)r0[0] * b[1][0] + (int64_t)r0[1] * b[1][1] + (int64_t)r0[2] * b[1][2]) >> 14);
     const int32_t uy = (int32_t)(((int64_t)r1[0] * b[1][0] + (int64_t)r1[1] * b[1][1] + (int64_t)r1[2] * b[1][2]) >> 14);
     const uint32_t a = fast_abs(ux), c = fast_abs(uy), hi = a > c ? a : c, lo = a > c ? c : a;
     const uint32_t len = hi + ((lo * 3u) >> 3) - (hi >> 5); /* octagonal |(ux, uy)| */
     if (!len) return false;
     const int32_t inv = sh2z_divu_div64((int64_t)1 << 30, (int32_t)len, NULL); /* Q16 of 16384 / len */
+#endif
     pick->cell = (uint16_t)(pitch * set->yaw_count + yaw); pick->mirror = mirror; pick->reserved = 0;
     place->x = (int16_t)sx; place->y = (int16_t)sy; place->scale = scale;
     place->frac[0] = (uint16_t)(ax & 0xffff); place->frac[1] = (uint16_t)(ay & 0xffff);
@@ -675,9 +733,6 @@ static bool fast_pose(sh2z_rspr_pick_t *pick, sh2z_rspr_place_t *place, const in
 #endif
 #endif
 
-#ifndef E2_EMIT_POSE
-#define E2_EMIT_POSE 0
-#endif
 #ifndef E2_EMIT_SETUP
 #define E2_EMIT_SETUP 0
 #endif
@@ -686,22 +741,6 @@ static bool fast_pose(sh2z_rspr_pick_t *pick, sh2z_rspr_place_t *place, const in
 #endif
 #ifndef E2_EMIT_CULL
 #define E2_EMIT_CULL 0
-#endif
-#ifndef E2_EMIT_FAR
-#define E2_EMIT_FAR 0
-#endif
-#if E2_EMIT_FAR
-/* E2_EMIT_FAR (approximate; needs E2_EMIT_POSE): a rival drawn last frame at a scale under
- * fzx_emit_far_scale (Q16 screen pixels per cell pixel) keeps its cell and its screen-up vector, and
- * re-picks them only on its turn: when (frame + id) & fzx_emit_far_mask is 0 (mask 3: every 4th frame).
- * Its centre and scale are projected every frame (three divisions). Run-time words, pokeable. */
-volatile uint32_t fzx_emit_far_scale = 0x4000, fzx_emit_far_mask = 3;
-volatile uint32_t fzx_emit_far_report[2]; /* [0] poses kept, [1] rival poses computed */
-static uint8_t far_ok[FZX_FIELD_CARS];
-static sh2z_rspr_pick_t far_pick[FZX_FIELD_CARS];
-static int16_t far_up[FZX_FIELD_CARS][2];
-static int32_t far_scale[FZX_FIELD_CARS];
-static uint32_t far_frame;
 #endif
 #if E2_EMIT_SETUP
 /* E2_EMIT_SETUP (exact): sprite_camera with the two scale numerators kept while the focal length is
@@ -738,122 +777,6 @@ static bool sprite_camera_memo(const fzx_view_t *view, const fzx_engine_cam_t *c
 fzx_emit_seg_t fzx_emit_segs[2u * FZX_FIELD_K_MAX + 2u];
 unsigned fzx_emit_nsegs;
 #endif
-#if E2_EMIT_POSE
-/* E2_EMIT_POSE (exact; needs E2_CULL=1, E2_FASTSPRITE=0): sh2z_rspr_pose for a rival sprite past the cull,
- * from the cull's camera-space terms (the offset, the depth and both projection numerators: the same dot
- * products), with each division started on the hardware divider before independent work (the cell
- * selection, the screen-up products, the square root) and collected after it. The selection and the
- * square root are the library's. Same checks, same results. */
-static uint32_t pose_isqrt32(uint32_t v) {
-    uint32_t root = 0, bit = UINT32_C(1) << 30;
-    while (bit > v) bit >>= 2;
-    while (bit) {
-        if (v >= root + bit) { v -= root + bit; root = (root >> 1) + bit; }
-        else root >>= 1;
-        bit >>= 2;
-    }
-    return root;
-}
-static uint32_t pose_abs(int32_t v) { return v < 0 ? 0u - (uint32_t)v : (uint32_t)v; }
-static inline void pose_div_start(sh2z_divu_t *t, int64_t n, int32_t d) {
-    const uint64_t raw = (uint64_t)n;
-    sh2z_divu_start64(t, (int32_t)(uint32_t)(raw >> 32), (uint32_t)raw, d);
-}
-#ifndef E2_EMIT_YAW
-#define E2_EMIT_YAW 0
-#endif
-#if E2_EMIT_YAW
-/* E2_EMIT_YAW (exact; needs E2_EMIT_POSE): the yaw bin found by climbing from the car's previous bin
- * instead of scanning every bin. Used only when the bins, in index order, are the corners of a strictly
- * convex polygon wound once around the origin (fzx_emit_yaw_convex, checked once; otherwise the scan).
- * The bin products are exact integers, so for any direction they rise to one maximum (a corner, or one
- * edge of two equal corners) and fall to one minimum: a climb that stops where neither neighbour is
- * larger stands on the maximum, and the scan's tie rule (the lowest index) picks between equal
- * neighbours (emit_yaw.h; HOST check against the scan: tools/emit_yaw_host.c). */
-#include "emit_yaw.h"
-volatile int32_t fzx_emit_yaw_convex = -1; /* -1 not checked, 0 scan, 1 climb */
-static uint8_t yaw_prev[FZX_FIELD_CARS];
-#endif
-static bool pose_exact(sh2z_rspr_pick_t *pick, sh2z_rspr_place_t *place, const int32_t d[3], int32_t tz,
-                       int64_t nqx, int64_t nqy, const int16_t b[3][3]
-#if E2_EMIT_YAW
-                       , unsigned id
-#endif
-                       ) {
-    const sh2z_rspr_set_t *const set = racer_set;
-    const sh2z_rspr_camera_t *const c = &racer_camera;
-    sh2z_divu_t dv;
-    pose_div_start(&dv, c->scale_num, tz);
-    /* The library's selection (rspr_select_core) while the divider works. */
-    int32_t x = -cull_dot(b[2], d), y = -cull_dot(b[1], d), z = -cull_dot(b[0], d);
-    if (!x && !y && !z) { (void)sh2z_divu_finish(&dv, NULL); return false; }
-    uint32_t largest = pose_abs(x);
-    if (pose_abs(y) > largest) largest = pose_abs(y);
-    if (pose_abs(z) > largest) largest = pose_abs(z);
-    while (largest >= 32768u) { x >>= 1; y >>= 1; z >>= 1; largest >>= 1; }
-    uint8_t mirror = 0;
-    if ((set->flags & SH2Z_RSPR_MIRROR) && x < 0) { x = -x; mirror = 1; }
-    unsigned yaw = 0, pitch = 0; int32_t best = 0, top = 0;
-#if E2_EMIT_YAW
-    if (fzx_emit_yaw_convex > 0) {
-        yaw = emit_yaw_climb((const int16_t (*)[2])set->yaw, set->yaw_count, yaw_prev[id], x, z, &best);
-        yaw_prev[id] = (uint8_t)yaw;
-    } else
-#endif
-    for (unsigned k = 0; k < set->yaw_count; ++k) {
-        const int32_t v = set->yaw[k][0] * x + set->yaw[k][1] * z;
-        if (k == 0 || v > best) { best = v; yaw = k; }
-    }
-    const int32_t h = best >> 14;
-    for (unsigned k = 0; k < set->pitch_count; ++k) {
-        const int32_t v = set->pitch[k][0] * y + set->pitch[k][1] * h;
-        if (k == 0 || v > top) { top = v; pitch = k; }
-    }
-    const int32_t scale = sh2z_divu_finish(&dv, NULL);
-    pose_div_start(&dv, nqx, tz);
-    const int16_t *r0 = c->r[0], *r1 = c->r[1];
-    const int32_t ux = (int32_t)(((int64_t)r0[0] * b[1][0] + (int64_t)r0[1] * b[1][1] + (int64_t)r0[2] * b[1][2]) >> 14);
-    const int32_t uy = (int32_t)(((int64_t)r1[0] * b[1][0] + (int64_t)r1[1] * b[1][1] + (int64_t)r1[2] * b[1][2]) >> 14);
-    const int32_t qx = sh2z_divu_finish(&dv, NULL);
-    pose_div_start(&dv, nqy, tz);
-    const uint32_t len = pose_isqrt32((uint32_t)(ux * ux) + (uint32_t)(uy * uy));
-    const int32_t qy = sh2z_divu_finish(&dv, NULL);
-    const int64_t ax = (int64_t)c->center_x * 65536 + qx, ay = (int64_t)c->center_y * 65536 - qy;
-    const int32_t sx = (int32_t)(ax >> 16), sy = (int32_t)(ay >> 16);
-    if (sx < -1023 || sx > 1023 || sy < -1023 || sy > 1023) return false;
-    if (scale < 1 || scale > (1 << 24) || len == 0) return false;
-    pick->cell = (uint16_t)(pitch * set->yaw_count + yaw); pick->mirror = mirror; pick->reserved = 0;
-    place->x = (int16_t)sx; place->y = (int16_t)sy; place->scale = scale;
-    place->frac[0] = (uint16_t)(ax & 0xffff); place->frac[1] = (uint16_t)(ay & 0xffff);
-    pose_div_start(&dv, (int64_t)16384 * ux, (int32_t)len);
-    const int32_t u0 = sh2z_divu_finish(&dv, NULL);
-    pose_div_start(&dv, -(int64_t)16384 * uy, (int32_t)len);
-    place->up[0] = (int16_t)u0;
-    place->up[1] = (int16_t)sh2z_divu_finish(&dv, NULL);
-    return true;
-}
-#if E2_EMIT_FAR
-static bool pose_far(sh2z_rspr_pick_t *pick, sh2z_rspr_place_t *place, int32_t tz, int64_t nqx, int64_t nqy, unsigned id) {
-    const sh2z_rspr_camera_t *const c = &racer_camera;
-    sh2z_divu_t dv;
-    pose_div_start(&dv, c->scale_num, tz);
-    const int32_t scale = sh2z_divu_finish(&dv, NULL);
-    pose_div_start(&dv, nqx, tz);
-    const int32_t qx = sh2z_divu_finish(&dv, NULL);
-    pose_div_start(&dv, nqy, tz);
-    const int32_t qy = sh2z_divu_finish(&dv, NULL);
-    const int64_t ax = (int64_t)c->center_x * 65536 + qx, ay = (int64_t)c->center_y * 65536 - qy;
-    const int32_t sx = (int32_t)(ax >> 16), sy = (int32_t)(ay >> 16);
-    if (sx < -1023 || sx > 1023 || sy < -1023 || sy > 1023) return false;
-    if (scale < 1 || scale > (1 << 24)) return false;
-    *pick = far_pick[id];
-    place->x = (int16_t)sx; place->y = (int16_t)sy; place->scale = scale;
-    place->frac[0] = (uint16_t)(ax & 0xffff); place->frac[1] = (uint16_t)(ay & 0xffff);
-    place->up[0] = far_up[id][0]; place->up[1] = far_up[id][1];
-    return true;
-}
-#endif
-#endif
 #if E2_ROSTER
 /* ---- E2_ROSTER: each rival from its own machine's sets ------------------------------
  * The private roster pack (directory of 32-byte entries, sets 2,048-aligned) goes whole into
@@ -863,11 +786,12 @@ static bool pose_far(sh2z_rspr_pick_t *pick, sh2z_rspr_place_t *place, int32_t t
  * families are never bound. Each set's CLUT goes to the CLUT slots after the player's. */
 #include "roster_identity.h"
 #include "rivals_field.h"
-typedef struct { const sh2z_rspr_set_t *set; int64_t scale_num; uint16_t clut; } roster_set_t;
+typedef struct { const sh2z_rspr_set_t *set; int64_t scale_num; uint16_t clut; uint8_t convex; } roster_set_t;
 static roster_set_t roster[FZX_FIELD_CARS][2]; /* [id][0 near, 1 far] */
 static int32_t roster_focal;
 /* [0] status (1 ok, 2 load refused or no room, 3 family out of range, 4 set missing or invalid,
- * 5 CLUT room), [1] sets bound, [2] near draws, [3] far draws, [4] cartridge base, [5] bytes. */
+ * 5 CLUT room), [1] sets bound, [2] near draws, [3] far draws, [4] cartridge base, [5] bytes,
+ * [6] sets whose yaw bins climb (E2_EMIT_YAW). */
 volatile uint32_t fzx_e2_roster[8];
 volatile uint32_t fzx_e2_far_scale = 0x5000; /* below this near-set scale (Q16) a rival draws its far set */
 static uint32_t be32(const uint8_t *e) { return ((uint32_t)e[0] << 24) | ((uint32_t)e[1] << 16) | ((uint32_t)e[2] << 8) | e[3]; }
@@ -929,6 +853,10 @@ bool fzx_drive_roster_load(void *scratch, uint32_t scratch_bytes, uintptr_t cart
             for (uint32_t b = 0; b < (uint32_t)set->clut_count * 32u; b += 2u)
                 *(volatile uint16_t *)(clut_cpu + next * 32u + b) = (uint16_t)((src[b] << 8) | src[b + 1]);
             roster[id][k].set = set; roster[id][k].clut = (uint16_t)next; roster[id][k].scale_num = 0;
+#if E2_EMIT_YAW
+            roster[id][k].convex = sh2z_rspr_yaw_convex(set) ? 1u : 0u;
+            fzx_e2_roster[6] += roster[id][k].convex; /* sets that climb */
+#endif
             next += set->clut_count; ++bound;
             const sh2z_rspr_cell_t *cells = sh2z_rspr_cells(set);
             for (uint32_t c = 0; c < (uint32_t)set->yaw_count * set->pitch_count; ++c) {
@@ -984,48 +912,18 @@ static int hint_get(uint32_t key, uint32_t bytes, uint32_t *slot, uint8_t *hint)
 #define CACHE_GET(key, bytes, slot, hint) sh2z_scache_get(&pool, (key), (bytes), false, (slot))
 #endif
 #if E2_EMIT_CMD
-/* E2_EMIT_CMD (exact): sh2z_rspr_emit_valid's distorted-sprite command for a picked cell, with the texture
- * and colour words written directly (no second pass) and the corners in 32-bit arithmetic: a corner's
- * rotated offset (|px|, |py| <= 504, |up| <= 2^15) is under 2^26, so its product with the scale is one
- * 32 x 32 -> 64 multiply; rounding and the range check as the library. Words: [1] pmod << 16 | colr,
- * [2] srca << 16 | size. */
-static inline int32_t emit_axis(int32_t e, int32_t scale, uint32_t frac) {
-    const int64_t v = (int64_t)e * scale + (int64_t)(frac << 14) + ((int64_t)1 << 29);
-    return (int32_t)(((uint32_t)(int32_t)(v >> 32) << 2) | ((uint32_t)v >> 30)); /* v >> 30; |v >> 30| < 2^20 */
-}
-static bool emit_cmd(vdp1_cmdt_t *cmd, const sh2z_rspr_cell_t *cl, uint32_t mirror, const sh2z_rspr_place_t *p,
-                     uint32_t pmod_colr, uint32_t srca_size) {
-    const int32_t scale = p->scale;
-    if (scale < 1 || scale > (1 << 24) || mirror > 1u) return false;
-    int32_t l = -(int32_t)cl->origin_x, r = (int32_t)cl->width - cl->origin_x;
-    if (mirror) { l = -l; r = -r; }
-    const int32_t t = -(int32_t)cl->origin_y, b = (int32_t)cl->height - cl->origin_y;
-    const int32_t u0 = p->up[0], u1 = p->up[1];
-    const int32_t lx = -l * u1, rx = -r * u1, ly = l * u0, ry = r * u0;
-    const int32_t tx = t * u0, bx = b * u0, ty = t * u1, by = b * u1;
-    const uint32_t f0 = p->frac[0], f1 = p->frac[1];
-    const int32_t x0 = p->x, y0 = p->y;
-    const int32_t xa = x0 + emit_axis(lx - tx, scale, f0), ya = y0 + emit_axis(ly - ty, scale, f1);
-    const int32_t xb = x0 + emit_axis(rx - tx, scale, f0), yb = y0 + emit_axis(ry - ty, scale, f1);
-    const int32_t xc = x0 + emit_axis(rx - bx, scale, f0), yc = y0 + emit_axis(ry - by, scale, f1);
-    const int32_t xd = x0 + emit_axis(lx - bx, scale, f0), yd = y0 + emit_axis(ly - by, scale, f1);
-    /* -1024..1023 on every coordinate: one unsigned compare each after the bias. */
-    if ((uint32_t)(xa + 1024) > 2047u || (uint32_t)(ya + 1024) > 2047u || (uint32_t)(xb + 1024) > 2047u ||
-        (uint32_t)(yb + 1024) > 2047u || (uint32_t)(xc + 1024) > 2047u || (uint32_t)(yc + 1024) > 2047u ||
-        (uint32_t)(xd + 1024) > 2047u || (uint32_t)(yd + 1024) > 2047u) return false;
-    uint32_t *w = (uint32_t *)(void *)cmd;
-    w[0] = 0x00020000u; w[1] = pmod_colr; w[2] = srca_size;
-    w[3] = ((uint32_t)xa << 16) | ((uint32_t)ya & 0xffffu); w[4] = ((uint32_t)xb << 16) | ((uint32_t)yb & 0xffffu);
-    w[5] = ((uint32_t)xc << 16) | ((uint32_t)yc & 0xffffu); w[6] = ((uint32_t)xd << 16) | ((uint32_t)yd & 0xffffu);
-    w[7] = 0u;
-    return true;
-}
+/* E2_EMIT_CMD (exact): each command by SH2ZAM rotation-sprites-3 sh2z_rspr_emit_cell, the library's
+ * sh2z_rspr_emit_valid with the slot's texture word and the CLUT word written in the same pass and the
+ * corners in 32 x 32 -> 64 products. The set-level checks stay here (EMIT_SET_OK). */
+#include "sh2zam/rotation_sprite_experimental.h"
+#define EMIT_SET_OK(set, cell) ((set)->bytes <= 0x80000u && (cell) < (uint32_t)(set)->yaw_count * (set)->pitch_count)
 #endif
 #if E2_EMIT_SHADOW
-/* E2_EMIT_SHADOW (exact; needs E2_FASTSPRITE=0): sh2z_rspr_pose for the one-cell shadow set. Its only
- * selection refusal (all three model-space terms 0) is kept; the cell is always 0, never mirrored. The
- * screen-up vector depends only on the camera rows and the car's up row, so it is the car's own (posed by
- * sh2z_rspr_pose with the same rows): no square root and two divisions fewer. */
+/* E2_EMIT_SHADOW (exact): sh2z_rspr_pose for the one-cell shadow set. Its only selection refusal (all
+ * three model-space terms 0) is kept; the cell is always 0, never mirrored. The screen-up vector depends
+ * only on the camera rows and the car's up row, so with an exact car pose (up given) it is the car's own:
+ * no square root and two divisions fewer. Under E2_FASTSPRITE a rival's up is the octagonal estimate, so
+ * up is NULL there and the library's exact form is computed here. */
 static int32_t shadow_dot(const int16_t row[3], const int32_t d[3]) {
     const int64_t sum = (int64_t)row[0] * d[0] + (int64_t)row[1] * d[1] + (int64_t)row[2] * d[2];
     return (int32_t)(sum >> 16);
@@ -1044,9 +942,22 @@ static bool shadow_place(sh2z_rspr_place_t *place, const int32_t ground[3], cons
     if (x < -1023 || x > 1023 || y < -1023 || y > 1023) return false;
     const int32_t scale = sh2z_divu_div64(c->scale_num, tz, NULL);
     if (scale < 1 || scale > (1 << 24)) return false;
+    int16_t u[2];
+    if (up) { u[0] = up[0]; u[1] = up[1]; }
+    else {
+        const int16_t *r0 = c->r[0], *r1 = c->r[1];
+        const int32_t ux = (int32_t)(((int64_t)r0[0] * basis[3] + (int64_t)r0[1] * basis[4] + (int64_t)r0[2] * basis[5]) >> 14);
+        const int32_t uy = (int32_t)(((int64_t)r1[0] * basis[3] + (int64_t)r1[1] * basis[4] + (int64_t)r1[2] * basis[5]) >> 14);
+        uint32_t v = (uint32_t)(ux * ux) + (uint32_t)(uy * uy), root = 0, bit = UINT32_C(1) << 30;
+        while (bit > v) bit >>= 2;
+        while (bit) { if (v >= root + bit) { v -= root + bit; root = (root >> 1) + bit; } else root >>= 1; bit >>= 2; }
+        if (!root) return false;
+        u[0] = (int16_t)sh2z_divu_div64((int64_t)16384 * ux, (int32_t)root, NULL);
+        u[1] = (int16_t)sh2z_divu_div64(-(int64_t)16384 * uy, (int32_t)root, NULL);
+    }
     place->x = (int16_t)x; place->y = (int16_t)y; place->scale = scale;
     place->frac[0] = (uint16_t)(ax & 0xffff); place->frac[1] = (uint16_t)(ay & 0xffff);
-    place->up[0] = up[0]; place->up[1] = up[1];
+    place->up[0] = u[0]; place->up[1] = u[1];
     return true;
 }
 #endif
@@ -1072,17 +983,17 @@ unsigned fzx_drive_cars(vdp1_cmdt_t *commands, unsigned capacity, const fzx_view
     sh2z_scache_frame(&pool);
     if (!FIELD_CAMERA(view, cam)) { ++fzx_e1_report[11]; return 0; }
 #if E2_EMIT_CMD
-    /* The library's per-call checks that never change: the racer set at VRAM 0 and the shadow set. */
-    static uint32_t shadow_colr = 0xffffffffu, shadow_srca_size;
+    /* The library's per-call checks that never change for the shadow set, and its two words. */
+    static uint16_t shadow_colr, shadow_srca;
     static const sh2z_rspr_cell_t *shadow_cell;
-    static bool racer_fits, shadow_fits;
-    if (shadow_colr == 0xffffffffu) {
+    static bool shadow_fits, shadow_ready;
+    if (!shadow_ready) {
         static sh2z_rspr_cell_t sc;
         sc = *sh2z_rspr_cells(shadow_set); shadow_cell = &sc;
-        shadow_colr = (uint32_t)((shadow_vram + shadow_set->clut_offset + (uint32_t)sc.clut * 32u) >> 3);
-        shadow_srca_size = ((uint32_t)((shadow_vram + sc.pixel_offset) >> 3) << 16) | (((uint32_t)sc.width / 8u) << 8) | sc.height;
+        shadow_colr = (uint16_t)((shadow_vram + shadow_set->clut_offset + (uint32_t)sc.clut * 32u) >> 3);
+        shadow_srca = (uint16_t)((shadow_vram + sc.pixel_offset) >> 3);
         shadow_fits = !(shadow_vram & 7u) && shadow_vram <= 0x7ffffu && shadow_set->bytes <= 0x80000u - shadow_vram;
-        racer_fits = racer_set->bytes <= 0x80000u;
+        shadow_ready = true;
     }
 #endif
     EP(1);
@@ -1133,9 +1044,6 @@ unsigned fzx_drive_cars(vdp1_cmdt_t *commands, unsigned capacity, const fzx_view
     const int64_t lx = (int64_t)(cx - view->clip[0]) << 16, rx = (int64_t)(view->clip[2] - cx) << 16;
     const int64_t ty_ = (int64_t)(cy - view->clip[1]) << 16, by = (int64_t)(view->clip[3] - cy) << 16;
 #endif
-#if E2_EMIT_FAR
-    ++far_frame;
-#endif
     uint32_t c_behind = 0, c_far = 0, c_off = 0;
 #endif
     for (unsigned i = 0; i < n; ++i) {
@@ -1166,9 +1074,6 @@ unsigned fzx_drive_cars(vdp1_cmdt_t *commands, unsigned capacity, const fzx_view
             }
             if (reason) {
                 it->ok = 0; it->depth = INT32_MAX;
-#if E2_EMIT_FAR
-                far_ok[cars[i].id] = 0;
-#endif
                 if (reason == 1) ++c_behind; else if (reason == 2) ++c_far; else ++c_off;
                 unsigned j = i; /* culled: far end of the order, never drawn */
                 while (j > 0 && items[order_[j - 1]].depth < INT32_MAX) { order_[j] = order_[j - 1]; --j; }
@@ -1177,29 +1082,21 @@ unsigned fzx_drive_cars(vdp1_cmdt_t *commands, unsigned capacity, const fzx_view
                 continue;
             }
             EP(2);
-#if E2_EMIT_POSE
-#if E2_EMIT_YAW
-#define POSE_ID(id) , (id)
-            if (fzx_emit_yaw_convex < 0)
-                fzx_emit_yaw_convex = !(racer_set->flags & SH2Z_RSPR_MIRROR) && emit_yaw_convex((const int16_t (*)[2])racer_set->yaw, racer_set->yaw_count) ? 1 : 0;
-#else
-#define POSE_ID(id)
-#endif
-#if E2_EMIT_FAR
+#if E2_EMIT_POSE && !E2_FASTSPRITE
             {
-                const unsigned id = cars[i].id;
-                if (far_ok[id] && far_scale[id] < (int32_t)fzx_emit_far_scale && ((far_frame + id) & fzx_emit_far_mask) != 0u) {
-                    it->ok = pose_far(&it->pick, &it->place, tz, qx, qy, id) ? 1u : 0u; ++fzx_emit_far_report[0];
-                } else {
-                    it->ok = pose_exact(&it->pick, &it->place, d, tz, qx, qy, cars[i].basis POSE_ID(id)) ? 1u : 0u; ++fzx_emit_far_report[1];
-                    if (it->ok) { far_pick[id] = it->pick; far_up[id][0] = it->place.up[0]; far_up[id][1] = it->place.up[1]; }
-                }
-                far_ok[id] = it->ok;
-                if (it->ok) far_scale[id] = it->place.scale;
-            }
+                /* SH2ZAM rotation-sprites-3: sh2z_rspr_pose from the cull's terms (identical outputs). */
+                sh2z_rspr_terms_t terms;
+                terms.d[0] = d[0]; terms.d[1] = d[1]; terms.d[2] = d[2]; terms.tz = tz; terms.nx = qx; terms.ny = qy;
+#if E2_EMIT_YAW
+                if (fzx_emit_yaw_convex < 0) fzx_emit_yaw_convex = sh2z_rspr_yaw_convex(racer_set) ? 1 : 0;
+                uint8_t *const hint = fzx_emit_yaw_convex > 0 ? &yaw_prev[cars[i].id] : NULL;
 #else
-            it->ok = pose_exact(&it->pick, &it->place, d, tz, qx, qy, cars[i].basis POSE_ID(cars[i].id)) ? 1u : 0u;
+                uint8_t *const hint = NULL;
 #endif
+                int32_t depth = 0;
+                it->ok = sh2z_rspr_pose_terms(&it->pick, &it->place, &depth, &racer_camera, racer_set, &terms,
+                                              (const int16_t *)(const void *)cars[i].basis, hint) ? 1u : 0u;
+            }
             it->depth = it->ok ? tz : INT32_MAX;
             {
                 const int32_t key = it->depth;
@@ -1214,15 +1111,25 @@ unsigned fzx_drive_cars(vdp1_cmdt_t *commands, unsigned capacity, const fzx_view
 #endif
 #if E2_FASTSPRITE
             /* The cull's camera-space terms reused: one pose without re-transforming the car. */
+#if E2_EMIT_YAW
+#define YAW_HINT(convex, id) , ((convex) ? &yaw_prev[(id)] : NULL)
+#else
+#define YAW_HINT(convex, id)
+#endif
 #if E2_ROSTER
             {
                 const roster_set_t *rs = roster[cars[i].id];
                 const int32_t near_scale = sh2z_divu_div64(rs[0].scale_num, tz, NULL);
                 it->prof = near_scale < (int32_t)fzx_e2_far_scale ? 1u : 0u;
-                it->ok = fast_pose(&it->pick, &it->place, d, tz, qx, qy, cars[i].basis, rs[it->prof].set, rs[it->prof].scale_num) ? 1u : 0u;
+                it->ok = fast_pose(&it->pick, &it->place, d, tz, qx, qy, cars[i].basis, rs[it->prof].set, rs[it->prof].scale_num
+                                   YAW_HINT(rs[it->prof].convex, cars[i].id)) ? 1u : 0u;
             }
 #else
-            it->ok = fast_pose(&it->pick, &it->place, d, tz, qx, qy, cars[i].basis, racer_set, racer_camera.scale_num) ? 1u : 0u;
+#if E2_EMIT_YAW
+            if (fzx_emit_yaw_convex < 0) fzx_emit_yaw_convex = sh2z_rspr_yaw_convex(racer_set) ? 1 : 0;
+#endif
+            it->ok = fast_pose(&it->pick, &it->place, d, tz, qx, qy, cars[i].basis, racer_set, racer_camera.scale_num
+                               YAW_HINT(fzx_emit_yaw_convex > 0, cars[i].id)) ? 1u : 0u;
 #endif
             it->depth = it->ok ? tz : INT32_MAX;
             {
@@ -1295,13 +1202,19 @@ unsigned fzx_drive_cars(vdp1_cmdt_t *commands, unsigned capacity, const fzx_view
 #if E2_EMIT_PROF || E2_EMIT_CMD || E2_EMIT_SHADOW
 #if E2_EMIT_SHADOW
             (void)pick; (void)depth;
-            const bool posed = shadow_place(&place, ground, basis, items[i].place.up);
+#if E2_FASTSPRITE
+            const bool exact_up = c->id == 0 || c->is3d; /* only the rivals' sprite poses are estimates */
+#else
+            const bool exact_up = true;
+#endif
+            const bool posed = shadow_place(&place, ground, basis, exact_up ? items[i].place.up : NULL);
 #else
             const bool posed = sh2z_rspr_pose(&pick, &place, &depth, &shadow_camera, shadow_set, ground, basis);
 #endif
             EP(4);
 #if E2_EMIT_CMD
-            if (posed && shadow_fits && emit_cmd(&commands[out], shadow_cell, 0u, &place, ((uint32_t)shadow_pmod << 16) | shadow_colr, shadow_srca_size)) { ++out; ++shadows; }
+            if (posed && shadow_fits && sh2z_rspr_emit_cell((uint16_t *)(void *)&commands[out], shadow_cell, 0u, &place, shadow_pmod,
+                                                            shadow_colr, shadow_srca)) { ++out; ++shadows; }
 #else
             if (posed && sh2z_rspr_emit_valid((uint16_t *)(void *)&commands[out], shadow_set, &zero, &place, shadow_vram, shadow_pmod)) { ++out; ++shadows; }
 #endif
@@ -1338,21 +1251,32 @@ unsigned fzx_drive_cars(vdp1_cmdt_t *commands, unsigned capacity, const fzx_view
             const sh2z_rspr_set_t *set = rs->set;
             uint32_t slot = 0, clut = rs->clut;
             const uint32_t key = ((uint32_t)c->id << 10) | ((uint32_t)items[i].prof << 8) | pick.cell;
-            const int r = sh2z_scache_get(&pool, key, set_cell_bytes(set, pick.cell), false, &slot);
+            const int r = CACHE_GET(key, set_cell_bytes(set, pick.cell), &slot, &hint_cur[c->id]);
             if (r == SH2Z_SCACHE_MISS) fill_push_set(slot, pick.cell, set);
             bool draw = r == SH2Z_SCACHE_HIT;
             if (!draw && r != SH2Z_SCACHE_REFUSED && car_has_cell[c->id]) {
                 const roster_set_t *ps = &roster[c->id][car_prof[c->id]];
                 const uint32_t pkey = ((uint32_t)c->id << 10) | ((uint32_t)car_prof[c->id] << 8) | car_cell[c->id];
                 uint32_t again = 0;
-                if (sh2z_scache_get(&pool, pkey, set_cell_bytes(ps->set, car_cell[c->id]), false, &again) == SH2Z_SCACHE_HIT &&
+                if (CACHE_GET(pkey, set_cell_bytes(ps->set, car_cell[c->id]), &again, &hint_drawn[c->id]) == SH2Z_SCACHE_HIT &&
                     ps->set == set) { pick.cell = car_cell[c->id]; slot = again; draw = true; clut = ps->clut; ++fzx_e1_cache[4]; }
             }
             if (!draw) { ++fzx_field_draw[4]; continue; }
+#if E2_EMIT_CMD
+            const sh2z_rspr_cell_t *cell = sh2z_rspr_cells(set) + pick.cell;
+            if (EMIT_SET_OK(set, pick.cell) &&
+                sh2z_rspr_emit_cell((uint16_t *)(void *)&commands[out], cell, pick.mirror, &items[i].place, racer_pmod,
+                                    (uint16_t)((clut_vram + (clut + (uint32_t)cell->clut) * 32u) >> 3),
+                                    (uint16_t)(pool.slots[slot].addr >> 3))) {
+#else
             if (sh2z_rspr_emit_valid((uint16_t *)(void *)&commands[out], set, &pick, &items[i].place, 0u, racer_pmod)) {
                 const sh2z_rspr_cell_t *cell = sh2z_rspr_cells(set) + pick.cell;
                 commands[out].cmd_srca = (uint16_t)(pool.slots[slot].addr >> 3);
                 commands[out].cmd_colr = (uint16_t)((clut_vram + (clut + (uint32_t)cell->clut) * 32u) >> 3);
+#endif
+#if E2_EMIT_HINT
+                hint_drawn[c->id] = (uint8_t)slot;
+#endif
                 car_cell[c->id] = pick.cell; car_prof[c->id] = items[i].prof; car_has_cell[c->id] = 1;
                 ++fzx_e2_roster[2 + items[i].prof];
                 ++out; ++sprites;
@@ -1375,10 +1299,9 @@ unsigned fzx_drive_cars(vdp1_cmdt_t *commands, unsigned capacity, const fzx_view
         if (!draw) { ++fzx_field_draw[4]; continue; }
 #if E2_EMIT_CMD
         const sh2z_rspr_cell_t *cell = (const sh2z_rspr_cell_t *)(const void *)(racer_set + 1) + pick.cell;
-        if (racer_fits && pick.cell < (uint32_t)racer_set->yaw_count * racer_set->pitch_count &&
-            emit_cmd(&commands[out], cell, pick.mirror, &items[i].place,
-                     ((uint32_t)racer_pmod << 16) | (uint16_t)((clut_vram + (uint32_t)cell->clut * 32u) >> 3),
-                     ((uint32_t)(uint16_t)(pool.slots[slot].addr >> 3) << 16) | (((uint32_t)cell->width / 8u) << 8) | cell->height)) {
+        if (EMIT_SET_OK(racer_set, pick.cell) &&
+            sh2z_rspr_emit_cell((uint16_t *)(void *)&commands[out], cell, pick.mirror, &items[i].place, racer_pmod,
+                                (uint16_t)((clut_vram + (uint32_t)cell->clut * 32u) >> 3), (uint16_t)(pool.slots[slot].addr >> 3))) {
 #else
         if (sh2z_rspr_emit_valid((uint16_t *)(void *)&commands[out], racer_set, &pick, &items[i].place, 0u, racer_pmod)) {
             const sh2z_rspr_cell_t *cell = (const sh2z_rspr_cell_t *)(const void *)(racer_set + 1) + pick.cell;

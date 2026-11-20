@@ -253,7 +253,74 @@ bool fzx_field_pack_load(void *scratch, uint32_t scratch_bytes) {
 }
 #endif
 
-bool fzx_field_load(const sh2z_vd_track_t *track, const sh2z_vd_body_t *player) {
+#if E2_PACK && defined(ENG_SCENES) && ENG_SCENES
+volatile uint8_t fzx_field_grid[30];
+volatile uint32_t fzx_field_grid_src, fzx_field_grid_move[3];
+/* Grid places (cpu.c, the race set-up): round one of a cup, and every other mode, uses the tier grid
+ * with the player last (the course header, from the reference's own set-up). From round two,
+ * position = N - D_80115D50[i] + 1, where D_80115D50 holds the last finish (menus.c, NEXT):
+ * the previous finish reversed, the player included. The cup's grid[] is that finish (entrant
+ * by place, set at NEXT), so a retry of a round starts from the same grid. */
+static void grid_places(void) {
+    for (uint32_t i = 0; i < FZX_FIELD_CARS; ++i) fzx_field_grid[i] = (uint8_t)CSEL(field,fzx_rivals_field)[i][0];
+    fzx_field_grid_src = 1;
+    const fzx_cup_t *c = fzx_cup();
+    if ((c->state != FZX_CUP_READY && c->state != FZX_CUP_RACING) || c->round == 0u || c->entrants.count != FZX_FIELD_CARS) return;
+    uint8_t place[FZX_FIELD_CARS];
+    uint32_t seen = 0;
+    for (uint32_t p = 0; p < FZX_FIELD_CARS; ++p) {
+        const uint8_t e = c->grid[p];
+        if (e >= FZX_FIELD_CARS || (seen & (1u << e))) return; /* not a whole finish: the tier grid, as cpu.c */
+        seen |= 1u << e;
+        place[e] = (uint8_t)(FZX_FIELD_CARS - p);
+    }
+    for (uint32_t i = 0; i < FZX_FIELD_CARS; ++i) fzx_field_grid[i] = place[i];
+    fzx_field_grid_src = 2;
+}
+/* v from frame a (Q30 rows forward, up, left) to frame b: the same components on b's rows. */
+static void turn30(int32_t v[3], int32_t a[3][3], int32_t b[3][3]) {
+    int32_t k[3];
+    for (int r = 0; r < 3; ++r) k[r] = (int32_t)(((int64_t)v[0] * a[r][0] + (int64_t)v[1] * a[r][1] + (int64_t)v[2] * a[r][2]) >> 30);
+    for (int c = 0; c < 3; ++c) v[c] = mul30(k[0], b[0][c]) + mul30(k[1], b[1][c]) + mul30(k[2], b[2][c]);
+}
+/* The player's start body moved along the line by (along, lateral) Q8 from the pack's start
+ * slot: in steps of at most 24 units, each step the line pose's change applied to the body (its
+ * position, and its rows turned with the line frame), then the closest point found again as the
+ * step does. The start grid is behind the line, so the lap state does not change. */
+static bool move_player(const sh2z_vd_track_t *track, sh2z_vd_body_t *p, int32_t along, int32_t lateral) {
+    static sh2z_vd_body_t b;
+    b = *p;
+    const sh2z_track_state_t t0 = veh[0].t;
+    const int32_t span = along < 0 ? -along : along;
+    const int32_t steps = span > U(24) ? (span + U(24) - 1) / U(24) : 1;
+    int32_t pos0[3], f0[3][3];
+    line_pose(&t0, pos0, f0[0], f0[1], f0[2]);
+    uint32_t node = t0.node;
+    for (int32_t s = 1; s <= steps; ++s) {
+        sh2z_track_state_t q = t0;
+        int64_t tot = (int64_t)t0.lap * line.length + t0.dist + (int64_t)along * s / steps;
+        int32_t lap = 0;
+        while (tot < 0) { tot += line.length; --lap; }
+        while (tot >= line.length) { tot -= line.length; ++lap; }
+        q.dist = (int32_t)tot; q.lap = lap; q.lateral = t0.lateral + (int32_t)((int64_t)lateral * s / steps);
+        q.node = node = sh2z_line_locate(&line, q.dist, node);
+        int32_t pos1[3], f1[3][3], target[3];
+        line_pose(&q, pos1, f1[0], f1[1], f1[2]);
+        for (int c = 0; c < 3; ++c) target[c] = b.pos[c] + (pos1[c] - pos0[c]);
+        for (int r = 0; r < 3; ++r) { turn30(b.body[r], f0, f1); turn30(b.road[r], f0, f1); }
+        turn30(b.gravity_up, f0, f1); turn30(b.tilt_up, f0, f1); turn30(b.ground_up, f0, f1);
+        turn30(b.vel, f0, f1); turn30(b.acc, f0, f1);
+        if (sh2z_vd_locate(&b, track, target, 100, (int64_t)1 << 32) != 0) return false;
+        for (int c = 0; c < 3; ++c) { pos0[c] = pos1[c]; f0[0][c] = f1[0][c]; f0[1][c] = f1[1][c]; f0[2][c] = f1[2][c]; }
+    }
+    b.lap_dist = sh2z_vd_lap_distance(&b, track);
+    b.race_dist = b.laps_dist + b.lap_dist;
+    *p = b;
+    return true;
+}
+#endif
+
+bool fzx_field_load(const sh2z_vd_track_t *track, sh2z_vd_body_t *player) {
     memset((void *)fzx_field_report, 0, sizeof(fzx_field_report));
     trk = track;
     if (!build_line(track)) { fzx_field_report[0] = 2; return false; }
@@ -344,11 +411,19 @@ bool fzx_field_load(const sh2z_vd_track_t *track, const sh2z_vd_body_t *player) 
         sh2z_track_state_t ps;
         sh2z_field_grid_slot(&line, (uint32_t)(CSEL(field,fzx_rivals_field)[0][0] - 1), U(146), U(100), U(50), 4, &ps);
         const int64_t shift = ((int64_t)veh[0].t.lap * line.length + veh[0].t.dist) - ((int64_t)ps.lap * line.length + ps.dist);
+#if defined(ENG_SCENES) && ENG_SCENES
+        /* The shift puts the header's player slot (where the pack's start body is) on the body; a
+         * GP round's places sit on the same source grid, and the player moves to its own. */
+        grid_places();
+#define GRID_PLACE(i, cf) ((uint32_t)fzx_field_grid[i])
+#else
+#define GRID_PLACE(i, cf) ((uint32_t)(cf)[0])
+#endif
         for (uint32_t i = 0; i < FZX_FIELD_CARS; ++i) {
             const int32_t *cf = CSEL(field,fzx_rivals_field)[i];
             const int32_t ms = cf[1], chase = cf[2], maxe = cf[3], aggr = cf[4];
             sh2z_track_state_t slot;
-            sh2z_field_grid_slot(&line, (uint32_t)(cf[0] - 1), U(146), U(100), U(50), 4, &slot);
+            sh2z_field_grid_slot(&line, GRID_PLACE(i, cf) - 1u, U(146), U(100), U(50), 4, &slot);
             const int32_t lap_ticks = (ms > 0 ? ms : 36000) * 60 / 1000;
             int32_t pace = line.length / lap_ticks;
             pace += (int32_t)((int64_t)pace * ((int32_t)(RND() % 81u) - 40) / 10000);
@@ -374,6 +449,20 @@ bool fzx_field_load(const sh2z_vd_track_t *track, const sh2z_vd_body_t *player) 
             b->first_lap_cap = cf[7] > 0 ? cf[7] : 0;            /* line-field-3: a chaser's first-lap cap (0 none) */
         }
 #undef RND
+#undef GRID_PLACE
+#if defined(ENG_SCENES) && ENG_SCENES
+        fzx_field_grid_move[0] = fzx_field_grid_move[1] = fzx_field_grid_move[2] = 0;
+        if (fzx_field_grid[0] != (uint8_t)CSEL(field,fzx_rivals_field)[0][0]) {
+            sh2z_track_state_t pslot;
+            sh2z_field_grid_slot(&line, (uint32_t)fzx_field_grid[0] - 1u, U(146), U(100), U(50), 4, &pslot);
+            const int32_t along = (int32_t)(((int64_t)pslot.lap * line.length + pslot.dist) - ((int64_t)ps.lap * line.length + ps.dist));
+            const int32_t lateral = pslot.lateral - ps.lateral;
+            fzx_field_grid_move[0] = (uint32_t)along; fzx_field_grid_move[1] = (uint32_t)lateral;
+            fzx_field_grid_move[2] = move_player(track, player, along, lateral) ? 1u : 0u;
+            player_last_dist = -1;
+            player_into_field(player);
+        }
+#endif
     }
 #if E2_LOD
     {

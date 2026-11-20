@@ -7,7 +7,9 @@
 #endif
 #include "physics_native.h"
 #include "physics_identity.h"
+#if E1_DRIVER == 2
 #include "drive_ahead.h"
+#endif
 #ifndef FZX_P3_BASELINE
 #if ENG_SCENES
 #include "engine_scenes.h"
@@ -156,7 +158,11 @@ void fzx_drive_step(uint32_t n) {
             uint16_t button = ticks >= RACE_START_TICK ? N64_A : 0u;
             signed char sx = 0;
             if (body.intro == 0) {
+#if E1_DRIVER == 2
                 sx = fzx_e1_driver == 2u ? fzx_drive_ahead(&course.track, &body, 0.1f, &button) : driver_stick();
+#else
+                sx = driver_stick();
+#endif
                 if (E1_DRIVER_BOOST > 0 && ticks % E1_DRIVER_BOOST == 0u) button |= N64_B;
             }
             sh2z_vd_input_t in;

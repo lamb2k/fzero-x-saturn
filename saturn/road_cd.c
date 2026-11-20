@@ -28,7 +28,7 @@ static fad_t stream_next,stream_end;
 static bool streaming;
 void fzx_road_stream_invalidate(void){streaming=false;}
 static void yield(void){void (*h)(void)=fzx_cd_yield;if(h){++fzx_cd_stats[3];h();}}
-#if ENG_SCENES && !defined(FZX_P3_BASELINE)
+#if (ENG_SCENES && !defined(FZX_P3_BASELINE)) || FZX_CD_TRACE >= 2
 /* Seek checks, stale sectors dropped, last requested FAD and last stale FAD. */
 volatile uint32_t fzx_cd_seek_stats[4];
 /* Yaul has no wrapper for Get Sector Info (54h). Read the FAD of sector zero
@@ -48,6 +48,14 @@ static int stream_head_fad(fad_t *head, uint16_t *last, uint32_t *elapsed) {
     *head=((fad_t)(status & 0xffu) << 16) | low;
     return 0;
 }
+#endif
+#if FZX_CD_TRACE
+/* Diagnostic (FZX_CD_TRACE=1, 2 also asks the block for each sector's FAD): one record per sector read,
+ * a ring of 1024: requested FAD | starting << 31, the block's FAD of its first buffered sector (2; else 0),
+ * the first two words and an FNV-1a 32 of the 2048 bytes. [0] of fzx_cd_trace_n counts records. */
+#define CD_TRACE_N 1024u
+volatile uint32_t fzx_cd_trace[CD_TRACE_N][5];
+volatile uint32_t fzx_cd_trace_n[2];
 #endif
 static int stream_read(fad_t fad,sector_buffer_t *out) {
     int rc;
@@ -88,12 +96,26 @@ static int stream_read(fad_t fad,sector_buffer_t *out) {
         yield();
         if(expired(&last,&elapsed)) {streaming=false;return -2;}
     }
+#if FZX_CD_TRACE
+    fad_t trace_head=0;
+#if FZX_CD_TRACE >= 2
+    if((rc=stream_head_fad(&trace_head,&last,&elapsed))) {streaming=false;return rc;}
+#endif
+#endif
     if((rc=cd_block_cmd_sector_data_get_delete(0,0,1))) {streaming=false;return rc;}
     while(!(*ROAD_CD_HIRQ&0x0002u))
         if(expired(&last,&elapsed)) {streaming=false;return -3;}
     for(unsigned i=0;i<CDFS_SECTOR_SIZE/4u;++i) out->buffer32[i]=*ROAD_CD_DATA;
     rc=cd_block_cmd_data_transfer_end();
     if(rc) {streaming=false;return rc;}
+#if FZX_CD_TRACE
+    {
+        volatile uint32_t *t=fzx_cd_trace[fzx_cd_trace_n[0]++ % CD_TRACE_N];
+        uint32_t h=2166136261u;
+        for(unsigned i=0;i<CDFS_SECTOR_SIZE;++i) h=(h^((const uint8_t *)out->buffer32)[i])*16777619u;
+        t[0]=fad|(starting?0x80000000u:0u); t[1]=trace_head; t[2]=out->buffer32[0]; t[3]=out->buffer32[1]; t[4]=h;
+    }
+#endif
     stream_next=fad+1u;++fzx_cd_stats[0];
     return 0;
 }

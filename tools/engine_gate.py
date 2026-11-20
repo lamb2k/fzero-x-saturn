@@ -269,6 +269,10 @@ class Gate:
             shutil.rmtree(run_dir)
         run_dir.parent.mkdir(parents=True, exist_ok=True)
         env = dict(os.environ, GATE_AUDIO='1' if audio else '0')
+        slot = os.environ.get('FZX_GATE_YMIR_SLOT')
+        if slot:   # shared-machine cap (owner rule 2026-11-20): wait until the slot script allows one more Ymir
+            while subprocess.run(['bash', slot], capture_output=True).returncode != 0:
+                time.sleep(60)
         t0 = time.time()
         r = subprocess.run([str(self.a.harness), str(self.a.bios), str(cue or Path(build_dir) / 'fzs-engine.cue'),
                             str(Path(build_dir) / 'fzs-engine.sym'), str(run_dir), str(cap), mode, arg],

@@ -154,6 +154,8 @@ Never change a limit after seeing a result. A change needs the integrator, and t
 
 Ymir slows down with 12 or more parallel jobs: one Mute City race takes 2.7 min alone and about 5 min under load.
 Lower `--jobs` when other lanes share the machine.
+On the shared machine set `FZX_GATE_YMIR_SLOT` to the lane skill's `ymir_slot.sh` and run with `--jobs 1`: each
+harness launch then waits until the script allows one more Ymir (owner rule 2026-11-20: F-Zero 2, machine 4).
 
 ## Baseline
 

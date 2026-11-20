@@ -12,6 +12,16 @@
 volatile uint32_t fzx_fx_report[16];
 volatile uint32_t fzx_fx_events[32]; /* tick << 8 | kind (1 retire, 2 destroyed, 3 spin-out start), last 32 */
 static uint32_t n_events;
+/* Diagnostic: master FRT totals and maxima per phase over the run: [0] set-up and body colour,
+ * [1] the player's boosters, [2] particles, [3] the rivals' order, [4] the rivals' boosters,
+ * [5] sort and copy, [6] fzx_fx_tick, [7] fzx_fx_player; maxima at [8 + k]. */
+volatile uint32_t fzx_fx_prof[16];
+static uint16_t prof_t;
+static void prof(unsigned k) {
+    const uint16_t now = cpu_frt_count_get(), d = (uint16_t)(now - prof_t);
+    fzx_fx_prof[k] += d; if (d > fzx_fx_prof[8 + k]) fzx_fx_prof[8 + k] = d;
+    prof_t = now;
+}
 
 #define Q16(x) ((int32_t)((x) * 65536.0 + ((x) >= 0 ? 0.5 : -0.5)))
 #define CARS FZX_FIELD_CARS
@@ -237,6 +247,7 @@ static void spin_turn(car_fx_t *c) {
 
 void fzx_fx_tick(const sh2z_vd_body_t *player) {
     if (fzx_fx_report[0] != 1) return;
+    prof_t = cpu_frt_count_get();
     tick_player = player;
     fzx_atk_fx_wall = rival_wall;
     ++fx_ticks;
@@ -301,10 +312,12 @@ void fzx_fx_tick(const sh2z_vd_body_t *player) {
     }
     sh2z_ep_step(&p_spark); sh2z_ep_step(&p_exp1); sh2z_ep_step(&p_exp2);
     sh2z_ep_step(&p_fly); sh2z_ep_step(&p_smoke); sh2z_ep_step(&p_debris);
+    prof(6);
 }
 
 void fzx_fx_player(const sh2z_vd_body_t *pl, int32_t max_energy) {
     if (fzx_fx_report[0] != 1) return;
+    prof_t = cpu_frt_count_get();
     car_fx_t *c = &car[0];
     /* Wall hits (Racer_HitWall): the spark at the wall side; its size from the damage 0.7 x into. */
     if (pl->flags & SH2Z_VD_RECOIL) {
@@ -324,6 +337,7 @@ void fzx_fx_player(const sh2z_vd_body_t *pl, int32_t max_energy) {
     if ((pl->flags & SH2Z_VD_CRASHED) && !(pl->flags & SH2Z_VD_FALLING)) wreck_smoke(0u, pl);
     c->atk_angle = pl->attack == SH2Z_VD_ATTACK_SPIN ? pl->attack_angle : 0;
     player_energy = pl->energy; player_max = max_energy; player_flags_prev = pl->flags;
+    prof(7);
 }
 
 /* ---- the frame ---------------------------------------------------------------------------- */
@@ -446,6 +460,7 @@ unsigned fzx_fx_emit(vdp1_cmdt_t *commands, unsigned capacity, const fzx_view_t 
                      const fzx_field_car_t *cars, unsigned n) {
     if (fzx_fx_report[0] != 1) return 0;
     const uint16_t t0 = cpu_frt_count_get();
+    prof_t = t0;
     sh2z_ep_view_t v;
     for (unsigned i = 0; i < 3u; ++i) for (unsigned j = 0; j < 3u; ++j) {
         const int32_t q = view->rotation[i][j];
@@ -483,7 +498,9 @@ unsigned fzx_fx_emit(vdp1_cmdt_t *commands, unsigned capacity, const fzx_view_t 
     }
     /* By priority, while the budget lasts: the player's boosters, explosions, sparks, flying
      * sparks, debris, smoke, then the rivals' boosters. */
+    prof(0);
     for (unsigned k = 0; k < n; ++k) if (cars[k].id == 0u) boosters(&v, &cars[k], hover_frac, true);
+    prof(1);
     for (uint32_t k = 0; k < p_exp2.count; ++k) {
         const sh2z_ep_particle_t *e = sh2z_ep_at(&p_exp2, k);
         diamond(&v, e, FZX_FX_EXPLOSION + (uint32_t)(e->timer >> 2) * 512u, 32u, FZX_FX_CLUT_EXPLOSION + (uint32_t)(e->timer >> 1) * 32u,
@@ -544,6 +561,7 @@ unsigned fzx_fx_emit(vdp1_cmdt_t *commands, unsigned capacity, const fzx_view_t 
         const sh2z_ep_particle_t *e = sh2z_ep_at(&p_smoke, k);
         diamond(&v, e, FZX_FX_SMOKE + (uint32_t)(e->timer >> 2) * 512u, 32u, FZX_FX_CLUT_SMOKE, pmod_tex_half, NEAR_BOOST * 16384);
     }
+    prof(2);
     {
         /* The rivals' boosters nearest first, so the budget drops the farthest. */
         static int32_t cd[CARS]; static uint8_t ck[CARS], co[CARS];
@@ -554,8 +572,10 @@ unsigned fzx_fx_emit(vdp1_cmdt_t *commands, unsigned capacity, const fzx_view_t 
             cd[m] = pt.depth; ck[m] = (uint8_t)k; ++m;
         }
         sh2z_ep_sort(co, cd, m);
+        prof(3);
         for (unsigned j = m; j-- > 0;) boosters(&v, &cars[ck[co[j]]], hover_frac, false);
     }
+    prof(4);
     /* Far to near, after the cars. */
     static int32_t depth[FZX_FX_SLOTS];
     static uint8_t order[FZX_FX_SLOTS];
@@ -563,6 +583,7 @@ unsigned fzx_fx_emit(vdp1_cmdt_t *commands, unsigned capacity, const fzx_view_t 
     sh2z_ep_sort(order, depth, n_items);
     unsigned out = 0;
     for (unsigned i = 0; i < n_items && out < capacity; ++i) memcpy(&commands[out++], items[order[i]].w, sizeof(vdp1_cmdt_t));
+    prof(5);
     fzx_fx_report[1] = out;
     if (out > fzx_fx_report[2]) fzx_fx_report[2] = out;
     fzx_fx_report[3] = p_spark.count + p_exp1.count + p_exp2.count + p_fly.count + p_smoke.count + p_debris.count;

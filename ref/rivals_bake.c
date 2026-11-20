@@ -89,6 +89,18 @@ void rb_gp_target(int out[3]) {
     out[2] = (int)D_i3_8013E328[gDifficulty];
 }
 
+/* Diagnostic (claude/rival-class): racer i's pace state: {unk_398 (finish target ms, from lap 2), unk_368 (pace
+ * rank), unk_352 (chase target), unk_1A8 x 1000 (engine setting), unk_360 x 1000, unk_364 x 1000 (attack chances)}. */
+void rb_racer_pace(int i, int out[6]) {
+    const Racer* r = &gRacers[i];
+    out[0] = r->unk_398;
+    out[1] = (int)r->unk_368;
+    out[2] = r->unk_352;
+    out[3] = (int)(r->unk_1A8 * 1000.0f + 0.5f);
+    out[4] = (int)(r->unk_360 * 1000.0f + 0.5f);
+    out[5] = (int)(r->unk_364 * 1000.0f + 0.5f);
+}
+
 /* Save state (claude/rival-class). At Expert and Master func_i3_80116974 lowers the race target by the margin the
  * course's best record (timeRecord[0]) beats the staff ghost's time. A fresh save holds MAX_TIMER in every record
  * slot (save.c, the course records' clear), so the target stays the class's table row. The HOST bridge left the

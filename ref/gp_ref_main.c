@@ -20,6 +20,7 @@
 int rb_gp_init(int difficulty, unsigned seed, const short* cpu_line);
 int rb_gp_tuning_course(int n);
 void rb_gp_target(int out[3]);
+void rb_racer_pace(int i, int out[6]);
 extern int rb_gp_fresh_save;
 void rb_racer(int i, float f[5], int n[8]);
 float rb_racer_up(int i);
@@ -80,7 +81,7 @@ static void tube_add(double angle_deg) {
 }
 
 int main(int argc, char** argv) {
-    const char *course = 0, *rom = 0, *line = 0, *report = 0, *trace = 0, *tube_pack = 0, *diag = 0, *ko_probe = 0;
+    const char *course = 0, *rom = 0, *line = 0, *report = 0, *trace = 0, *tube_pack = 0, *diag = 0, *ko_probe = 0, *pace_log = 0;
     int difficulty = 1, max_ticks = 14000, player_cpu = 1, tuning_course = 0, zones = 0;
     unsigned seed = 1;
     for (int i = 1; i + 1 < argc; i += 2) {
@@ -97,6 +98,7 @@ int main(int argc, char** argv) {
         else if (!strcmp(argv[i], "--zones")) zones = atoi(argv[i + 1]);
         else if (!strcmp(argv[i], "--tube-pack")) tube_pack = argv[i + 1];   /* RIVALS.PAK: tube_angles over its pipe and cylinder nodes */   /* 1: the surface zones, jumps and mines (rivals_bake.c) */
         else if (!strcmp(argv[i], "--diag")) diag = argv[i + 1];
+        else if (!strcmp(argv[i], "--pace-log")) pace_log = argv[i + 1];   /* claude/rival-class: PACE LOG below */
         else if (!strcmp(argv[i], "--fresh-save")) rb_gp_fresh_save = atoi(argv[i + 1]);   /* 0: the old records-at-0 state (rivals_bake.c) */
         else if (!strcmp(argv[i], "--ko-probe")) ko_probe = argv[i + 1];   /* RACER:TICK:AGE:BY, see KO PROBE below */   /* line-field-5: per racer and tick, see DIAG below */
         else die("unknown argument");
@@ -138,6 +140,12 @@ int main(int argc, char** argv) {
     FILE* df = diag ? fopen(diag, "wb") : NULL;
     if (diag && !df) die("cannot write diag");
     if (trace && !tf) die("cannot write trace");
+    /* PACE LOG (claude/rival-class): text, race ticks from the start. "S id rank chase setting a360 a364" per racer at
+     * the start; "T tick target" when the race target (D_i3_80141990) changes; "L tick id lap target398 rank" when a
+     * racer's lap counter changes; "F tick id target398 rank" at its finish. HOST diagnostics only. */
+    FILE* pf = pace_log ? fopen(pace_log, "w") : NULL;
+    if (pace_log && !pf) die("cannot write pace log");
+    int pace_prev_target = 0, pace_prev_lap[MAXR] = {0}, pace_started = 0;
     for (int i = 0; i < MAXR; ++i) { finish_tick[i] = retire_tick[i] = -1; for (int k = 0; k < 4; ++k) lap_end[i][k] = -1; }
     for (int t = 0; t < max_ticks; ++t) {
         rb_gp_frame();
@@ -196,6 +204,23 @@ int main(int argc, char** argv) {
             prev_lap[i] = v[0]; prev_pos[i] = v[1];
             last_dist[i] = f[0]; last_energy[i] = f[3]; last_flags[i] = v[2]; if (f[2] > top_speed[i]) top_speed[i] = f[2];
         }
+        if (pf && start_tick >= 0) {
+            int tg[3], pc[6], fl[8]; float ff[5];
+            rb_gp_target(tg);
+            for (int i = 0; i < MAXR; ++i) {
+                rb_racer(i, ff, fl); rb_racer_pace(i, pc);
+                if (!pace_started) fprintf(pf, "S %d %d %d %d %d %d
+", i, pc[1], pc[2], pc[3], pc[4], pc[5]);
+                if (pace_started && fl[0] != pace_prev_lap[i]) fprintf(pf, "L %d %d %d %d %d
+", t - start_tick, i, fl[0], pc[0], pc[1]);
+                if (finish_tick[i] == t - start_tick) fprintf(pf, "F %d %d %d %d
+", t - start_tick, i, pc[0], pc[1]);
+                pace_prev_lap[i] = fl[0];
+            }
+            if (!pace_started || tg[0] != pace_prev_target) fprintf(pf, "T %d %d
+", t - start_tick, tg[0]);
+            pace_prev_target = tg[0]; pace_started = 1;
+        }
         ticks = t + 1;
         if (start_tick >= 0) {
             rank_change_ticks += changed;
@@ -206,6 +231,7 @@ int main(int argc, char** argv) {
     }
     if (tf) fclose(tf);
     if (df) fclose(df);
+    if (pf) fclose(pf);
     FILE* o = fopen(report, "w");
     if (!o) die("cannot write report");
     fprintf(o, "{\n \"tier\": \"HOST\", \"role\": \"reference (original code)\", \"difficulty\": %d, \"seed\": %u, \"player_cpu\": %d,\n", difficulty, seed, player_cpu);

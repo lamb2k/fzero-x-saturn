@@ -562,6 +562,26 @@ One static in low work RAM, next to the session: scene arenas never hold cup sta
 | The loop on course 0 with TA course select: cold and retry equal, 0 over two fields, soft reset | EMULATOR |
 | `ENG_SCENES=0` identity | EMULATOR (build) |
 
+### 11.8 Receipts (claude/e3-cup, 2026-11-19)
+
+**HOST** (`tests/test_cup.py`, WSL GCC with UBSan): 2 tests OK.
+- Frozen cases plus 400 random fields match the original functions row for row.
+- The scripted 6-round cup passes.
+- All 8 negative controls fail, as they should.
+
+**EMULATOR** (Ymir, `dd852f8`, `ENG_SCENES=1`, course 0, Time Attack, harness `claude-cup`):
+- **GP trigger probe:** cold race and retry give `result_hash` 0x9DA78BC3, equal, with attempt hashes that differ.
+  - The player is 13th of 30, with 7 projected rows.
+  - The finish is at drive tick 6663; timer 442 at field frame 6684.
+- **Loop:** cold and retry both finish at 104,040 ms; checkpoints and tick-2000 stills are equal; memory is equal
+  over 3 races.
+- **Pace:** races and menus have 0 intervals over two fields (worst 2).
+- **Reset:** 8 marks and 7 fires.
+- **TA course select:** course 1 is refused and course 0 confirmed.
+- **Identity:** `ENG_SCENES=0` matches `origin/engine` 5dcec2c byte for byte (E1 pad, E1 driver, E0).
+- **Open:** load cancels at 100 and 180 fields fail with `ENG_SND=1`, on plain `origin/engine` 5dcec2c too. With
+  `ENG_SND=0`, all three cancels pass.
+
 ## Implementation status (claude/e3-scenes, 2026-11-19; EMULATOR, Ymir, modelled)
 
 - **What runs:** `ENG_SCENES=1` (with `FZX_E1_DRIVE=1 E1_CLOSEUP=1 E1_CLOSEUP_EARLY=1`) runs the whole loop around the E1 drive with the 3D player: BOOT, TITLE, SELECT, LOAD, RACE, RESULTS, retry, RECORDS and soft reset, sequenced by SH2ZAM scene-1 (PR #43).

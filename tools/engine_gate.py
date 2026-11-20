@@ -269,6 +269,11 @@ class Gate:
             shutil.rmtree(run_dir)
         run_dir.parent.mkdir(parents=True, exist_ok=True)
         env = dict(os.environ, GATE_AUDIO='1' if audio else '0')
+        # Machine rule (owner, 2026-11-20): every Ymir launch waits for a free slot. FZX_GATE_SLOT_CMD is a command
+        # that exits 0 when a run may start (the lane skill's ymir_slot.sh); it is retried every 60 s.
+        slot = os.environ.get('FZX_GATE_SLOT_CMD')
+        while slot and subprocess.run(slot, shell=True, capture_output=True).returncode != 0:
+            time.sleep(60)
         t0 = time.time()
         r = subprocess.run([str(self.a.harness), str(self.a.bios), str(cue or Path(build_dir) / 'fzs-engine.cue'),
                             str(Path(build_dir) / 'fzs-engine.sym'), str(run_dir), str(cap), mode, arg],

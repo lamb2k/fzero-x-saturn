@@ -1031,6 +1031,9 @@ void fzx_race_load(void) {
     if (!fzx_engine_path_open(&path, (const void *)PATH_BASE, FZX_ENGINE_PATH_BYTES, FZX_ENGINE_PATH_HASH))
 #endif
         fail(18, "PATH PACK", 0);
+#if ENG_SND
+    engine_snd_toc();
+#endif
 
     vdp1_vram_partitions_get(&partitions);
 #if FZX_E1_DRIVE

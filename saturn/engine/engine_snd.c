@@ -127,9 +127,15 @@ bool engine_snd_load(void *scratch, uint32_t scratch_bytes) {
             k->frames = c->loop ? 0u : clip_frames(c->samples, part->oct, part->fns);
             ev_level[e][p] = part->level;
         }
-    /* The TOC now, while the disc is in use anyway: the race start only sends commands. */
+    return true;
+}
+
+void engine_snd_toc(void) {
+    /* The TOC early in the race load, while the disc is in use anyway: the race start only
+     * sends commands. */
+    music_fad = 0u;
     uint32_t toc[102];
-    if (!read_toc(toc)) { engine_snd_report[0] = 3u; return true; }
+    if (!read_toc(toc)) { engine_snd_report[0] = 3u; return; }
     for (unsigned i = 0; i < FZX_CDDA_TRACK_COUNT; ++i) {
         const fzx_cdda_track_t *t = &fzx_cdda_tracks[i];
         if (t->music_id != ENG_SND_MUSIC) continue;
@@ -139,7 +145,6 @@ bool engine_snd_load(void *scratch, uint32_t scratch_bytes) {
         break;
     }
     if (!music_fad) engine_snd_report[0] = 4u;
-    return true;
 }
 
 static uint8_t last_valid[SH2Z_SND_SLOTS];

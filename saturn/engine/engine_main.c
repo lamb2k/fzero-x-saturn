@@ -334,7 +334,7 @@ static void hw_count(void) {
  * flush carries it (the race HUD's at its present; the menu text frame's). */
 volatile uint32_t fzx_hw_races, fzx_hw_menu_frames, fzx_hw_menu_span, fzx_hw_menu_worst, fzx_hw_menu_over2,
     fzx_hw_menu_gaps[4];
-static uint32_t hw_race_mark, hw_mark_field, hw_race_fps;
+static uint32_t hw_race_mark, hw_mark_field, hw_race_fps, hw_race_restart;
 void fzx_hw_menu_gap(uint32_t gap) {
     if (!gap) return;
     if (gap > fzx_hw_menu_worst) fzx_hw_menu_worst = gap;
@@ -343,15 +343,21 @@ void fzx_hw_menu_gap(uint32_t gap) {
     fzx_hw_menu_span += gap;
     ++fzx_hw_menu_frames;
 }
-void fzx_hw_race_break(void) { fzx_hw_open = 0u; }
+void fzx_hw_race_break(void) { fzx_hw_open = 0u; hw_race_restart = 1u; }
 bool fzx_hw_overlay(bool force, uint32_t row) {
     const uint32_t now = video_fields;
-    if (!hw_next) { hw_next = now + 60u; hw_mark_field = now; }
+    const bool race = row < 21u; /* called from the race frame */
+    if (!hw_next || (race && hw_race_restart)) {
+        /* A new one-second window at power-on and at each race's first readout, so FPS covers race
+         * frames only; outside the race it keeps the last race second's value. */
+        hw_next = now + 60u; hw_mark_field = now; hw_race_mark = fzx_hw_frames;
+        if (race) hw_race_restart = 0u;
+    }
     const bool due = (int32_t)(now - hw_next) >= 0;
     if (!due && !force) return false;
     if (due) {
         const uint32_t window = now - hw_mark_field, races = fzx_hw_frames;
-        if (window && races != hw_race_mark) hw_race_fps = ((races - hw_race_mark) * 60u + window / 2u) / window;
+        if (race && window) hw_race_fps = ((races - hw_race_mark) * 60u + window / 2u) / window;
         hw_race_mark = races; hw_mark_field = now; hw_next = now + 60u;
     }
     const uint32_t secs = now / 60u, rspan = fzx_hw_span, mspan = fzx_hw_menu_span;

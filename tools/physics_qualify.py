@@ -57,6 +57,8 @@ TOLERANCES = {
     # C-056 machine matrix grip break (proposed bands).
     "P11_grip_break": [("grip_break_speed", "rel", 0.01), ("grip_break_tick", "abs", 2),
                        ("yaw_rate_10_deg_per_tick", "rel", 0.01)],
+    "P12_grip_break_long": [("grip_break_speed", "rel", 0.01), ("grip_break_tick", "abs", 2),
+                       ("yaw_rate_10_deg_per_tick", "rel", 0.01)],
     "P09_slalom": [("side_swing_peak_to_peak", "rel", 0.02), ("speed_min", "rel", 0.02), ("speed_end", "rel", 0.03)],
     "W01_wall_04": WALL, "W01_wall_08": WALL, "W01_wall_16": WALL, "W01_wall_24": WALL,
     "C01_features": [("dash_boost_ticks", "exact", 0), ("dash_speed_peak", "rel", 0.01),

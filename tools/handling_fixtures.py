@@ -155,6 +155,12 @@ def fixtures():
     fx["P11_grip_break"] = ("pad", [(INTRO, "-", 0), (GRIP_BREAK - INTRO, "A", 0)] +
                             [(1, "A+B", 64), (99, "A", 64)] * 4 + [(100, "A", 64)], GRIP_BREAK,
                             "grip_break", "0.004,2.5,0,0,0,%d" % GRIP_BREAK)
+    # Heavy-machine grip break (machine matrix): as P11 with eight boosts back to back, so the
+    # heaviest stock machine at engine 0 and 0.5 (top speed below P11's break speed) still
+    # reaches its grip limit (about 51.3-51.6 units a tick, 430-470 ticks into the turn).
+    fx["P12_grip_break_long"] = ("pad", [(INTRO, "-", 0), (GRIP_BREAK - INTRO, "A", 0)] +
+                                 [(1, "A+B", 64), (99, "A", 64)] * 8 + [(100, "A", 64)], GRIP_BREAK,
+                                 "grip_break", "0.004,2.5,0,0,0,%d" % GRIP_BREAK)
     return fx
 
 

@@ -5,7 +5,8 @@ Picks, from the baked stats of the 30 stock machines (all at engine 0.5), the li
 and heaviest by machine weight and the best grip by the baked grip limit, dropping
 overlaps in that order. For each pick at engine 0, 0.5 and 1 it runs launch (P01),
 coast (P02), plain steering (P04 stick 64), the boosted grip-loading turn (P10) and the
-grip break (P11) on
+grip break (P11), and the long grip break (P12: eight boosts, so the heaviest
+machine at engine 0 and 0.5 reaches its limit) on
 the reference (gcc and clang, which must agree; their values are frozen to
 machines-reference.json before any native run) and on the native model, and scores
 native against each configuration's own reference with the P01/P02/P04/P10 bands.
@@ -28,7 +29,8 @@ import physics_qualify as pq  # noqa: E402
 WEIGHTS = [1260, 1420, 1620, 1960, 1150, 1330, 1870, 1780, 990, 780, 1010, 1780, 1390, 910, 2060, 2340, 2110,
            1050, 860, 1140, 900, 1460, 1620, 2220, 1530, 1520, 950, 1490, 1010, 1170]
 ENGINES = (0.0, 0.5, 1.0)
-FIXTURES = ("P01_launch", "P02_coast", "P04_turn_64", "P10_boost_turn", "P11_grip_break")
+FIXTURES = ("P01_launch", "P02_coast", "P04_turn_64", "P10_boost_turn", "P11_grip_break",
+            "P12_grip_break_long")
 CONTROLS = ("grip+5%", "turn+2%")
 
 

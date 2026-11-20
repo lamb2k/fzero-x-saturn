@@ -5,11 +5,11 @@
 #
 #   make -C saturn/engine SH2ZAM_ROOT=<checkout of the engine pin> [FZX_VDP1_DBANK=0|1]
 #
-# The SH2ZAM pin is saturn/engine/sh2zam.pin: branch claude/bal-train-2, SH2ZAM main 93b3774 (merge
-# train 4, PR #48) plus dual-claim-1 (PR #49, compiled only with ENG_BAL_CLOUDS=2). Main 93b3774 has tags
-# rotation-sprites-2/-3, line-follower-1, line-field-1, segmesh-2, vehicle-dynamics-1, sprite-cache-1,
-# scene-1, snd-1 and dsp-1. Before it, the integration branch claude/emit-train-2 ba7c237, whose
-# library differs from main only in comments and in sh2z_rspr_pose (field stores, no memcpy).
+# The SH2ZAM pin is saturn/engine/sh2zam.pin: SH2ZAM main 5a94dbe, merge train 5 (PR #51: dual-claim-1,
+# compiled only with ENG_BAL_CLOUDS=2, and line-field-2, whose second-lap re-target is off while a brain's
+# finish_ticks is 0). Before it, main 93b3774 (train 4, PR #48): rotation-sprites-2/-3, line-follower-1,
+# line-field-1, segmesh-2, vehicle-dynamics-1, sprite-cache-1, scene-1, snd-1 and dsp-1; before that the
+# integration branch claude/emit-train-2 ba7c237 (differs from main only in comments and sh2z_rspr_pose).
 # Assets come from ../../generated (owning generators, receipts checked here).
 ifeq ($(strip $(YAUL_INSTALL_ROOT)),)
 $(error Undefined YAUL_INSTALL_ROOT (install root directory))

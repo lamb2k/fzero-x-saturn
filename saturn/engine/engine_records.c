@@ -1,0 +1,218 @@
+/* Engine records service (ENG_SCENES=1): see engine_records.h and SCENES.md section 5. */
+#include <stddef.h>
+#include <string.h>
+#include <yaul.h>
+#include <bup.h>
+#include "engine_records.h"
+
+#define REC_MAGIC 0x465A5852u /* "FZXR" */
+#define REC_VERSION 1u
+#define RECENT 8u
+
+volatile uint32_t fzx_rec_report[16];
+volatile uint32_t fzx_rec_fault;
+#define POKED(w) (*(volatile uint32_t *)((uintptr_t)&(w) | CPU_CACHE_THROUGH))
+
+static bup_t bup __attribute__((aligned(4)));
+static bup_devices_t devices;
+static bool bup_ready;
+static fzx_records_t table;          /* the RAM table (what the screens read) */
+static fzx_records_t io;             /* one file's image for reads and writes */
+static uint32_t file_gen[2];         /* generation of each file, 0 = absent or invalid */
+static bool dirty;
+static uint32_t recent[RECENT], recent_at;
+static const char *const file_name[2] = { "FZXREC_A", "FZXREC_B" };
+
+static uint32_t crc32(const uint8_t *p, uint32_t n) {
+    uint32_t c = 0xFFFFFFFFu;
+    while (n--) {
+        c ^= *p++;
+        for (unsigned k = 0; k < 8u; ++k) c = (c >> 1) ^ (0xEDB88320u & (0u - (c & 1u)));
+    }
+    return ~c;
+}
+static uint32_t body_crc(const fzx_records_t *r) {
+    const uint8_t *p = (const uint8_t *)r;
+    const uint32_t skip = (uint32_t)offsetof(fzx_records_t, crc) + 4u;
+    return crc32(p + skip, (uint32_t)sizeof(*r) - skip);
+}
+
+static void empty_time(fzx_rec_time_t *t) {
+    memset(t, 0, sizeof(*t));
+    t->ms = FZX_REC_MAX_TIMER;
+    t->slider_bits = FZX_REC_SLIDER_DEFAULT;
+}
+static void defaults(fzx_records_t *r) {
+    memset(r, 0, sizeof(*r));
+    r->magic = REC_MAGIC; r->version = REC_VERSION; r->bytes = sizeof(*r);
+    for (unsigned c = 0; c < FZX_REC_COURSES; ++c) {
+        for (unsigned i = 0; i < FZX_REC_TOP; ++i) empty_time(&r->ta[c].top[i]);
+        empty_time(&r->ta[c].best_lap);
+        empty_time(&r->death_race[c]);
+    }
+}
+static bool valid(const fzx_records_t *r) {
+    return r->magic == REC_MAGIC && r->version == REC_VERSION && r->bytes == sizeof(*r) && r->generation &&
+           r->crc == body_crc(r);
+}
+
+static void ensure_bup(void) {
+    if (bup_ready) return;
+    bup_init(&bup, &devices);
+    bup_ready = true;
+}
+
+/* Reads one file into `io`; true when it is present and valid. */
+static bool read_file(unsigned i) {
+    memset(&io, 0, sizeof(io));
+    const bup_status_t s = bup_read(BUP_DEVICE_INTERNAL, file_name[i], &io);
+    return s == BUP_OK && valid(&io);
+}
+
+static fzx_rec_result_t write_table(void) {
+    ensure_bup();
+    /* The older (or missing, or bad) file takes the write; the other stays the previous save. */
+    const unsigned target = file_gen[0] <= file_gen[1] ? 0u : 1u;
+    const uint32_t gen = (file_gen[0] > file_gen[1] ? file_gen[0] : file_gen[1]) + 1u;
+    io = table;
+    io.magic = REC_MAGIC; io.version = REC_VERSION; io.bytes = sizeof(io); io.generation = gen;
+    io.crc = body_crc(&io);
+    uint32_t size = sizeof(io);
+    const uint32_t fault = POKED(fzx_rec_fault);
+    if (fault == 1u) io.crc ^= 0x00010000u;          /* control: a bad CRC */
+    else if (fault == 2u) size = sizeof(io) / 2u;    /* control: a write cut in half */
+    POKED(fzx_rec_fault) = 0;
+    bup_directory_t dir;
+    memset(&dir, 0, sizeof(dir));
+    strcpy(dir.filename, file_name[target]);
+    strcpy(dir.comment, "FZX RECORD");
+    dir.language = BUP_LANG_ENGLISH;
+    dir.data_size = size;
+    const bup_status_t s = bup_write(BUP_DEVICE_INTERNAL, &dir, &io, BUP_WRITE_MODE_OVERWRITE);
+    fzx_rec_report[7] = s;
+    fzx_rec_report[5] = target + 1u;
+    if (s == BUP_NOT_ENOUGH_MEMORY) return FZX_REC_FULL;
+    if (s != BUP_OK) return FZX_REC_FAILED;
+    /* A write that stored a bad file (the controls) counts as interrupted: the file is
+     * not a valid generation, the table stays dirty. */
+    file_gen[target] = fault ? 0u : gen;
+    table.generation = gen;
+    if (fault) return FZX_REC_FAILED;
+    dirty = false;
+    return FZX_REC_OK;
+}
+
+fzx_rec_result_t fzx_records_load(void) {
+    ensure_bup();
+    defaults(&table);
+    file_gen[0] = file_gen[1] = 0;
+    bool present = false;
+    unsigned best = 2u;
+    for (unsigned i = 0; i < 2u; ++i) {
+        bup_directory_t d[1];
+        if (bup_dir(BUP_DEVICE_INTERNAL, file_name[i], 1, d) > 0) present = true;
+        if (read_file(i)) {
+            file_gen[i] = io.generation;
+            if (best == 2u || io.generation > file_gen[best]) best = i;
+        }
+        fzx_rec_report[8u + i] = file_gen[i] ? 1u : 0u;
+    }
+    fzx_rec_result_t r;
+    uint32_t boot = 0;
+    if (best < 2u) {
+        (void)read_file(best);
+        table = io;
+        boot = io.boot_id;
+        r = FZX_REC_OK;
+    } else r = present ? FZX_REC_FAILED : FZX_REC_ABSENT;
+    fzx_rec_report[1] = best < 2u ? best + 1u : 0u;
+    fzx_rec_report[2] = best < 2u ? file_gen[best] : 0u;
+    /* A new boot id, saved at once (run ids never repeat across boots). */
+    table.boot_id = boot + 1u;
+    fzx_rec_report[3] = table.boot_id;
+    {
+        bup_stat_t st;
+        memset(&st, 0, sizeof(st));
+        (void)bup_status(BUP_DEVICE_INTERNAL, sizeof(table), &st);
+        fzx_rec_report[12] = st.free_blocks; fzx_rec_report[13] = st.block_size;
+    }
+    dirty = true;
+    const fzx_rec_result_t w = write_table();
+    if (w == FZX_REC_FULL && r != FZX_REC_FAILED) r = FZX_REC_FULL;
+    fzx_rec_report[0] = r;
+    fzx_rec_report[6] = dirty;
+    return r;
+}
+
+uint32_t fzx_records_boot_id(void) { return table.boot_id; }
+const fzx_records_t *fzx_records_get(void) { return &table; }
+const fzx_rec_course_t *fzx_records_course(uint32_t course) {
+    return course < FZX_REC_COURSES ? &table.ta[course] : NULL;
+}
+
+/* The source rule (racer.c): strict improvement; a new time goes before the first slower
+ * one, so older equal times stay ahead. */
+static unsigned place_for(const fzx_rec_course_t *c, uint32_t ms) {
+    for (unsigned i = 0; i < FZX_REC_TOP; ++i)
+        if (ms < c->top[i].ms) return i + 1u;
+    return 0;
+}
+
+void fzx_records_rank(const fzx_run_result_t *run, fzx_rank_t *out) {
+    memset(out, 0, sizeof(*out));
+    if (!run || run->reason != FZX_END_FINISH || run->course >= FZX_REC_COURSES) return;
+    if (run->menu_mode == 2u) { /* Death Race: its own single time */
+        out->place = run->race_ms < table.death_race[run->course].ms ? 1u : 0u;
+        return;
+    }
+    const fzx_rec_course_t *c = &table.ta[run->course];
+    out->place = (uint8_t)place_for(c, run->race_ms);
+    if (run->best_lap_ms && run->best_lap_ms < c->best_lap.ms) { out->best_lap = 1; out->best_lap_index = run->best_lap_index; }
+    if (run->max_speed > c->max_speed) out->max_speed = 1;
+}
+
+static void fill_time(fzx_rec_time_t *t, uint32_t ms, const fzx_run_result_t *run, const char name[4]) {
+    memset(t, 0, sizeof(*t));
+    t->ms = ms; t->slider_bits = run->slider_bits; t->machine_id = run->machine_id; t->skin = run->skin;
+    if (name) for (unsigned i = 0; i < 3u && name[i]; ++i) t->name[i] = name[i];
+}
+
+fzx_rec_result_t fzx_records_commit(const fzx_run_result_t *run, const char name[4]) {
+    if (!run) return FZX_REC_FAILED;
+    for (unsigned i = 0; i < RECENT; ++i)
+        if (recent[i] && recent[i] == run->run_id) { ++fzx_rec_report[11]; fzx_rec_report[4] = FZX_REC_ALREADY; return FZX_REC_ALREADY; }
+    recent[recent_at++ % RECENT] = run->run_id;
+    fzx_rank_t rk;
+    fzx_records_rank(run, &rk);
+    if (run->menu_mode == 2u) {
+        if (rk.place) fill_time(&table.death_race[run->course], run->race_ms, run, name);
+    } else if (run->course < FZX_REC_COURSES) {
+        fzx_rec_course_t *c = &table.ta[run->course];
+        if (rk.place) {
+            for (unsigned i = FZX_REC_TOP - 1u; i >= rk.place; --i) c->top[i] = c->top[i - 1u];
+            fill_time(&c->top[rk.place - 1u], run->race_ms, run, name);
+        }
+        if (rk.best_lap) { fill_time(&c->best_lap, run->best_lap_ms, run, rk.place ? name : NULL); c->best_lap_index = rk.best_lap_index; }
+        if (rk.max_speed) { c->max_speed = run->max_speed; c->max_speed_machine_id = run->machine_id; }
+    }
+    ++fzx_rec_report[10];
+    if (!rk.place && !rk.best_lap && !rk.max_speed) { fzx_rec_report[4] = FZX_REC_OK; return FZX_REC_OK; }
+    dirty = true;
+    const fzx_rec_result_t r = write_table();
+    fzx_rec_report[4] = r; fzx_rec_report[6] = dirty;
+    return r;
+}
+
+fzx_rec_result_t fzx_records_rewrite(void) {
+    dirty = true;
+    const fzx_rec_result_t r = write_table();
+    fzx_rec_report[4] = r; fzx_rec_report[6] = dirty;
+    return r;
+}
+
+fzx_rec_result_t fzx_records_flush(void) {
+    if (!dirty) return FZX_REC_OK;
+    const fzx_rec_result_t r = write_table();
+    fzx_rec_report[4] = r; fzx_rec_report[6] = dirty;
+    return r;
+}

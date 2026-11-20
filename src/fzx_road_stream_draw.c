@@ -468,10 +468,50 @@ static bool piece(draw_t *d,const vref_t v[4],unsigned quad,unsigned piece_id,
              * exact spans); otherwise the clipped polygon is drawn as before, with the
              * texture limited to those rows. Rows outside the band are not drawn. */
             clip_input(d->hot,v);
-            for(unsigned i=0;i<4;++i)d->hot->clip_in[i].attr[0]=i<2u?0:65536;
-            n=sh2z_view_clip_guard_src_center_divu(d->hot->clip_out,&d->view,guard,d->hot->clip_in,4,1,10);
+            for(unsigned i=0;i<4;++i){d->hot->clip_in[i].attr[0]=i<2u?0:65536;d->hot->clip_in[i].attr[1]=i==1u||i==2u?65536:0;}
+            n=sh2z_view_clip_guard_src_center_divu(d->hot->clip_out,&d->view,guard,d->hot->clip_in,4,2,10);
             if(n<0)return fail(d,FZX_RS_CLIP);
             if(n<3){++d->stats->culled;return true;}
+#if FZX_ROAD_STREAM_ROW_CLIP>=2
+            /* Mode 2: the clipped polygon as a strip between its two rails. attr 1 is the
+             * lateral side (0 left rail, 65536 right), so the polygon's boundary splits into a
+             * left chain (backward from its first row to its last) and a right chain (forward).
+             * The chains are walked together in row order; each step is one quad (a triangle
+             * when one chain does not move) whose lines cross the road from the left chain to
+             * the right, with its texture rows limited to the rows its corners span. Every
+             * corner is inside the band, so each quad is drawn as an unclipped piece. */
+            {
+                const sh2z_view_guard_vertex_t *o=d->hot->clip_out;
+                const fzx_road_stream_material_t *m0=&w->images[image].variant[0];
+                const uint32_t stride=m0->mode?m0->width/2u:m0->width*2u;
+                unsigned align=1;while(align<8u&&((align*stride)&7u))align<<=1;
+                int ls=0,rs=0,le=0,re=0;
+                for(int i=1;i<n;++i){const int32_t ti=o[i].attr[0],si=o[i].attr[1];
+                    if(ti<o[ls].attr[0]||(ti==o[ls].attr[0]&&si<o[ls].attr[1]))ls=i;
+                    if(ti<o[rs].attr[0]||(ti==o[rs].attr[0]&&si>o[rs].attr[1]))rs=i;
+                    if(ti>o[le].attr[0]||(ti==o[le].attr[0]&&si<o[le].attr[1]))le=i;
+                    if(ti>o[re].attr[0]||(ti==o[re].attr[0]&&si>o[re].attr[1]))re=i;}
+                ++d->stats->clipped;
+                int li=ls,ri=rs;
+                for(int guard_steps=0;(li!=le||ri!=re)&&guard_steps<2*n;++guard_steps){
+                    const int ln=(li+n-1)%n,rn=(ri+1)%n;
+                    bool al=li!=le,ar=ri!=re;
+                    if(al&&ar){if(o[ln].attr[0]<o[rn].attr[0])ar=false;else if(o[rn].attr[0]<o[ln].attr[0])al=false;}
+                    const int nl=al?ln:li,nr=ar?rn:ri;
+                    int32_t a=o[li].attr[0]<o[ri].attr[0]?o[li].attr[0]:o[ri].attr[0];
+                    int32_t b=o[nl].attr[0]>o[nr].attr[0]?o[nl].attr[0]:o[nr].attr[0];
+                    if(a<0)a=0;
+                    if(b>65536)b=65536;
+                    unsigned k0=(unsigned)(((int64_t)a*height)>>16),k1=(unsigned)(((int64_t)b*height+65535)>>16);
+                    k0-=k0%align;if(k1>height)k1=height;
+                    if(k1<=k0){if(k0+1u<=height)k1=k0+1u;else{k0=height-align;k1=height;}}
+                    const vref_t q[4]={&o[li].v,&o[ri].v,&o[nr].v,&o[nl].v};
+                    if(!piece(d,q,quad,piece_id,base_image,image,row+k0,k1-k0,tier,false))return false;
+                    li=nl;ri=nr;
+                }
+                return true;
+            }
+#endif
             int32_t t0=65536,t1=0;
             for(int i=0;i<n;++i){const int32_t t=d->hot->clip_out[i].attr[0];if(t<t0)t0=t;if(t>t1)t1=t;}
             const fzx_road_stream_material_t *m0=&w->images[image].variant[0];

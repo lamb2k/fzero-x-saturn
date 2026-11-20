@@ -21,6 +21,10 @@
 #ifndef E1_CLOSEUP
 #define E1_CLOSEUP 0
 #endif
+/* Close-up 3D-N (Makefile E1_FIELD = rivals, engine_field.h); 0 builds no field. */
+#ifndef E1_FIELD
+#define E1_FIELD 0
+#endif
 
 /* 1: the R01 test driver steers (60 Hz, from each tick's previous state);
  * 0: the pad, read once per presented frame and held for its ticks. */
@@ -40,6 +44,11 @@ bool fzx_drive_load(void *scratch, uint32_t scratch_bytes);
 /* After the track and the VDP1 banks: the raw sprite set into the cartridge from
  * cart_free, its CLUTs and the shadow into the CLUT partition after clut_used bytes,
  * and the sprite slot pool at the top of the texture partition (sprite-cache-1). */
+#if E1_FIELD && E2_ROSTER
+/* E2_ROSTER: the roster pack into the cartridge, each rival bound to its machine's near/far sets. */
+bool fzx_drive_roster_load(void *scratch, uint32_t scratch_bytes, uintptr_t cart_limit);
+extern volatile uint32_t fzx_e2_roster[8];
+#endif
 bool fzx_drive_sprites_load(const vdp1_vram_partitions_t *parts, uint32_t clut_used, uintptr_t cart_free,
                             uintptr_t cart_limit, void *scratch, uint32_t scratch_bytes);
 /* Texture-partition offset where the slot pool starts (E0 users must end below it). */
@@ -56,6 +65,17 @@ void fzx_drive_camera(fzx_engine_cam_t *cam, const fzx_engine_cam_t *lens);
 /* The player sprite (user clip, shadow, sprite) after the track; returns commands written. */
 unsigned fzx_drive_sprites(vdp1_cmdt_t *commands, unsigned capacity, const fzx_view_t *view,
                            const fzx_engine_cam_t *cam);
+#if E1_FIELD
+#include "engine_field.h"
+/* Every car of the field, far to near: sprites through the slot cache, 3D cars from
+ * their staged commands (staged[slot], staged_n[slot]); returns commands written. */
+unsigned fzx_drive_cars(vdp1_cmdt_t *commands, unsigned capacity, const fzx_view_t *view, const fzx_engine_cam_t *cam,
+                        const fzx_field_car_t *cars, unsigned n, const vdp1_cmdt_t *const *staged, const uint16_t *staged_n);
+extern volatile uint32_t fzx_field_sim_ticks, fzx_field_draw[8];
+const sh2z_vd_body_t *fzx_drive_body(void);
+#endif
 /* HUD text (dbgio, VDP2). */
 void fzx_drive_hud(void);
+/* The HUD text only, into the dbgio buffer; the caller flushes it (dbgio_flush). */
+void fzx_drive_hud_text(void);
 #endif

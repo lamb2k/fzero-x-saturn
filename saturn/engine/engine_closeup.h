@@ -35,7 +35,20 @@ extern volatile uint32_t fzx_ab_report[16];
  * tables into the texture partition just below texture offset `ceiling` (the sprite
  * slot pool). Returns the region's start offset (new floor for E0), 0 on failure. */
 uint32_t fzx_closeup_load(const vdp1_vram_partitions_t *parts, uint32_t ceiling, void *scratch, uint32_t scratch_bytes);
+/* Scenes image (ENG_SCENES=1): the same, from the pack of machine `family`
+ * (MACH3D<ff>.PAK); [0] = 6 when the image has no pack for that family. */
+uint32_t fzx_closeup_load_family(const vdp1_vram_partitions_t *parts, uint32_t ceiling, void *scratch, uint32_t scratch_bytes,
+                                 uint32_t family);
+bool fzx_closeup_has_family(uint32_t family);
+/* Scenes image: per-race draw state back to its start (a retry; the pack stays). */
+void fzx_closeup_reset(void);
 /* The vehicle's commands after the player's shadow; returns the commands written. */
 unsigned fzx_closeup_draw(vdp1_cmdt_t *commands, unsigned capacity, const fzx_view_t *view,
                           const fzx_engine_cam_t *cam, uint32_t bank);
+/* Several 3D cars (FZX_CLOSEUP_CARS slots, each with its own shade and template tables
+ * per bank): one car at a Q16 position with Q1.14 rows (forward, up, left). */
+extern volatile uint32_t fzx_closeup_lod; /* the pose draw's source LOD (1..5) */
+unsigned fzx_closeup_draw_pose(vdp1_cmdt_t *commands, unsigned capacity, const fzx_view_t *view,
+                               const fzx_engine_cam_t *cam, uint32_t bank, uint32_t slot,
+                               const int32_t pos[3], const int16_t basis[3][3]);
 #endif

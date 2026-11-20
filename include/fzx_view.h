@@ -31,6 +31,15 @@ int fzx_view_clip(const fzx_view_t *view, const int32_t input[][3], unsigned cou
  * view rectangle grown by guard pixels on every side. VDP1's user clip trims
  * the rest, so the visible pixels match fzx_view_clip plus projection apart
  * from sub-pixel rounding on the guard edges. Returns -1 on failure, else 0..10. */
+#ifndef FZX_RBG_SHARE
+#define FZX_RBG_SHARE 0
+#endif
+#if FZX_RBG_SHARE
+/* FZX_RBG_SHARE: fzx_view_project_guarded's 2D clip of a quad already projected
+ * and wholly between the near and far planes (exact). */
+int fzx_view_guard_projected(const fzx_view_t *view, const int32_t projected[4][2],
+                             int32_t guard, int32_t output[10][2]);
+#endif
 int fzx_view_project_guarded(const fzx_view_t *view, const int32_t input[4][3],
                              int32_t guard, int32_t output[10][2]);
 #endif

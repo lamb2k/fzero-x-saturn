@@ -377,8 +377,10 @@ bool fzx_atk_player_clear(const sh2z_vd_body_t *p, int32_t pd, bool field_pendin
     if (!live) return true;
     if (regain_pending) return false;
     const uint32_t n = F.count;
+#if !(defined(FZX_ATK_CLEAR_NOCREDIT) && FZX_ATK_CLEAR_NOCREDIT)   /* HOST control only: the credit test dropped */
     for (uint32_t i = 1; i < n; ++i)
         if (body[i].toucher == 0 && body[i].since <= rules.credit_window + 1u) return false;
+#endif
     if (!(p->flags & SH2Z_VD_ACTIVE)) return true;   /* the player's body is never active in the walk */
     const int32_t length = F.line->length, half = length / 2;
     const int32_t boost = F.field->params->boost_speed;
@@ -399,8 +401,16 @@ bool fzx_atk_player_clear(const sh2z_vd_body_t *p, int32_t pd, bool field_pendin
             if (m < 2u) m = 2u;
             d = (int64_t)s * m;
         }
-        if (g > PRE_Q8) { if ((int64_t)g + d >= (int64_t)length - PRE_Q8) return false; }
-        else if (g < -PRE_Q8) { if ((int64_t)g + d >= -(int64_t)PRE_Q8) return false; }
+#if defined(FZX_ATK_CLEAR_NOMOTION) && FZX_ATK_CLEAR_NOMOTION
+        d = 0;   /* HOST control only (tools/attacks_host --clear-check): the travel bound dropped */
+#endif
+#if defined(FZX_ATK_CLEAR_WINDOW)
+        const int32_t win = FZX_ATK_CLEAR_WINDOW * 256;   /* HOST control only: a window narrower than PRE_Q8 */
+#else
+        const int32_t win = PRE_Q8;
+#endif
+        if (g > win) { if ((int64_t)g + d >= (int64_t)length - win) return false; }
+        else if (g < -win) { if ((int64_t)g + d >= -(int64_t)win) return false; }
         else return false;
     }
     return true;

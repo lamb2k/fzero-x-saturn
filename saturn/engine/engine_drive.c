@@ -143,6 +143,7 @@ void fzx_drive_field_run(void) {
 void fzx_drive_contact_ahead(void) {
     if (ahead_ok || field_pending) return;
     if (fzx_e1_driver && ticks >= RACE_END_TICK) return;
+    if (fzx_e1_driver == 2u) return;   /* the scripted hunter reads the attack state before the next contact */
     fzx_atk_hold_hooks(true);
     fzx_atk_contact(&body, &ahead_contact);
     fzx_atk_hold_hooks(false);

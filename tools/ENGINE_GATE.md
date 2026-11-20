@@ -128,7 +128,11 @@ Never change a limit after seeing a result. A change needs the integrator, and t
   hashes, and an `exit` line. Set its path with `FZX_GATE_HARNESS` and the BIOS with `FZX_GATE_BIOS`.
 - **Stage.** WSL `yaul-image/claude-gate-*` in root's home (`FZX_YAUL_IMAGE`), driven by `tools/engine_gate/stage.sh`. Create one per lane
   with `--seed-stage <a stage with generated assets> --stage claude-gate-<lane>`.
-  - The seed's `generated/` is copied, not hard-linked, so other lanes' regenerations cannot reach it.
+  - **Never write through a hard link into another lane's stage.** The seed's `generated/` is copied (`cp -a`),
+    never hard-linked, and every regeneration happens in your own stage. `upstream/` (read-only) is the only
+    linked tree. Asset tools rewrite files in place, so a hard-linked `generated/` passes one lane's
+    regeneration to every stage sharing the inode. On 2026-11-20 the uncommitted line-field-4 `course_bundle.py`
+    rewrote the select bundle in three stages at once, and a clean `78e6a92` build there refused it as stale.
   - Each gated tree gets the SH2ZAM pin from `saturn/engine/sh2zam.pin` and the legacy submodule pin, both
     archived from `FZX_GATE_SH2ZAM`.
   - Builds in one stage run one after another. Harness runs run in parallel (`--jobs`).

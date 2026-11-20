@@ -1,9 +1,10 @@
-# Engine scenes: the boot-to-reset loop (DRAFT 4, 2026-11-19)
+# Engine scenes: the boot-to-reset loop (DRAFT 5, 2026-11-19)
 
 Interface between the scene manager and race scene (Opus, branch `claude/e3-scenes`) and the menu screens (Codex,
 branch `codex/e3-c8-screens`).
 - Draft 1 (e4ac275) answered C-064; draft 2 (16c00a9) carries C-065; draft 3 makes the guest gate per identity (C-066).
 - Draft 4 adds section 11, course selection and the Grand Prix cup (C-084, branch `claude/e3-cup`).
+- Draft 5 revises 11.3 to 11.7 per C-086: reference trigger and projection, outcomes and spare-machine transactions, manager transitions, canonical hashes.
 - Nothing binds until Codex agrees.
 
 Owner (2026-11-19): "Yes boot to reset loop should be in progress with loading screens".
@@ -325,7 +326,7 @@ A scene that needs a plain background asks `fzx_scene_back_colour(rgb)`.
 | Retirement: a reclaim before confirmed replacement is caught by a deliberate early-release control | Opus |
 | Sound: a pre-leave confirm plays once across the transition; post-leave posts rejected | Opus |
 
-## 11. Course catalog and Grand Prix cup (DRAFT 4, C-084)
+## 11. Course catalog and Grand Prix cup (DRAFT 5, C-084, C-086)
 
 Opus supplies the catalog, the entrants, one finalized classification per attempt, the spare-machine balance
 and the cup manager. Codex (C8) owns the points table, the total ranking and the standings screens.
@@ -383,82 +384,162 @@ typedef struct {
 typedef struct {
     uint32_t run_id;                                /* section 4 */
     uint8_t cup, round, course, count;              /* key: run_id + cup + round + course */
-    uint8_t player_place, player_reason, player_kos, valid;
-    uint32_t hash;                                  /* FNV-1a over the key and rows (determinism check) */
-    fzx_class_row_t row[FZX_ENTRANTS_MAX];          /* official order, place 1 first */
+    uint8_t outcome, player_place, player_kos, valid;   /* outcome: FZX_OUT_* (11.4) */
+    uint32_t result_hash, attempt_hash;             /* section 11.6 */
+    fzx_class_row_t row[FZX_ENTRANTS_MAX];          /* official order, place 1 first; rows [count..] zero */
 } fzx_classification_t;
-const fzx_classification_t *fzx_cup_classification(void);   /* const for RESULTS; RACE writes it once */
+const fzx_classification_t *fzx_cup_classification(void);   /* const for RESULTS */
 ```
 
-RACE finalizes it once, at its end, after the player's finish wait. It follows `func_8008AA8C` and
-`Racer_UpdateRacePositions`:
+**Trigger.** In GP, RACE finalizes the classification on the 442nd simulation tick after the player's finish. That is
+the official trigger: `menus.c` calls `func_8008AA8C` when `sPlayerFinishState` reaches
+`PLAYER_FINISH_SUCCESS_COMPLETE`, which is `sPlayerFinishTimer > sFinishedSuccessTime`, the sum of the five
+`gFinishedSuccessScript` times (88 + 23 + 23 + 23 + 284 = 441).
+- The loser camera (`CAMERA_MODE_FINISHED_LOSER`, timer > 300) occurs only in Time Attack and Death Race, so it never
+  triggers a GP classification.
+- Rivals race on until the trigger. Time Attack produces no classification, as in the original.
 
-- **Rivals keep racing until the trigger.** Rivals don't stop at the player's finish. In the HOST reference (original
-  code, player CPU-driven) rivals finish up to about 1,600 ticks after the player. At the results trigger, the
-  original then classifies every rival still running.
-- **A finished entrant** keeps its time.
-- **A rival still running** is classified with a projected time: elapsed × race distance ÷ distance raced.
-  Status is `FZX_CL_PROJECTED`, which ranks and scores like a finish.
-- **A retired entrant** has no time. Retired entrants go behind every classified row. A later retire ranks ahead of
-  an earlier one.
-- **Classified rows** sort by time, ascending. On equal times the higher entrant ID goes first, as in the original's
-  scan.
-- **Scoring:** only when the player finished. Every row from place 1 through the last row with a time has
-  `scoring = 1`; trailing retired rows have 0. A player retire or quit scores nobody.
-- Times come from the race tick (60 Hz), converted to ms one way for everyone. The player's row is the section 4
-  `race_ms`.
+**Inputs.** Each entrant's state at the trigger, in the original's terms (`Racer` fields):
 
-### 11.4 Spare machines and retry
+```c
+enum { FZX_CLIN_RUNNING = 0, FZX_CLIN_FINISHED, FZX_CLIN_FALLING, FZX_CLIN_RETIRED };
+typedef struct {
+    uint8_t entrant, state, position, laps_done;    /* position: Racer.position before the trigger (1-based) */
+    int32_t race_ms;                                /* Racer.raceTime: finish time, or the race clock if running */
+    int32_t lap_ms[3];                              /* Racer.lapTimes (0 = not completed) */
+    float race_distance;                            /* Racer.raceDistance, the course's units */
+    int32_t retire_frame;                           /* RETIRED: sRaceFrameCount when it retired */
+    uint8_t retire_position;                        /* RETIRED: Racer.position when it retired */
+} fzx_cl_in_t;
+```
 
-- **Cup start balance:** 5, 4, 3 or 2 by difficulty (`gTotalLives`).
-- **KO award:** the 5th KO in a race adds one. RACE counts the KOs in `player_kos`; the manager applies the award.
-- **Retire debit:** a player retire costs one. A pause-menu retry also costs one (`Menus_PayGpRestartLife`).
-- **Retry eligibility:** decided on the balance at race start, KO award included (`sPlayer1Lives > 0`). With 0 at
-  race start, a retire ends the cup (game over).
-- **One owner:** the manager applies every debit and award, once per `run_id`, in `fzx_cup_accept`. RACE and
-  RESULTS only read the balance.
+**Finalization.** It follows `func_8008AA8C`, `Racer_RetireRacer` and `Racer_UpdateRacePositions` in the original's
+arithmetic: `s32` times and `f32` distances, with `FLT_EVAL_METHOD` 0 on both HOST and the SH-2.
+- **Finished:** the row keeps its time.
+- **Retired:** a retired machine is crashed in the original's terms. Its time is 0, and it keeps the
+  `raceDistancePosition` it got when it retired: `(retire_frame + ((count - retire_position) / 10.0f)) - 600000.0f`.
+- **Falling:** a machine falling off the track is retired at finalization, with that formula at the trigger frame
+  and its current position.
+- **Running:** the row gets the reference projection and status `FZX_CL_PROJECTED`:
+  - `d = lap_ms[1] != 0 ? max(lap_ms[0] - lap_ms[1], 0) : 0`
+  - `time = (s32)(((race_ms - d) * laps) * course_length / race_distance) + d`
+  - The multiplication and division are `f32`, truncated toward zero, as in the source.
+- **Order** (`Racer_UpdateRacePositions`):
+  - Classified rows fill from place 1 by ascending time. On equal times the higher entrant goes ahead, because the
+    original scans from the last racer with a strict `<`.
+  - Retired rows fill from the last place forward by ascending `raceDistancePosition`. On equal values the higher
+    entrant goes further back.
+- **Scoring:** only when the player finished (outcome `FZX_OUT_FINISH`). Every place from 1 through the last row
+  with a nonzero time has `scoring = 1`. Every other row has 0.
+- **Times:** the race clock is ticks × 50 / 3 ms for everyone. The player's row is the section 4 `race_ms`.
+
+### 11.4 Attempt outcomes, spare machines and retry
+
+```c
+enum { FZX_OUT_FINISH = 1, FZX_OUT_RETIRE, FZX_OUT_QUIT, FZX_OUT_PAUSE_RETRY };
+typedef struct { int8_t balance, menu_lives; uint8_t kos, retry_locked; } fzx_cup_live_t;
+const fzx_cup_live_t *fzx_cup_live(void);   /* read-only, published during RACE */
+```
+
+| Event | Original | Applied by the manager |
+| --- | --- | --- |
+| Cup start | `gTotalLives[difficulty]`: 5, 4, 3, 2 | `balance` is set |
+| Race start | `sPlayer1Lives = gPlayerLives[0]` (`menus.c` init) | `menu_lives = balance`, `kos = 0` |
+| The 5th KO in a race | `gPlayerLives[0]++` and `sPlayer1Lives++` | `fzx_cup_race_ko(run_id)`: on the 5th, both +1, once per `run_id` |
+| A player retire | pending −1 (`D_800F80C4`), applied once at the menu change | at `fzx_cup_accept` of the RETIRE outcome |
+| A pause-menu retry | `Menus_PayGpRestartLife`, locked when `sPlayer1Lives <= 0` | the PAUSE_RETRY outcome: −1 once, then the same round restarts |
+| Quit | ends the cup | the QUIT outcome: no charge; the cup ends |
+
+- **Retry after a retire:** allowed when `menu_lives > 0`. A start at 0 plus the 5th KO allows a retry; 4 KOs don't.
+- **No second charge:** the retire has already paid, so RESULTS' RETRY costs nothing.
+- **Exhaustion:** with `menu_lives <= 0`, a retire ends the cup (game over).
+- **Pause retry:** RACE offers it only when `retry_locked` is 0.
+- **One owner:** RACE reports events (KOs, the attempt's outcome); only the manager changes the balance.
 
 ### 11.5 Cup manager (outside every arena)
 
 ```c
 typedef struct {
-    uint8_t active, cup, difficulty, round;          /* round 0..rounds-1 */
-    int8_t spares, spares_at_start;                  /* balance now; at the current race's start */
-    uint8_t retry_ok, ended;
-    uint32_t last_run_id;                            /* the last applied attempt */
+    uint8_t state, cup, difficulty, round;           /* FZX_CUP_IDLE .. FZX_CUP_OVER */
+    uint32_t generation, run_id, accepted_run_id;    /* the attempt racing; the attempt applied */
+    fzx_cup_live_t live;                             /* 11.4 */
     fzx_entrants_t entrants;
-    int32_t total[FZX_ENTRANTS_MAX];                 /* written only through the C8 scoring hook */
-    uint8_t last_place[FZX_ENTRANTS_MAX];            /* latest race position (C8's tie-break) */
+    int32_t total[FZX_ENTRANTS_MAX];                 /* written only through C8's scoring hook */
+    uint8_t last_place[FZX_ENTRANTS_MAX];            /* latest scored race position (C8's tie-break) */
+    uint8_t grid[FZX_ENTRANTS_MAX];                  /* next race's grid order (D_80115D50) */
+    fzx_classification_t last;                       /* the applied classification, kept through FINAL */
 } fzx_cup_t;
 const fzx_cup_t *fzx_cup(void);
-void fzx_cup_begin(uint8_t cup, uint8_t difficulty);  /* LOAD, on a confirmed GP session with no cup active */
-bool fzx_cup_accept(const fzx_classification_t *c);   /* applies once per run_id; false for a duplicate */
-enum { FZX_CUP_NEXT = 1, FZX_CUP_RETRY, FZX_CUP_END };
-bool fzx_cup_intent(uint32_t intent);                 /* RESULTS' only write */
-uint8_t fzx_cup_next_course(void);                    /* LOAD's course in GP */
-void fzx_cup_reset(void);                             /* soft reset, or a new cup */
 typedef void (*fzx_cup_score_fn)(const fzx_classification_t *c, int32_t total[FZX_ENTRANTS_MAX]);
 void fzx_cup_score_hook(fzx_cup_score_fn fn);        /* C8's points table */
+uint8_t fzx_cup_next_course(void);                    /* LOAD's course in GP; FZX_COURSE_NONE outside READY */
 ```
 
-- **Storage:** one static in low work RAM, next to the session. Scene arenas never hold cup state.
-- **Accepting a result:** `fzx_cup_accept` applies the spares, calls C8's hook once if the player finished, and
-  records `last_place`. A duplicate `run_id` changes nothing.
-- **Intents:**
-  - NEXT moves to the next round. After the last round the cup ends, and C8 shows the final standings before
-    leaving.
-  - RETRY replays the same course, only when `retry_ok`. Otherwise it is refused and the cup ends.
-  - END clears the cup and goes to TITLE.
-- **LOAD** takes the GP course from `fzx_cup_next_course()`. RESULTS never writes SELECT's session.
-- **Clearing:** a soft reset or a new cup clears the cup.
-- A player retire leaves the round and the prior totals intact.
+One static in low work RAM, next to the session: scene arenas never hold cup state. Section 4's `reason` gains
+`FZX_END_PAUSE_RETRY` (4), so the finish snapshot and the classification name the same four outcomes.
 
-### 11.6 Checks (Opus)
+**States:**
+
+| State | Meaning |
+| --- | --- |
+| `IDLE` | no cup |
+| `READY` | round r loads next |
+| `RACING` | attempt `run_id` is in progress |
+| `SCORED` | a finish has been applied |
+| `RETIRED` | a retire has been applied, and retry is allowed |
+| `FINAL` | after round 6's scored finish |
+| `OVER` | exhaustion or quit |
+
+**Transitions.** Each one checks its preconditions first, and changes nothing when they don't hold:
+
+| Call | From | Check | To |
+| --- | --- | --- | --- |
+| `fzx_cup_begin(cup, difficulty, entrants)` | any | the cup is defined; complete, unique entrants | `READY`, round 0 (clears everything first) |
+| `fzx_cup_race_start(run_id)` | `READY` | a new `run_id` | `RACING` |
+| `fzx_cup_race_ko(run_id)` | `RACING` | `run_id` is current | `RACING` |
+| `fzx_cup_accept(c)` | `RACING` | `run_id` is current; cup, round and course match; `count` equals the entrants; the entrant set is complete and unique; hashes valid | by outcome: FINISH → `SCORED`, or `FINAL` after the last round; RETIRE → `RETIRED`, or `OVER` on exhaustion; PAUSE_RETRY → `READY` (same round); QUIT → `OVER` |
+| `fzx_cup_intent(NEXT, run_id)` | `SCORED` | `run_id` is the accepted one | `READY`, round + 1 |
+| `fzx_cup_intent(RETRY, run_id)` | `RETIRED` | `run_id` is the accepted one | `READY`, same round, no charge |
+| `fzx_cup_intent(END, run_id)` | `FINAL`, `OVER`, `SCORED`, `RETIRED` | any | `IDLE` (cleared) |
+| `fzx_cup_reset()` | any | none | `IDLE`; the generation counter moves, so old results and intents are refused |
+
+- **Consumed once:** each result and each navigation is consumed once. A second accept of the same attempt, or a
+  delayed NEXT or RETRY carrying the old `run_id` after the state has moved on, is refused.
+- **Points and tie-breaks:**
+  - Only FINISH calls C8's scoring hook. It does so once, and also records `last_place` (C8's tie-break).
+  - RETIRE, PAUSE_RETRY and QUIT leave the totals and the places as they were.
+  - A scored finish can't be retried. The original's GP finish menu offers only the next course (`MENU_STATE_GP_NEXT_COURSE`); retry comes from the pause menu (PAUSE_RETRY) or the retire screen (RETIRED). So no points are banked twice.
+- **FINAL:** keeps the round-6 classification and the totals until END, for C8's final standings.
+- **Next grid:** NEXT keeps each entrant's finishing position for the next race's grid (`D_80115D50`, `menus.c`).
+- **RESULTS** writes only intents. **LOAD** takes the GP course from `fzx_cup_next_course()`. A soft reset calls
+  `fzx_cup_reset()`.
+
+### 11.6 Hashes and comparisons
+
+- **FNV-1a:** 32-bit, offset basis 2166136261, prime 16777619, over this byte sequence. Integers are little-endian
+  at their stated width.
+- **Result bytes:**
+  - Header: `cup` u8, `round` u8, `course` u8, `count` u8, `outcome` u8, `player_place` u8, `player_kos` u8.
+  - Then, for each of the `count` active rows in place order: `entrant` u8, `status` u8, `scoring` u8, `laps_done`
+    u8, `time_ms` u32.
+- **`result_hash`:** FNV-1a over the result bytes. It doesn't include `run_id`. It is the sporting comparison between
+  a cold race and a retry (same initial state and inputs).
+- **`attempt_hash`:** FNV-1a over `run_id` (u32) followed by the result bytes. It is the attempt's identity.
+- **Comparisons:** a determinism check compares `result_hash` and also every field of the header and the active rows
+  directly.
+- **HOST reference:** the HOST cup test compiles `func_8008AA8C`, `Racer_RetireRacer` and
+  `Racer_UpdateRacePositions` from the pinned decompilation. For each frozen case it compares the ordered rows,
+  times and scoring places against `fzx_classify` exactly.
+- **Frozen cases:** a positive `d`, a falling racer, equal times, close retirements, and a machine that hasn't left
+  the line.
+
+### 11.7 Checks (Opus)
 
 | Check | Tier |
 | --- | --- |
-| A scripted 6-round cup: ties, retired rivals, duplicate results, retry and exhaustion, and reset | HOST |
-| Classification determinism: same inputs, same rows and hash; cold race and retry give equal classifications | HOST, EMULATOR |
+| Frozen classification cases against the original functions (11.6) | HOST |
+| A scripted 6-round cup: ties, retired rivals, duplicate and delayed inputs, pause retry, retry and exhaustion (start at 0 with 5 KOs, and with 4), a finish that can't be retried, FINAL kept until END, and reset | HOST |
+| Classification determinism: cold race and retry give equal `result_hash` and equal rows | HOST, EMULATOR (GP trigger probe on course 0) |
 | The loop on course 0 with TA course select: cold and retry equal, 0 over two fields, soft reset | EMULATOR |
 | `ENG_SCENES=0` identity | EMULATOR (build) |
 

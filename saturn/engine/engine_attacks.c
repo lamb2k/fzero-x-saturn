@@ -13,6 +13,7 @@ static uint64_t pn(void) { struct timespec ts; clock_gettime(CLOCK_MONOTONIC, &t
 
 volatile uint32_t fzx_atk_difficulty = 1, fzx_atk_vis_gate = 1, fzx_atk_ai = 1;
 volatile uint32_t fzx_atk_report[16];
+volatile uint32_t fzx_atk_dmg_src[3][2];
 fzx_atk_ko_t fzx_atk_kos[FZX_ATK_KO_LOG];
 uint8_t fzx_atk_ko_count[FZX_ATK_MAX];
 int32_t fzx_atk_retire_tick[FZX_ATK_MAX];
@@ -96,6 +97,7 @@ void fzx_atk_init(const fzx_atk_field_t *f, uint32_t seed) {
     F = *f;
     memset(R, 0, sizeof(R));
     memset((void *)fzx_atk_report, 0, sizeof(fzx_atk_report));
+    memset((void *)fzx_atk_dmg_src, 0, sizeof(fzx_atk_dmg_src));
     memset(fzx_atk_kos, 0, sizeof(fzx_atk_kos));
     memset(fzx_atk_ko_count, 0, sizeof(fzx_atk_ko_count));
     for (uint32_t i = 0; i < FZX_ATK_MAX; ++i) { fzx_atk_retire_tick[i] = -1; fzx_atk_retire_place[i] = 0; }
@@ -314,6 +316,10 @@ void fzx_atk_contact(const sh2z_vd_body_t *p, sh2z_vd_contact_t *out) {
             r->hit_t = HIT_TICKS;
             F.veh[i].flags |= SH2Z_VEH_EXTERNAL;
         }
+        if (b->damage > 0) {
+            const int src = b->hit || (b->flags & SH2Z_BC_ATTACK) ? 1 : 0;
+            fzx_atk_dmg_src[src][0]++; fzx_atk_dmg_src[src][1] += (uint32_t)((b->damage + 128) >> 8);
+        }
         damage_rival(p, i, b->damage);
     }
     PROF(5);
@@ -387,7 +393,10 @@ static void move_external(const sh2z_vd_body_t *p, uint32_t i) {
             lv -= m16(lv, (r->mode & M_SPUN) ? BOUNCE_SPIN : BOUNCE);
             t->speed = m16(t->speed, WALL_KEEP);
             ++fzx_atk_report[13];
-            if (into > WALL_MIN) damage_rival(p, i, m16(into << 8, WALL_DAMAGE));
+            if (into > WALL_MIN) {
+                fzx_atk_dmg_src[2][0]++; fzx_atk_dmg_src[2][1] += (uint32_t)((m16(into << 8, WALL_DAMAGE) + 128) >> 8);
+                damage_rival(p, i, m16(into << 8, WALL_DAMAGE));
+            }
         }
     }
     t->lateral = lat;
@@ -432,7 +441,10 @@ void fzx_atk_move(const sh2z_vd_body_t *p) {
             const int32_t into = iabs(r->push_lat);
             lat = lat > 0 ? at.half_width : -at.half_width;
             ++fzx_atk_report[13];
-            if (into > WALL_MIN) damage_rival(p, i, m16(into << 8, WALL_DAMAGE));
+            if (into > WALL_MIN) {
+                fzx_atk_dmg_src[2][0]++; fzx_atk_dmg_src[2][1] += (uint32_t)((m16(into << 8, WALL_DAMAGE) + 128) >> 8);
+                damage_rival(p, i, m16(into << 8, WALL_DAMAGE));
+            }
         }
         v->t.lateral = lat;
         v->t.speed += r->push_fwd;

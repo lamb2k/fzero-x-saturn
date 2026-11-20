@@ -63,6 +63,8 @@ extern volatile uint32_t fzx_atk_ai;          /* 1: CPU attacks on (default) */
  * by CPUs, [8] attack hits, [9] damage held at 0.1 off screen, [10] player damage total Q8, [11] external
  * rivals now, [12] player attacks that hit, [13] wall hits of external rivals, [14] state hash, [15] ticks. */
 extern volatile uint32_t fzx_atk_report[16];
+/* Rival damage by source (counters only): [0] contact, [1] attack, [2] wall; incidents and energy Q8. */
+extern volatile uint32_t fzx_atk_dmg_src[3][2];
 /* KO log: tick (field ticks since the start), victim, attacker (0 the player). */
 typedef struct { uint32_t tick; uint8_t victim, attacker, reserved[2]; } fzx_atk_ko_t;
 extern fzx_atk_ko_t fzx_atk_kos[FZX_ATK_KO_LOG];

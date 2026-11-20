@@ -136,7 +136,7 @@ Checked per lane merge by the lane itself, and audited per milestone:
 
 ## 7. Lessons carried in from the MvC and AvP Saturn ports (2026-11-19)
 
-Sources: `E:\MvC\mvcsaturn\docs\notes\CAPREF.md` (a study of Capcom's own Saturn MvC), `AVP-REFERENCE.md` and MvC `docs/STATUS.md`.
+Sources: the MvC repository's `docs/notes/CAPREF.md` (a study of Capcom's own Saturn MvC), `AVP-REFERENCE.md` and MvC `docs/STATUS.md`.
 
 1. **Emulator margin.**
    - On the AvP project the console measured about 36% worse than the emulator model.

@@ -11,7 +11,7 @@
  * per reference draw) gives every draw the reference's side on the tick it is drawn (C-092 scorer).
  * The trace has the reference's columns (ref/duel_main.c). --mutate plants one rule change for the
  * class controls: impact1.2, push2.5, share-swap, spin140, credit-off, heavy9, heavy5, reach45, and
- * opp-player (racer 1 with the player's spline search, as --opponent-search player).
+ * opp-player (racer 1 with the player's spline search, as --opponent-search player), no-destroy.
  *
  * --pairlog FILE (C-092): per tick, the pair test as the body-contact rule decided it, from the
  * inputs it read (logging only; d2 and closing repeat sh2z_bc_pair's integer terms):
@@ -133,7 +133,8 @@ int main(int argc, char **argv) {
     else if (!strcmp(mutate, "reach45")) br.reach = Q16(45.0);
     else if (!strcmp(mutate, "heavy9")) br.heavy_gain = Q16(9.0);
     else if (!strcmp(mutate, "heavy5")) br.heavy_gain = Q16(5.0);
-    else if (!strcmp(mutate, "opp-player")) opp_cpu = 0;   /* the control for the opponent's search */
+    else if (!strcmp(mutate, "opp-player")) opp_cpu = 0;
+    else if (!strcmp(mutate, "no-destroy")) { }   /* the control: a crashed machine is never destroyed */   /* the control for the opponent's search */
     else if (*mutate) die("unknown mutation");
     sh2z_vd_body_t b[2] = { course[0].start, course[1].start };
     /* --nudge N: racer 0 starts N Q16 LSB to the side (the sensitivity probe: native against itself). */
@@ -148,7 +149,7 @@ int main(int argc, char **argv) {
     if (!credit) bc[1].toucher = -1;   /* the control: no contact is credited, the seeded one included */
     bool was_touching = touching != 0;
     int32_t regain = regain_pending ? course[0].vehicle.max_energy / 8 : 0;
-    int kos = 0;
+    int kos = 0, gone[2] = { 0, 0 };
     /* The buttons held on tick T (the duel bake carries no pad state): edges from T + 1 on are the reference's. */
     uint16_t prev[2] = { (uint16_t)pads_b[0][from], (uint16_t)pads_b[1][from] };
     FILE *tf = trace ? fopen(trace, "w") : NULL;
@@ -189,6 +190,14 @@ int main(int argc, char **argv) {
                     (ev & SH2Z_BC_EV_TOUCH) != 0, (ev & SH2Z_BC_EV_FIRST) != 0, (ev & SH2Z_BC_EV_PUSH) != 0, bc[0].hit, bc[1].hit,
                     (long)bc[0].damage, (long)bc[1].damage);
         was_touching = (ev & SH2Z_BC_EV_TOUCH) != 0;
+        /* A crashed machine hit for more than 25 is destroyed (Racer_ReceiveDamage): it leaves the pair
+         * test and is no longer updated. The engine's rivals do the same (M_GONE). */
+        for (int k = 0; k < 2; ++k)
+            if ((b[k].flags & (SH2Z_VD_CRASHED | SH2Z_VD_ACTIVE)) == (SH2Z_VD_CRASHED | SH2Z_VD_ACTIVE) && bc[k].damage > Q16(25.0) &&
+                strcmp(mutate, "no-destroy") != 0) {
+                b[k].flags &= ~SH2Z_VD_ACTIVE;
+                gone[k] = 1;
+            }
         const uint32_t spin_before = b[1].flags & SH2Z_VD_SPINNING, spin_before0 = b[0].flags & SH2Z_VD_SPINNING;
         for (int k = 0; k < 2; ++k) {
             const uint16_t btn = (uint16_t)pads_b[k][t];
@@ -198,6 +207,7 @@ int main(int argc, char **argv) {
             in.released = fzx_phys_buttons_n64((uint16_t)((prev[k] ^ btn) & prev[k]));
             in.stick_x = (int8_t)pads_x[k][t]; in.stick_y = 0;
             prev[k] = btn;
+            if (gone[k]) continue;
             sh2z_vd_contact_t c;
             c.push[0] = bc[k].push[0]; c.push[1] = bc[k].push[1]; c.push[2] = bc[k].push[2];
             c.damage = bc[k].damage; c.hit = bc[k].hit; c.regain = k == 0 ? regain : 0;

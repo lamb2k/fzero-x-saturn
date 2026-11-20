@@ -85,6 +85,17 @@ static int hunt_dir;
 
 static int32_t m16(int32_t a, int32_t b) { return (int32_t)(((int64_t)a * b + 0x8000) >> 16); }
 static int32_t iabs(int32_t v) { return v < 0 ? -v : v; }
+/* a * k (k Q16, below 1) rounded toward zero: a decay that reaches 0. Rounded to nearest, a crashed
+ * rival's Q8 speed stalls at 29 (0.113 units a tick) where the original's keeps shrinking, so the wreck
+ * crept on forever and never came to rest (SH2Z_VEH_STOPPED). FZX_ATK_WRECK_NEAREST=1 is the control. */
+static int32_t decay(int32_t a, int32_t k) {
+#if defined(FZX_ATK_WRECK_NEAREST) && FZX_ATK_WRECK_NEAREST
+    return m16(a, k);
+#else
+    const int32_t m = (int32_t)(((int64_t)iabs(a) * k) >> 16);
+    return a < 0 ? -m : m;
+#endif
+}
 static uint32_t rnd(void) { rng ^= rng << 13; rng ^= rng >> 17; rng ^= rng << 5; return rng; }
 static int32_t mul30(int32_t a, int32_t b) { return (int32_t)(((int64_t)a * b) >> 30); }
 static int32_t total_of(const sh2z_vehicle_t *v) { return v->t.lap * F.line->length + v->t.dist; }
@@ -272,7 +283,9 @@ void fzx_atk_contact(const sh2z_vd_body_t *p, sh2z_vd_contact_t *out) {
         }
         const rival_t *r = &R[i];
         const sh2z_vehicle_t *v = &F.veh[i];
-        if ((r->mode & M_GONE) || (v->flags & SH2Z_VEH_STOPPED)) continue;
+        /* A wreck at rest stays a body (the original keeps a retired racer ACTIVE in its pair loop at a
+         * third of its strength); only a destroyed one leaves contact. */
+        if (r->mode & M_GONE) continue;
         int16_t (*rows)[3] = pose_rows[i];
         F.pose(&v->t, b->pos, rows);
         const int32_t lv = (r->mode & M_EXT) ? r->lv : v->t.lat_vel;
@@ -358,7 +371,7 @@ static void move_external(const sh2z_vd_body_t *p, uint32_t i) {
     sh2z_track_state_t *t = &v->t;
     int32_t lv = r->lv;
     /* Speed: coasting while spinning out or crashed; otherwise the engine holds the agent's target. */
-    if (r->mode & M_CRASHED) t->speed = m16(t->speed, KEEP_CRASHED), lv = m16(lv, KEEP_CRASHED);
+    if (r->mode & M_CRASHED) t->speed = decay(t->speed, KEEP_CRASHED), lv = decay(lv, KEEP_CRASHED);
     else if (r->mode & M_SPUN) t->speed = m16(t->speed, KEEP_SPIN), lv = m16(lv, KEEP_SPIN);
     else {
         const int32_t want = F.brain[i].target_speed;

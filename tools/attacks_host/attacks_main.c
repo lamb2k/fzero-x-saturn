@@ -152,6 +152,19 @@ int main(int argc, char **argv) {
 #ifdef ATK_PROF
     { extern uint64_t atk_prof[8]; fprintf(stderr, "contact parts ns/tick: begin %.0f sort %.0f candidates %.0f bodies %.0f resolve %.0f outputs %.0f\n", (double)atk_prof[0] / t, (double)atk_prof[1] / t, (double)atk_prof[2] / t, (double)atk_prof[3] / t, (double)atk_prof[4] / t, (double)atk_prof[5] / t); }
 #endif
+    {   /* wrecks: retired rivals, those at rest, and the fastest still moving (units a tick) */
+        const fzx_atk_field_t *af = fzx_atk_field();
+        unsigned wrecks = 0, rest = 0;
+        int32_t creep = 0;
+        for (uint32_t i = 1; i < af->count; ++i) {
+            const sh2z_vehicle_t *v = &af->veh[i];
+            if (!(v->flags & SH2Z_VEH_RETIRED) || (v->flags & SH2Z_VEH_FINISHED)) continue;
+            ++wrecks;
+            if (v->flags & SH2Z_VEH_STOPPED) ++rest;
+            else if (v->t.speed > creep) creep = v->t.speed;
+        }
+        printf("wrecks %u at_rest %u fastest_moving %.4f\n", wrecks, rest, creep / 256.0);
+    }
     printf("damage sources (rivals): contact %u / %.1f, attack %u / %.1f, wall %u / %.1f\n", fzx_atk_dmg_src[0][0],
            fzx_atk_dmg_src[0][1] / 256.0, fzx_atk_dmg_src[1][0], fzx_atk_dmg_src[1][1] / 256.0, fzx_atk_dmg_src[2][0],
            fzx_atk_dmg_src[2][1] / 256.0);

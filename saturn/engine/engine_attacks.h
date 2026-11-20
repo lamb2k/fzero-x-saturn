@@ -113,4 +113,20 @@ extern uint32_t fzx_atk_chk[FZX_ATK_CHECKPOINTS];
  * Writes the N64 button word (A held; Z or R for the double tap) and the stick; returns 1 when it
  * has a target. Deterministic, from the player's state and the field only. */
 int fzx_atk_hunter(const sh2z_vd_body_t *player, uint16_t *buttons, int8_t *stick);
+#ifndef ENG_FX
+#define ENG_FX 0
+#endif
+#if ENG_FX
+/* Race effects (engine_fx.c, lane claude/fx) read the attack state and never write it. */
+enum { FZX_ATK_FX_EXT = 1, FZX_ATK_FX_SIDE = 2, FZX_ATK_FX_SPIN = 4, FZX_ATK_FX_KNOCK = 8, FZX_ATK_FX_SPUN = 16,
+       FZX_ATK_FX_CRASHED = 32, FZX_ATK_FX_GONE = 64 };
+/* Rival i's mode (FZX_ATK_FX_* bits), its spin-out timer and its attack side (+1 right). */
+uint32_t fzx_atk_fx_mode(uint32_t i, int32_t *spin_t, int32_t *dir);
+/* The contact field of the last fzx_atk_contact (bodies, pair history, tick). */
+const sh2z_bc_field_t *fzx_atk_fx_contacts(void);
+/* Bit i set: rival i has a mode the effects follow (anything but FZX_ATK_FX_EXT alone). */
+uint32_t fzx_atk_fx_busy(void);
+/* Called on each wall hit of a rival driven here: side +1 right, -1 left; into Q8 per tick. */
+extern void (*volatile fzx_atk_fx_wall)(uint32_t i, int32_t side, int32_t into);
+#endif
 #endif

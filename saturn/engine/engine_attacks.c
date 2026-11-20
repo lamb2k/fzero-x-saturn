@@ -112,6 +112,23 @@ static int32_t total_of(const sh2z_vehicle_t *v) { return v->t.lap * F.line->len
 static uint32_t race_ticks(void) { return F.field->started ? F.field->tick - F.field->start_tick : 0u; }
 
 const fzx_atk_field_t *fzx_atk_field(void) { return &F; }
+#if ENG_FX
+void (*volatile fzx_atk_fx_wall)(uint32_t i, int32_t side, int32_t into);
+uint32_t fzx_atk_fx_mode(uint32_t i, int32_t *spin_t, int32_t *dir) {
+    if (i >= F.count) { *spin_t = 0; *dir = 0; return 0; }
+    *spin_t = R[i].spin_t; *dir = R[i].dir;
+    return R[i].mode;
+}
+const sh2z_bc_field_t *fzx_atk_fx_contacts(void) { return &bcf; }
+uint32_t fzx_atk_fx_busy(void) {
+    uint32_t m = 0;
+    for (uint32_t i = 1; i < F.count && i < 32u; ++i) if (R[i].mode & ~M_EXT) m |= 1u << i;
+    return m;
+}
+#define FX_WALL(i, side, into) do { if (fzx_atk_fx_wall) fzx_atk_fx_wall((i), (side), (into)); } while (0)
+#else
+#define FX_WALL(i, side, into) do { } while (0)
+#endif
 bool fzx_atk_external(uint32_t i) { return i < F.count && (R[i].mode & M_EXT) != 0; }
 
 void fzx_atk_init(const fzx_atk_field_t *f, uint32_t seed) {
@@ -488,6 +505,7 @@ static void move_external(const sh2z_vd_body_t *p, uint32_t i) {
             t->speed = m16(t->speed, WALL_KEEP);
             ++fzx_atk_report[13];
             if (into > WALL_MIN) {
+                FX_WALL(i, lat > 0 ? 1 : -1, into);
                 fzx_atk_dmg_src[2][0]++; fzx_atk_dmg_src[2][1] += (uint32_t)((m16(into << 8, WALL_DAMAGE) + 128) >> 8);
                 damage_rival(p, i, m16(into << 8, WALL_DAMAGE));
             }
@@ -536,6 +554,7 @@ void fzx_atk_move(const sh2z_vd_body_t *p) {
             lat = lat > 0 ? at.half_width : -at.half_width;
             ++fzx_atk_report[13];
             if (into > WALL_MIN) {
+                FX_WALL(i, lat > 0 ? 1 : -1, into);
                 fzx_atk_dmg_src[2][0]++; fzx_atk_dmg_src[2][1] += (uint32_t)((m16(into << 8, WALL_DAMAGE) + 128) >> 8);
                 damage_rival(p, i, m16(into << 8, WALL_DAMAGE));
             }

@@ -33,6 +33,12 @@
 uint16_t fzx_atk_prof[FZX_ATK_PROF_ROWS][FZX_ATK_PROF_COLS];
 uint32_t fzx_atk_prof_row = FZX_ATK_PROF_ROWS;
 #endif
+#ifndef ENG_FX
+#define ENG_FX 0
+#endif
+#if ENG_FX
+#include "engine_fx.h"
+#endif
 
 #ifndef ENG_ATK_DEFER
 #define ENG_ATK_DEFER 0
@@ -108,6 +114,13 @@ static unsigned field_pending;
  * after the slave's kick, in the original order. field_contacts counts the contacts queued. */
 static uint8_t field_contact[FIELD_PENDING_MAX];
 static unsigned field_contacts;
+#if ENG_FX && ENG_ATK_DEFER
+/* With effects, a queued contact's effects tick (fzx_fx_tick) runs right after it, and the
+ * player's effects for that tick (fzx_fx_player) just before the field entry of its post-step
+ * state (field_fxp[k]: 1, plus 2 if accelerate was pressed): the effects see the same states in
+ * the same order as with the contact live. */
+static uint8_t field_fxp[FIELD_PENDING_MAX];
+#endif
 #if ENG_ATK_DEFER
 /* [0] contacts deferred, [1] live, [2] deferred with a player output (must stay 0), [3] deferral tests,
  * [4] contacts run ahead, [5] ahead contacts taken, [6] ahead contact found with a queue (must stay 0). */
@@ -129,9 +142,19 @@ void fzx_drive_field_run(void) {
 #if ENG_ATK_DEFER
             if (c.push[0] | c.push[1] | c.push[2] | c.damage | c.hit | c.regain) ++fzx_atk_defer_report[2];
 #endif
-        } else
+#if ENG_FX && ENG_ATK_DEFER
+            fzx_fx_tick(&field_bodies[k]);
+            fzx_fx_live(&body);   /* the frame's emit reads the live state */
 #endif
+        } else {
+#if ENG_FX && ENG_ATK_DEFER
+            if (field_fxp[k]) fzx_fx_player(&field_bodies[k], course.vehicle.max_energy, (field_fxp[k] & 2u) != 0u);
+#endif
+            fzx_field_tick(&field_bodies[k]);
+        }
+#else
         fzx_field_tick(&field_bodies[k]);
+#endif
         fzx_field_sim_ticks += (uint16_t)(cpu_frt_count_get() - f0);
     }
     field_pending = 0;
@@ -179,7 +202,8 @@ static void step_once(sh2z_vd_input_t *in) {
      * frame still steps after the kick). With ENG_ATK_DEFER, this tick's contact instead waits behind
      * the one field tick still queued when it provably gives the player nothing
      * (fzx_atk_player_clear); both then run after the slave's kick, in the original order. */
-    bool deferred = false;
+    bool deferred = false, queued = false;
+    (void)queued;
 #if ENG_ATK_DEFER
     if (ahead_ok) {
         ahead_ok = 0;
@@ -195,7 +219,7 @@ static void step_once(sh2z_vd_input_t *in) {
         if (fzx_atk_player_clear(&body, pd, pl, true)) {
             field_bodies[field_pending] = body; field_contact[field_pending] = 1u; ++field_pending; ++field_contacts;
             memset(&contact, 0, sizeof(contact));
-            deferred = true;
+            deferred = true; queued = true;
             ++fzx_atk_defer_report[0];
         }
     }
@@ -211,11 +235,19 @@ static void step_once(sh2z_vd_input_t *in) {
         fzx_atk_contact(&body, &contact);
     }
 #else
+    const bool queued = false;
     fzx_atk_contact(&body, &contact);
+#endif
+#if ENG_FX
+    if (!queued) fzx_fx_tick(&body); /* race effects: read only (engine_fx.c); a queued contact's run after it */
 #endif
     APROF_T(ps);
     phys_step_contact(&course, &body, &fzx_phys_rules, in, &contact);
     APROF(5, ps);
+#if ENG_FX
+    const bool accel = (in->pressed & SH2Z_VD_BTN_ACCEL) != 0u;
+    if (!queued) fzx_fx_player(&body, course.vehicle.max_energy, accel);
+#endif
 #else
     APROF_T(ps);
     fzx_phys_step(&course, &body, &fzx_phys_rules, in);
@@ -229,6 +261,9 @@ static void step_once(sh2z_vd_input_t *in) {
     if (field_pending >= FIELD_PENDING_MAX) fzx_drive_field_run();
 #if ENG_ATTACKS
     field_contact[field_pending] = 0;
+#if ENG_FX && ENG_ATK_DEFER
+    field_fxp[field_pending] = queued ? (uint8_t)(1u | (accel ? 2u : 0u)) : 0u;
+#endif
 #endif
     field_bodies[field_pending++] = body;
 #elif E1_FIELD
@@ -1163,6 +1198,47 @@ static bool shadow_place(sh2z_rspr_place_t *place, const int32_t ground[3], cons
 }
 #endif
 
+#if ENG_FX
+/* Race effects (engine_fx.c): the attack highlight shell of a car drawn behind it (racer.c 7148:
+ * the machine again, scaled about its centre, in one colour). From the car's own commands: each
+ * distorted sprite (colour table) and polygon or line, its corners scaled about the centre of all
+ * of them, colour replaced, no colour calculation. Returns the commands written (0: no shell). */
+static unsigned shell_cmds(vdp1_cmdt_t *dst, unsigned room, const vdp1_cmdt_t *src, unsigned m, uint32_t id) {
+    uint16_t colr, rgb; int32_t scale;
+    if (!m || m > room || !fzx_fx_shell(id, &colr, &rgb, &scale)) return 0;
+    int32_t x0 = INT32_MAX, x1 = INT32_MIN, y0 = INT32_MAX, y1 = INT32_MIN;
+    for (unsigned k = 0; k < m; ++k) {
+        const unsigned type = src[k].cmd_ctrl & 15u;
+        if (type != 2u && type != 4u && type != 5u && type != 6u) continue;
+        for (unsigned v = 0; v < 4u; ++v) {
+            const int32_t x = src[k].cmd_vertices[v].x, y = src[k].cmd_vertices[v].y;
+            if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
+        }
+    }
+    if (x0 > x1) return 0;
+    const int32_t cx = (x0 + x1) >> 1, cy = (y0 + y1) >> 1;
+    unsigned w = 0;
+    for (unsigned k = 0; k < m; ++k) {
+        const unsigned type = src[k].cmd_ctrl & 15u;
+        const unsigned mode = (src[k].cmd_pmod >> 3) & 7u;
+        if (!(type == 2u && mode == 1u) && type != 4u && type != 5u && type != 6u) continue;
+        vdp1_cmdt_t *c = &dst[w++];
+        *c = src[k];
+        c->cmd_ctrl = (uint16_t)(c->cmd_ctrl & 0x0fffu & ~0x7000u);   /* jump next, no end */
+        c->cmd_pmod = (uint16_t)(c->cmd_pmod & ~7u);                  /* replace: no Gouraud, no half */
+        c->cmd_colr = type == 2u ? colr : rgb;
+        for (unsigned v = 0; v < 4u; ++v) {
+            c->cmd_vertices[v].x = (int16_t)(cx + (((c->cmd_vertices[v].x - cx) * scale) >> 16));
+            c->cmd_vertices[v].y = (int16_t)(cy + (((c->cmd_vertices[v].y - cy) * scale) >> 16));
+        }
+    }
+    return w;
+}
+#define SHELL_SPRITE(c) do {         if (LIST_USED < capacity) {             commands[out] = commands[out - 1u];             if (shell_cmds(&commands[out - 1u], 1u, &commands[out], 1u, (c)->id)) ++out; else commands[out - 1u] = commands[out];         } } while (0)
+#else
+#define SHELL_SPRITE(c) do { } while (0)
+#endif
+
 unsigned fzx_drive_cars(vdp1_cmdt_t *commands, unsigned capacity, const fzx_view_t *view, const fzx_engine_cam_t *cam,
                         const fzx_field_car_t *cars, unsigned n, const vdp1_cmdt_t *const *staged, const uint16_t *staged_n) {
     if (fzx_e1_status != 1 || capacity < 2u) { ++fzx_e1_report[11]; return 0; }
@@ -1430,6 +1506,9 @@ unsigned fzx_drive_cars(vdp1_cmdt_t *commands, unsigned capacity, const fzx_view
 #endif
         if (c->is3d) {
             const unsigned m = staged_n[c->slot];
+#if ENG_FX
+            if (m && LIST_USED + 2u * m <= capacity) out += shell_cmds(&commands[out], m, staged[c->slot], m, c->id);
+#endif
 #if E2_EMIT_LINK
             if (m && LIST_USED + m <= capacity) {
                 if (out > seg_start) { fzx_emit_segs[fzx_emit_nsegs].src = &commands[seg_start]; fzx_emit_segs[fzx_emit_nsegs++].n = out - seg_start; }
@@ -1481,6 +1560,7 @@ unsigned fzx_drive_cars(vdp1_cmdt_t *commands, unsigned capacity, const fzx_view
                 car_cell[c->id] = pick.cell; car_prof[c->id] = items[i].prof; car_has_cell[c->id] = 1;
                 ++fzx_e2_roster[2 + items[i].prof];
                 ++out; ++sprites;
+                SHELL_SPRITE(c);
             } else ++fzx_field_draw[3];
             continue;
         }
@@ -1515,6 +1595,7 @@ unsigned fzx_drive_cars(vdp1_cmdt_t *commands, unsigned capacity, const fzx_view
             car_cell[c->id] = pick.cell; car_has_cell[c->id] = 1;
             if (c->id == 0) { fzx_e1_sprite_pos[0] = (uint32_t)(int32_t)items[i].place.x; fzx_e1_sprite_pos[1] = (uint32_t)(int32_t)items[i].place.y; }
             ++out; ++sprites;
+            SHELL_SPRITE(c);
         } else ++fzx_field_draw[3];
         EP(7);
     }

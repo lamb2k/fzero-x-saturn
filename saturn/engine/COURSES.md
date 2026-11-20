@@ -98,6 +98,12 @@ whose rival sets stay on the cartridge and reach VDP1 only through the slot pool
 
 A pack that would reach the 3D player or the pool is refused at load (fail 35 past the partition, fail 51 on overlap).
 
+With `ENG_FX=1` (race effects, claude/fx) the effects' block sits just below the 3D player region: eight 32-byte
+highlight colour tables then FX.PAK (13,728 B: explosion, spark and smoke frames, booster glow and tail, their colour
+tables and the flying-spark Gouraud table), 13,984 B in all. Scenes image: 0x57b60..0x5b200 (tables 0x57b60, FX.PAK
+0x57c60); field image: 0x59da0..0x5d440. Headroom per course falls by 13,984 B (Silence: 66,400 B). A block that would
+meet the track is refused at load (fail 51); a failed FX.PAK read is fail 55.
+
 ## 4. Course features the engine does not handle yet
 
 | Feature | Courses | State |

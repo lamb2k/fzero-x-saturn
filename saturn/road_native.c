@@ -30,7 +30,7 @@ enum { ROOT_ENTRIES=256 };
 #elif FZX_SOURCE_COUNTDOWN
 enum { ROOT_ENTRIES=32 };
 #elif ENG_COURSE_SELECT
-enum { ROOT_ENTRIES=64 }; /* every bundled course's packs */
+enum { ROOT_ENTRIES=96 }; /* every bundled course's packs (six courses x 10 + the image's own) */
 #else
 enum { ROOT_ENTRIES=16 };
 #endif

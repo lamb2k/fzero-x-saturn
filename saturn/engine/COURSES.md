@@ -324,3 +324,60 @@ Blue's PHYS.PAK; both images refuse it (status 50).
 - Next card: a line-field change that gives tube spans no edge and a wrapped lateral, and a per-point
   shape in RIVALS.PAK. It also needs the 3D placement of rivals round the tube; today they sit on
   the road plane.
+
+## 9. The Jack Cup on one disc (lane `claude/jack`, 2026-11-20)
+
+EMULATOR tier (Ymir headless); timings MODELLED; hardware UNRUN. Evidence: `fzx-evidence/host/claude-jack/`.
+
+**Integration.** `claude/jack` = engine c07f6cf (cup, balance) + `claude/courses` c4d9d0a + `claude/tubes` f1381f4.
+- **SH2ZAM pin:** `claude/jack-train` 8449e35 = `claude/courses-pin` cff480b (main 5a94dbe + line-field-3, PR #53)
+  + `claude/vehicle-dynamics-2` 5248fed (PR #54). Its library sources equal merge train 7 (main 1181c07 + #54);
+  repin to main when #56 lands.
+- **One catalog.** The cup's catalog (`engine_cup.c`, SCENES.md 11.1) decides what a build can race. The courses
+  lane's table became `fzx_course_info` (cup, round, music, name). LOAD selects the packs of the course it loads
+  (`fzx_course_use(load_course)`), so a GP round would load its own; probe `0x2nn` moves the select cursor.
+- **Six courses on the disc.** `tools/course_bundle.py` bundles all six (60 course files, 81 root entries) and
+  writes `FZX_COURSE_BUNDLE_MASK`. The CD file list grows to 96 entries; the scenes image keeps it in `kept[]`
+  (bss), so the 4 KB CD scratch no longer holds a list there. `ENG_TUBES` is on in this image: vehicle-dynamics-2
+  gives road shapes vehicle-dynamics-1's bits (HOST checkpoints on the four road courses identical with either).
+- **Default.** `ENG_COURSE_SELECT=1` is now the scenes default (default `ENG_COURSE`); `=0` builds the single-course
+  scenes image.
+
+**Each course from the same image** (scenes image in driver mode, `ENG_SCENES=1 FZX_E1_DRIVE=1 E1_DRIVER=1`, BIN
+1fad0b2f; the default scenes image without `E1_DRIVER` is d426166b). Chosen in select (probe), raced to RESULTS.
+Frames from tick 420.
+
+| Course | Race | HOST checkpoints | Intervals | Master p99 | Critical path p99 | Slave p99 | VDP1 p99 | Cold LOAD |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Mute City | 104,040 ms | 27/27 | 3,258 x 2F | 24.3 ms | 24.73 ms | 21.6 ms | 12.5 ms | 322 fields |
+| Silence | 90,563 ms | 23/23 | 2,853 x 2F | 24.3 ms | 24.42 ms | 20.8 ms | 9.1 ms | 320 |
+| Sand Ocean | 92,553 ms | 24/24 | 2,913 x 2F | 24.9 ms | 26.58 ms | 24.6 ms | 11.2 ms | 325 |
+| Devil's Forest | 108,038 ms | 28/28 | 3,378 x 2F | 23.6 ms | 23.97 ms | 20.7 ms | 15.5 ms | 316 |
+| Big Blue | 126,928 ms | 32/32 | 3,944 x 2F | 22.0 ms | 23.12 ms | 16.9 ms | 9.0 ms | 323 |
+| Port Town (R01 nominal) | retires, as HOST | 25/25 | 3,091 x 2F | 22.9 ms | 23.46 ms | 20.5 ms | 14.0 ms | 330 |
+
+- Every race time equals the HOST reference's (`fzx-phys --checkpoints 256`, tubes build, these packs).
+- Sand Ocean has the highest critical path (26.58 ms p99) and slave (24.6 ms): the pipes show the most track.
+
+**Memory** (RESULTS dumps).
+- **VDP1:** section 3's map holds; the two new courses: Sand Ocean track texels 0x0cca0..0x3e3a0 (202,496 B),
+  headroom 114,272 B; Big Blue 0x0cca0..0x37db0 (176,400 B), headroom 140,368 B. Silence stays the largest (80,384 B
+  headroom).
+- **Low work RAM:** the path pack (largest Port Town, 566,708 B of the 573,440 B region), CD scratch 0x28c000, input
+  log 0x28d000, track workspace end 0x2a3da0 at most (Sand Ocean), then the frame rows (6,289 rows of room, 4,155
+  used on Big Blue).
+- **High work RAM:** bss 0x0604a140..0x060ebf40; master stack unused 76,324 B at least.
+
+**Controls.**
+- **Corrupt packs** (one byte flipped on the disc, Sand Ocean): EPATH2 17 (a header byte: the drive reads only the
+  header and the lens record, so a middle byte is never read), ROAD2 34, RLOD2 35, RLTX2 35, RPREP2 35, SKYL2 30,
+  PLANE2 31, FCHR2 32, FLOORMAP 32, FLOORKOF 32, PHYS2 50, RIV2 50; Big Blue PHYS4 50.
+- **Determinism:** a second run of Sand Ocean and Big Blue gives the same RESULTS picture, the same scene report and
+  the same low work RAM; high work RAM differs only in the SMPC OREG buffer.
+
+**Identity.**
+- E0 BIN 9d4db29d, unchanged. Legacy recipe BIN 4b4cacb2 (sha256 4b4cacb26d22...), byte-identical.
+- **Mute City field image** (`FZX_E1_DRIVE=1 E1_DRIVER=1`): 104,040 ms, HOST checkpoints 36/36 and the final state
+  identical, 4,519 x 2F. Pixel hash 9750aeb61b9128fb with the balance defaults; with `ENG_BAL_CLOUDS=0
+  ENG_BAL_EARLY=0 ENG_BAL_PREWARM=0` it is c8d8ff834422fd3, line-field-3's hash (as line-field-2's 84b959e1 became
+  994dd847 with the balance on).

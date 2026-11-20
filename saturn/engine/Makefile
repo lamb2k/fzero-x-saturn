@@ -214,10 +214,11 @@ COURSE_INDEX_devils-forest-1 := 3
 COURSE_INDEX_big-blue-1 := 4
 COURSE_INDEX_port-town-1 := 5
 # ENG_COURSE_SELECT=1 (scenes images): one disc carries every bundled course's packs (tools/course_bundle.py,
-# generated/courses/select) and LOAD takes the set of session.course through the course catalog
-# (engine_courses.c, fzx_course_catalog), with that course's music. Build it with the default ENG_COURSE.
-# 0 builds the images as before.
-ENG_COURSE_SELECT ?= 0
+# generated/courses/select; the Jack Cup bundles all six) and LOAD takes the set of the course to race
+# (the cup catalog, engine_cup.c, opens the bundled rows), with that course's music (engine_courses.c).
+# The default for scenes images with the default ENG_COURSE (claude/jack, 2026-11-20: all six courses
+# race exact from one image); 0 builds the single-course scenes image as before.
+ENG_COURSE_SELECT ?= $(if $(and $(filter 1,$(ENG_SCENES)),$(filter mute-city-1,$(ENG_COURSE))),1,0)
 # Tubes (lane claude-tub, saturn/engine/COURSES.md 6): pipes and cylinders in the player's physics
 # (SH2ZAM vehicle-dynamics-2, physics pack v3 with joins). On by default for the Jack Cup's two tube
 # courses; ENG_TUBES=0 builds them with vehicle-dynamics-1, which refuses their v3 packs (the
@@ -461,7 +462,7 @@ else
 SH_CFLAGS += -I$(G)/$(E1_REBAKE) -I$(G)/$(E1_VEHICLE)
 endif
 # 16 root files plus MACHAB.PAK: the CD loader reads up to 32 root entries (default 16).
-SH_CFLAGS += $$(if $$(filter %/texture_cd.c,$$<),-DFZX_TEXTURE_CD_ROOT_ENTRIES=$(if $(filter 1,$(ENG_COURSE_SELECT)),64,32),)
+SH_CFLAGS += $$(if $$(filter %/texture_cd.c,$$<),-DFZX_TEXTURE_CD_ROOT_ENTRIES=$(if $(filter 1,$(ENG_COURSE_SELECT)),96,32),)
 SH_CFLAGS += $$(if $$(filter engine_closeup.c %/fzx_vehicle.c %/fzx_vehicle_draw.c,$$<),-DFZX_SOURCE_CAMERA=1 -DFZX_SOURCE_MACHINE=1 -DFZX_VEHICLE_NATIVE=1 -DFZX_VEHICLE_FAST=1 -DFZX_VEHICLE_POSE1=1,)
 SH_CFLAGS += $$(if $$(filter %/sh2zam_view_indexed.c %/sh2zam_pose.c,$$<),-fno-lto,)
 endif

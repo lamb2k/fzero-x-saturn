@@ -249,7 +249,7 @@ def far_records(mesh, quads, length):
                               zero_chord_error=sum(x == 0 for x in errors))
 
 
-def build(mesh, source_sha, fog):
+def build(mesh, source_sha, fog, texture_limit=TEXTURE_LIMIT):
     if len(source_sha) != 32 or len(fog) != 3 or any(not 0 <= c <= 255 for c in fog):
         raise ArtError('Invalid source identity or fog')
     if mesh.get('format') != 'fzx-source-road-v1':
@@ -294,10 +294,10 @@ def build(mesh, source_sha, fog):
     struct.pack_into('>16I', metadata, 88, *counts, *offsets)
     metadata[152:156] = bytes([*fog, 255])
     struct.pack_into('>I', metadata, 20, fnv(metadata))
-    if len(metadata) > PACK_LIMIT or len(textures) > TEXTURE_LIMIT:
+    if len(metadata) > PACK_LIMIT or len(textures) > texture_limit:
         raise ArtError('Road bake exceeds pack/texture budget: %d / %d' % (len(metadata), len(textures)))
     report = dict(format='FZXRLD01', vertices=len(vertices), quads=len(quads), chunks=counts[2], strips=len(strips),
-                  metadata_bytes=len(metadata), metadata_limit=PACK_LIMIT, texture_bytes=len(textures), texture_limit=TEXTURE_LIMIT,
+                  metadata_bytes=len(metadata), metadata_limit=PACK_LIMIT, texture_bytes=len(textures), texture_limit=texture_limit,
                   unshared_texture_bytes=unshared, source_sha256=source_sha.hex(), metadata_sha256=hashlib.sha256(metadata).hexdigest(),
                   texture_sha256=hashlib.sha256(textures).hexdigest(),
                   modes=dict(Counter(i['mode'] for i in image_reports)),
@@ -308,7 +308,7 @@ def build(mesh, source_sha, fog):
                                'CLUT4 only within one RGB5 channel step in every fog variant; otherwise RGB1555',
                                'exact shared texture/palette bytes stored once',
                                'far endpoint candidates retain chord error; runtime merge remains unqualified'])
-    validate(bytes(metadata), textures)
+    validate(bytes(metadata), textures, texture_limit)
     return bytes(metadata), textures, report
 
 
@@ -320,7 +320,7 @@ def checked_hash(data, offset):
         raise ArtError('Road content checksum mismatch')
 
 
-def validate(metadata, textures):
+def validate(metadata, textures, texture_limit=TEXTURE_LIMIT):
     """Validate bounds and reconstruct every repetition from compact source UVs."""
     if len(metadata) < HEADER_BYTES or metadata[:8] != b'FZXRLD01' or len(textures) < 64 or textures[:8] != b'FZXRTX01':
         raise ArtError('Invalid road bake header')
@@ -337,7 +337,7 @@ def validate(metadata, textures):
     nv, nq, nc, ns, ni, nf2, nf4, nt = counts
     if not all((nv, nq, nc, ns)) or ni != ns*5 or nt != len(textures):
         raise ArtError('Invalid road section counts')
-    if len(metadata) > PACK_LIMIT or nt > TEXTURE_LIMIT or struct.unpack_from('>2I', textures, 56) != (ni, 64):
+    if len(metadata) > PACK_LIMIT or nt > texture_limit or struct.unpack_from('>2I', textures, 56) != (ni, 64):
         raise ArtError('Invalid road budget/image header')
     section_counts = (nv, nq, nq, nc, ns, ni, nf2, nf4)
     cursor = HEADER_BYTES
@@ -434,16 +434,16 @@ def validate(metadata, textures):
     return counts, offsets
 
 
-def generate(source, output):
+def generate(source, output, pack=ROOT/'generated/road_pack', texture_limit=TEXTURE_LIMIT):
     output_location(output)
-    for receipt in (source/'road.receipt', ROOT/'generated/road_pack/road_pack.receipt'):
+    for receipt in (source/'road.receipt', pack/'road_pack.receipt'):
         subprocess.run(['bash', str(ROOT/'tools/check_receipt.sh'), str(receipt)], check=True)
     data = (source/'road.json').read_bytes()
     source_sha = hashlib.sha256(data).digest()
-    manifest = json.loads((ROOT/'generated/road_pack/manifest.json').read_text())
+    manifest = json.loads((pack/'manifest.json').read_text())
     if manifest['source_sha256'] != source_sha.hex():
         raise ArtError('Road bake source differs from admitted course')
-    metadata, textures, report = build(json.loads(data), source_sha, manifest['environment']['course_fog'])
+    metadata, textures, report = build(json.loads(data), source_sha, manifest['environment']['course_fog'], texture_limit)
     output.mkdir(parents=True, exist_ok=True)
     (output/'ROADLOD.PAK').write_bytes(metadata)
     (output/'ROADLTX.PAK').write_bytes(textures)
@@ -457,7 +457,7 @@ def generate(source, output):
     (output/'road_lod_identity.h').write_bytes(identity.encode())
     dependencies = [Path(__file__), ROOT/'tools/road_lod_census.py', ROOT/'tools/road_tiles.py', ROOT/'tools/road_pack.py',
                     ROOT/'tools/import_source_art.py', source/'road.receipt', source/'road.json',
-                    ROOT/'generated/road_pack/road_pack.receipt', ROOT/'generated/road_pack/manifest.json']
+                    pack/'road_pack.receipt', pack/'manifest.json']
     digest = lambda p: hashlib.sha256(p.read_bytes()).hexdigest()
     receipt = ['# fzx generation receipt v1; regenerate, never edit']
     receipt += ['generator %s %s' % (digest(p), os.path.relpath(p, ROOT/'tools')) for p in dependencies]
@@ -470,5 +470,9 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--source', type=Path, default=ROOT/'generated/road')
     parser.add_argument('--output', type=Path, default=ROOT/'generated/road_bake')
+    parser.add_argument('--pack', type=Path, default=ROOT/'generated/road_pack', help='road_pack.py output for this course')
+    # The engine image places the track textures in VDP1 VRAM below the 3D player and the sprite slots and
+    # refuses a pack that reaches them at load (engine_main.c fail 35/51); the first course's 150,000 B stays the default.
+    parser.add_argument('--texture-limit', type=int, default=TEXTURE_LIMIT, help='texture pack budget in bytes')
     args = parser.parse_args()
-    generate(args.source, args.output)
+    generate(args.source, args.output, args.pack, args.texture_limit)

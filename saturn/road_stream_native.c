@@ -1,4 +1,5 @@
 #include "road_stream_native.h"
+#include "course_select.h"
 #include "road_stream_commands.h"
 #include "road_lod_identity.h"
 #include "texture_cd.h"
@@ -107,26 +108,26 @@ volatile uint32_t fzx_road_prep_report[4]; /* [0] 1 adopted, 2+n table n refused
 static bool prep_table(const char *what,uint32_t at,uint32_t bytes,uint32_t hash,void *dest,uintptr_t scratch,uint32_t scratch_bytes,uint32_t code){
     (void)what;
     if(((uintptr_t)dest&3u)){fzx_road_prep_report[0]=10;return false;}
-    if(!fzx_texture_cd_load_range("ROADPREP.PAK",FZX_ROAD_PREP_BYTES,at,bytes,hash,dest,(void *)scratch,scratch_bytes)){
+    if(!fzx_texture_cd_load_range(CNAME(FZX_CF_RPREP,"ROADPREP.PAK"),CSEL(prep_bytes,FZX_ROAD_PREP_BYTES),at,bytes,hash,dest,(void *)scratch,scratch_bytes)){
         fzx_road_prep_report[0]=code;return false;}
     return true;
 }
 static bool road_prepare(fzx_road_stream_draw_work_t *w,void *vram,uintptr_t scratch,uint32_t scratch_bytes){
-    static uint32_t nunit[(FZX_ROAD_PREP_NUNIT_BYTES+3u)/4u];
-    if(FZX_ROAD_PREP_LOD_HASH!=FZX_ROAD_LOD_FILE_HASH||FZX_ROAD_PREP_LTX_HASH!=FZX_ROAD_LOD_TEXTURE_FILE_HASH||
-       FZX_ROAD_PREP_QUADS!=pack.count[FZX_RLD_QUADS]||FZX_ROAD_PREP_CHUNKS!=pack.count[FZX_RLD_CHUNKS]||
-       FZX_ROAD_PREP_IMAGES!=pack.count[FZX_RLD_IMAGES]||FZX_ROAD_PREP_STRIPS>256u||
-       FZX_ROAD_PREP_NPOS_BYTES>w->npos_capacity*sizeof(*w->npos)){fzx_road_prep_report[0]=9;return false;}
-    if(!prep_table("nunit",FZX_ROAD_PREP_NUNIT_AT,FZX_ROAD_PREP_NUNIT_BYTES,FZX_ROAD_PREP_NUNIT_HASH,nunit,scratch,scratch_bytes,2)||
-       !prep_table("npos",FZX_ROAD_PREP_NPOS_AT,FZX_ROAD_PREP_NPOS_BYTES,FZX_ROAD_PREP_NPOS_HASH,w->npos,scratch,scratch_bytes,3)||
-       !prep_table("nquads",FZX_ROAD_PREP_NQUADS_AT,FZX_ROAD_PREP_NQUADS_BYTES,FZX_ROAD_PREP_NQUADS_HASH,w->nquads,scratch,scratch_bytes,4)||
-       !prep_table("nspans",FZX_ROAD_PREP_NSPANS_AT,FZX_ROAD_PREP_NSPANS_BYTES,FZX_ROAD_PREP_NSPANS_HASH,w->nspans,scratch,scratch_bytes,5)||
-       !prep_table("nchunks",FZX_ROAD_PREP_NCHUNKS_AT,FZX_ROAD_PREP_NCHUNKS_BYTES,FZX_ROAD_PREP_NCHUNKS_HASH,w->nchunks,scratch,scratch_bytes,6)||
-       !prep_table("images",FZX_ROAD_PREP_IMAGES_AT,FZX_ROAD_PREP_IMAGES_BYTES,FZX_ROAD_PREP_IMAGES_HASH,w->images,scratch,scratch_bytes,7))
+    static uint32_t nunit[(CMAX(FZX_COURSE_MAX_PREP_NUNIT_BYTES,FZX_ROAD_PREP_NUNIT_BYTES)+3u)/4u];
+    if(CSEL(prep_lod_hash,FZX_ROAD_PREP_LOD_HASH)!=CSEL(lod_file_hash,FZX_ROAD_LOD_FILE_HASH)||CSEL(prep_ltx_hash,FZX_ROAD_PREP_LTX_HASH)!=CSEL(lod_tex_file_hash,FZX_ROAD_LOD_TEXTURE_FILE_HASH)||
+       CSEL(prep_quads,FZX_ROAD_PREP_QUADS)!=pack.count[FZX_RLD_QUADS]||CSEL(prep_chunks,FZX_ROAD_PREP_CHUNKS)!=pack.count[FZX_RLD_CHUNKS]||
+       CSEL(prep_images,FZX_ROAD_PREP_IMAGES)!=pack.count[FZX_RLD_IMAGES]||CSEL(prep_strips,FZX_ROAD_PREP_STRIPS)>256u||
+       CSEL(prep[1].bytes,FZX_ROAD_PREP_NPOS_BYTES)>w->npos_capacity*sizeof(*w->npos)){fzx_road_prep_report[0]=9;return false;}
+    if(!prep_table("nunit",CSEL(prep[0].at,FZX_ROAD_PREP_NUNIT_AT),CSEL(prep[0].bytes,FZX_ROAD_PREP_NUNIT_BYTES),CSEL(prep[0].hash,FZX_ROAD_PREP_NUNIT_HASH),nunit,scratch,scratch_bytes,2)||
+       !prep_table("npos",CSEL(prep[1].at,FZX_ROAD_PREP_NPOS_AT),CSEL(prep[1].bytes,FZX_ROAD_PREP_NPOS_BYTES),CSEL(prep[1].hash,FZX_ROAD_PREP_NPOS_HASH),w->npos,scratch,scratch_bytes,3)||
+       !prep_table("nquads",CSEL(prep[2].at,FZX_ROAD_PREP_NQUADS_AT),CSEL(prep[2].bytes,FZX_ROAD_PREP_NQUADS_BYTES),CSEL(prep[2].hash,FZX_ROAD_PREP_NQUADS_HASH),w->nquads,scratch,scratch_bytes,4)||
+       !prep_table("nspans",CSEL(prep[3].at,FZX_ROAD_PREP_NSPANS_AT),CSEL(prep[3].bytes,FZX_ROAD_PREP_NSPANS_BYTES),CSEL(prep[3].hash,FZX_ROAD_PREP_NSPANS_HASH),w->nspans,scratch,scratch_bytes,5)||
+       !prep_table("nchunks",CSEL(prep[4].at,FZX_ROAD_PREP_NCHUNKS_AT),CSEL(prep[4].bytes,FZX_ROAD_PREP_NCHUNKS_BYTES),CSEL(prep[4].hash,FZX_ROAD_PREP_NCHUNKS_HASH),w->nchunks,scratch,scratch_bytes,6)||
+       !prep_table("images",CSEL(prep[5].at,FZX_ROAD_PREP_IMAGES_AT),CSEL(prep[5].bytes,FZX_ROAD_PREP_IMAGES_BYTES),CSEL(prep[5].hash,FZX_ROAD_PREP_IMAGES_HASH),w->images,scratch,scratch_bytes,7))
         return false;
     const uint16_t *u=(const uint16_t *)(const void *)nunit;
-    for(unsigned s=0;s<FZX_ROAD_PREP_STRIPS;++s)w->nunit[s]=u[s];
-    if(!fzx_road_stream_draw_adopt(w,&pack,vram,FZX_ROAD_LOD_TEXTURE_BYTES,FZX_ROAD_PREP_NPOS_COUNT)){fzx_road_prep_report[0]=8;return false;}
+    for(unsigned s=0;s<CSEL(prep_strips,FZX_ROAD_PREP_STRIPS);++s)w->nunit[s]=u[s];
+    if(!fzx_road_stream_draw_adopt(w,&pack,vram,CSEL(lod_tex_bytes,FZX_ROAD_LOD_TEXTURE_BYTES),CSEL(prep_npos_count,FZX_ROAD_PREP_NPOS_COUNT))){fzx_road_prep_report[0]=8;return false;}
     fzx_road_prep_report[0]=1;return true;
 }
 #endif
@@ -139,18 +140,18 @@ bool fzx_road_stream_load(void *vram){
     const uintptr_t pixels=(uintptr_t)vram,base=(uintptr_t)VDP1_VRAM(0);
     if(scratch<0x00200000u||log!=((scratch+FZX_TEXTURE_CD_SCRATCH_RESERVE+63u)&~(uintptr_t)63u)||
        fzx_texture_cd_scratch_bytes()>log-32u-scratch||pixels<base||pixels>base+0x80000u||
-       (pixels&7u)||FZX_ROAD_LOD_TEXTURE_BYTES>base+0x80000u-pixels)return false;
+       (pixels&7u)||CSEL(lod_tex_bytes,FZX_ROAD_LOD_TEXTURE_BYTES)>base+0x80000u-pixels)return false;
     const uintptr_t cart=(uintptr_t)dram_cart_area_get(),limit=cart+dram_cart_size_get();
     const uintptr_t meta=aligned((uintptr_t)fzx_native_road.data+fzx_native_road.bytes+63u);
-    const uintptr_t mend=aligned(meta+FZX_ROAD_LOD_BYTES);
+    const uintptr_t mend=aligned(meta+CSEL(lod_bytes,FZX_ROAD_LOD_BYTES));
     if(dram_cart_id_get()!=DRAM_CART_ID_4MIB||fzx_road_load_status.status!=1||
        (uintptr_t)fzx_native_road.data!=cart||meta<cart||mend<meta||mend>limit-32u)return false;
     void *metadata=(void *)meta;
     fzx_road_stream_cart_start=(uint32_t)meta;fzx_road_stream_cart_end=(uint32_t)mend;
     for(unsigned i=0;i<8;++i){((volatile uint32_t *)meta)[(int)i-8]=GUARD;((volatile uint32_t *)mend)[i]=GUARD;}
-    if(!fzx_texture_cd_load("ROADLOD.PAK",FZX_ROAD_LOD_BYTES,FZX_ROAD_LOD_FILE_HASH,
+    if(!fzx_texture_cd_load(CNAME(FZX_CF_RLOD,"ROADLOD.PAK"),CSEL(lod_bytes,FZX_ROAD_LOD_BYTES),CSEL(lod_file_hash,FZX_ROAD_LOD_FILE_HASH),
           metadata,(void *)scratch,log-32u-scratch)||
-       !fzx_road_stream_open(&pack,metadata,FZX_ROAD_LOD_BYTES,FZX_ROAD_LOD_FILE_HASH,FZX_ROAD_LOD_TEXTURE_BYTES)){
+       !fzx_road_stream_open(&pack,metadata,CSEL(lod_bytes,FZX_ROAD_LOD_BYTES),CSEL(lod_file_hash,FZX_ROAD_LOD_FILE_HASH),CSEL(lod_tex_bytes,FZX_ROAD_LOD_TEXTURE_BYTES))){
         fzx_road_stream_status=3;return false;
     }
 #if FZX_ROAD_STREAM_WORK_HIGH
@@ -181,7 +182,7 @@ bool fzx_road_stream_load(void *vram){
 #if FZX_ROAD_STREAM_CLUSTERS
     {   void *cl=reserve(&at,FZX_ROAD_CLUSTER_BYTES,1);
         if(!cl||!fzx_texture_cd_load("ROADCL.PAK",FZX_ROAD_CLUSTER_BYTES,FZX_ROAD_CLUSTER_FILE_HASH,cl,(void *)scratch,log-32u-scratch)||
-           !fzx_road_stream_clusters_open(&clusters,cl,FZX_ROAD_CLUSTER_BYTES,FZX_ROAD_CLUSTER_FILE_HASH,&pack,FZX_ROAD_LOD_FILE_HASH)){
+           !fzx_road_stream_clusters_open(&clusters,cl,FZX_ROAD_CLUSTER_BYTES,FZX_ROAD_CLUSTER_FILE_HASH,&pack,CSEL(lod_file_hash,FZX_ROAD_LOD_FILE_HASH))){
             fzx_road_stream_status=6;work=NULL;return false;}
         work->clusters=&clusters;
     }
@@ -194,19 +195,19 @@ bool fzx_road_stream_load(void *vram){
         ((volatile uint32_t *)(uintptr_t)fzx_road_stream_low_end)[i]=GUARD;
         fzx_input_log[12288u+i]=GUARD;
     }
-    if(!fzx_texture_cd_load("ROADLTX.PAK",FZX_ROAD_LOD_TEXTURE_BYTES,FZX_ROAD_LOD_TEXTURE_FILE_HASH,
+    if(!fzx_texture_cd_load(CNAME(FZX_CF_RLTX,"ROADLTX.PAK"),CSEL(lod_tex_bytes,FZX_ROAD_LOD_TEXTURE_BYTES),CSEL(lod_tex_file_hash,FZX_ROAD_LOD_TEXTURE_FILE_HASH),
           vram,(void *)scratch,log-32u-scratch)||
 #if FZX_ROAD_PREP_BAKED
        !road_prepare(work,vram,scratch,log-32u-scratch)){
 #else
-       !fzx_road_stream_draw_prepare(work,&pack,vram,FZX_ROAD_LOD_TEXTURE_BYTES,FZX_ROAD_LOD_TEXTURE_FILE_HASH)){
+       !fzx_road_stream_draw_prepare(work,&pack,vram,CSEL(lod_tex_bytes,FZX_ROAD_LOD_TEXTURE_BYTES),CSEL(lod_tex_file_hash,FZX_ROAD_LOD_TEXTURE_FILE_HASH))){
 #endif
         fzx_road_stream_status=3;return false;
     }
     if(!fzx_road_stream_guards()){fzx_road_stream_status=5;return false;}
     fzx_road_stream_report[2]=(uint32_t)(uintptr_t)work;
     fzx_road_stream_report[3]=(uint32_t)(uintptr_t)packets;
-    fzx_road_stream_report[7]=(uint32_t)pixels;fzx_road_stream_report[8]=FZX_ROAD_LOD_TEXTURE_BYTES;
+    fzx_road_stream_report[7]=(uint32_t)pixels;fzx_road_stream_report[8]=CSEL(lod_tex_bytes,FZX_ROAD_LOD_TEXTURE_BYTES);
     fzx_road_stream_report[11]=sizeof(*work);fzx_road_stream_report[12]=sizeof(*packets);
     fzx_road_stream_report[13]=sizeof(fzx_road_stream_stats);
     fzx_road_stream_report[16]=(uint32_t)(uintptr_t)work->remap;
@@ -233,7 +234,7 @@ bool fzx_road_stream_native(vdp1_cmdt_t *commands,unsigned capacity,const fzx_vi
     fzx_road_stream_emit_t emit;sh2z_view_center_t center;fzx_road_stream_budget_t info;
     const uint32_t budget=capacity-1<FZX_ROAD_STREAM_BUDGET_COMMANDS-1u?capacity-1:FZX_ROAD_STREAM_BUDGET_COMMANDS-1u;
     FZX_RSP(EYE);
-    if(!fzx_road_stream_emit_setup(&emit,commands+1,capacity-1,pixels,FZX_ROAD_LOD_TEXTURE_BYTES,
+    if(!fzx_road_stream_emit_setup(&emit,commands+1,capacity-1,pixels,CSEL(lod_tex_bytes,FZX_ROAD_LOD_TEXTURE_BYTES),
           shades,FZX_ROAD_STREAM_SHADE_BYTES)||
 #if FZX_ROAD_STREAM_CAMERA30
        !fzx_road_stream_camera_view(&center,&fzx_source_camera,view)||
@@ -255,7 +256,7 @@ bool fzx_road_stream_native(vdp1_cmdt_t *commands,unsigned capacity,const fzx_vi
     sh2z_view_center_t center;
     FZX_RSP(EYE);
 #endif
-    if(!fzx_road_stream_emit_setup(&emit,commands+1,capacity-1,pixels,FZX_ROAD_LOD_TEXTURE_BYTES,
+    if(!fzx_road_stream_emit_setup(&emit,commands+1,capacity-1,pixels,CSEL(lod_tex_bytes,FZX_ROAD_LOD_TEXTURE_BYTES),
           shades,FZX_ROAD_STREAM_SHADE_BYTES)||
 #if FZX_ROAD_STREAM_CAMERA30
        !fzx_road_stream_camera_view(&center,&fzx_source_camera,view)||
@@ -268,7 +269,7 @@ bool fzx_road_stream_native(vdp1_cmdt_t *commands,unsigned capacity,const fzx_vi
     emitted=n;
 #else
     if(!fzx_road_stream_draw(work,view,eye,plan,pa,pb,0,packets,capacity-1,&n,&fzx_road_stream_stats)||
-       !fzx_road_stream_commands(commands+1,capacity-1,packets,n,pixels,FZX_ROAD_LOD_TEXTURE_BYTES,
+       !fzx_road_stream_commands(commands+1,capacity-1,packets,n,pixels,CSEL(lod_tex_bytes,FZX_ROAD_LOD_TEXTURE_BYTES),
           shades,FZX_ROAD_STREAM_SHADE_BYTES,&emitted)||emitted!=n){
         fzx_road_stream_status=4;fzx_road_stream_busy=0;return false;
     }

@@ -12,10 +12,19 @@ enum { ROOT_ENTRIES=FZX_TEXTURE_CD_ROOT_ENTRIES };
 enum { ROOT_ENTRIES=16 };
 #endif
 
+/* Stream builds (scenes) keep the root list in kept[] and never read the scratch's list; once
+ * the list outgrows the 4 KB scratch (the one-disc image's 96 entries) the scratch drops it. */
+#if FZX_CD_STREAM && !FZX_SOURCE_MACHINE_MENU && !FZX_SOURCE_COUNTDOWN && defined(FZX_TEXTURE_CD_ROOT_ENTRIES) && FZX_TEXTURE_CD_ROOT_ENTRIES > 64
+#define SCRATCH_LIST 0
+#else
+#define SCRATCH_LIST 1
+#endif
 typedef struct {
     uint32_t guard_before[8];
     sector_buffer_t sector;
+#if SCRATCH_LIST
     cdfs_filelist_entry_t entries[ROOT_ENTRIES];
+#endif
     uint32_t guard_after[8];
 } scratch_t;
 _Static_assert(sizeof(scratch_t)+32u<=FZX_TEXTURE_CD_SCRATCH_RESERVE,

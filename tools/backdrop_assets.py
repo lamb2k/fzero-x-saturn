@@ -20,6 +20,7 @@ from import_course import DECOMP_COMMIT, UPSTREAM_COMMIT, extract_rom_course, no
 from import_source_art import (ArtError, DECOMP, ROOT, YAML, bounded, decode_texture,
                                metadata, output_location, rgb1555, verify_source)
 from road_environment import course_fog
+import course_catalog
 
 SOURCE = "src/overlays/ovl_i3/background.c"
 HEADER = "src/overlays/ovl_i3/background.h"
@@ -59,23 +60,31 @@ def initializer(source, declaration):
     return re.sub(r"//[^\n]*|/\*.*?\*/", "", match[1], flags=re.S)
 
 
-def bindings(source, header, course):
-    """Select the first stock course. Unsupported venues fail explicitly."""
-    if len(course) != 0x7E0 or course[2:4] != b"\0\0":
+def bindings(source, header, course, course_index=0):
+    """Bind the course's venue floor, skybox and skyline list (the first course by default)."""
+    if len(course) != 0x7E0 or not 0 <= course[2] <= 10 or not 0 <= course[3] <= 7:
+        raise ArtError("Backdrop needs a course record with a stock venue and skybox")
+    venue, skybox = course[2], course[3]
+    if course_index == 0 and (venue, skybox) != (0, 0):
         raise ArtError("Backdrop slice requires Mute City venue and Purple sky")
-    fog = course_fog(source, header, 0)
+    fog = course_fog(source, header, skybox)
     layout = re.search(r'typedef struct CourseVenueFloor\s*\{(.*?)\}\s*CourseVenueFloor;', header, re.S)
     if not layout or re.findall(r'\b(\w+)\s*;', layout[1]) != ['texture','xScale','zScale','xScrollSpeed','zScrollSpeed']:
         raise ArtError("Source venue-floor layout changed")
     floors = re.findall(r"&([A-Za-z_]\w*)", initializer(source, r"CourseVenueFloor\* sCourseVenueFloors\[\]"))
     if len(floors) != 11 or floors[0] != "sVenueFloorMuteCity":
         raise ArtError("Source venue selection changed")
-    floor = [x.strip() for x in initializer(source, r"CourseVenueFloor " + floors[0]).split(",")]
-    if len(floor) != 5 or floor[0] != "aVenueMuteCityTex":
+    floor = [x.strip() for x in initializer(source, r"CourseVenueFloor " + floors[venue]).split(",")]
+    if len(floor) != 5 or floor[0] != "aVenue" + floors[venue][len("sVenueFloor"):] + "Tex":
         raise ArtError("Source floor binding changed")
     floor_numbers = [float(x.removesuffix("f")) for x in floor[1:]]
     sky = [x.strip() for x in initializer(source, r"CourseSkyboxes " + fog['symbol']).split(",")]
-    if len(sky) != 11 or sky[0] != "aSkyboxPurpleTex" or sky[-1] != "SKYBOX_CLOUDY":
+    if len(sky) != 11 or sky[0] != "aSkybox" + fog['symbol'][len("sSkybox"):] + "Tex":
+        raise ArtError("Source sky binding changed")
+    flags = sorted(f.strip() for f in sky[-1].split("|"))
+    if flags not in (["SKYBOX_CLOUDY"], ["SKYBOX_NIGHTTIME", "SKYBOX_STARRY"]):
+        raise ArtError("Unsupported source sky flags")
+    if skybox == 0 and (sky[0], flags) != ("aSkyboxPurpleTex", ["SKYBOX_CLOUDY"]):
         raise ArtError("Source Purple sky binding changed")
     colors = [int(x, 0) for x in sky[1:-1]]
     if any(not 0 <= c <= 255 for c in colors):
@@ -84,10 +93,10 @@ def bindings(source, header, course):
     lists = re.findall(r"\b(sBackgroundSpriteInit\w+)\b", table)
     if len(lists) != 24 or lists[0] != "sBackgroundSpriteInitMuteCity":
         raise ArtError("Source course skyline selection changed")
-    body = initializer(source, r"BackgroundSpriteInitData " + lists[0] + r"\[\]")
+    body = initializer(source, r"BackgroundSpriteInitData " + lists[course_index] + r"\[\]")
     entries = re.findall(r"\{\s*(BG_SPRITE_\w+)\s*,\s*(-?[0-9]+(?:\.[0-9]+)?)f\s*\}", body)
     residue = re.sub(r"\{\s*BG_SPRITE_\w+\s*,\s*-?[0-9]+(?:\.[0-9]+)?f\s*\}", "", body)
-    if residue.replace(",", "").strip() or len(entries) != 7 or entries[-1] != ("BG_SPRITE_END", "0.0"):
+    if residue.replace(",", "").strip() or not 2 <= len(entries) <= 7 or entries[-1] != ("BG_SPRITE_END", "0.0"):
         raise ArtError("Unsupported source skyline list")
     # Bind by the actual C enum/table index, never by the explanatory comments.
     enum = re.search(r"typedef enum BackgroundSpriteId\s*\{(.*?)\}\s*BackgroundSpriteId;", header, re.S)
@@ -122,9 +131,9 @@ def bindings(source, header, course):
     )
     if any(x not in source for x in required):
         raise ArtError("Source backdrop initialization wiring changed")
-    return dict(course_index=0, venue=0, skybox=0,
+    return dict(course_index=course_index, venue=venue, skybox=skybox,
                 floor=dict(texture=floor[0], scale=floor_numbers[:2], scroll_speed=floor_numbers[2:]),
-                sky=dict(texture=sky[0], flags=sky[-1], course_fog=colors[:3],
+                sky=dict(texture=sky[0], flags=" | ".join(f.strip() for f in sky[-1].split("|")), course_fog=colors[:3],
                          racer_fog_override=colors[3:6],
                          racer_fog=colors[:3] if colors[3:6] == [0,0,0] else colors[3:6],
                          sprite_rgb=colors[6:9]),
@@ -183,13 +192,14 @@ def read_asset(rom, rows, name):
                 source_offset=ROM_BASE+offset, source_bytes=size, source_sha256=sha(data)), data
 
 
-def export(rom, out, decomp=DECOMP):
+def export(rom, out, decomp=DECOMP, slug=course_catalog.DEFAULT):
     output_location(out)
-    course, provenance = extract_rom_course(rom)
+    course_catalog.register(slug)
+    course, provenance = extract_rom_course(rom, slug)
     normalized, _ = normalize_rom(rom)
     verify_source(decomp)
     inputs = {name: (decomp / name).read_bytes() for name in (SOURCE, HEADER, CATALOG)}
-    selected = bindings(inputs[SOURCE].decode(), inputs[HEADER].decode(), course)
+    selected = bindings(inputs[SOURCE].decode(), inputs[HEADER].decode(), course, course_catalog.course(slug)['index'])
     rows = catalog(inputs[CATALOG].decode())
     names = [selected[k]['texture'] for k in ('floor', 'sky', 'cloud')]
     names += [s[k] for s in selected['sprites'] for k in ('texture', 'palette')]
@@ -234,7 +244,8 @@ def export(rom, out, decomp=DECOMP):
     if any((out/name).is_symlink() for name in [*outputs, 'backdrop.receipt']):
         raise ArtError("Refusing a redirected generated backdrop file")
     receipt = ['# fzx generation receipt v1']
-    for name in ('backdrop_assets.py', 'import_source_art.py', 'import_course.py', 'road_environment.py', 'hud_assets.py', 'model_assets.py'):
+    for name in ('backdrop_assets.py', 'import_source_art.py', 'import_course.py', 'road_environment.py', 'hud_assets.py',
+                 'model_assets.py', 'course_catalog.py'):
         receipt.append('generator %s %s' % (sha((ROOT/'tools'/name).read_bytes()), name))
     for name, data in inputs.items():
         receipt.append('generator %s ../upstream/G-Diffuser/decomp/%s' % (sha(data), name))
@@ -252,12 +263,13 @@ def export(rom, out, decomp=DECOMP):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output', type=Path, default=ROOT/'generated/backdrop')
+    parser.add_argument('--course', default=course_catalog.DEFAULT, choices=tuple(course_catalog.COURSES))
     args = parser.parse_args()
     path = os.environ.get('FZX_TEST_ROM')
     if not path:
         parser.error('Set FZX_TEST_ROM locally; keep its path out of logs')
     try:
-        print(json.dumps(export(Path(path).read_bytes(), args.output), sort_keys=True))
+        print(json.dumps(export(Path(path).read_bytes(), args.output, slug=args.course), sort_keys=True))
     except (OSError, ValueError, KeyError, subprocess.SubprocessError) as exc:
         print('backdrop import failed: '+type(exc).__name__+((': '+str(exc)) if isinstance(exc, ArtError) else ''), file=sys.stderr)
         return 1

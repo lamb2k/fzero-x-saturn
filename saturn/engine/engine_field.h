@@ -73,8 +73,8 @@ bool fzx_field_load(const sh2z_vd_track_t *track, const sh2z_vd_body_t *player);
 /* One tick, after the player's step: the player into the field, then the field. */
 void fzx_field_tick(const sh2z_vd_body_t *player);
 #if defined(ENG_ATTACKS) && ENG_ATTACKS
-/* The player's distance along the field's line (Q8), as the field takes it each tick. */
-int32_t fzx_field_player_dist(const sh2z_vd_body_t *player);
+/* The player's distance along the field's line and lateral (Q8), as the field takes them each tick. */
+void fzx_field_player_line(const sh2z_vd_body_t *player, int32_t *dist, int32_t *lateral);
 #endif
 /* This frame's cars (player first) with the K/D selection applied; returns the count. */
 unsigned fzx_field_cars(fzx_field_car_t *out, const sh2z_vd_body_t *player);

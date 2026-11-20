@@ -174,11 +174,11 @@ static uint8_t player_crossed;
 static int32_t player_last_dist = -1;
 #endif
 #if ENG_ATTACKS
-/* The player's distance along the line as player_into_field sets it (contact deferral). */
-int32_t fzx_field_player_dist(const sh2z_vd_body_t *p) {
+/* The player's distance along the line and lateral as player_into_field sets them (contact deferral). */
+void fzx_field_player_line(const sh2z_vd_body_t *p, int32_t *dist, int32_t *lateral) {
     sh2z_vd_line_view_t lv;
     sh2z_vd_line_view(p, trk, &lv);
-    return lv.dist;
+    *dist = lv.dist; *lateral = lv.lateral;
 }
 #endif
 static void player_into_field(const sh2z_vd_body_t *p) {

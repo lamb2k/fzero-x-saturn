@@ -371,9 +371,10 @@ void fzx_atk_contact(const sh2z_vd_body_t *p, sh2z_vd_contact_t *out) {
  * its top speed plus the boost and its target speed (sh2z_follow_step and move_external accelerate
  * toward a target capped there); m the ticks the field steps it (tick + 1 - last_tick, sh2z_follow_step
  * caps 64) and at least 2 (a driven rival returning to the field moves once here and once in the field
- * step). A KO credited to the player in that field tick would leave a regain for the contact: any rival
- * the player touched within the credit window blocks the deferral. */
-bool fzx_atk_player_clear(const sh2z_vd_body_t *p, int32_t pd, bool field_pending) {
+ * step). A rival inside the window along still clears when its lateral range over that tick stays more
+ * than PRE_Q8 from the player's. A KO credited to the player in that field tick would leave a regain for
+ * the contact: any rival the player touched within the credit window blocks the deferral. */
+bool fzx_atk_player_clear(const sh2z_vd_body_t *p, int32_t pd, int32_t pl, bool field_pending) {
     if (!live) return true;
     if (regain_pending) return false;
     const uint32_t n = F.count;
@@ -390,7 +391,7 @@ bool fzx_atk_player_clear(const sh2z_vd_body_t *p, int32_t pd, bool field_pendin
         const sh2z_vehicle_t *v = &F.veh[i];
         int32_t g = v->t.dist - pd;
         if (g > half) g -= length; else if (g <= -half) g += length;
-        int64_t d = 0;
+        int64_t d = 0, dl = 0;
         if (field_pending) {
             int32_t s = v->t.speed + (R[i].push_fwd > 0 ? R[i].push_fwd : 0);
             const int32_t top = v->top_speed + boost, want = F.brain[i].target_speed;
@@ -400,18 +401,27 @@ bool fzx_atk_player_clear(const sh2z_vd_body_t *p, int32_t pd, bool field_pendin
             if (m > 64u) m = 64u;
             if (m < 2u) m = 2u;
             d = (int64_t)s * m;
+            dl = (int64_t)iabs(R[i].push_lat) + (int64_t)iabs(v->grip) * m;
+            if (R[i].mode & M_EXT) dl += (int64_t)iabs(R[i].lv) + SIDE_FORCE;
         }
 #if defined(FZX_ATK_CLEAR_NOMOTION) && FZX_ATK_CLEAR_NOMOTION
-        d = 0;   /* HOST control only (tools/attacks_host --clear-check): the travel bound dropped */
+        d = 0; dl = 0;   /* HOST control only (tools/attacks_host --clear-check): the travel bounds dropped */
 #endif
 #if defined(FZX_ATK_CLEAR_WINDOW)
         const int32_t win = FZX_ATK_CLEAR_WINDOW * 256;   /* HOST control only: a window narrower than PRE_Q8 */
 #else
         const int32_t win = PRE_Q8;
 #endif
-        if (g > win) { if ((int64_t)g + d >= (int64_t)length - win) return false; }
-        else if (g < -win) { if ((int64_t)g + d >= -(int64_t)win) return false; }
-        else return false;
+        if (g > win) { if ((int64_t)g + d < (int64_t)length - win) continue; }
+        else if (g < -win) { if ((int64_t)g + d < -(int64_t)win) continue; }
+        /* Within the window along: clear only when it stays out of it across. The rival's lateral moves at
+         * most dl (pushes, the follower's steer rate grip a tick, a driven rival's side speed and attack
+         * force); the edge clamps move it toward the line, so the range also reaches 0. */
+        int64_t lo = (int64_t)v->t.lateral - dl, hi = (int64_t)v->t.lateral + dl;
+        if (lo > 0) lo = 0;
+        if (hi < 0) hi = 0;
+        if ((int64_t)pl - win > hi || (int64_t)pl + win < lo) continue;
+        return false;
     }
     return true;
 }

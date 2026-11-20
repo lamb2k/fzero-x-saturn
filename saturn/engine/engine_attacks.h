@@ -83,7 +83,7 @@ void fzx_atk_init(const fzx_atk_field_t *f, uint32_t seed);
 /* Before the player's step: every contact this tick; fills the player's contact. */
 void fzx_atk_contact(const sh2z_vd_body_t *player, sh2z_vd_contact_t *out);
 /* Contact deferral (lane claude/attacks-5): true when this tick's contact cannot touch the player
- * (no push, damage, hit or regain), given the player's state before its step and its distance along the
+ * (no push, damage, hit or regain), given the player's state before its step and its distance and lateral on the
  * line, and whether one field tick (with this tick's known contact pushes) still runs before it.
  * Then the contact may run after the slave's kick with the same result. Conservative: the bound on
  * every rival's travel over the pending field tick is in engine_attacks.c. */
@@ -91,7 +91,7 @@ void fzx_atk_contact(const sh2z_vd_body_t *player, sh2z_vd_contact_t *out);
  * are held (fzx_atk_hold_hooks(true) around it) and raised when the tick is taken (release). */
 void fzx_atk_hold_hooks(bool on);
 void fzx_atk_release_hooks(void);
-bool fzx_atk_player_clear(const sh2z_vd_body_t *player, int32_t player_dist, bool field_pending);
+bool fzx_atk_player_clear(const sh2z_vd_body_t *player, int32_t player_dist, int32_t player_lateral, bool field_pending);
 /* After the player's step, before the field step: player spin-out bookkeeping, rivals driven here. */
 void fzx_atk_move(const sh2z_vd_body_t *player);
 /* After the field step: retirements, CPU attack decisions, the state hash. */

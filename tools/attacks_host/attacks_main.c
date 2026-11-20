@@ -105,6 +105,11 @@ static void q_run(void) {
     }
     q_n = 0; q_contacts = 0;
 }
+static int player_clear(const sh2z_vd_body_t *b, bool pending) {
+    int32_t d, l;
+    fzx_field_player_line(b, &d, &l);
+    return fzx_atk_player_clear(b, d, l, pending);
+}
 static int nonzero(const sh2z_vd_contact_t *c) { return (c->push[0] | c->push[1] | c->push[2] | c->damage | c->hit | c->regain) != 0; }
 static void ko_hook(uint32_t victim) { (void)victim; ++ko_hook_calls; }
 
@@ -172,12 +177,12 @@ int main(int argc, char **argv) {
         const uint64_t a0 = ns_now();
         if (saturn) {
             if (ahead_ok) { ahead_ok = 0; contact = ahead; fzx_atk_release_hooks(); }
-            else if (q_n == 1u && !q_contacts && fzx_atk_player_clear(&body, fzx_field_player_dist(&body), true)) {
+            else if (q_n == 1u && !q_contacts && player_clear(&body, true)) {
                 q_body[q_n] = body; q_contact[q_n] = 1u; ++q_n; ++q_contacts; ++deferred;
                 memset(&contact, 0, sizeof(contact));
             } else { q_run(); fzx_atk_contact(&body, &contact); }
         } else {
-            if (clear_check) { pred0 = fzx_atk_player_clear(&body, fzx_field_player_dist(&body), false); clear0 += (uint32_t)pred0; }
+            if (clear_check) { pred0 = player_clear(&body, false); clear0 += (uint32_t)pred0; }
             fzx_atk_contact(&body, &contact);
             if (clear_check) {
                 if (pred0 && nonzero(&contact)) ++viol0;
@@ -198,7 +203,7 @@ int main(int argc, char **argv) {
                 }
             }
         } else {
-            if (clear_check) { pred1 = fzx_atk_player_clear(&body, fzx_field_player_dist(&body), true); clear1 += (uint32_t)pred1; }
+            if (clear_check) { pred1 = player_clear(&body, true); clear1 += (uint32_t)pred1; }
             fzx_field_tick(&body);
         }
         const uint64_t a3 = ns_now();

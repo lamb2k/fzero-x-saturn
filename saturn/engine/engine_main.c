@@ -684,6 +684,9 @@ static void kick(const fzx_engine_cam_t *cam, uint32_t tick) {
     const fzx_engine_consts_t *k = &path.consts;
     fzx_engine_view(&fzx_native_view, cam, k);
     job_cam = cam; job_tick = tick;
+#if FZX_PHYS_TUBES
+    job_outer = fzx_drive_outer();
+#endif
     fzx_slave_road_args_t job;
     job.pa = k->pa; job.pb = k->pb;
     job.eye[0] = cam->eye[0]; job.eye[1] = cam->eye[1]; job.eye[2] = cam->eye[2];

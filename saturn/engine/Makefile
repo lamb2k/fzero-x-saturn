@@ -5,7 +5,9 @@
 #
 #   make -C saturn/engine SH2ZAM_ROOT=<checkout of the engine pin> [FZX_VDP1_DBANK=0|1]
 #
-# The SH2ZAM pin is saturn/engine/sh2zam.pin (branch claude/courses-train: claude/emit-train-2 ba7c237 plus
+# The SH2ZAM pin is saturn/engine/sh2zam.pin (branch claude/tubes-train: claude/courses-train aa0a587 plus
+# claude/vehicle-dynamics-2 (vehicle-dynamics-2, PR #54: pipes and cylinders); before it, branch
+# claude/courses-train: claude/emit-train-2 ba7c237 plus
 # claude/line-field-2 (line-field-2, the second-lap re-target); emit-train-2 is claude/snd-engine-train a59a4ef
 # plus rotation-sprites-3; snd-engine-train is claude/dsp-engine-train-2 5f3f142 + snd-1;
 # before it, branch claude/dsp-engine-train-2: claude/scenes-train-2 e0c5c89
@@ -216,6 +218,14 @@ COURSE_INDEX_port-town-1 := 5
 # select scene reads; LOAD refuses a course the image has no packs for, and the music is the selected
 # row's. 0 builds the images as before.
 ENG_COURSE_SELECT ?= 0
+# Tubes (lane claude-tub, saturn/engine/COURSES.md 6): pipes and cylinders in the player's physics
+# (SH2ZAM vehicle-dynamics-2, physics pack v3 with joins). On by default for the Jack Cup's two tube
+# courses; ENG_TUBES=0 builds them with vehicle-dynamics-1, which refuses their v3 packs (the
+# control). The road courses take 0 and build as before.
+ENG_TUBES ?= $(if $(filter sand-ocean-1 big-blue-1,$(ENG_COURSE)),1,0)
+ifeq ($(filter 0 1,$(ENG_TUBES)),)
+$(error ENG_TUBES must be 0 or 1)
+endif
 ENG_SND_FADETEST ?= 0
 ifeq ($(filter 0 1 2,$(ENG_DSP_BANDS)),)
 $(error ENG_DSP_BANDS must be 0, 1 or 2)
@@ -270,7 +280,7 @@ comma := ,
 SH_OUTPUT_DIR := build-$(if $(filter-out 1,$(ENG_DSP_BANDS)),dspb$(ENG_DSP_BANDS)$(if $(filter 1,$(ENG_DSP_BANDS_CHECK)),c,)$(if $(filter 1,$(ENG_DSP_BANDS_CORRUPT)),x,)-,)$(if $(filter-out 4,$(ENG_PACE)),pace$(ENG_PACE)$(if $(filter 3,$(ENG_PACE)),i$(ENG_VDP1_INTERVAL),)-,$(if $(filter-out 1,$(ENG_PACE_LEAD)),pace4w$(ENG_PACE_LEAD)-,)$(if $(filter 1,$(ENG_PACE_EARLY_CONTROL)),pace4early-,)$(if $(filter 1,$(ENG_PACE_HUD_LEAD)),pace4hudlead-,))$(if $(filter 1,$(FZX_E1_DRIVE)),e1-d$(E1_DRIVER)$(if $(filter-out 0,$(E1_DRIVER_BOOST)),-b$(E1_DRIVER_BOOST),)$(if $(filter-out 0,$(E1_CLOSEUP)),-ab$(E1_CLOSEUP)$(if $(filter 1,$(E1_CLOSEUP_EARLY)),e,)$(if $(filter-out 0,$(E1_FIELD)),-f$(E1_FIELD)$(if $(filter 1,$(E2_PACK)),p,)$(if $(filter 1,$(E2_FASTPOSE)),q,)$(if $(filter 1,$(E2_CULL)),c,)$(if $(filter 1,$(E2_LOD)),l$(subst $(comma),_,$(E2_LOD_NEAR)),)$(if $(filter 1,$(E2_EARLY)),e,)$(if $(filter 1,$(E2_FASTSPRITE)),f,)$(if $(filter 1,$(E2_ROSTER)),r,)$(if $(filter 1,$(E2_PROF)),P,),)$(if $(filter 1,$(ENG_SCENES)),-scn$(if $(filter-out 0,$(FZX_GUEST_MASK)),-gm$(FZX_GUEST_MASK),)$(if $(filter 1,$(ENG_ROSTER)),-ro,),)$(if $(filter 0,$(E1_FIELD)),$(if $(filter 1,$(E2_EARLY)),E,),),)-,e0-)bank$(FZX_VDP1_DBANK)$(if $(filter 1,$(FZX_VDP1_DBANK_STALE)),-stale,)-g$(E0_GUARD_MARGIN)-c$(E0_FAST_CULL)-l$(E0_LOD_SHIFT)-f$(E0_FAN_FIX)-r$(E0_RBG_LEAN)-k$(E0_CLUSTERS)-w$(E0_WORK_HIGH)$(if $(filter-out 0,$(E0_CHUNK_CAP)),-cap$(E0_CHUNK_CAP),)-n$(E0_LEAN_CLIP)-e$(E0_FOG_EARLY)$(if $(filter 1,$(E0_HW_COUNTER)),-hw,)$(if $(filter 1,$(E0_VDP2_MAP)),-map,)$(if $(filter 1,$(E0_SENTINEL_CONTROL)),-sentinel,)$(if $(filter 1,$(E0_POP_LOG)),-pop,)$(if $(filter 1,$(E0_CAP_STABLE)),-stable,)$(if $(filter 1,$(E0_CLUSTER_AUDIT)),-audit,)$(if $(filter 0,$(E0_ISR_MAC_SAVE)),-nomac,)$(if $(filter 1,$(E0_MAC_PROBE)),-macprobe,)$(if $(filter 0,$(E0_QUEUE_ATOMIC)),-qrace,)$(if $(filter 1,$(E0_QUEUE_STRESS)),-qstress,)$(if $(filter-out 0,$(E0_QUEUE_WIDEN)),-qw$(E0_QUEUE_WIDEN),)$(if $(filter 1,$(E0_PHASES)),-phases,)$(if $(filter 0,$(E0_PRELUDE_SHARE)),-ps0,)$(if $(filter 0,$(E0_PRELUDE_WINDOW)),-pw0,)$(if $(filter 0,$(E0_PRELUDE_DIV)),-pd0,)$(if $(filter 1,$(ENG_CDDA)),-cdda$(ENG_CDDA_MUSIC)$(if $(filter-out 0,$(ENG_CDDA_LOOPTEST)),-lt$(ENG_CDDA_LOOPTEST),),)$(if $(filter 1,$(ENG_SND)),-snd$(ENG_SND_MUSIC)$(if $(filter-out 0,$(ENG_SND_FADETEST)),-ft$(ENG_SND_FADETEST),),)
 EMIT_SWITCHES := $(E2_EMIT_PROF)$(E2_EMIT_HINT)$(E2_EMIT_CMD)$(E2_EMIT_SHADOW)$(E2_EMIT_POSE)$(E2_EMIT_SETUP)$(E2_EMIT_LINK)$(E2_EMIT_CULL)$(E2_EMIT_YAW)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter-out 0,$(subst 0,,$(EMIT_SWITCHES))),-em$(EMIT_SWITCHES),)
-SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter-out mute-city-1,$(ENG_COURSE)),-$(ENG_COURSE),)$(if $(E1_DRIVER_KH),-kh$(E1_DRIVER_KH),)$(if $(filter 1,$(ENG_COURSE_SELECT)),-sel,)
+SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter-out mute-city-1,$(ENG_COURSE)),-$(ENG_COURSE),)$(if $(E1_DRIVER_KH),-kh$(E1_DRIVER_KH),)$(if $(filter 1,$(ENG_COURSE_SELECT)),-sel,)$(if $(filter 1,$(ENG_TUBES)),-tubes,)
 SH_BUILD_DIR := $(SH_OUTPUT_DIR)/yaul
 IMAGE_DIRECTORY := $(SH_OUTPUT_DIR)/cd
 IMAGE_1ST_READ_BIN := A.BIN
@@ -310,7 +320,7 @@ SH2ZAM_UNITS := sh2zam.c sh2zam_angles.c sh2zam_batch_sh2.c sh2zam_box2.c sh2zam
     sh2zam_spatial.c sh2zam_transform.c sh2zam_trig.c sh2zam_view.c sh2zam_view_center.c \
     sh2zam_view_guard_src.c sh2zam_view_guard_src_center.c sh2zam_view_round.c \
     sh2zam_view_merge_tier.c sh2zam_shade_fused.c sh2zam_view_rails.c sh2zam_segmesh.c sh2zam_segmesh_cull.c sh2zam_vdp1_banks.c \
-    $(if $(filter 1,$(FZX_E1_DRIVE)),sh2zam_vehicle_dynamics.c sh2zam_unit30.c sh2zam_rotation_sprite.c sh2zam_sprite_cache.c sh2zam_vlc2.c,) \
+    $(if $(filter 1,$(FZX_E1_DRIVE)),sh2zam_vehicle_dynamics.c sh2zam_unit30.c sh2zam_rotation_sprite.c sh2zam_sprite_cache.c sh2zam_vlc2.c,)     $(if $(filter 1,$(FZX_E1_DRIVE)),$(if $(filter 1,$(ENG_TUBES)),sh2zam_vehicle_dynamics2.c,),) \
     $(if $(filter-out 0,$(E1_FIELD)),$(if $(filter 1,$(E2_EMIT_CMD) $(E2_EMIT_POSE) $(E2_EMIT_YAW)),sh2zam_rotation_sprite3.c,),) \
     $(if $(filter 1,$(E1_CLOSEUP)),sh2zam_vehicle.c sh2zam_view_indexed.c sh2zam_pose.c,) \
     $(if $(filter-out 0,$(E1_FIELD)),sh2zam_line_follower.c sh2zam_line_field.c,) \
@@ -440,6 +450,7 @@ endif
 # A course after the first carries its own skyline layout (skyline_ring.h, tools/skyline_assets.py) and
 # may use a larger track texture budget (tools/road_bake.py --texture-limit; placement checked at load); its
 # sky gradient need not be monotonic in brightness (a sunset), so sky bands pick their colour by distance.
+SH_CFLAGS += $(if $(filter 1,$(FZX_E1_DRIVE)),$(if $(filter 1,$(ENG_TUBES)),-DFZX_PHYS_TUBES=1,),)
 SH_CFLAGS += $(if $(GCREL),-DENG_COURSE_SKYLINE=1 -DFZX_ROAD_STREAM_TEXTURE_LIMIT=240000u -DFZX_SKY_LINEAR_PICK=1 -DENG_COURSE_INDEX=$(COURSE_INDEX_$(ENG_COURSE)),)
 ifeq ($(ENG_COURSE_SELECT),1)
 ifneq ($(ENG_SCENES),1)

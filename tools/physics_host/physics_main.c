@@ -106,7 +106,7 @@ int main(int argc, char** argv) {
     const char* save_path = NULL;
     static uint8_t image[1 << 20];
     sh2z_vd_body_t b;
-    int nsteps, i, tick = 0, zones = 1, driver_boost = 0, driver_start = 0, repeat = 0;
+    int nsteps, i, tick = 0, zones = 1, driver_boost = 0, driver_start = 0, repeat = 0, vd1 = 0;
     float driver_kl = 0.0f, driver_kh = 0.0f, driver_target = 0.0f;
     int driver_end = 0x7FFFFFFF;
     unsigned short prev = 0;
@@ -151,6 +151,20 @@ int main(int argc, char** argv) {
         else if (strcmp(mutate, "boost99") == 0) rules.boost_ticks = 99;
         else if (strcmp(mutate, "zones-off") == 0) zones = 0;
         else if (strcmp(mutate, "stick+1") == 0) stick_offset = 1;
+#if FZX_PHYS_TUBES
+        /* Tube classes (claude-tub): the lane's starting point (tubes as road) and one change
+         * per tube rule. */
+        else if (strcmp(mutate, "tubes-off") == 0) vd1 = 1;
+        else if (strcmp(mutate, "pipe-rim+5") == 0) course.track2.tube.pipe_rim += 5 * 65536;
+        else if (strcmp(mutate, "cyl-reach-50") == 0) course.track2.tube.cyl_reach -= 50 * 65536;
+        else if (strcmp(mutate, "join-lever-half") == 0) course.track2.tube.join_lever /= 2;
+        else if (strcmp(mutate, "pipe-rim-30") == 0) course.track2.tube.pipe_rim -= 30 * 65536;
+        else if (strcmp(mutate, "cyl-reach-150") == 0) course.track2.tube.cyl_reach -= 150 * 65536;
+        else if (strcmp(mutate, "join-scale+10%") == 0) {
+            uint32_t n;
+            for (n = 0; n < course.track.count; n++) course.joins[n].scale += course.joins[n].scale / 10;
+        }
+#endif
         else die("unknown mutation");
         if (strcmp(mutate, "zones-off") == 0 && fzx_phys_load(&course, image, size, 0) != 0) die("bad physics pack");
     }
@@ -196,9 +210,10 @@ int main(int argc, char** argv) {
             prev = button;
             for (k = 0; k < repeat; k++) {
                 sh2z_vd_body_t scratch = b;
-                sh2z_vd_step(&scratch, &course.track, &course.vehicle, &rules, &in);
+                fzx_phys_step(&course, &scratch, &rules, &in);
             }
-            sh2z_vd_step(&b, &course.track, &course.vehicle, &rules, &in);
+            if (vd1) sh2z_vd_step(&b, &course.track, &course.vehicle, &rules, &in);
+            else fzx_phys_step(&course, &b, &rules, &in);
             {
                 /* Words in big-endian order, so the SH-2 build hashes the same bytes. */
                 const uint32_t* w = (const uint32_t*) (const void*) &b;

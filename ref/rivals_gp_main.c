@@ -41,7 +41,7 @@ int main(int argc, char** argv) {
     int tube_angles = 0; long tube_ticks = 0, tube_bin[4] = {0, 0, 0, 0};
     /* line-field-5: --sources 1 adds rivals' energy losses by source (contact, wall, boost, other), wall incidents
      * and the near-edge share, as tools judge the reference's (fzx-gp-ref --diag). */
-    int use_behave = 0;
+    int use_behave = 0; double tube_clamp = 0;
     int sources = 0; double src_amount[4] = {0, 0, 0, 0}; long src_n[4] = {0, 0, 0, 0}, wall_inc = 0, edge_ticks = 0, road_ticks = 0;
     int32_t tune_accel = 40, tune_grip = U(6), tune_lane = 30;
     long length = 0, dash = 0; unsigned seed = 1; int max_ticks = 14000, start_tick = 420, lod = 1, hash_every = 0;
@@ -61,7 +61,8 @@ int main(int argc, char** argv) {
         else if (!strcmp(argv[i], "--zones")) zone_file = argv[i + 1];
         else if (!strcmp(argv[i], "--wrap")) wrap = argv[i + 1];
         else if (!strcmp(argv[i], "--dash")) dash = atol(argv[i + 1]);
-        else if (!strcmp(argv[i], "--tube-angles")) tube_angles = atoi(argv[i + 1]);   /* 1: tube_angles over pipe and cylinder nodes */
+        else if (!strcmp(argv[i], "--tube-angles")) tube_angles = atoi(argv[i + 1]);
+        else if (!strcmp(argv[i], "--tube-clamp")) tube_clamp = atof(argv[i + 1]);   /* C-095 control: angles held below this (degrees) */   /* 1: tube_angles over pipe and cylinder nodes */
         else if (!strcmp(argv[i], "--sources")) sources = atoi(argv[i + 1]);
         else if (!strcmp(argv[i], "--behave")) use_behave = atoi(argv[i + 1]);   /* line-field-5 behaviours, defaults below */
         else die("unknown argument");
@@ -277,12 +278,14 @@ int main(int argc, char** argv) {
             sh2z_line_sample(&L, v->t.node, v->t.dist, &at);
             const int32_t room = (P.surface && surface.wrap_mask && (at.flags & surface.wrap_mask) == surface.wrap_value)
                                ? (int32_t)(((int64_t)at.half_width * 411775) >> 17) + 1 : at.half_width;   /* a tube: half its round */
-            if (!(v->flags & SH2Z_VEH_EXTERNAL) && (v->t.lateral > room || v->t.lateral < -room)) ++offtrack;
+            /* line-field-5: an agent in the air or falling has left the surface by design (air drift, falls). */
+            if (!(v->flags & (SH2Z_VEH_EXTERNAL | SH2Z_VEH_FALLING | SH2Z_VEH_AIR)) && brain[i].fall_tick < 0 && (v->t.lateral > room || v->t.lateral < -room)) ++offtrack;
             if (tube_angles && !(v->flags & (SH2Z_VEH_EXTERNAL | SH2Z_VEH_FINISHED | SH2Z_VEH_RETIRED)) &&
                 ((at.flags & 0x01c0u) == 0x0080u || (at.flags & 0x01c0u) == 0x00c0u) && at.half_width) {
                 /* the lateral is an arc of radius half_width round the line (the engine's tube pose) */
                 double a = fabs((double)v->t.lateral) / at.half_width * 57.29578;   /* both Q8 */
                 while (a > 180.0) a = fabs(a - 360.0);
+                if (tube_clamp > 0 && a > tube_clamp) a = tube_clamp;
                 ++tube_bin[a < 30 ? 0 : a < 60 ? 1 : a < 90 ? 2 : 3]; ++tube_ticks;
             }
             if (v->rank != prev_rank[i]) { changed = 1; ++rank_swaps; }

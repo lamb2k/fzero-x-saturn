@@ -1031,9 +1031,6 @@ void fzx_race_load(void) {
     if (!fzx_engine_path_open(&path, (const void *)PATH_BASE, FZX_ENGINE_PATH_BYTES, FZX_ENGINE_PATH_HASH))
 #endif
         fail(18, "PATH PACK", 0);
-#if ENG_SND
-    engine_snd_toc();
-#endif
 
     vdp1_vram_partitions_get(&partitions);
 #if FZX_E1_DRIVE
@@ -1128,7 +1125,8 @@ void fzx_race_load(void) {
     {
         const uint32_t f0 = video_fields;
         if (!engine_snd_load((void *)scratch, 0x0028D000u - 32u - scratch)) fail(60, "SOUND LOAD", fzx_texture_cd_status.status);
-        /* An even number of fields, so the frames after the load keep the field parity they
+        engine_snd_toc();
+        /* Clips and TOC together take an even number of fields, so the frames after the load keep the field parity they
          * have without sound (the race's presented ticks stay comparable one for one). */
         if ((video_fields - f0) & 1u) { const uint32_t f1 = video_fields; while (video_fields == f1) {} }
     }

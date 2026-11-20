@@ -635,8 +635,14 @@ static void load_tick(void *u, uint32_t s) {
     fzx_scn_report[29] = resident_key;
     retry_pending = false;
     load_done = true;
-    /* Settle VDP1 and VDP2 inside the load's own frame, so the next manager frame keeps the
-     * two-field cadence. */
+    /* Settle VDP1 and VDP2 inside the load's own frame, and put the first list after the
+     * load here too: the first put after an idle VDP1 is shown three fields later, which
+     * the next manager frame would otherwise take (2026-11-19, Ymir probe on the first LOAD
+     * LEAVE frames). The load's frame then puts no list of its own (see fzx_scn_main), and
+     * the manager frames after it start at a frame change, on the two-field cadence. */
+    vdp1_sync_wait();
+    vdp2_sync_wait();
+    own_frame();
     vdp1_sync_wait();
     vdp2_sync_wait();
     (void)request(FZX_SCN_RACE, RANK_GOTO);
@@ -880,7 +886,10 @@ void fzx_scn_main(void) {
         if (seq.phase == SH2Z_SCENE_FAULT) fault(2, "ENTER");
         apply_fade(level);
         snd_deliver();
-        if (sh2z_scene_drawing(&seq)) {
+        if (load_ran) {
+            /* The frame that ran a blocking load has put its list inside the load (load_tick);
+             * the card stays on screen, its spinner is VBlank-driven. */
+        } else if (sh2z_scene_drawing(&seq)) {
             own_frames = 0;
             if (seq.current == FZX_SCN_RACE) (void)fzx_race_frame();
             else { const bool printed = text_dirty; draw_current(); text_frame(printed); }

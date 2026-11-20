@@ -16,6 +16,8 @@
 #include "engine_scenes.h"
 #include "engine_closeup.h"
 #include "engine_records.h"
+#include "engine_cup.h"
+#include "engine_field.h"
 #ifndef ENG_ROSTER
 #define ENG_ROSTER 0
 #endif
@@ -107,6 +109,14 @@ volatile uint32_t fzx_scn_report[32];
 volatile uint32_t fzx_scn_pad;        /* bit 16 set: use bits 0..15 as port 1 (captures) */
 volatile uint32_t fzx_scn_force_end;  /* captures: nonzero ends the race now with this reason */
 volatile uint32_t fzx_scn_probe;      /* captures: 0x100 | machine id, tried in SELECT */
+/* SCENES.md 11.3 (captures): nonzero classifies a Time Attack race at the GP trigger, as GP
+ * does. [0] the tick that set the finish, [1] the finish timer, [2] the trigger frame,
+ * [3] result hash, [4] attempt hash, [5] player place, [6] rows, [7] projected rows. */
+volatile uint32_t fzx_scn_gp_probe;
+volatile uint32_t fzx_scn_cls[8];
+static fzx_classification_t scn_cls;
+const fzx_classification_t *fzx_cup_classification(void) { return &scn_cls; }
+static uint8_t load_course, course_cursor;
 volatile uint32_t fzx_scn_load_fields[8];
 /* Words the harness writes are read through the cache-through mirror (a debugger
  * write does not reach a cached line). */
@@ -142,10 +152,18 @@ static void session_defaults(void) {
     fzx_session.slider_bits = 0x3F000000u; /* 0.5 */
 }
 
+/* The catalog bit a session's mode needs (SCENES.md 11.1): GP 0, otherwise Time Attack. */
+static uint8_t mode_avail(void) { return fzx_session.menu_mode == 0u ? FZX_AVAIL_GP : FZX_AVAIL_TA; }
+static bool course_ok(uint32_t course) {
+    const fzx_course_row_t *row = course < 256u ? fzx_course_find((uint8_t)course) : NULL;
+    return row && (row->avail & mode_avail()) == mode_avail();
+}
+
 /* SELECT's only write path (SCENES.md section 3). */
-static bool session_edit(uint32_t machine_id) {
-    if (!machine_allowed(machine_id)) return false;
+static bool session_edit(uint32_t machine_id, uint32_t course) {
+    if (!machine_allowed(machine_id) || !course_ok(course)) return false;
     fzx_session.machine_id = (uint16_t)machine_id;
+    fzx_session.course = (uint8_t)course;
     fzx_session.confirmed = 1;
     return true;
 }
@@ -362,6 +380,7 @@ static bool select_enter(void *u, uint32_t s) {
     (void)sh2z_arena_alloc(&menu_arena, 1024u, 16u);
     cursor = 0;
     for (unsigned i = 0; i < MACHINE_COUNT; ++i) if (machines[i].id == fzx_session.machine_id) cursor = i;
+    course_cursor = course_ok(fzx_session.course) ? fzx_session.course : fzx_course_step(fzx_session.course, 1, mode_avail());
     text_dirty = true;
     return true;
 }
@@ -372,11 +391,23 @@ static void select_tick(void *u, uint32_t s) {
         /* Capture check: can identity `probe & 0xFF` be selected, and would LOAD admit it? */
         const uint32_t id = probe & 0xFFu;
         const fzx_session_t keep = fzx_session;
-        const bool sel = session_edit(id);
+        const bool sel = session_edit(id, course_cursor);
         fzx_session = keep;
         fzx_scn_report[14] = 0x100u | (sel ? 1u : 0u) | (id << 16);
         fzx_scn_report[15] = (machine_allowed(id) && fzx_closeup_has_family(id)) ? 1u : 0u;
         POKED(fzx_scn_probe) = 0;
+    } else if (probe & 0x8000u) {
+        /* Capture check: can course `probe & 0xFF` be confirmed in this mode? */
+        const uint32_t id = probe & 0xFFu;
+        const fzx_session_t keep = fzx_session;
+        const bool sel = session_edit(fzx_session.machine_id, id);
+        fzx_session = keep;
+        fzx_scn_report[14] = 0x8000u | (sel ? 1u : 0u) | (id << 16);
+        POKED(fzx_scn_probe) = 0;
+    }
+    if (input.repeat & (PAD_LEFT | PAD_RIGHT)) {
+        const uint8_t c = fzx_course_step(course_cursor, (input.repeat & PAD_LEFT) ? -1 : 1, mode_avail());
+        if (c != FZX_COURSE_NONE && c != course_cursor) { course_cursor = c; text_dirty = true; }
     }
     uint32_t n = 0, visible[MACHINE_COUNT];
     for (unsigned i = 0; i < MACHINE_COUNT; ++i) if (machine_allowed(machines[i].id)) visible[n++] = i;
@@ -386,13 +417,20 @@ static void select_tick(void *u, uint32_t s) {
     if (input.repeat & PAD_UP) { at = (at + n - 1u) % n; text_dirty = true; }
     cursor = visible[at];
     if (input.edges & PAD_A) {
-        if (session_edit(machines[cursor].id)) { snd_event(2); retry_pending = false; (void)request(FZX_SCN_LOAD, RANK_GOTO); }
+        if (session_edit(machines[cursor].id, course_cursor)) { snd_event(2); retry_pending = false; (void)request(FZX_SCN_LOAD, RANK_GOTO); }
     } else if (input.edges & PAD_B) (void)request(FZX_SCN_TITLE, RANK_GOTO);
 }
 static void select_draw(void) {
     if (!text_dirty) return;
     text_dirty = false;
-    dbgio_printf("\x1b[H\x1b[2J\n\n   [PLACEHOLDER SELECT]\n\n   MODE   TIME ATTACK\n   COURSE MUTE CITY\n\n   MACHINE (3D PLAYER)\n\n");
+    dbgio_printf("\x1b[H\x1b[2J\n\n   [PLACEHOLDER SELECT]\n\n   MODE   TIME ATTACK\n   COURSE (LEFT/RIGHT)\n");
+    {   unsigned rows = 0;
+        const fzx_course_row_t *cat = fzx_course_catalog(&rows);
+        for (unsigned i = 0; i < rows; ++i)
+            dbgio_printf("   %s COURSE %u %s\n", cat[i].course == course_cursor ? ">" : " ", (unsigned)cat[i].course,
+                         (cat[i].avail & mode_avail()) ? "" : "(NOT IN BUILD)");
+    }
+    dbgio_printf("\n   MACHINE (3D PLAYER)\n\n");
     for (unsigned i = 0; i < MACHINE_COUNT; ++i) {
         if (!machine_allowed(machines[i].id)) continue;
         dbgio_printf("   %s %-14s %s\n", i == cursor ? ">" : " ", machines[i].name,
@@ -427,6 +465,7 @@ static bool results_enter(void *u, uint32_t s) {
     (void)u; (void)s; (void)sh2z_arena_alloc(&menu_arena, 768u, 16u);
     fzx_records_rank(&fzx_scn_result, &results_rank);
     results_commit = fzx_records_commit(&fzx_scn_result, results_rank.place ? "SAT" : NULL);
+    if (fzx_cup()->state == FZX_CUP_RACING) (void)fzx_cup_accept(&scn_cls); /* applied once per run_id */
     text_dirty = true;
     return true;
 }
@@ -435,6 +474,20 @@ static void results_tick(void *u, uint32_t s) {
     if (POKED(fzx_scn_probe) & 0x200u) { /* captures: commit the same run again */
         { const fzx_rec_result_t again = fzx_records_commit(&fzx_scn_result, "SAT"); fzx_scn_report[14] = 0x200u | (uint32_t)again; }
         POKED(fzx_scn_probe) = 0;
+    }
+    const fzx_cup_t *cup = fzx_cup();
+    if (cup->state != FZX_CUP_IDLE) {
+        /* GP: RESULTS writes intents only; the manager resolves LOAD's next course. */
+        const uint32_t id = cup->accepted_run_id;
+        if (input.edges & PAD_A) {
+            if (cup->state == FZX_CUP_SCORED && fzx_cup_intent(FZX_CUP_NEXT, id)) { retry_pending = false; (void)request(FZX_SCN_LOAD, RANK_GOTO); }
+            else if (cup->state == FZX_CUP_RETIRED && fzx_cup_intent(FZX_CUP_RETRY, id)) { retry_pending = true; (void)request(FZX_SCN_LOAD, RANK_GOTO); }
+            else { if (!fzx_cup_intent(FZX_CUP_END, id)) fzx_cup_reset(); (void)request(FZX_SCN_TITLE, RANK_GOTO); }
+        } else if (input.edges & PAD_B) {
+            if (!fzx_cup_intent(FZX_CUP_END, id)) fzx_cup_reset();
+            (void)request(FZX_SCN_TITLE, RANK_GOTO);
+        }
+        return;
     }
     if (input.edges & PAD_A) { snd_event(3); retry_pending = true; ++fzx_scn_report[7]; (void)request(FZX_SCN_LOAD, RANK_GOTO); }
     else if (input.edges & PAD_B) (void)request(FZX_SCN_TITLE, RANK_GOTO);
@@ -461,6 +514,9 @@ static void results_draw(void) {
         else dbgio_printf("   %u %lu'%02lu\"%02lu %s\n", i + 1u, (unsigned long)(ms / 60000u),
                           (unsigned long)((ms / 1000u) % 60u), (unsigned long)((ms / 10u) % 100u), c->top[i].name);
     }
+    if (scn_cls.valid)
+        dbgio_printf("   CLASS %u/%u  %08lX\n", (unsigned)scn_cls.player_place, (unsigned)scn_cls.count,
+                     (unsigned long)scn_cls.result_hash);
     dbgio_printf("\n   A: RETRY   B: TITLE\n");
 }
 
@@ -564,7 +620,22 @@ static void load_tick(void *u, uint32_t s) {
     if (!engine_snd_quiet()) return; /* no disc read until the music has faded and the drive paused */
 #endif
     const uint32_t family = fzx_session.machine_id;
-    if (!fzx_session.confirmed || !machine_allowed(family) || !fzx_closeup_has_family(family)) {
+    load_course = fzx_session.course;
+    if (fzx_session.menu_mode == 0u && fzx_session.confirmed) {
+        /* GP: the manager owns the course (SCENES.md 11.5); a confirmed GP session with no cup begins one. */
+        if (fzx_cup()->state == FZX_CUP_IDLE) {
+            fzx_entrants_t e;
+            if (
+#if E1_FIELD
+                fzx_field_entrants(&e, (uint8_t)fzx_session.machine_id, fzx_session.skin) &&
+#else
+                false &&
+#endif
+                fzx_cup_gp_ready(fzx_session.cup)) (void)fzx_cup_begin(fzx_session.cup, fzx_session.difficulty, &e);
+        }
+        load_course = fzx_cup_next_course();
+    }
+    if (!fzx_session.confirmed || !machine_allowed(family) || !fzx_closeup_has_family(family) || !course_ok(load_course)) {
         fzx_scn_report[16] = 60u; /* refused: back to select */
         load_done = true;
         (void)request(FZX_SCN_SELECT, RANK_GOTO);
@@ -659,6 +730,39 @@ static void load_leave(void *u, uint32_t s) { (void)u; (void)s; leaving = true; 
 
 /* ---- RACE ------------------------------------------------------------------ */
 static uint32_t end_reason, end_wait, max_kmh;
+static bool cls_armed, cls_done;
+static uint32_t race_run_id;
+
+/* SCENES.md 11.3: the classification at the official trigger, from the drive's finish timer
+ * (one menu update per simulation tick). */
+static fzx_cl_key_t cls_key(uint8_t outcome) {
+    fzx_cl_key_t k;
+    memset(&k, 0, sizeof(k));
+    const fzx_cup_t *cup = fzx_cup();
+    k.run_id = race_run_id; k.cup = cup->state ? cup->cup : 0u; k.round = cup->state ? cup->round : 0u;
+    k.course = load_course; k.outcome = outcome; k.player_kos = cup->live.kos;
+    return k;
+}
+static void race_finish_hook(uint32_t timer, uint32_t tick) {
+    if (timer == 1u) fzx_scn_cls[0] = tick;
+    if (cls_done || timer != FZX_FINISH_TRIGGER_TICKS) return;
+    fzx_cl_in_t in[FZX_ENTRANTS_MAX];
+    fzx_cl_key_t k = cls_key(FZX_OUT_FINISH);
+#if E1_FIELD
+    const unsigned n = fzx_field_classify_in(in, fzx_drive_state()->race_time, &k);
+#else
+    const unsigned n = 0u; /* no rival field: nothing to classify */
+#endif
+    cls_done = true;
+    if (!n || !fzx_classify(&scn_cls, &k, in, n)) { fzx_scn_cls[3] = 0xBADu; return; }
+    unsigned projected = 0;
+    for (unsigned p = 0; p < scn_cls.count; ++p) projected += scn_cls.row[p].status == FZX_CL_PROJECTED;
+    fzx_scn_cls[1] = timer; fzx_scn_cls[2] = (uint32_t)k.frame; fzx_scn_cls[3] = scn_cls.result_hash;
+    fzx_scn_cls[4] = scn_cls.attempt_hash; fzx_scn_cls[5] = scn_cls.player_place; fzx_scn_cls[6] = scn_cls.count;
+    fzx_scn_cls[7] = projected;
+    if (fzx_cup()->state == FZX_CUP_RACING) end_wait = 1u; /* GP: RESULTS at the trigger */
+}
+extern void (*volatile fzx_drive_finish_hook)(uint32_t timer, uint32_t tick);
 
 static bool race_enter(void *u, uint32_t s) {
     (void)u; (void)s;
@@ -672,6 +776,12 @@ static bool race_enter(void *u, uint32_t s) {
     end_reason = FZX_END_NONE; end_wait = 0; max_kmh = 0;
     ++run_counter;
     fzx_scn_report[12] = (fzx_records_boot_id() << 16) | (run_counter & 0xFFFFu);
+    race_run_id = fzx_scn_report[12];
+    memset(&scn_cls, 0, sizeof(scn_cls));
+    for (unsigned i = 0; i < 8u; ++i) fzx_scn_cls[i] = 0;
+    const bool gp = fzx_cup()->state == FZX_CUP_READY && fzx_cup_race_start(race_run_id);
+    cls_armed = gp || POKED(fzx_scn_gp_probe) != 0u; cls_done = false;
+    fzx_drive_finish_hook = cls_armed ? race_finish_hook : NULL;
     dbgio_printf("\x1b[H\x1b[2J");
     return true;
 }
@@ -681,7 +791,7 @@ static void race_snapshot(uint32_t reason) {
     fzx_run_result_t *r = &fzx_scn_result;
     memset(r, 0, sizeof(*r));
     r->run_id = (fzx_records_boot_id() << 16) | (run_counter & 0xFFFFu); r->reason = (uint8_t)reason;
-    r->menu_mode = fzx_session.menu_mode; r->course = fzx_session.course; r->skin = fzx_session.skin;
+    r->menu_mode = fzx_session.menu_mode; r->course = load_course; r->skin = fzx_session.skin;
     r->machine_id = fzx_session.machine_id; r->slider_bits = fzx_session.slider_bits;
     r->laps_done = (uint8_t)(b->laps_done > 0 ? b->laps_done : 0);
     r->race_ms = b->race_time > 0 ? (uint32_t)b->race_time : 0u;
@@ -706,6 +816,14 @@ static void race_tick(void *u, uint32_t s) {
         else if (b->flags & SH2Z_VD_FINISHED) { end_reason = FZX_END_FINISH; end_wait = 120u; }
         else if (b->flags & (SH2Z_VD_SPINNING | SH2Z_VD_CRASHED | SH2Z_VD_FALLING)) { end_reason = FZX_END_RETIRE; end_wait = 120u; }
         if (end_reason != FZX_END_NONE) race_snapshot(end_reason);
+        /* GP: a retire or quit is outcome-only, written at the event (SCENES.md 11.3). */
+        if (end_reason != FZX_END_NONE && end_reason != FZX_END_FINISH && fzx_cup()->state == FZX_CUP_RACING) {
+            const fzx_cl_key_t k = cls_key(end_reason == FZX_END_RETIRE ? FZX_OUT_RETIRE : FZX_OUT_QUIT);
+            (void)fzx_cl_outcome_only(&scn_cls, &k);
+            cls_done = true;
+        }
+    } else if (end_reason == FZX_END_FINISH && cls_armed && !cls_done) {
+        /* The rivals race on until the classification trigger. */
     } else if (end_wait && --end_wait == 0u) {
         (void)request(FZX_SCN_RESULTS, RANK_END_RACE);
     }
@@ -876,6 +994,8 @@ void fzx_scn_main(void) {
                     ++fzx_scn_report[9];
                     ++fzx_scn_report[21];
                     session_defaults();
+                    fzx_cup_reset();
+                    fzx_drive_finish_hook = NULL;
                     resident_key = 0;
                     retry_pending = false;
                     sh2z_scene_input_consume(&input);

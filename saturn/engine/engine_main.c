@@ -1247,10 +1247,6 @@ void fzx_race_load(void) {
     if (!fzx_engine_path_open(&path, (const void *)PATH_BASE, CSEL(path_bytes,FZX_ENGINE_PATH_BYTES), CSEL(path_hash,FZX_ENGINE_PATH_HASH)))
 #endif
         fail(18, "PATH PACK", 0);
-#if ENG_SND
-    /* The race clips straight into sound RAM while the disc is free (no music yet). */
-    if (!engine_snd_load((void *)scratch, 0x00300000u - scratch)) fail(60, "SOUND LOAD", fzx_texture_cd_status.status);
-#endif
 
     vdp1_vram_partitions_get(&partitions);
 #if FZX_E1_DRIVE
@@ -1342,6 +1338,19 @@ void fzx_race_load(void) {
         SCN_STAMP(5);
 #endif
         if (offset > fzx_drive_texture_floor()) fail(51, "SPRITE VRAM OVERLAP", offset);
+    }
+#endif
+#if ENG_SND
+    /* The race clips straight into sound RAM (no music yet), last among the reads: the load's
+     * earlier reads and their cancel turns keep the timeline they have without sound. The CD
+     * workspace is the 4,096 B block at sat_stub_data_end, free again here. */
+    {
+        const uint32_t f0 = video_fields;
+        if (!engine_snd_load((void *)scratch, 0x0028D000u - 32u - scratch)) fail(60, "SOUND LOAD", fzx_texture_cd_status.status);
+        engine_snd_toc();
+        /* Clips and TOC together take an even number of fields, so the frames after the load keep the field parity they
+         * have without sound (the race's presented ticks stay comparable one for one). */
+        if ((video_fields - f0) & 1u) { const uint32_t f1 = video_fields; while (video_fields == f1) {} }
     }
 #endif
     /* Frame rows follow the track workspace in low work RAM, guarded. */
@@ -1669,6 +1678,9 @@ bool fzx_race_frame(void) {
         vdp1_sync();
 #endif
         vdp2_sync();
+#if ENG_SND
+        engine_snd_late(); /* off the build's critical path */
+#endif
 #if FZX_VDP1_DBANK
         sh2z_vdp1_banks_submitted(&fzx_dbank_banks, true);
 #endif

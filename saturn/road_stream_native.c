@@ -217,6 +217,46 @@ bool fzx_road_stream_load(void *vram){
     fzx_road_stream_report[22]=(uint32_t)(uintptr_t)work->images;fzx_road_stream_report[23]=work->image_capacity;
     fzx_road_stream_status=1;return true;
 }
+#if FZX_ROAD_STREAM_CLUT_ALIGN
+volatile uint32_t fzx_road_stream_clut_report[3];
+static uintptr_t clut_area;
+/* Detector control only: rewrite the copied tables (same values) while VDP1 may be reading them. */
+void fzx_road_stream_clut_touch(void){
+    volatile uint16_t *d=(volatile uint16_t *)clut_area;
+    if(!d)return;
+    for(uint32_t i=0;i<fzx_road_stream_clut_report[0]*16u;++i)d[i]=d[i];
+}
+bool fzx_road_stream_clut_align(void *area,uint32_t area_bytes,uint32_t *used){
+    enum{MOVED_MAX=256u};
+    static uint32_t moved_from[MOVED_MAX];
+    const uintptr_t pixels=(uintptr_t)fzx_road_stream_report[7],dest=(uintptr_t)area;
+    const uintptr_t base=(uintptr_t)VDP1_VRAM(0);
+    fzx_road_stream_clut_report[0]=0;fzx_road_stream_clut_report[1]=0;fzx_road_stream_clut_report[2]=2;
+    if(!used||fzx_road_stream_status!=1||!work||!work->images||(dest&31u)||dest<base||
+       area_bytes>base+0x80000u-dest||dest<pixels+CSEL(lod_tex_bytes,FZX_ROAD_LOD_TEXTURE_BYTES))return false;
+    *used=0;
+    uint32_t n=0,lookups=0;
+    for(uint32_t i=0;i<work->image_capacity;++i)for(unsigned v=0;v<3u;++v){
+        fzx_road_stream_material_t *m=&work->images[i].variant[v];
+        if(!m->mode)continue;
+        ++lookups;
+        if(!((pixels+m->palette)&31u))continue;
+        uint32_t k=0;
+        while(k<n&&moved_from[k]!=m->palette)++k;
+        if(k==n){
+            if(n==MOVED_MAX||(n+1u)*32u>area_bytes){fzx_road_stream_clut_report[2]=3;return false;}
+            const volatile uint16_t *s=(const volatile uint16_t *)(pixels+m->palette);
+            volatile uint16_t *d=(volatile uint16_t *)(dest+n*32u);
+            for(unsigned j=0;j<16u;++j)d[j]=s[j];
+            moved_from[n++]=m->palette;
+        }
+        m->palette=(uint32_t)(dest+k*32u-pixels);
+    }
+    *used=n*32u;clut_area=dest;
+    fzx_road_stream_clut_report[0]=n;fzx_road_stream_clut_report[1]=lookups;fzx_road_stream_clut_report[2]=1;
+    return true;
+}
+#endif
 bool fzx_road_stream_native(vdp1_cmdt_t *commands,unsigned capacity,const fzx_view_t *view,
     const int32_t eye[3],const RefRoadPlan *plan,int32_t pa,int32_t pb,void *pixels,void *shades,uint32_t *count){
     if(count)*count=0;

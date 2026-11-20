@@ -8,9 +8,12 @@
 #include "rivals_field.h"
 #include "sh2zam/effect_pool_experimental.h"
 #include "sh2zam/trig12_experimental.h"
+#include "sh2zam/divu_experimental.h"
 
 volatile uint32_t fzx_fx_report[16];
-volatile uint32_t fzx_fx_events[32]; /* tick << 8 | kind (1 retire, 2 destroyed, 3 spin-out start), last 32 */
+volatile uint32_t fzx_fx_events[32];
+volatile uint32_t fzx_fx_demand[2];
+volatile uint32_t fzx_fx_shells;      /* highlight shells drawn (cars x frames) */   /* commands the effects asked for: last frame, most in a frame */ /* tick << 8 | kind (1 retire, 2 destroyed, 3 spin-out start), last 32 */
 static uint32_t n_events;
 /* Diagnostic: master FRT totals and maxima per phase over the run: [0] set-up and body colour,
  * [1] the player's boosters, [2] particles, [3] the rivals' order, [4] the rivals' boosters,
@@ -27,9 +30,9 @@ static void prof(unsigned k) {
 #define CARS FZX_FIELD_CARS
 enum { WHITE_TICKS = 5, NEAR_TAIL = 400, NEAR_BOOST = 900, FAR_SPAWN = 2500 };
 
-/* The source's rings (effects.c): sizes, lifetimes and growth; debris and smoke rings are smaller
- * here (the source spawns 30 debris per rival retirement into 128). */
-static sh2z_ep_particle_t it_spark[32], it_exp1[32], it_exp2[8], it_fly[32], it_smoke[16], it_debris[64];
+/* The source's rings (effects.c): sizes, lifetimes and growth; the smoke ring is 16 (the source's
+ * 32; smoke comes one puff at a time). Debris: 30 a rival, 60 the player, into 128, as the source. */
+static sh2z_ep_particle_t it_spark[32], it_exp1[32], it_exp2[8], it_fly[32], it_smoke[16], it_debris[128];
 static sh2z_ep_pool_t p_spark, p_exp1, p_exp2, p_fly, p_smoke, p_debris;
 
 typedef struct {
@@ -40,10 +43,14 @@ typedef struct {
     uint8_t white;        /* bodyWhiteTimer */
     int8_t side;
     uint8_t posed;
+    uint8_t smoke_flash;  /* a wreck's smoke puff this frame: the yellow highlight (racer.c 5875) */
+    uint8_t flare;        /* the boosters' flare after an accelerator press (racer.c unk_214: 27, -1 a tick) */
 } car_fx_t;
 static car_fx_t car[CARS];
 static uint32_t rng = 0x2f6b9e1du, fx_ticks;
 static uintptr_t art;          /* VDP1 byte offset of FX.PAK */
+static uintptr_t shell_clut;   /* VDP1 byte offset of the eight highlight colour tables (yellow .. red) */
+enum { SHELL_BYTES = 8u * 32u };
 static sh2z_ep_view_t view_last;
 static bool view_ok, player_posed;
 static uint16_t pmod_tex, pmod_tex_half, pmod_poly, pmod_poly_half, pmod_line;
@@ -81,32 +88,55 @@ static void pmods(void) {
     pmod_line = c.cmd_pmod;
 }
 
+/* 7.5 sqrt(t / 100), Q16, for the boost timer t (racer.c's booster size). */
+static int32_t sqrt_share[101];
+
 static void reset(void) {
+    for (uint32_t t = 0, r = 0; t <= 100u; ++t) {
+        while ((r + 1u) * (r + 1u) <= t * 100u) ++r;
+        sqrt_share[t] = (int32_t)(Q16(7.5) / 100 * (int32_t)r);
+    }
     (void)sh2z_ep_init(&p_spark, it_spark, 32u, 16u, Q16(1.05), 65536);
     (void)sh2z_ep_init(&p_exp1, it_exp1, 32u, 16u, Q16(1.02), 65536);
     (void)sh2z_ep_init(&p_exp2, it_exp2, 8u, 32u, Q16(1.02), 65536);
     (void)sh2z_ep_init(&p_fly, it_fly, 32u, 64u, 65536, 65536);
     (void)sh2z_ep_init(&p_smoke, it_smoke, 16u, 32u, Q16(1.02), 65536);
-    (void)sh2z_ep_init(&p_debris, it_debris, 64u, 64u, 65536, Q16(0.98));
+    (void)sh2z_ep_init(&p_debris, it_debris, 128u, 64u, 65536, Q16(0.98));
     memset(car, 0, sizeof(car));
     view_ok = false; player_posed = false; fx_ticks = 0; player_flags_prev = 0;
 }
 
 uint32_t fzx_fx_load(const vdp1_vram_partitions_t *parts, uint32_t ceiling, void *scratch, uint32_t scratch_bytes) {
     const uintptr_t tex = (uintptr_t)parts->texture_base;
-    if (ceiling < FZX_FX_PACK_BYTES + 32u) { fzx_fx_report[0] = 3; return 0; }
-    const uint32_t floor = (ceiling - FZX_FX_PACK_BYTES) & ~31u;
+    if (ceiling < FZX_FX_PACK_BYTES + SHELL_BYTES + 32u) { fzx_fx_report[0] = 3; return 0; }
+    const uint32_t pack_at = (ceiling - FZX_FX_PACK_BYTES) & ~31u, floor = pack_at - SHELL_BYTES;
     if (((tex + floor) & 31u) != 0u) { fzx_fx_report[0] = 3; return 0; }
-    if (!fzx_texture_cd_load("FX.PAK", FZX_FX_PACK_BYTES, FZX_FX_PACK_HASH, (void *)(tex + floor), scratch, scratch_bytes)) {
+    if (!fzx_texture_cd_load("FX.PAK", FZX_FX_PACK_BYTES, FZX_FX_PACK_HASH, (void *)(tex + pack_at), scratch, scratch_bytes)) {
         fzx_fx_report[0] = 2; return 0;
     }
-    art = (tex + floor) & 0x7ffffu;
+    art = (tex + pack_at) & 0x7ffffu;
+    /* The highlight's colour tables: entry 0 stays transparent; 1..15 the colour (255, G, 0) with G
+     * from 255 (yellow, table 0) to 0 (red, table 7): racer.c's attackHighlight colours. */
+    {
+        volatile uint16_t *t = (volatile uint16_t *)(tex + floor);
+        for (uint32_t k = 0; k < 8u; ++k) {
+            const uint32_t g = 255u - (255u * k + 3u) / 7u;
+            for (uint32_t e = 0; e < 16u; ++e) t[k * 16u + e] = (uint16_t)(0x8000u | ((g >> 3) << 5) | 31u);
+        }
+        shell_clut = (tex + floor) & 0x7ffffu;
+    }
     pmods();
     reset();
     fzx_closeup_body_get(player_body);
     fzx_fx_report[12] = (uint32_t)art;
     fzx_fx_report[0] = 1;
     return floor;
+}
+
+void fzx_fx_reset(void) {
+    if (fzx_fx_report[0] != 1) return;
+    reset();
+    fzx_closeup_body_set(player_body);
 }
 
 /* ---- racers ------------------------------------------------------------------------------- */
@@ -132,10 +162,39 @@ static void racer_state(uint32_t i, const sh2z_vd_body_t *pl, int32_t pos[3], in
         vel[c] = (int32_t)(((int64_t)rows[0][c] * v->t.speed - (int64_t)rows[2][c] * v->t.lat_vel) >> 6);
 }
 
+/* The effects' billboard projection with one divide a point: the camera terms of sh2z_ep_project
+ * (t = r . (p - eye) / 2^16, Q14), then s = focal_x / t.z once and sy = s x focal_y / focal_x
+ * (fy, once a frame). Positions within a pixel of sh2z_ep_project; r = world half size in pixels. */
+typedef struct { int32_t x, y, depth, sy; } pt1_t;
+static int32_t fy_ratio;   /* focal_y / focal_x, Q16 */
+static int32_t vdot(const int16_t r[3], int32_t d0, int32_t d1, int32_t d2) {
+    return (int32_t)(((int64_t)r[0] * d0 + (int64_t)r[1] * d1 + (int64_t)r[2] * d2) >> 16);
+}
+/* The view depth only (Q14), no divide. */
+static int32_t view_depth(const sh2z_ep_view_t *v, const int32_t p[3]) {
+    return vdot(v->r[2], p[0] - v->eye[0], p[1] - v->eye[1], p[2] - v->eye[2]);
+}
+static bool proj1(const sh2z_ep_view_t *v, const int32_t p[3], pt1_t *o) {
+    const int32_t d0 = p[0] - v->eye[0], d1 = p[1] - v->eye[1], d2 = p[2] - v->eye[2];
+    const int32_t tz = vdot(v->r[2], d0, d1, d2);
+    if (tz <= v->near_z || tz <= 0) return false;
+    const int32_t s = sh2z_divu_div64((int64_t)v->focal_x << 16, tz, NULL);
+    const int32_t sy = (int32_t)(((int64_t)s * fy_ratio) >> 16);
+    const int32_t x = v->center_x + (int32_t)(((int64_t)vdot(v->r[0], d0, d1, d2) * s) >> 32);
+    const int32_t y = v->center_y - (int32_t)(((int64_t)vdot(v->r[1], d0, d1, d2) * sy) >> 32);
+    if (x < -v->guard || x >= v->width + v->guard || y < -v->guard || y >= v->height + v->guard) return false;
+    o->x = x; o->y = y; o->depth = tz; o->sy = sy;
+    return true;
+}
+/* Whole pixels of a world half size (Q16) at a projected point. */
+static int32_t px1(const pt1_t *o, int32_t length) { return length <= 0 ? 0 : (int32_t)(((int64_t)(length >> 2) * o->sy) >> 32); }
+
 /* The source's machineLod != 0 (on the player's screen within 2,500 units), from the last frame's view. */
 static bool visible(const int32_t pos[3]) {
-    sh2z_ep_point_t pt;
-    return view_ok && sh2z_ep_project(&view_last, pos, &pt) && pt.depth <= FAR_SPAWN * 16384;
+    if (!view_ok) return false;
+    const int32_t d = view_depth(&view_last, pos);
+    pt1_t pt;
+    return d > 0 && d <= FAR_SPAWN * 16384 && proj1(&view_last, pos, &pt);
 }
 
 /* p + a x row (Q16 + Q16 x Q1.14). */
@@ -207,6 +266,7 @@ static void wreck_smoke(uint32_t id, const sh2z_vd_body_t *pl) {
     jitter16(at, pos);
     kick(v2, vel, rows, urange(Q16(-1.5), Q16(1.5)), urange(Q16(0.5), Q16(2.0)), urange(Q16(-1.5), Q16(1.5)));
     (void)spark(at, v2, Q16(10.0), id);
+    car[id].smoke_flash = 1u;
     along(v2, vel, 65536, rows[1]);
     spawn(&p_smoke, at, v2, Q16(20.0), id);
     ++fzx_fx_report[8];
@@ -236,12 +296,14 @@ static void attack_motion(car_fx_t *c) {
     }
 }
 
-/* The spin-out turn: atan(0.2 steer) a tick (x - x^3/3; x <= 0.2), steer x 0.99. */
+/* The spin-out turn: atan(0.2 steer) a tick (x - x^3/3; x <= 0.2), steer x 0.99, while the
+ * steer is above 0.1 (racer.c 4338: the basis turns only for |steer| > 0.1). No divides. */
 static void spin_turn(car_fx_t *c) {
     if (!c->steer) return;
+    if (c->steer <= Q16(0.1)) { c->steer = 0; return; }
     const int32_t x = m16(c->steer, Q16(0.2));
-    const int32_t a = x - (int32_t)(((int64_t)x * x / 65536 * x / 65536) / 3);
-    c->yaw += (int32_t)(((int64_t)a * 651898 / 1000) * c->side);   /* rad Q16 -> angle12 Q16 */
+    const int32_t a = x - m16(m16(m16(x, x), x), Q16(1.0 / 3.0));
+    c->yaw += ((a * 41722) >> 6) * c->side;   /* rad Q16 x 4096 / 2 pi (x 64, a <= 13,108) -> angle12 Q16 */
     c->steer = m16(c->steer, Q16(0.99));
 }
 
@@ -296,8 +358,8 @@ void fzx_fx_tick(const sh2z_vd_body_t *player) {
             c->atk_angle = dir > 0 ? 0xF80 : 0x80; c->atk_rate = dir > 0 ? -0x100 : 0x100;
         }
         if (!(mode & FZX_ATK_FX_SPIN)) c->atk_angle = 0;
-        if ((mode & FZX_ATK_FX_CRASHED) && !(c->mode & FZX_ATK_FX_CRASHED)) blow_up(i, Q16(80.0), 24u, player);
-        if ((mode & FZX_ATK_FX_GONE) && !(c->mode & FZX_ATK_FX_GONE)) blow_up(i, Q16(40.0), 16u, player);
+        if ((mode & FZX_ATK_FX_CRASHED) && !(c->mode & FZX_ATK_FX_CRASHED)) blow_up(i, Q16(80.0), 30u, player);
+        if ((mode & FZX_ATK_FX_GONE) && !(c->mode & FZX_ATK_FX_GONE)) blow_up(i, Q16(40.0), 30u, player);
         if (mode & FZX_ATK_FX_SPUN) spin_puffs(i, spin_t, player);
         if ((mode & FZX_ATK_FX_CRASHED) && !(mode & FZX_ATK_FX_GONE)) wreck_smoke(i, player);
         spin_turn(c);
@@ -315,7 +377,7 @@ void fzx_fx_tick(const sh2z_vd_body_t *player) {
     prof(6);
 }
 
-void fzx_fx_player(const sh2z_vd_body_t *pl, int32_t max_energy) {
+void fzx_fx_player(const sh2z_vd_body_t *pl, int32_t max_energy, bool accel_pressed) {
     if (fzx_fx_report[0] != 1) return;
     prof_t = cpu_frt_count_get();
     car_fx_t *c = &car[0];
@@ -333,9 +395,12 @@ void fzx_fx_player(const sh2z_vd_body_t *pl, int32_t max_energy) {
         }
     }
     if (pl->spin_timer) spin_puffs(0u, pl->spin_timer, pl);
-    if ((pl->flags & SH2Z_VD_CRASHED) && !(player_flags_prev & SH2Z_VD_CRASHED)) blow_up(0u, Q16(80.0), 32u, pl);
+    if ((pl->flags & SH2Z_VD_CRASHED) && !(player_flags_prev & SH2Z_VD_CRASHED)) blow_up(0u, Q16(80.0), 60u, pl);
     if ((pl->flags & SH2Z_VD_CRASHED) && !(pl->flags & SH2Z_VD_FALLING)) wreck_smoke(0u, pl);
     c->atk_angle = pl->attack == SH2Z_VD_ATTACK_SPIN ? pl->attack_angle : 0;
+    if (!(pl->flags & (SH2Z_VD_CRASHED | SH2Z_VD_SPINNING))) {   /* racer.c 4791..4811 */
+        if (accel_pressed) c->flare = 27u; else if (c->flare) --c->flare;
+    }
     player_energy = pl->energy; player_max = max_energy; player_flags_prev = pl->flags;
     prof(7);
 }
@@ -364,24 +429,71 @@ void fzx_fx_pose(fzx_field_car_t *cars, unsigned n) {
 
 bool fzx_fx_player_posed(void) { return player_posed; }
 
+/* The attack highlight (racer.c 5826..5880): spin attack (255, 255 - 255 s, 0) at 1.05 + 0.1 s,
+ * s = sin(angle & 0x7FF); side attack red at 1.075; a wreck's smoke puff yellow at 1.03. */
+bool fzx_fx_shell(uint32_t id, uint16_t *colr, uint16_t *rgb, int32_t *scale) {
+    if (fzx_fx_report[0] != 1 || id >= CARS) return false;
+    const car_fx_t *c = &car[id];
+    uint32_t attack = 0; int32_t angle = 0; bool crashed;
+    if (id == 0u) {
+        const sh2z_vd_body_t *pl = tick_player;
+        if (!pl) return false;
+        crashed = (pl->flags & SH2Z_VD_CRASHED) != 0u;
+        attack = pl->attack == SH2Z_VD_ATTACK_SPIN ? 2u : pl->attack == SH2Z_VD_ATTACK_SIDE ? 1u : 0u;
+        angle = pl->attack_angle;
+    } else {
+        crashed = (c->mode & FZX_ATK_FX_CRASHED) != 0u;
+        attack = (c->mode & FZX_ATK_FX_SPIN) ? 2u : (c->mode & FZX_ATK_FX_SIDE) ? 1u : 0u;
+        angle = c->atk_angle;
+    }
+    uint32_t k; int32_t sc;
+    if (crashed) {
+        if (!c->smoke_flash) return false;
+        k = 0u; sc = Q16(1.03);
+    } else if (attack == 2u) {
+        const int32_t s = sh2z_sin12_u30((uint32_t)angle & 0x7ffu) >> 14;   /* Q16, 0..1 */
+        k = (uint32_t)((s * 7 + 32768) >> 16); sc = Q16(1.05) + m16(s, Q16(0.1));
+    } else if (attack == 1u) {
+        k = 7u; sc = Q16(1.075);
+    } else return false;
+    const uint32_t g = 255u - (255u * k + 3u) / 7u;
+    *colr = (uint16_t)((shell_clut + k * 32u) >> 3);
+    *rgb = (uint16_t)(0x8000u | ((g >> 3) << 5) | 31u);
+    *scale = sc;
+    ++fzx_fx_shells;
+    return true;
+}
+
 typedef struct { int32_t depth; uint16_t w[16]; } item_t;
 static item_t items[FZX_FX_SLOTS];
 static unsigned n_items;
 
+/* The budget keeps the nearest: past FZX_FX_SLOTS a new command replaces the farthest kept one
+ * when it is nearer (fzx_fx_report[10] counts the commands left out). */
+static item_t spare;
+static unsigned demand;
 static item_t *slot(int32_t depth) {
-    if (n_items >= FZX_FX_SLOTS) { ++fzx_fx_report[10]; return 0; }
-    item_t *t = &items[n_items]; t->depth = depth;
+    ++demand;
+    item_t *t = n_items < FZX_FX_SLOTS ? &items[n_items] : &spare;
+    t->depth = depth;
     return t;
+}
+static void commit(item_t *t) {
+    if (t != &spare) { ++n_items; return; }
+    ++fzx_fx_report[10];
+    unsigned far = 0;
+    for (unsigned i = 1; i < FZX_FX_SLOTS; ++i) if (items[i].depth > items[far].depth) far = i;
+    if (spare.depth < items[far].depth) items[far] = spare;
 }
 
 static void diamond(const sh2z_ep_view_t *v, const sh2z_ep_particle_t *e, uint32_t pixels, uint32_t w, uint32_t clut,
                     uint16_t pmod, int32_t max_depth) {
-    sh2z_ep_point_t pt;
-    if (!sh2z_ep_project(v, e->pos, &pt) || pt.depth > max_depth) return;
-    const int32_t r = sh2z_ep_pixels(v, e->scale, pt.depth) >> 16;
+    pt1_t pt;
+    if (!proj1(v, e->pos, &pt) || pt.depth > max_depth) return;
+    const int32_t r = px1(&pt, e->scale);
+    if (r < 1) return;
     item_t *t = slot(pt.depth);
-    if (!t || r < 1) return;
-    if (sh2z_ep_emit_diamond(t->w, pt.x >> 16, pt.y >> 16, r, (uint32_t)art + pixels, w, w, (uint32_t)art + clut, pmod)) ++n_items;
+    if (t && sh2z_ep_emit_diamond(t->w, pt.x, pt.y, r, (uint32_t)art + pixels, w, w, (uint32_t)art + clut, pmod)) commit(t);
 }
 
 static uint16_t rgb(const uint8_t c[3]) {
@@ -389,7 +501,7 @@ static uint16_t rgb(const uint8_t c[3]) {
 }
 
 /* The racers' boosters (Racer_Draw's booster pass). */
-static void boosters(const sh2z_ep_view_t *v, const fzx_field_car_t *o, int32_t hover_frac, bool player_only) {
+static void boosters(const sh2z_ep_view_t *v, const fzx_field_car_t *o, int32_t depth0, int32_t hover_frac, bool player_only) {
     const uint32_t id = o->id;
     const fzx_atk_field_t *f = fzx_atk_field();
     if (id == 0u) {
@@ -399,8 +511,7 @@ static void boosters(const sh2z_ep_view_t *v, const fzx_field_car_t *o, int32_t 
         int32_t st, dir;
         if (player_only || (fzx_atk_fx_mode(id, &st, &dir) & (FZX_ATK_FX_SPUN | FZX_ATK_FX_CRASHED))) return;
     }
-    sh2z_ep_point_t c0;
-    if (!sh2z_ep_project(v, o->pos, &c0) || c0.depth > NEAR_BOOST * 16384) return;
+    if (depth0 <= 0 || depth0 > NEAR_BOOST * 16384) return;
     const int16_t *b = fzx_fx_boosters[family_of(id)];
     uint32_t env = 0; int32_t extra = 0, speed = 0;
     if (id == 0u) {
@@ -408,9 +519,8 @@ static void boosters(const sh2z_ep_view_t *v, const fzx_field_car_t *o, int32_t 
         if (pl->boost_timer > 0) {
             env = (pl->flags & SH2Z_VD_PLATE_BOOST) ? 2u : 1u;
             /* 7.5 sqrt(boostTimer / 100), boostTimer counting down from 100 */
-            uint32_t t = (uint32_t)pl->boost_timer > 100u ? 100u : (uint32_t)pl->boost_timer, r = 0;
-            while ((r + 1u) * (r + 1u) <= t * 100u) ++r;   /* sqrt(t / 100) x 100 */
-            extra = (int32_t)(Q16(7.5) / 100 * (int32_t)r);
+            const uint32_t t = (uint32_t)pl->boost_timer > 100u ? 100u : (uint32_t)pl->boost_timer;
+            extra = sqrt_share[t];
         }
         speed = pl->speed;
     } else {
@@ -419,8 +529,10 @@ static void boosters(const sh2z_ep_view_t *v, const fzx_field_car_t *o, int32_t 
         speed = rv->t.speed << 8;
     }
     /* (3 - (frame & 3)) x 2 x 0.2 flicker */
-    const int32_t flicker = (int32_t)((3u - (fx_ticks & 3u)) * 2u) * Q16(0.2);
-    const bool tail = c0.depth < NEAR_TAIL * 16384 && speed > Q16(1.0);
+    int32_t fl = (int32_t)((3u - (fx_ticks & 3u)) * 2u);
+    if (fl < car[id].flare) fl = car[id].flare;   /* the accelerator press (racer.c unk_214) */
+    const int32_t flicker = fl * Q16(0.2);
+    const bool tail = depth0 < NEAR_TAIL * 16384 && speed > Q16(1.0);
     for (int k = (int)b[0] - 1; k >= 0; --k) {
         const int16_t *q = b + 1 + 4 * k;
         const int32_t s = q[3] * Q16(0.35) / 16;                       /* size x 0.35 */
@@ -429,29 +541,25 @@ static void boosters(const sh2z_ep_view_t *v, const fzx_field_car_t *o, int32_t 
         const int32_t mx = q[0] * Q16(0.1), my = q[1] * Q16(0.1), mz = q[2] * Q16(0.1) - m16(s, Q16(0.36));
         for (int a = 0; a < 3; ++a)
             p[a] = o->pos[a] + (int32_t)(((int64_t)mx * o->basis[2][a] + (int64_t)my * o->basis[1][a] + (int64_t)mz * o->basis[0][a]) >> 14);
-        sh2z_ep_point_t pt;
-        if (!sh2z_ep_project(v, p, &pt)) continue;
+        pt1_t pt;
+        if (!proj1(v, p, &pt)) continue;
         const int32_t size = m16(s + flicker + extra, hover_frac);
-        const int32_t r = sh2z_ep_pixels(v, size, pt.depth) >> 16;
+        const int32_t r = px1(&pt, size);
         if (r < 1) continue;
         const uint32_t colr = (uint32_t)art + FZX_FX_CLUT_BOOST + env * 32u;
         item_t *t = slot(pt.depth - 1);
-        if (!t) return;
-        if (sh2z_ep_emit_diamond(t->w, pt.x >> 16, pt.y >> 16, r, (uint32_t)art + FZX_FX_BOOST_HEAD, 16u, 16u, colr, pmod_tex)) {
-            ++n_items; ++fzx_fx_report[11];
+        if (t && sh2z_ep_emit_diamond(t->w, pt.x, pt.y, r, (uint32_t)art + FZX_FX_BOOST_HEAD, 16u, 16u, colr, pmod_tex)) {
+            commit(t); ++fzx_fx_report[11];
         }
         if (!tail) continue;
-        int32_t e[3]; sh2z_ep_point_t pe;
+        int32_t e[3]; pt1_t pe;
         along(e, p, -m16(speed, Q16(0.9)), o->basis[0]);
-        if (!sh2z_ep_project(v, e, &pe)) continue;
-        const int16_t xy[4][2] = { { (int16_t)((pt.x >> 16) + r), (int16_t)(pt.y >> 16) },
-                                   { (int16_t)(pe.x >> 16), (int16_t)(pe.y >> 16) },
-                                   { (int16_t)((pt.x >> 16) - r), (int16_t)(pt.y >> 16) },
-                                   { (int16_t)((pt.x >> 16) - r), (int16_t)(pt.y >> 16) } };
+        if (!proj1(v, e, &pe)) continue;
+        const int16_t xy[4][2] = { { (int16_t)(pt.x + r), (int16_t)pt.y }, { (int16_t)pe.x, (int16_t)pe.y },
+                                   { (int16_t)(pt.x - r), (int16_t)pt.y }, { (int16_t)(pt.x - r), (int16_t)pt.y } };
         t = slot(pt.depth);
-        if (!t) return;
-        if (sh2z_ep_emit_quad(t->w, xy, (uint32_t)art + FZX_FX_BOOST_TAIL, 16u, 16u, colr, pmod_tex_half)) {
-            ++n_items; ++fzx_fx_report[11];
+        if (t && sh2z_ep_emit_quad(t->w, xy, (uint32_t)art + FZX_FX_BOOST_TAIL, 16u, 16u, colr, pmod_tex_half)) {
+            commit(t); ++fzx_fx_report[11];
         }
     }
 }
@@ -472,11 +580,12 @@ unsigned fzx_fx_emit(vdp1_cmdt_t *commands, unsigned capacity, const fzx_view_t 
     v.near_z = view->near_plane * 4;
     v.width = 320; v.height = 224; v.guard = 96;
     view_last = v; view_ok = true;
-    n_items = 0; fzx_fx_report[11] = 0;
+    fy_ratio = sh2z_divu_div64((int64_t)v.focal_y << 16, v.focal_x, NULL);
+    n_items = 0; demand = 0; fzx_fx_report[11] = 0;
     /* The player's flash and low-energy flicker on the 3D body (racer.c 5795). */
     if (tick_player && player_max > 0) {
         uint8_t col[3] = { player_body[0], player_body[1], player_body[2] };
-        const int32_t e = (int32_t)(((int64_t)player_energy << 16) / player_max);   /* Q16 share */
+        const int32_t e = sh2z_divu_div64((int64_t)player_energy << 16, player_max, NULL);   /* Q16 share */
         if (!(tick_player->flags & SH2Z_VD_CRASHED)) {
             if (!(fx_ticks & 8u) && (e < Q16(0.2) || (e < Q16(0.5) && !(fx_ticks & 16u)))) {
                 const int32_t f2 = 2 * e, mix = (int32_t)(fx_ticks & 7u) * 65536 / 7;
@@ -494,12 +603,12 @@ unsigned fzx_fx_emit(vdp1_cmdt_t *commands, unsigned capacity, const fzx_view_t 
     int32_t hover_frac = 65536;
     if (tick_player) {
         const int32_t h = tick_player->hover;
-        hover_frac = h <= Q16(7.0) ? 0 : h >= Q16(13.0) ? 65536 : (int32_t)(((int64_t)(h - Q16(7.0)) << 16) / Q16(6.0));
+        hover_frac = h <= Q16(7.0) ? 0 : h >= Q16(13.0) ? 65536 : m16(h - Q16(7.0), Q16(1.0 / 6.0));
     }
     /* By priority, while the budget lasts: the player's boosters, explosions, sparks, flying
      * sparks, debris, smoke, then the rivals' boosters. */
     prof(0);
-    for (unsigned k = 0; k < n; ++k) if (cars[k].id == 0u) boosters(&v, &cars[k], hover_frac, true);
+    for (unsigned k = 0; k < n; ++k) if (cars[k].id == 0u) boosters(&v, &cars[k], view_depth(&v, cars[k].pos), hover_frac, true);
     prof(1);
     for (uint32_t k = 0; k < p_exp2.count; ++k) {
         const sh2z_ep_particle_t *e = sh2z_ep_at(&p_exp2, k);
@@ -524,38 +633,35 @@ unsigned fzx_fx_emit(vdp1_cmdt_t *commands, unsigned capacity, const fzx_view_t 
     }
     for (uint32_t k = 0; k < p_fly.count; ++k) {
         const sh2z_ep_particle_t *e = sh2z_ep_at(&p_fly, k);
-        int32_t tail[3]; sh2z_ep_point_t a, b;
+        int32_t tail[3]; pt1_t a, b;
         for (int c = 0; c < 3; ++c) tail[c] = e->pos[c] - 3 * e->vel[c];
-        if (!sh2z_ep_project(&v, e->pos, &a) || !sh2z_ep_project(&v, tail, &b)) continue;
+        if (!proj1(&v, e->pos, &a) || !proj1(&v, tail, &b)) continue;
         item_t *t = slot(a.depth);
-        if (!t) break;
-        const int16_t xy[4][2] = { { (int16_t)(a.x >> 16), (int16_t)(a.y >> 16) }, { (int16_t)(b.x >> 16), (int16_t)(b.y >> 16) },
-                                   { 0, 0 }, { 0, 0 } };
-        if (sh2z_ep_emit_shape(t->w, SH2Z_EP_LINE, xy, 0x821Fu, pmod_line, (uint32_t)art + FZX_FX_GOURAUD_SPARK)) ++n_items;
+        const int16_t xy[4][2] = { { (int16_t)a.x, (int16_t)a.y }, { (int16_t)b.x, (int16_t)b.y }, { 0, 0 }, { 0, 0 } };
+        if (sh2z_ep_emit_shape(t->w, SH2Z_EP_LINE, xy, 0x821Fu, pmod_line, (uint32_t)art + FZX_FX_GOURAUD_SPARK)) commit(t);
     }
     for (uint32_t k = 0; k < p_debris.count; ++k) {
         const sh2z_ep_particle_t *e = sh2z_ep_at(&p_debris, k);
-        sh2z_ep_point_t pt;
-        if (!sh2z_ep_project(&v, e->pos, &pt)) continue;
-        const int32_t r = sh2z_ep_pixels(&v, e->scale, pt.depth) >> 16;
+        pt1_t pt;
+        if (!proj1(&v, e->pos, &pt)) continue;
+        const int32_t r = px1(&pt, e->scale);
         if (r < 1) continue;
         item_t *t = slot(pt.depth);
-        if (!t) break;
         /* A shard turning on itself: three corners at phases from its seed, 0xCC a tick (racer.c debris). */
         int16_t xy[4][2];
         const uint32_t ph = (uint32_t)e->seed * 16u + (uint32_t)e->timer * 0xCCu;
         for (int c = 0; c < 3; ++c) {
             const uint32_t a = (ph + (uint32_t)c * 1365u + (uint32_t)(e->seed & 7u) * 97u * (uint32_t)c) & 4095u;
             const int32_t sx = sh2z_sin12_u30(a) >> 16, cx = sh2z_cos12_u30(a) >> 16;    /* Q14 */
-            xy[c][0] = (int16_t)((pt.x >> 16) + ((r * cx) >> 14));
-            xy[c][1] = (int16_t)((pt.y >> 16) + ((r * sx) >> 14) / (c == 1 ? 2 : 1));
+            xy[c][0] = (int16_t)(pt.x + ((r * cx) >> 14));
+            xy[c][1] = (int16_t)(pt.y + ((r * sx) >> 14) / (c == 1 ? 2 : 1));
         }
         xy[3][0] = xy[2][0]; xy[3][1] = xy[2][1];
         const uint32_t id = e->user < CARS ? e->user : 0u;
         const uint16_t colour = id ? rgb(fzx_fx_body[family_of(id)]) : rgb(player_body);
         /* alpha 255 - sin(vibration & 0x7FF) x 255: opaque or half-transparent */
         const bool half = (sh2z_sin12_u30(ph & 0x7ffu) >> 22) >= 128;
-        if (sh2z_ep_emit_shape(t->w, SH2Z_EP_POLYGON, (const int16_t (*)[2])xy, colour, half ? pmod_poly_half : pmod_poly, 0u)) ++n_items;
+        if (sh2z_ep_emit_shape(t->w, SH2Z_EP_POLYGON, (const int16_t (*)[2])xy, colour, half ? pmod_poly_half : pmod_poly, 0u)) commit(t);
     }
     for (uint32_t k = 0; k < p_smoke.count; ++k) {
         const sh2z_ep_particle_t *e = sh2z_ep_at(&p_smoke, k);
@@ -567,13 +673,14 @@ unsigned fzx_fx_emit(vdp1_cmdt_t *commands, unsigned capacity, const fzx_view_t 
         static int32_t cd[CARS]; static uint8_t ck[CARS], co[CARS];
         unsigned m = 0;
         for (unsigned k = 0; k < n && m < CARS; ++k) {
-            sh2z_ep_point_t pt;
-            if (cars[k].id == 0u || !sh2z_ep_project(&v, cars[k].pos, &pt) || pt.depth > NEAR_BOOST * 16384) continue;
-            cd[m] = pt.depth; ck[m] = (uint8_t)k; ++m;
+            if (cars[k].id == 0u) continue;
+            const int32_t d = view_depth(&v, cars[k].pos);   /* no divide: depth first */
+            if (d <= v.near_z || d > NEAR_BOOST * 16384) continue;
+            cd[m] = d; ck[m] = (uint8_t)k; ++m;
         }
         sh2z_ep_sort(co, cd, m);
         prof(3);
-        for (unsigned j = m; j-- > 0;) boosters(&v, &cars[ck[co[j]]], hover_frac, false);
+        for (unsigned j = m; j-- > 0;) boosters(&v, &cars[ck[co[j]]], cd[co[j]], hover_frac, false);
     }
     prof(4);
     /* Far to near, after the cars. */
@@ -585,6 +692,8 @@ unsigned fzx_fx_emit(vdp1_cmdt_t *commands, unsigned capacity, const fzx_view_t 
     for (unsigned i = 0; i < n_items && out < capacity; ++i) memcpy(&commands[out++], items[order[i]].w, sizeof(vdp1_cmdt_t));
     prof(5);
     fzx_fx_report[1] = out;
+    for (uint32_t i = 0; i < CARS; ++i) car[i].smoke_flash = 0u;
+    fzx_fx_demand[0] = demand; if (demand > fzx_fx_demand[1]) fzx_fx_demand[1] = demand;
     if (out > fzx_fx_report[2]) fzx_fx_report[2] = out;
     fzx_fx_report[3] = p_spark.count + p_exp1.count + p_exp2.count + p_fly.count + p_smoke.count + p_debris.count;
     const uint32_t dt = (uint16_t)(cpu_frt_count_get() - t0);

@@ -302,8 +302,8 @@ ifeq ($(filter 0 1,$(ENG_FX)),)
 $(error ENG_FX must be 0 or 1)
 endif
 ifeq ($(ENG_FX),1)
-ifneq ($(ENG_ATTACKS):$(E2_EARLY):$(ENG_SCENES),1:1:0)
-$(error ENG_FX=1 needs ENG_ATTACKS=1 and E2_EARLY=1 (the scenes loop is not wired yet: ENG_SCENES=0))
+ifneq ($(ENG_ATTACKS):$(E2_EARLY),1:1)
+$(error ENG_FX=1 needs ENG_ATTACKS=1 and E2_EARLY=1)
 endif
 endif
 # The racer sprite set the player is drawn from.

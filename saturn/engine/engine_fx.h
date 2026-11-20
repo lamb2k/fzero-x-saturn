@@ -44,20 +44,28 @@ extern volatile uint32_t fzx_fx_report[16];
 /* The last 32 effect events: race-effect tick << 8 | kind (1 retire explosion, 2 wreck destroyed,
  * 3 a rival's spin-out starts). Evidence only. */
 extern volatile uint32_t fzx_fx_events[32];
+/* Commands the effects asked for: [0] last frame, [1] the most in one frame (the budget's demand). */
+extern volatile uint32_t fzx_fx_demand[2];
 
 /* After the 3D player's load: FX.PAK just below texture offset `ceiling`. Returns the new floor
  * (0 on failure). */
 uint32_t fzx_fx_load(const vdp1_vram_partitions_t *parts, uint32_t ceiling, void *scratch, uint32_t scratch_bytes);
+/* Retry (the resident set kept): every effect and effect state back to the race's start. */
+void fzx_fx_reset(void);
 /* Every tick, after the contacts and before the player's step: contact sparks, the rivals'
  * spin, retire and wreck effects, and one particle step. */
 void fzx_fx_tick(const sh2z_vd_body_t *player);
 /* Every tick, after the player's step: the player's wall sparks, spin-out and retirement. */
-void fzx_fx_player(const sh2z_vd_body_t *player, int32_t max_energy);
+void fzx_fx_player(const sh2z_vd_body_t *player, int32_t max_energy, bool accel_pressed);
 /* Every frame, on the cars of fzx_field_cars: spin turns and jitter (render only). */
 void fzx_fx_pose(fzx_field_car_t *cars, unsigned n);
 /* The player's pose differs from its body this frame (a spin attack or jitter): draw the 3D
  * player from cars[0] instead of the body. */
 bool fzx_fx_player_posed(void);
+/* The attack highlight of car id this frame (racer.c's attackHighlight): the colour-table word
+ * (CMDCOLR) for CLUT sprites, the RGB colour for polygons and the Q16 scale. False: none. */
+bool fzx_fx_shell(uint32_t id, uint16_t *colr, uint16_t *rgb, int32_t *scale);
+extern volatile uint32_t fzx_fx_shells;
 /* Every frame, after the cars: the effects' commands, far to near. */
 unsigned fzx_fx_emit(vdp1_cmdt_t *commands, unsigned capacity, const fzx_view_t *view, const fzx_engine_cam_t *cam,
                      const fzx_field_car_t *cars, unsigned n);

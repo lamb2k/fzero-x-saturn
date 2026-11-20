@@ -5,9 +5,9 @@
 #
 #   make -C saturn/engine SH2ZAM_ROOT=<checkout of the engine pin> [FZX_VDP1_DBANK=0|1]
 #
-# The SH2ZAM pin is saturn/engine/sh2zam.pin. Jack Cup integration (claude/jack): branch claude/jack-train,
-# claude/courses-pin cff480b (main 5a94dbe + line-field-3, PR #53) plus claude/vehicle-dynamics-2 (PR #54:
-# pipes and cylinders); repin to main once both land. Before it, main 5a94dbe, merge train 5 (PR #51: dual-claim-1,
+# The SH2ZAM pin is saturn/engine/sh2zam.pin: SH2ZAM main accd505, merge train 7 (PR #56: vehicle-dynamics-2,
+# pipes and cylinders), after train 6 (PR #55: line-field-3, the first-lap chase cap). Before it, branch
+# claude/jack-train 8449e35 (the same library sources). Before that, main 5a94dbe, merge train 5 (PR #51: dual-claim-1,
 # compiled only with ENG_BAL_CLOUDS=2, and line-field-2, whose second-lap re-target is off while a brain's
 # finish_ticks is 0). Before it, main 93b3774 (train 4, PR #48): rotation-sprites-2/-3, line-follower-1,
 # line-field-1, segmesh-2, vehicle-dynamics-1, sprite-cache-1, scene-1, snd-1 and dsp-1; before that the

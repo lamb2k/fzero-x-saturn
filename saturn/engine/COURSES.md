@@ -330,9 +330,10 @@ Blue's PHYS.PAK; both images refuse it (status 50).
 EMULATOR tier (Ymir headless); timings MODELLED; hardware UNRUN. Evidence: `fzx-evidence/host/claude-jack/`.
 
 **Integration.** `claude/jack` = engine c07f6cf (cup, balance) + `claude/courses` c4d9d0a + `claude/tubes` f1381f4.
-- **SH2ZAM pin:** `claude/jack-train` 8449e35 = `claude/courses-pin` cff480b (main 5a94dbe + line-field-3, PR #53)
-  + `claude/vehicle-dynamics-2` 5248fed (PR #54). Its library sources equal merge train 7 (main 1181c07 + #54);
-  repin to main when #56 lands.
+- **SH2ZAM pin:** main accd505 (train 7: line-field-3 and vehicle-dynamics-2 both landed). It replaced
+  `claude/jack-train` 8449e35, whose library sources and headers are identical: the E0, Mute City field, select
+  and default scenes BINs built against accd505 are byte-identical to those built against 8449e35 (9d4db29d,
+  5d4cdc2c, 1fad0b2f, d426166b).
 - **One catalog.** The cup's catalog (`engine_cup.c`, SCENES.md 11.1) decides what a build can race. The courses
   lane's table became `fzx_course_info` (cup, round, music, name). LOAD selects the packs of the course it loads
   (`fzx_course_use(load_course)`), so a GP round would load its own; probe `0x2nn` moves the select cursor.

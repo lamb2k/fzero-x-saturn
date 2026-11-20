@@ -166,6 +166,17 @@ def build(clips: list, ram_bytes: int, streams: int = STREAMS, reverb_bytes: int
     return {"clips": table, "regions": regions, "image": bytes(image), "used": at}
 
 
+def write_receipt(out: Path, receipt: str, generators: tuple, outputs: tuple):
+    """tools/check_receipt.sh format: the generators in this tree and every output's hash."""
+    import hashlib as _h
+    tools = Path(__file__).resolve().parent
+    sha = lambda f: _h.sha256(Path(f).read_bytes()).hexdigest()
+    lines = ['# fzx generation receipt v1; regenerate, never edit']
+    lines += ['generator %s %s' % (sha(tools / g), g) for g in generators]
+    lines += ['output %s %s' % (sha(out / o), o) for o in outputs]
+    (out / receipt).write_text('\n'.join(lines) + '\n')
+
+
 def write_outputs(out: Path, pack: dict):
     out.mkdir(parents=True, exist_ok=True)
     image = pack["image"] + bytes((-len(pack["image"])) % 4)        # the CD loader moves whole longwords
@@ -210,6 +221,8 @@ def write_outputs(out: Path, pack: dict):
             "regions": pack["regions"], "events": pack.get("events", []),
             "clips": [{k: v for k, v in c.items() if k != "data"} for c in pack["clips"]]}
     (out / "snd_race.json").write_text(json.dumps(meta, indent=1) + "\n")
+    write_receipt(out, "snd.receipt", ("sfx_pack.py", "bgm_cdda.py", "import_course.py"),
+                  ("SNDRACE.PAK", "snd_race.h", "snd_race.json"))
 
 
 def main():

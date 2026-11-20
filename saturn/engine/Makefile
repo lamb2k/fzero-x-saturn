@@ -5,7 +5,8 @@
 #
 #   make -C saturn/engine SH2ZAM_ROOT=<checkout of the engine pin> [FZX_VDP1_DBANK=0|1]
 #
-# The SH2ZAM pin is saturn/engine/sh2zam.pin (branch claude/dsp-engine-train-2: claude/scenes-train-2 e0c5c89
+# The SH2ZAM pin is saturn/engine/sh2zam.pin (branch claude/snd-engine-train: claude/dsp-engine-train-2 5f3f142 + snd-1;
+# before it, branch claude/dsp-engine-train-2: claude/scenes-train-2 e0c5c89
 # (claude/e2-field-train: claude/e1-train (segmesh-2, vehicle-dynamics-1, sprite-cache-1, rotation-sprites-2)
 # plus line-field-1; plus scene-1) plus dsp-1).
 # Assets come from ../../generated (owning generators, receipts checked here).
@@ -162,7 +163,8 @@ ENG_CDDA_LOOPTEST ?= 0
 # Needs generated/snd (tools/sfx_pack.py), generated/cdda (tools/disc_cdda.py), both local, an
 # SH2ZAM checkout with snd-1 and a multi-track disc. ENG_SND_FADETEST=N: leave (fade the music,
 # close the event epoch) at tick N, the LOAD hook's control.
-ENG_SND ?= 0
+# On by default for the drive images (scenes and the plain drive); ENG_SND=0 is the control.
+ENG_SND ?= $(if $(filter 1,$(FZX_E1_DRIVE)),$(if $(filter 1,$(ENG_CDDA)),0,1),0)
 ENG_SND_MUSIC ?= 0
 ENG_SND_FADETEST ?= 0
 ifeq ($(filter 0 1 2,$(ENG_DSP_BANDS)),)
@@ -310,11 +312,12 @@ endif
 ifneq ($(FZX_E1_DRIVE),1)
 $(error ENG_SND needs FZX_E1_DRIVE=1)
 endif
-ifneq ($(words $(wildcard $(G)/snd/snd_race.h $(G)/snd/SNDRACE.PAK $(G)/cdda/cdda_tracks.h)),3)
-$(error ENG_SND=1 needs $(G)/snd (tools/sfx_pack.py) and $(G)/cdda/cdda_tracks.h (tools/disc_cdda.py --header))
+SND_RECEIPT_CHECK := $(foreach R,snd/snd.receipt cdda/cdda.receipt,$(shell sh ../../tools/check_receipt.sh $(G)/$(R) >/dev/null 2>&1 || echo $(R)))
+ifneq ($(strip $(SND_RECEIPT_CHECK)),)
+$(error Missing or stale sound assets ($(SND_RECEIPT_CHECK)): run tools/sfx_pack.py --output generated/snd and tools/disc_cdda.py --music <bgm_cdda.py output> --ids all --header-only --header generated/cdda/cdda_tracks.h (local, from the ROM); or build with ENG_SND=0)
 endif
 ifeq ($(wildcard $(SH2ZAM_ROOT)/saturn/include/sh2zam/snd_experimental.h),)
-$(error ENG_SND=1 needs an SH2ZAM checkout with snd-1 (claude/snd-1, PR #44))
+$(error ENG_SND=1 needs the SH2ZAM pin (saturn/engine/sh2zam.pin, claude/snd-engine-train with snd-1))
 endif
 SH_SRCS += engine_snd.c $(SH2ZAM_ROOT)/saturn/src/sh2zam_snd.c
 SH_CFLAGS += -DENG_SND=1 -DENG_SND_MUSIC=$(ENG_SND_MUSIC) -DENG_SND_FADETEST=$(ENG_SND_FADETEST) -I$(G)/snd -I$(G)/cdda

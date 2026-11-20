@@ -175,6 +175,17 @@ def build(iso: Path, music: Path, ids: list, out: Path, name: str, header: Path 
 
 
 def write_header(path: Path, table: list):
+    _write_header(path, table)
+    # tools/check_receipt.sh format, so the engine build refuses a stale table
+    import hashlib as _h
+    tools = Path(__file__).resolve().parent
+    sha = lambda f: _h.sha256(Path(f).read_bytes()).hexdigest()
+    (path.parent / "cdda.receipt").write_text(
+        "# fzx generation receipt v1; regenerate, never edit\n"
+        "generator %s disc_cdda.py\noutput %s %s\n" % (sha(tools / "disc_cdda.py"), sha(path), path.name))
+
+
+def _write_header(path: Path, table: list):
     rows = ",\n".join("    { %d, %d, %du, %du }" % (t["music_id"], t["track"], t["sectors"],
                                                      0xFFFFFFFF if t["loop_sector"] is None else t["loop_sector"])
                       for t in table)

@@ -5,11 +5,10 @@
 #
 #   make -C saturn/engine SH2ZAM_ROOT=<checkout of the engine pin> [FZX_VDP1_DBANK=0|1]
 #
-# The SH2ZAM pin is saturn/engine/sh2zam.pin (branch claude/emit-train-2: claude/snd-engine-train a59a4ef
-# plus rotation-sprites-3; snd-engine-train is claude/dsp-engine-train-2 5f3f142 + snd-1;
-# before it, branch claude/dsp-engine-train-2: claude/scenes-train-2 e0c5c89
-# (claude/e2-field-train: claude/e1-train (segmesh-2, vehicle-dynamics-1, sprite-cache-1, rotation-sprites-2)
-# plus line-field-1; plus scene-1) plus dsp-1).
+# The SH2ZAM pin is saturn/engine/sh2zam.pin: SH2ZAM main 93b3774, merge train 4 (PR #48), tags
+# rotation-sprites-2/-3, line-follower-1, line-field-1, segmesh-2, vehicle-dynamics-1, sprite-cache-1,
+# scene-1, snd-1 and dsp-1. Before it, the integration branch claude/emit-train-2 ba7c237, whose
+# library differs from main only in comments and in sh2z_rspr_pose (field stores, no memcpy).
 # Assets come from ../../generated (owning generators, receipts checked here).
 ifeq ($(strip $(YAUL_INSTALL_ROOT)),)
 $(error Undefined YAUL_INSTALL_ROOT (install root directory))
@@ -106,7 +105,7 @@ E2_ROSTER ?= 0
 # Sprite emit lane (claude/e2-emit, generated/E2-EMIT.md), field images; each 0 = the emit as it was.
 # E2_EMIT_EXACT: every exact switch below that the image allows (HINT CMD SHADOW POSE SETUP LINK CULL YAW).
 # Default 1 (coordinator 2026-11-19, generated/E2-EMIT.md); E2_EMIT_EXACT=0 is the emit as it was.
-# CMD, POSE and YAW call SH2ZAM rotation-sprites-3 (sh2zam_rotation_sprite3.c, pin claude/emit-train-2).
+# CMD, POSE and YAW call SH2ZAM rotation-sprites-3 (sh2zam_rotation_sprite3.c).
 E2_EMIT_EXACT ?= 1
 # E2_EMIT_PROF: diagnostic, per-call emit sub-step times (fzx_emit_prof); changes timing slightly.
 E2_EMIT_PROF ?= 0
@@ -345,7 +344,7 @@ ifneq ($(strip $(SND_RECEIPT_CHECK)),)
 $(error Missing or stale sound assets ($(SND_RECEIPT_CHECK)): run tools/sfx_pack.py --output generated/snd and tools/disc_cdda.py --music <bgm_cdda.py output> --ids all --header-only --header generated/cdda/cdda_tracks.h (local, from the ROM); or build with ENG_SND=0)
 endif
 ifeq ($(wildcard $(SH2ZAM_ROOT)/saturn/include/sh2zam/snd_experimental.h),)
-$(error ENG_SND=1 needs the SH2ZAM pin (saturn/engine/sh2zam.pin, claude/snd-engine-train with snd-1))
+$(error ENG_SND=1 needs the SH2ZAM pin (saturn/engine/sh2zam.pin, with snd-1))
 endif
 SH_SRCS += engine_snd.c $(SH2ZAM_ROOT)/saturn/src/sh2zam_snd.c
 SH_CFLAGS += -DENG_SND=1 -DENG_SND_MUSIC=$(ENG_SND_MUSIC) -DENG_SND_FADETEST=$(ENG_SND_FADETEST) -I$(G)/snd -I$(G)/cdda

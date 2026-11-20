@@ -46,7 +46,8 @@ E0_QUEUE_WIDEN ?= 0
 # generated/racer_sprites (tools/racer_sprites.py), and an SH2ZAM pin with
 # vehicle-dynamics-1 and rotation-sprites-1 (claude/e1-train).
 FZX_E1_DRIVE ?= 0
-# 1: the R01 test driver steers from boot (captures); 0: the pad (owner).
+# 1: the R01 test driver steers from boot (captures); 2: R03, the look-ahead driver (drive_ahead.h, GP cup
+# tests: it finishes all six Jack courses); 0: the pad (owner).
 E1_DRIVER ?= 0
 # Test driver boost period in ticks (0 = R01; 240 = R02).
 E1_DRIVER_BOOST ?= 0

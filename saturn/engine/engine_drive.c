@@ -7,6 +7,7 @@
 #endif
 #include "physics_native.h"
 #include "physics_identity.h"
+#include "drive_ahead.h"
 #ifndef FZX_P3_BASELINE
 #if ENG_SCENES
 #include "engine_scenes.h"
@@ -32,7 +33,8 @@
 #ifndef E1_DRIVER
 #define E1_DRIVER 0
 #endif
-/* R01: kl 0.004, kh 2.5, target 0; R02 adds B every 240 ticks. */
+/* 1, R01: kl 0.004, kh 2.5, target 0; R02 adds B every 240 ticks. 2, R03: the original CPU steering law with
+ * its look-ahead (drive_ahead.h), the GP test driver that finishes every Jack course (Port Town included). */
 #ifndef E1_DRIVER_BOOST
 #define E1_DRIVER_BOOST 0
 #endif
@@ -154,7 +156,7 @@ void fzx_drive_step(uint32_t n) {
             uint16_t button = ticks >= RACE_START_TICK ? N64_A : 0u;
             signed char sx = 0;
             if (body.intro == 0) {
-                sx = driver_stick();
+                sx = fzx_e1_driver == 2u ? fzx_drive_ahead(&course.track, &body, 0.1f, &button) : driver_stick();
                 if (E1_DRIVER_BOOST > 0 && ticks % E1_DRIVER_BOOST == 0u) button |= N64_B;
             }
             sh2z_vd_input_t in;

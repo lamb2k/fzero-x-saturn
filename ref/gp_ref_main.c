@@ -25,6 +25,8 @@ void rb_racer_disp(int i, float d[3]);
 float rb_course_length(void);
 void rb_gp_frame(void);
 void rb_gp_zones(void);
+void rb_cpu_diag(int i, float f[5], int n[8]);
+void rb_cpu_diag2(int i, float f[6], int n[2]);
 
 #define MAXR 30
 #define ST_RETIRED (1 << 18)
@@ -73,7 +75,7 @@ static void tube_add(double angle_deg) {
 }
 
 int main(int argc, char** argv) {
-    const char *course = 0, *rom = 0, *line = 0, *report = 0, *trace = 0, *tube_pack = 0;
+    const char *course = 0, *rom = 0, *line = 0, *report = 0, *trace = 0, *tube_pack = 0, *diag = 0;
     int difficulty = 1, max_ticks = 14000, player_cpu = 1, tuning_course = 0, zones = 0;
     unsigned seed = 1;
     for (int i = 1; i + 1 < argc; i += 2) {
@@ -89,6 +91,7 @@ int main(int argc, char** argv) {
         else if (!strcmp(argv[i], "--tuning-course")) tuning_course = atoi(argv[i + 1]);
         else if (!strcmp(argv[i], "--zones")) zones = atoi(argv[i + 1]);
         else if (!strcmp(argv[i], "--tube-pack")) tube_pack = argv[i + 1];   /* RIVALS.PAK: tube_angles over its pipe and cylinder nodes */   /* 1: the surface zones, jumps and mines (rivals_bake.c) */
+        else if (!strcmp(argv[i], "--diag")) diag = argv[i + 1];   /* line-field-5: per racer and tick, see DIAG below */
         else die("unknown argument");
     }
     if (!course || !rom || !line || !report) die("usage: see gp_ref_main.c");
@@ -121,6 +124,11 @@ int main(int argc, char** argv) {
     double speed_sum[MAXR] = {0}; int speed_n[MAXR] = {0};
     float min_lat_room = 1e9f;
     FILE* tf = trace ? fopen(trace, "wb") : NULL;
+    /* DIAG (claude/line-field-5): one 88-byte little-endian record per racer and tick from the race start:
+     * int32 tick, id, stateFlags, shape, unk_288, attacker, segment, lap, boostTimer, machineLod; float32 dist,
+     * lateral, up, energy, unk_370, lastStickX, unk_33C, pos x y z, radius left, right. HOST diagnostics only; output never committed. */
+    FILE* df = diag ? fopen(diag, "wb") : NULL;
+    if (diag && !df) die("cannot write diag");
     if (trace && !tf) die("cannot write trace");
     for (int i = 0; i < MAXR; ++i) { finish_tick[i] = retire_tick[i] = -1; for (int k = 0; k < 4; ++k) lap_end[i][k] = -1; }
     for (int t = 0; t < max_ticks; ++t) {
@@ -156,6 +164,12 @@ int main(int argc, char** argv) {
                 }
                 (void)min_lat_room;
             }
+            if (df && start_tick >= 0) {
+                float g[5], h[6]; int m[8], k[2]; rb_cpu_diag(i, g, m); rb_cpu_diag2(i, h, k);
+                int32_t ri[10] = { t - start_tick, i, m[0], m[1], m[2], m[3], m[4], m[7], k[0], k[1] };
+                float rf[12] = { f[0], f[1], rb_racer_up(i), f[3], g[0], g[1], h[0], h[1], h[2], h[3], h[4], h[5] };
+                fwrite(ri, sizeof ri, 1, df); fwrite(rf, sizeof rf, 1, df);
+            }
             prev_lap[i] = v[0]; prev_pos[i] = v[1];
             last_dist[i] = f[0]; last_energy[i] = f[3]; last_flags[i] = v[2]; if (f[2] > top_speed[i]) top_speed[i] = f[2];
         }
@@ -168,6 +182,7 @@ int main(int argc, char** argv) {
         }
     }
     if (tf) fclose(tf);
+    if (df) fclose(df);
     FILE* o = fopen(report, "w");
     if (!o) die("cannot write report");
     fprintf(o, "{\n \"tier\": \"HOST\", \"role\": \"reference (original code)\", \"difficulty\": %d, \"seed\": %u, \"player_cpu\": %d,\n", difficulty, seed, player_cpu);

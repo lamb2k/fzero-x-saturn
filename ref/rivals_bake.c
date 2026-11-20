@@ -174,3 +174,34 @@ int rb_zones(float out[][11], int max) {
 /* The game loop's frame counter: CPU racers think on (id & 3) == (frame % 4). Call once per tick. */
 extern u32 gGameFrameCount;
 void rb_gp_frame(void) { gGameFrameCount++; }
+
+/* CPU racer diagnostics (claude/line-field-5, HOST reference only): the state behind the rivals' tube,
+ * wall, fall and knock-out behaviour. f: {unk_370 (tube steer bias timer), lastStickX, energy, speed,
+ * segment length proportion}; n: {stateFlags, shape of the current segment, unk_288 (ticks since a
+ * player's contact), attacker id (unk_28C, -1 none), segment index, spinOutTimer, attackState, lap}. */
+void rb_cpu_diag(int i, float f[5], int n[8]) {
+    const Racer* r = &gRacers[i];
+    f[0] = (float)r->unk_370;
+    f[1] = (float)r->lastStickX;
+    f[2] = r->energy;
+    f[3] = r->speed;
+    f[4] = r->segmentPositionInfo.segmentLengthProportion;
+    n[0] = (int)r->stateFlags;
+    n[1] = r->segmentPositionInfo.courseSegment ? (int)(r->segmentPositionInfo.courseSegment->trackSegmentInfo & TRACK_SHAPE_MASK) : -1;
+    n[2] = r->unk_288;
+    n[3] = r->unk_28C ? r->unk_28C->id : -1;
+    n[4] = r->segmentPositionInfo.courseSegment ? r->segmentPositionInfo.courseSegment->segmentIndex : -1;
+    n[5] = r->spinOutTimer;
+    n[6] = r->attackState;
+    n[7] = r->lap;
+}
+
+/* More of the same racer: {unk_33C (lateral target), pos x, y, z, currentRadiusLeft, currentRadiusRight};
+ * n: {boostTimer, machineLod}. */
+void rb_cpu_diag2(int i, float f[6], int n[2]) {
+    const Racer* r = &gRacers[i];
+    f[0] = r->unk_33C;
+    f[1] = r->segmentPositionInfo.pos.x; f[2] = r->segmentPositionInfo.pos.y; f[3] = r->segmentPositionInfo.pos.z;
+    f[4] = r->currentRadiusLeft; f[5] = r->currentRadiusRight;
+    n[0] = r->boostTimer; n[1] = r->machineLod;
+}

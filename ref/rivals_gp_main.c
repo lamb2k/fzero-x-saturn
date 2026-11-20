@@ -38,6 +38,9 @@ static uint16_t be16(const unsigned char* p) { return (uint16_t)((p[0] << 8) | p
 int main(int argc, char** argv) {
     const char *pack = 0, *config = 0, *report = 0, *trace = 0, *control = "none", *tune = 0, *zone_file = 0, *wrap = 0;
     int tube_angles = 0; long tube_ticks = 0, tube_bin[4] = {0, 0, 0, 0};
+    /* line-field-5: --sources 1 adds rivals' energy losses by source (contact, wall, boost, other), wall incidents
+     * and the near-edge share, as tools judge the reference's (fzx-gp-ref --diag). */
+    int sources = 0; double src_amount[4] = {0, 0, 0, 0}; long src_n[4] = {0, 0, 0, 0}, wall_inc = 0, edge_ticks = 0, road_ticks = 0;
     int32_t tune_accel = 40, tune_grip = U(6), tune_lane = 30;
     long length = 0, dash = 0; unsigned seed = 1; int max_ticks = 14000, start_tick = 420, lod = 1, hash_every = 0;
     for (int i = 1; i + 1 < argc; i += 2) {
@@ -57,6 +60,7 @@ int main(int argc, char** argv) {
         else if (!strcmp(argv[i], "--wrap")) wrap = argv[i + 1];
         else if (!strcmp(argv[i], "--dash")) dash = atol(argv[i + 1]);
         else if (!strcmp(argv[i], "--tube-angles")) tube_angles = atoi(argv[i + 1]);   /* 1: tube_angles over pipe and cylinder nodes */
+        else if (!strcmp(argv[i], "--sources")) sources = atoi(argv[i + 1]);
         else die("unknown argument");
     }
     if (!pack || !config || !report || length <= 0) die("usage: see rivals_gp_main.c");
@@ -219,6 +223,8 @@ int main(int argc, char** argv) {
             veh[0].kick_lat = veh[0].kick_speed = 0;
             veh[0].energy = veh[0].max_energy;   /* the trace carries its own outcome */
         }
+        static int32_t e_before[MAXV]; static uint16_t f_before[MAXV];
+        for (int i = 0; i < count; ++i) { e_before[i] = veh[i].energy; f_before[i] = veh[i].flags; }
         if (t == start_tick) sh2z_field_start(&F);
         clock_gettime(CLOCK_MONOTONIC, &t0);
         sh2z_field_step(&F);
@@ -227,6 +233,17 @@ int main(int argc, char** argv) {
         ticks = t + 1;
         if (hf && F.started && (t - start_tick) % hash_every == 0) fprintf(hf, "%d %08x\n", t - start_tick, (unsigned)sh2z_field_hash(&F));
         if (!F.started) continue;
+        if (sources) for (int i = 1; i < count; ++i) {
+            const sh2z_vehicle_t* v = &veh[i];
+            if (f_before[i] & (SH2Z_VEH_RETIRED | SH2Z_VEH_FINISHED)) continue;
+            const int32_t loss = e_before[i] - v->energy;
+            const int src = (v->flags & SH2Z_VEH_TOUCH) ? 0 : (v->flags & SH2Z_VEH_WALL) ? 1 : (v->flags & SH2Z_VEH_BOOST) ? 2 : 3;
+            if (loss > 0) { src_amount[src] += loss / 256.0; ++src_n[src]; }
+            if ((v->flags & SH2Z_VEH_WALL) && !(f_before[i] & SH2Z_VEH_WALL)) ++wall_inc;
+            sh2z_line_sample_t at; sh2z_line_sample(&L, v->t.node, v->t.dist, &at);
+            const int tb = P.surface && surface.wrap_mask && (at.flags & surface.wrap_mask) == surface.wrap_value;
+            if (!tb && t - start_tick > 300) { ++road_ticks; if (at.half_width - (v->t.lateral < 0 ? -v->t.lateral : v->t.lateral) < U(30)) ++edge_ticks; }
+        }
         int32_t lead = INT32_MIN, last = INT32_MAX; int changed = 0;
         for (int i = 0; i < count; ++i) {
             const sh2z_vehicle_t* v = &veh[i];
@@ -281,6 +298,9 @@ int main(int argc, char** argv) {
     fprintf(o, " \"spread_every_600_ticks\": [");
     for (int i = 0; i < marks; ++i) fprintf(o, "%s%.0f", i ? "," : "", spread_at[i]);
     fprintf(o, "],\n");
+    if (sources) fprintf(o, " \"damage\": {\"contact\": [%ld, %.1f], \"wall\": [%ld, %.1f], \"boost\": [%ld, %.1f], \"other\": [%ld, %.1f]}, \"wall_incidents\": %ld, \"near_edge_share\": %.4f,\n",
+                         src_n[0], src_amount[0], src_n[1], src_amount[1], src_n[2], src_amount[2], src_n[3], src_amount[3], wall_inc,
+                         road_ticks ? (double)edge_ticks / road_ticks : 0.0);
     if (tube_angles) fprintf(o, " \"tube_ticks\": %ld, \"tube_angle_bins\": [%ld,%ld,%ld,%ld],\n", tube_ticks, tube_bin[0], tube_bin[1], tube_bin[2], tube_bin[3]);
     fprintf(o, " \"racers\": [\n");
     for (int i = 0; i < count; ++i) {

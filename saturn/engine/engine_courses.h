@@ -22,4 +22,7 @@ extern const uint32_t fzx_course_catalog_count;
 const fzx_course_row_t *fzx_course_row(uint32_t id);
 /* The selected course's row (the session's course in the scenes image; the image's course otherwise). */
 const fzx_course_row_t *fzx_course_selected(void);
+/* ENG_COURSE_SELECT: one disc carries every catalog course's packs; LOAD selects the set. */
+#include <stdbool.h>
+bool fzx_course_use(uint32_t id);   /* false: not bundled */
 #endif

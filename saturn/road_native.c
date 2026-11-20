@@ -3,6 +3,7 @@
 #include "road_native.h"
 #include "road_cd.h"
 #include "road_identity.h"
+#include "course_select.h"
 #if FZX_LOAD_VERIFIED
 #include "engine_load_fast.h"
 #endif
@@ -16,7 +17,11 @@ volatile uint32_t fzx_road_next_frame, fzx_road_frame;
 volatile uint32_t fzx_road_plan_status, fzx_road_plan_sequence;
 RefRoadPlan fzx_source_road_plan;
 _Static_assert(sizeof(RefRoadPlan)==796,"source road packet ABI");
+#if ENG_COURSE_SELECT
+#define road_fog (fzx_cid->road_fog)
+#else
 static const unsigned char road_fog[3]=FZX_ROAD_COURSE_FOG;
+#endif
 static uint32_t planned_frame;
 static bool road_tick_seen,road_plan_seen;
 static sector_buffer_t sector __aligned(32);
@@ -24,6 +29,8 @@ static sector_buffer_t sector __aligned(32);
 enum { ROOT_ENTRIES=256 };
 #elif FZX_SOURCE_COUNTDOWN
 enum { ROOT_ENTRIES=32 };
+#elif ENG_COURSE_SELECT
+enum { ROOT_ENTRIES=64 }; /* every bundled course's packs */
 #else
 enum { ROOT_ENTRIES=16 };
 #endif
@@ -117,13 +124,13 @@ bool fzx_road_load(const void *course,uint32_t course_bytes) {
     if(fzx_road_load_status.io_result) {fzx_road_load_status.status=3;return false;}
     fzx_road_load_status.status=11;
     for(uint32_t i=0;i<list.entries_count;++i) {
-        if(entries[i].type==CDFS_ENTRY_TYPE_FILE && !strcmp(entries[i].name,"ROAD.PAK")) {
+        if(entries[i].type==CDFS_ENTRY_TYPE_FILE && !strcmp(entries[i].name,CNAME(FZX_CF_ROAD,"ROAD.PAK"))) {
             if(file) {fzx_road_load_status.status=4;return false;}
             file=&entries[i];
         }
     }
     if(!file) {fzx_road_load_status.status=4;return false;}
-    if(file->size!=FZX_ROAD_PACK_BYTES) {fzx_road_load_status.status=5;return false;}
+    if(file->size!=CSEL(road_bytes,FZX_ROAD_PACK_BYTES)) {fzx_road_load_status.status=5;return false;}
 #if FZX_LOAD_VERIFIED
     uint32_t road_hash=2166136261u;
 #endif
@@ -146,11 +153,11 @@ bool fzx_road_load(const void *course,uint32_t course_bytes) {
     }
     fzx_road_load_status.status=12;
 #if FZX_LOAD_VERIFIED
-    if(road_hash!=FZX_ROAD_PACK_HASH ||
-       !fzx_road_pack_open_verified(&fzx_native_road,(const void *)cart,file->size,FZX_ROAD_PACK_HASH,
+    if(road_hash!=CSEL(road_hash,FZX_ROAD_PACK_HASH) ||
+       !fzx_road_pack_open_verified(&fzx_native_road,(const void *)cart,file->size,CSEL(road_hash,FZX_ROAD_PACK_HASH),
                                     fzx_road_hash(course,course_bytes),false)) {
 #else
-    if(!fzx_road_pack_open(&fzx_native_road,(const void *)cart,file->size,FZX_ROAD_PACK_HASH,
+    if(!fzx_road_pack_open(&fzx_native_road,(const void *)cart,file->size,CSEL(road_hash,FZX_ROAD_PACK_HASH),
                            fzx_road_hash(course,course_bytes),false)) {
 #endif
         fzx_road_load_status.status=6;return false;

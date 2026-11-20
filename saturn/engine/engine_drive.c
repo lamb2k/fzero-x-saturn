@@ -7,6 +7,7 @@
 #endif
 #include "physics_native.h"
 #include "physics_identity.h"
+#include "course_select.h"
 #include "racer_sprites_identity.h"
 #include "texture_cd.h"
 #include "sh2zam/rotation_sprite_experimental.h"
@@ -47,7 +48,7 @@ static sh2z_vd_body_t body;
 static FzxPadState pad_state;
 static uint16_t prev_n64;
 static uint32_t ticks;
-static uint32_t pack_buf[(FZX_PHYSICS_PACK_BYTES + 3u) / 4u + 2u] __attribute__((aligned(8)));
+static uint32_t pack_buf[(CMAX(FZX_COURSE_MAX_PHYS_BYTES,FZX_PHYSICS_PACK_BYTES) + 3u) / 4u + 2u] __attribute__((aligned(8)));
 
 /* ---- physics ---------------------------------------------------------------- */
 static uint64_t fnv64_body(const sh2z_vd_body_t *b) {
@@ -318,10 +319,10 @@ static bool shadow_build(void *vram) {
 }
 
 bool fzx_drive_load(void *scratch, uint32_t scratch_bytes) {
-    fzx_e1_report[12] = FZX_PHYSICS_PACK_BYTES;
-    if (!fzx_texture_cd_load("PHYS.PAK", FZX_PHYSICS_PACK_BYTES, FZX_PHYSICS_PACK_HASH, pack_buf, scratch, scratch_bytes))
+    fzx_e1_report[12] = CSEL(phys_bytes,FZX_PHYSICS_PACK_BYTES);
+    if (!fzx_texture_cd_load(CNAME(FZX_CF_PHYS,"PHYS.PAK"), CSEL(phys_bytes,FZX_PHYSICS_PACK_BYTES), CSEL(phys_hash,FZX_PHYSICS_PACK_HASH), pack_buf, scratch, scratch_bytes))
         { fzx_e1_status = 2; return false; }
-    if (fzx_phys_load(&course, (const uint8_t *)pack_buf, FZX_PHYSICS_PACK_BYTES, 1) != 0) { fzx_e1_status = 3; return false; }
+    if (fzx_phys_load(&course, (const uint8_t *)pack_buf, CSEL(phys_bytes,FZX_PHYSICS_PACK_BYTES), 1) != 0) { fzx_e1_status = 3; return false; }
     body = course.start; prev_n64 = 0; ticks = 0;
     memset(&pad_state, 0, sizeof(pad_state));
 #if E1_FIELD
@@ -407,7 +408,7 @@ void fzx_drive_reset(void) {
     memset(&pad_state, 0, sizeof(pad_state));
     memset((void *)fzx_e1_checkpoints, 0, sizeof(fzx_e1_checkpoints));
     memset((void *)fzx_e1_report, 0, sizeof(fzx_e1_report));
-    fzx_e1_report[9] = 1; fzx_e1_report[12] = FZX_PHYSICS_PACK_BYTES;
+    fzx_e1_report[9] = 1; fzx_e1_report[12] = CSEL(phys_bytes,FZX_PHYSICS_PACK_BYTES);
     if (fzx_e1_status == 1) {
         sh2z_scache_t *const c = CT(&pool);
         const uint32_t n = c->count;
@@ -824,7 +825,7 @@ bool fzx_drive_roster_load(void *scratch, uint32_t scratch_bytes, uintptr_t cart
     {
         uint8_t fams[FZX_FIELD_CARS]; unsigned nf = 0;
         for (uint32_t id = 1; id < FZX_FIELD_CARS; ++id) {
-            const int32_t fam = fzx_rivals_field[id][5];
+            const int32_t fam = CSEL(field,fzx_rivals_field)[id][5];
             if (fam < 0 || fam > 29) { fzx_e2_roster[0] = 3; return false; }
             bool seen = false;
             for (unsigned j = 0; j < nf; ++j) if (fams[j] == (uint8_t)fam) seen = true;
@@ -848,7 +849,7 @@ bool fzx_drive_roster_load(void *scratch, uint32_t scratch_bytes, uintptr_t cart
     volatile uint8_t *const clut_cpu = (volatile uint8_t *)(VDP1_VRAM_BASE + clut_vram);
     static const char prof[2][4] = { { 'n', 'e', 'a', 'r' }, { 'f', 'a', 'r', 0 } };
     for (uint32_t id = 1; id < FZX_FIELD_CARS; ++id) {
-        const int32_t fam = fzx_rivals_field[id][5];
+        const int32_t fam = CSEL(field,fzx_rivals_field)[id][5];
         if (fam < 0 || fam > 29) { fzx_e2_roster[0] = 3; return false; }
         const char key[8] = { 'c', (char)('0' + fam / 10), (char)('0' + fam % 10), 's', '1', 0, 0, 0 };
         for (unsigned k = 0; k < 2u; ++k) {

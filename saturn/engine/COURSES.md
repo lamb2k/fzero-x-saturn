@@ -38,14 +38,29 @@ Build: `make -C saturn/engine ENG_COURSE=<slug> ...` takes that course's set. A 
 its own skyline layout (`skyline_ring.h`), the larger track texture budget and the sky colour pick
 by distance (below). The music defaults to the course's own. `ENG_COURSE=mute-city-1` (the default)
 builds the images it always did. The E0 BIN is unchanged (9d4db29d). The field, scenes and drive
-BINs change only through the SH2ZAM pin's `line-field-2` and the one glue line that sets it; the
-Mute City field race keeps its pixel hash.
+BINs change through the SH2ZAM pin (`line-field-2`, `line-field-3`) and the glue that sets them.
+With `line-field-2` alone the Mute City field race kept its pixel hash (84b959e1). `line-field-3`
+changes Mute City's rivals on purpose (the first-lap chasers): pixel hash c8d8ff83, with the player's
+race, the HOST checkpoints and the final state unchanged.
 
-**Course catalog (`ENG_COURSE_SELECT=1`, scenes images):** `fzx_course_catalog` (`engine_courses.h`)
-has one row per baked course: original id, cup and round, music id, Time Attack availability and a
-display key. The select placeholder and the loading card show the row's key. LOAD refuses a course
-the image carries no packs for (scenes report 61). The music is the selected row's. Today an image
-carries one course's packs, so only that row is open. Run-time pack sets per row are the next step.
+**One disc, every course (`ENG_COURSE_SELECT=1`, scenes images).**
+- **Bundle:** `tools/course_bundle.py <slugs>` writes `generated/courses/select`:
+  - `course_ids.c`, one `fzx_course_id_t` per course. It holds everything the single-course image
+    compiles in: pack sizes and hashes, ROADPREP table offsets, the engine path ranges, sky
+    colours and breaks, the skyline layout, plane fog, the rival field, the course record and
+    the sky pick mode.
+  - `files.txt`, giving each course's packs their own disc names (`EPATH3.PAK`, `RLTX5.PAK`, ...).
+    The disc carries all of them (64 root entries).
+- **Code:** `saturn/course_select.h` routes every identity use through `CSEL`, `CNAME` and `CMAX`
+  to `fzx_cid`. In other builds these are the old macros, so the E0 BIN (9d4db29d) and the field
+  BIN are unchanged by them.
+- **Catalog:** `fzx_course_catalog` (`engine_courses.h`) has one row per course: original id, cup
+  and round, music id, Time Attack availability and a display key.
+- **Select:** LOAD calls `fzx_course_use(session.course)`, refusing a course that is not bundled
+  (scenes report 61). The resident race set is keyed by course and machine.
+- **Music** comes from the selected row.
+- **Placeholder select:** left and right cycle the course; probe `0x2nn` sets course `nn` for
+  scripts.
 
 ### Course differences the bake handles
 
@@ -90,9 +105,9 @@ A pack that would reach the 3D player or the pool is refused at load (fail 35 pa
 | Pipes (driving round the inside of a tube) | Sand Ocean (15 points), later cups | physics treats them as road; the road bake already accepts the pipe geometry; section 6 |
 | Cylinders (driving round the outside) | Big Blue (10 points), later cups | physics as road; the road bake refuses the cylinder strip pairing |
 | Half-pipes | later cups | physics as road |
-| Stars (night sky) | Silence | not drawn: the night sky is the gradient and the skyline only |
-| Flashing skyline windows (night) | Silence | not animated |
-| Surface zones for rivals (dirt, ice) | Devil's Forest, Port Town | rivals ignore them; the player's physics has them |
+| Stars (night sky) | Silence | not drawn; the night sky is the gradient and the skyline only. Source: 100 IA8 8x8 sprites at random points 100,000..200,000 up (`Background_InitStars`); planned as VDP1 sprites in the prelude |
+| Flashing skyline windows (night) | Silence | not animated; the source cycles the palette's white entry (`Background_UpdateBackgroundSprites`) |
+| Surface zones for rivals (dirt, ice, dash plates) | Devil's Forest, Port Town and every course with plates | rivals ignore them; the player's physics has them |
 
 ## 5. Per-course results
 
@@ -107,8 +122,11 @@ Field image (`FZX_E1_DRIVE=1 E1_DRIVER=1`, 29 rivals), whole 3-lap race, Ymir; H
 | Port Town, R01 nominal | retires at tick 6,327 | retires at 6,328 | retires, as HOST | 36 + final equal | 4,519 x 2F, 0 over | 26.7 / 31.6 ms | 20.3 ms | 12.8 ms |
 | Port Town, R01 with heading gain 3.0 | 118,080 ms | 118,080 ms | 118,080 ms (0.000%) | 36 + final equal | 4,519 x 2F, 0 over | 26.7 / 31.7 ms | 20.3 ms | 13.2 ms |
 
-- **Mute City** keeps its pixel hash (84b959e1e52ce45f) with the new SH2ZAM pin; its E2 rival band
-  hashes (6 seeds) equal the E2 lane's baseline.
+- **Mute City:** with `line-field-2` the field image kept its pixel hash (84b959e1e52ce45f), and
+  its E2 band hashes (6 seeds) equalled the E2 lane's baseline. `line-field-3` then moves its
+  first-lap chasers (pixel hash c8d8ff83; race 104,040 ms; 36 checkpoints and the final state
+  unchanged). With `line-field-3` the field races give master p99 25.5 (Mute City), 26.1 (Devil's
+  Forest), 26.7 (Silence) and 26.5 ms (Port Town, kh 3.0), with 0 intervals over two fields.
 - **Determinism:** a second run of each course gives the same pixel hash and field trace.
 - **Corrupt-pack controls** (one byte flipped on the disc): all 11 course packs are refused on
   each new course (ENGPATH 17, SKYLINE 30, PLANES 31, FLOOR* 32, ROAD 34, ROADLOD/ROADLTX 35,
@@ -118,19 +136,45 @@ Field image (`FZX_E1_DRIVE=1 E1_DRIVER=1`, 29 rivals), whole 3-lap race, Ymir; H
   (the same contact ticks). Its energy runs out on lap 3. With kh 3.0 (`E1_DRIVER_KH=3.0`,
   `fzx-ref --driver 0.004,3.0`) both finish. kh 3.5 is chaotic: the reference finishes and the
   native retires. The panel is in the lane evidence.
-- **E2 rival bands** (6 seeds, original code against the native field, `line-field-2`):
+- **E2 rival bands** (6 seeds, original code against the native field; SH2ZAM `line-field-2`
+  re-target plus `line-field-3` first-lap chase cap):
 
   | Course | Result |
   | --- | --- |
-  | Mute City | 13 + exact pass; band hashes unchanged |
-  | Silence | 14/14 (it failed `winner_tick` before the re-target) |
-  | Port Town | 13/14; the exact `through_ticks` check counts 1 tick |
-  | Devil's Forest | 13/14; `lap1_median` fails: native 1,947..2,018 ticks against an accepted floor of 1,987 |
+  | Mute City | 13 + exact pass |
+  | Silence | 14/14 |
+  | Devil's Forest | 14/14 |
+  | Port Town | 13/14: `rank_change_ticks` native 192..272 against an accepted floor of 227.5 (reference 455..575) |
 
-  The open item is first-lap chasers. The native chasers run their first lap about 11% faster
-  than the source's on every course, Mute City included (Mute City 2,156 against 2,424 ticks
-  mean, inside its band). A first-lap cap from the source's `D_i3_8013DC18` changed nothing and
-  was dropped.
+  - **First-lap chasers:** native chasers ran their first lap about 11% fast on every course
+    (Mute City 2,156 against 2,424 ticks mean). The cause is in `cpu.c`: on lap 1 a chaser's
+    `unk_1E8` (the boost share of its engine force, `racer.c` around line 5025) is
+    `D_i3_8013DFA0`, which is 0 on these courses (1.2 later). It therefore runs at its machine's
+    own top speed.
+  - That top speed was measured on the HOST reference (eight stock machines at the default engine
+    0.5, zones off) at 36.53..37.05, mean 36.7. `tools/rivals_finish.py` caps each chaser's
+    first-lap target at 36.7 x the bake's speed calibration (`line-field-3` `first_lap_cap`).
+    The caps from `D_i3_8013DC18` (42.6..55.6) never bind, and Blue Falcon's slider-0 top of 33.4
+    was too low (Port Town failed four bands with it).
+  - **Port Town's remaining band:** the source's field changes order about twice as often there.
+    The likely cause is that rivals do not ride its six dash plates or slide on its ice
+    (section 4).
+
+**Run-time course choice** (`ENG_COURSE_SELECT=1`, scenes image in driver mode, `E1_DRIVER=1`). One
+disc. The course is chosen in the select scene, then raced to the results:
+
+| Course | Race | HOST checkpoints | Cold LOAD (fields) |
+| --- | --- | --- | --- |
+| Mute City | 104,040 ms | 27/27 equal to the E1 HOST run | 317 |
+| Silence | 90,563 ms | 23/23 | 316 |
+| Devil's Forest | 108,038 ms | 28/28 | 312 |
+| Port Town (R01 nominal) | retires, as HOST | 25/25 | 326 |
+
+- The default scenes image's cold LOAD is 302 fields.
+- **Work RAM in the select image:** bss ends 17.7 KB later than the scenes image's (the course
+  table is 13.6 KB). Master stack unused is 118 KB.
+- **Low work RAM:** the track workspace ends at 0x2a3980 on Port Town, the largest course.
+- **VDP1 VRAM:** placement is per course, as in section 3.
 
 
 ## 6. Plan: pipes and cylinders (Sand Ocean, Big Blue)

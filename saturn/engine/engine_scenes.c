@@ -390,6 +390,17 @@ static void select_tick(void *u, uint32_t s) {
         fzx_scn_report[15] = (machine_allowed(id) && fzx_closeup_has_family(id)) ? 1u : 0u;
         POKED(fzx_scn_probe) = 0;
     }
+#if ENG_COURSE_SELECT
+    if (probe & 0x200u) { fzx_session.course = (uint8_t)(probe & 0xFFu); text_dirty = true; POKED(fzx_scn_probe) = 0; }
+    if (input.repeat & (PAD_LEFT | PAD_RIGHT)) {  /* the course: the next catalog row either way */
+        uint32_t at_row = 0;
+        for (uint32_t i = 0; i < fzx_course_catalog_count; ++i) if (fzx_course_catalog[i].id == fzx_session.course) at_row = i;
+        at_row = (input.repeat & PAD_RIGHT) ? (at_row + 1u) % fzx_course_catalog_count
+                                            : (at_row + fzx_course_catalog_count - 1u) % fzx_course_catalog_count;
+        fzx_session.course = fzx_course_catalog[at_row].id;
+        text_dirty = true;
+    }
+#endif
     uint32_t n = 0, visible[MACHINE_COUNT];
     for (unsigned i = 0; i < MACHINE_COUNT; ++i) if (machine_allowed(machines[i].id)) visible[n++] = i;
     unsigned at = 0;
@@ -588,7 +599,7 @@ static void load_tick(void *u, uint32_t s) {
     const uint32_t family = fzx_session.machine_id;
 #if ENG_COURSE_SELECT
     const fzx_course_row_t *row = fzx_course_row(fzx_session.course);
-    if (!row || !row->time_attack) { /* a course this image has no packs for: back to select */
+    if (!row || !row->time_attack || !fzx_course_use(row->id)) { /* no packs for it on this disc: back to select */
         fzx_scn_report[16] = 61u;
         load_done = true;
         (void)request(FZX_SCN_SELECT, RANK_GOTO);
@@ -605,7 +616,12 @@ static void load_tick(void *u, uint32_t s) {
     load_ran = true;
     spin_fields = 0;
     fzx_scn_vblank_hook = spin_hook;
-    if (retry_pending && resident_key == family + 1u) {
+#if ENG_COURSE_SELECT
+    const uint32_t key = ((uint32_t)fzx_session.course << 16) + family + 1u; /* course and family */
+#else
+    const uint32_t key = family + 1u;
+#endif
+    if (retry_pending && resident_key == key) {
         /* Retry: everything is resident; only race-local state goes back to its start. */
         fzx_drive_reset();
         fzx_closeup_reset();
@@ -659,7 +675,7 @@ static void load_tick(void *u, uint32_t s) {
         fzx_cd_yield = NULL;
         bar_total = fzx_cd_stats[0] - s0;
         race_regs_kept = false; retry_entering = false;
-        resident_key = family + 1u;
+        resident_key = key;
         ++fzx_scn_report[8];
         fzx_scn_report[11] = 1;
     }

@@ -41,6 +41,23 @@ def targets(report, slug):
     return out
 
 
+# A chaser's first lap (cpu.c: racer->lap == 1 sets unk_1E8 to D_i3_8013DFA0, 0 on these courses): the engine
+# force has no boost share, so a chaser runs at its machine's own top speed until lap 2. Measured on the
+# HOST reference (handling build, R01 driver, zones off, Devil's Forest): the stock machines at the default
+# engine setting 0.5 top out at 36.53..37.05 (eight machines across the roster), mean 36.7.
+FIRST_LAP_TOP = 36.7
+
+
+def chase_caps(report, slug, speed_k):
+    """{racer id: first-lap chase cap, Q8 line distance per tick (line-field-3), or 0}: chasers only."""
+    src = (DECOMP / "src/overlays/ovl_i3/cpu.c").read_text()
+    c, d = course_catalog.course(slug)["index"], int(report["difficulty"])
+    if values("f32", "D_i3_8013DFA0", src, float)[c * 4 + d] != 0.0:
+        return {r["id"]: 0 for r in report["racers"]}   # a boost share on the first lap: no cap
+    cap = int(round(FIRST_LAP_TOP * speed_k * 256))
+    return {r["id"]: (cap if r["id"] != 0 and r["chase"] != 255 else 0) for r in report["racers"]}
+
+
 if __name__ == "__main__":
     import json
     t = targets(json.load(open(sys.argv[1])), sys.argv[2])

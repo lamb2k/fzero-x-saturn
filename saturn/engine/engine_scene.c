@@ -7,8 +7,14 @@
 #ifndef ENG_COURSE_SKYLINE
 #define ENG_COURSE_SKYLINE 0
 #endif
-#if ENG_COURSE_SKYLINE
+#ifndef ENG_COURSE_SELECT
+#define ENG_COURSE_SELECT 0
+#endif
+#if ENG_COURSE_SKYLINE && !ENG_COURSE_SELECT
 #include "skyline_ring.h"
+#endif
+#if ENG_COURSE_SELECT
+#include "course_select.h"
 #endif
 
 typedef int64_t i64;
@@ -151,7 +157,11 @@ bool fzx_engine_backdrop(RefBackdrop *out, const fzx_engine_cam_t *cam,
 }
 
 bool fzx_engine_skyline(RefSkyline *out, const fzx_engine_cam_t *cam) {
-#if ENG_COURSE_SKYLINE
+#if ENG_COURSE_SELECT
+    /* The selected course's skyline (tools/course_bundle.py). */
+    const int32_t (*const ring)[2] = fzx_cid->ring;
+    const uint8_t *const ids = fzx_cid->ring_ids, *const tint = fzx_cid->tint;
+#elif ENG_COURSE_SKYLINE
     /* The course's own skyline (tools/skyline_assets.py skyline_ring.h): ring positions
      * as below for its angles; id 0 marks an unused slot, which stays hidden. */
     static const int32_t ring[REF_SKYLINE_COUNT][2] = FZX_SKYLINE_RING;
@@ -185,7 +195,7 @@ bool fzx_engine_skyline(RefSkyline *out, const fzx_engine_cam_t *cam) {
         m[8] = (int32_t)((-fx * s) >> 14); m[9] = (int32_t)((-fy * s) >> 14); m[10] = (int32_t)((-fz * s) >> 14); m[11] = 0;
     }
     out->count = REF_SKYLINE_COUNT;
-#if ENG_COURSE_SKYLINE
+#if ENG_COURSE_SKYLINE || ENG_COURSE_SELECT
     out->tint[0] = tint[0]; out->tint[1] = tint[1]; out->tint[2] = tint[2]; out->tint[3] = 255;
 #else
     out->tint[0] = 200; out->tint[1] = 130; out->tint[2] = 240; out->tint[3] = 255;
@@ -200,7 +210,7 @@ bool fzx_engine_skyline(RefSkyline *out, const fzx_engine_cam_t *cam) {
         RefSkylineInstance *o = &out->instances[i];
         const i64 x = (i64)cam->eye[0] + ring[i][0], z = (i64)cam->eye[2] + ring[i][1];
         o->sprite_id = ids[i];
-#if ENG_COURSE_SKYLINE
+#if ENG_COURSE_SKYLINE || ENG_COURSE_SELECT
         if (!ids[i]) continue;
 #endif
         o->visible = x <= Q16(FZX_ENGINE_SKYLINE_LIMIT) && x >= -Q16(FZX_ENGINE_SKYLINE_LIMIT) &&

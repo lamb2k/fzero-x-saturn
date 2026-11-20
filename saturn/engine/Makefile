@@ -5,12 +5,9 @@
 #
 #   make -C saturn/engine SH2ZAM_ROOT=<checkout of the engine pin> [FZX_VDP1_DBANK=0|1]
 #
-# The SH2ZAM pin is saturn/engine/sh2zam.pin (branch claude/courses-train: claude/emit-train-2 ba7c237 plus
-# claude/line-field-2 (line-field-2, the second-lap re-target); emit-train-2 is claude/snd-engine-train a59a4ef
-# plus rotation-sprites-3; snd-engine-train is claude/dsp-engine-train-2 5f3f142 + snd-1;
-# before it, branch claude/dsp-engine-train-2: claude/scenes-train-2 e0c5c89
-# (claude/e2-field-train: claude/e1-train (segmesh-2, vehicle-dynamics-1, sprite-cache-1, rotation-sprites-2)
-# plus line-field-1; plus scene-1) plus dsp-1).
+# The SH2ZAM pin is saturn/engine/sh2zam.pin: branch claude/courses-pin, SH2ZAM main 5a94dbe (train 5:
+# line-field-2 and everything the engine used from claude/emit-train-2) merged with claude/line-field-3
+# (PR #53, the first-lap chase cap). Repin to main once #53 lands.
 # Assets come from ../../generated (owning generators, receipts checked here).
 ifeq ($(strip $(YAUL_INSTALL_ROOT)),)
 $(error Undefined YAUL_INSTALL_ROOT (install root directory))
@@ -212,9 +209,10 @@ COURSE_INDEX_sand-ocean-1 := 2
 COURSE_INDEX_devils-forest-1 := 3
 COURSE_INDEX_big-blue-1 := 4
 COURSE_INDEX_port-town-1 := 5
-# ENG_COURSE_SELECT=1 (scenes images): the course catalog (engine_courses.c, fzx_course_catalog) that the
-# select scene reads; LOAD refuses a course the image has no packs for, and the music is the selected
-# row's. 0 builds the images as before.
+# ENG_COURSE_SELECT=1 (scenes images): one disc carries every bundled course's packs (tools/course_bundle.py,
+# generated/courses/select) and LOAD takes the set of session.course through the course catalog
+# (engine_courses.c, fzx_course_catalog), with that course's music. Build it with the default ENG_COURSE.
+# 0 builds the images as before.
 ENG_COURSE_SELECT ?= 0
 ENG_SND_FADETEST ?= 0
 ifeq ($(filter 0 1 2,$(ENG_DSP_BANDS)),)
@@ -428,7 +426,7 @@ else
 SH_CFLAGS += -I$(G)/$(E1_REBAKE) -I$(G)/$(E1_VEHICLE)
 endif
 # 16 root files plus MACHAB.PAK: the CD loader reads up to 32 root entries (default 16).
-SH_CFLAGS += $$(if $$(filter %/texture_cd.c,$$<),-DFZX_TEXTURE_CD_ROOT_ENTRIES=32,)
+SH_CFLAGS += $$(if $$(filter %/texture_cd.c,$$<),-DFZX_TEXTURE_CD_ROOT_ENTRIES=$(if $(filter 1,$(ENG_COURSE_SELECT)),64,32),)
 SH_CFLAGS += $$(if $$(filter engine_closeup.c %/fzx_vehicle.c %/fzx_vehicle_draw.c,$$<),-DFZX_SOURCE_CAMERA=1 -DFZX_SOURCE_MACHINE=1 -DFZX_VEHICLE_NATIVE=1 -DFZX_VEHICLE_FAST=1 -DFZX_VEHICLE_POSE1=1,)
 SH_CFLAGS += $$(if $$(filter %/sh2zam_view_indexed.c %/sh2zam_pose.c,$$<),-fno-lto,)
 endif
@@ -445,8 +443,15 @@ ifeq ($(ENG_COURSE_SELECT),1)
 ifneq ($(ENG_SCENES),1)
 $(error ENG_COURSE_SELECT=1 needs ENG_SCENES=1)
 endif
-SH_SRCS += engine_courses.c
-SH_CFLAGS += -DENG_COURSE_SELECT=1
+ifneq ($(ENG_COURSE),mute-city-1)
+$(error ENG_COURSE_SELECT=1 bundles the courses itself: leave ENG_COURSE at mute-city-1)
+endif
+SELECT_RECEIPT_CHECK := $(shell sh ../../tools/check_receipt.sh $(G)/courses/select/course_ids.receipt >/dev/null 2>&1 || echo stale)
+ifneq ($(strip $(SELECT_RECEIPT_CHECK)),)
+$(error Missing or stale course bundle: run tools/course_bundle.py <courses>)
+endif
+SH_SRCS += engine_courses.c $(G)/courses/select/course_ids.c
+SH_CFLAGS += -DENG_COURSE_SELECT=1 -I$(G)/courses/select -DFZX_ROAD_STREAM_TEXTURE_LIMIT=240000u
 endif
 
 SH_LDFLAGS += -Wl,--defsym=_sat_stub_data_end=0x0028C000 -Wl,--defsym=_fzx_input_log=0x0028D000
@@ -489,6 +494,9 @@ else ifeq ($(E1_CLOSEUP),1)
 endif
 ifeq ($(E2_PACK),1)
 	cp $(GC)/rivals/RIVALS.PAK "$(IMAGE_DIRECTORY)/"
+endif
+ifeq ($(ENG_COURSE_SELECT),1)
+	while read -r src name; do cp "$(G)/$$src" "$(IMAGE_DIRECTORY)/$$name"; done < $(G)/courses/select/files.txt
 endif
 ifeq ($(E2_ROSTER),1)
 	cp $(G)/roster/ROSTER.PAK "$(IMAGE_DIRECTORY)/"

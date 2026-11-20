@@ -435,7 +435,9 @@ def main():
                 touching = int(math.dist(r0['pos'], r1['pos']) <= 46 and gap <= 92)
             cmd = [native, '--pack0', str(w / 'p0.pack'), '--pack1', str(w / 'p1.pack'), '--pads', str(d / 'ref.pads'), '--from', str(t),
                    '--ticks', str(n + 1), '--machines', mnat, '--since', str(r1['since']), '--toucher', str(r1['toucher']),
-                   '--touching', str(touching), '--trace', str(nt), '--pairlog', str(nl)]
+                   '--touching', str(touching), '--trace', str(nt), '--pairlog', str(nl),
+                   # a KO the reference credited to racer 0 on tick T leaves its energy regain pending (not baked)
+                   '--regain-pending', '1' if any(att == 0 for (_, att, _) in lg['K'].get(t, [])) else '0']
             # every spin-side draw of the reference in the window, on its own tick (Racer_ReceiveDamage
             # with the energy going below zero on a racer neither crashed nor finished)
             with open(w / 'c092-draws.txt', 'w') as df:

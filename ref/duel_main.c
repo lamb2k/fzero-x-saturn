@@ -24,7 +24,9 @@
  * same run with the closing comparison of tick T forced to V (0 or 1; a branch replay). --perturb
  * T:K:F:A:D adds D to racer K's position (F 0) or velocity (F 1), axis A, just before tick T
  * (a reference-only perturbation; repeatable up to 8 times). --replay-pads FILE drives both racers
- * from a recorded --pads file instead of the scripted drivers (as the native windows are driven). */
+ * from a recorded --pads file instead of the scripted drivers (as the native windows are driven).
+ * --bake-range A:B --bake-dir DIR writes both racers' sources after every tick A..B
+ * (DIR/p<k>-<tick>.src): the matched-state one-tick scan (tools/attacks_onestep.py). */
 #include <math.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -87,7 +89,8 @@ static signed char steer(const float f[12], float target, float kl) {
 int main(int argc, char** argv) {
     const char *course = 0, *rom = 0, *scenario = "bump", *trace = 0, *pads = 0, *bake0 = 0, *bake1 = 0;
     int ticks = 2400, bake_at = -1, c0 = 0, c1 = 9, attack_from = 700;
-    const char *length_out = 0, *pairlog = 0, *replay = 0;
+    const char *length_out = 0, *pairlog = 0, *replay = 0, *bake_dir = 0;
+    int bake_from = -1, bake_to = -1;
     int force_tick = -1, force_value = -1, npert = 0, pert_t[8], pert_k[8], pert_f[8], pert_a[8];
     float pert_d[8];
     float e0 = 0.0f, e1 = 0.0f;
@@ -112,6 +115,8 @@ int main(int argc, char** argv) {
         }
         else if (!strcmp(argv[i], "--bake0")) bake0 = argv[i + 1];
         else if (!strcmp(argv[i], "--bake1")) bake1 = argv[i + 1];
+        else if (!strcmp(argv[i], "--bake-range")) { if (sscanf(argv[i + 1], "%d:%d", &bake_from, &bake_to) != 2) die("--bake-range A:B"); }
+        else if (!strcmp(argv[i], "--bake-dir")) bake_dir = argv[i + 1];
         else if (!strcmp(argv[i], "--machines")) { if (sscanf(argv[i + 1], "%d,%f,%d,%f", &c0, &e0, &c1, &e1) != 4) die("--machines c0,e0,c1,e1"); }
         else die("unknown argument");
     }
@@ -223,6 +228,13 @@ int main(int argc, char** argv) {
                         ns[k][0], ns[k][1], ns[k][2], ns[k][3], ns[k][4], ns[k][5], fs[k][11]);
         }
         if (t == bake_at && bake0 && bake1) { bake(0, bake0, t); bake(1, bake1, t); }
+        if (bake_dir && t >= bake_from && t <= bake_to) {
+            char path[1024];
+            for (int k = 0; k < 2; ++k) {
+                snprintf(path, sizeof path, "%s/p%d-%05d.src", bake_dir, k, t);
+                bake(k, path, t);
+            }
+        }
     }
     if (tf) fclose(tf);
     if (pf) fclose(pf);

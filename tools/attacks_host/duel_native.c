@@ -10,12 +10,20 @@
  * from the tick after the spin-out starts (the round-2 scorer's form). --spin-draws FILE ("t k sign"
  * per reference draw) gives every draw the reference's side on the tick it is drawn (C-092 scorer).
  * The trace has the reference's columns (ref/duel_main.c). --mutate plants one rule change for the
- * class controls: impact1.2, push2.5, share-swap, spin140, credit-off, heavy9, heavy5, reach45.
+ * class controls: impact1.2, push2.5, share-swap, spin140, credit-off, heavy9, heavy5, reach45, and
+ * opp-player (racer 1 with the player's spline search, as --opponent-search player).
  *
  * --pairlog FILE (C-092): per tick, the pair test as the body-contact rule decided it, from the
  * inputs it read (logging only; d2 and closing repeat sh2z_bc_pair's integer terms):
  *   N t along_ok d2_q32 closing_q32 touch first push hit0 hit1 damage0 damage1 (damage Q16 raw)
- *   K t victim attacker      a KO credited at the victim's spin-out start */
+ *   K t victim attacker      a KO credited at the victim's spin-out start
+ *
+ * Racer 1 is stepped as the reference's racer 1 is: an id at or above gNumPlayers, whose spline
+ * search runs with the computer racers' bounds (3 iterations, squared tolerance 5) where the human
+ * player's has 100 and 1 (tools/attacks_host/duel_build.sh builds that step from the library source).
+ * --opponent-search player gives racer 1 the player's search (the control; the runner before C-092
+ * round 4). --regain-pending 1: racer 0 starts with the KO energy regain the reference credited on
+ * tick T still pending (it is applied at the start of the next tick; the bake does not carry it). */
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -37,13 +45,33 @@ static unsigned char *read_all(const char *path, size_t *n) {
 }
 #define Q16(x) ((int32_t)((x) * 65536.0 + ((x) >= 0 ? 0.5 : -0.5)))
 
+/* The opponent's step (duel_build.sh): the library step with the computer racers' spline search. */
+#if FZX_PHYS_TUBES
+void fzx_duel_opp_step2_contact(sh2z_vd_body_t *b, const sh2z_vd_track2_t *track, const sh2z_vd_vehicle_t *v,
+                                const sh2z_vd_rules_t *r, const sh2z_vd_input_t *in, const sh2z_vd_contact_t *c);
+#else
+void fzx_duel_opp_step_contact(sh2z_vd_body_t *b, const sh2z_vd_track_t *track, const sh2z_vd_vehicle_t *v,
+                               const sh2z_vd_rules_t *r, const sh2z_vd_input_t *in, const sh2z_vd_contact_t *c);
+#endif
+
 static FzxPhysCourse course[2];
+static int opp_cpu = 1;   /* racer 1 searches the spline with the computer bounds */
+
+static void step(int k, sh2z_vd_body_t *b, const sh2z_vd_rules_t *rules, const sh2z_vd_input_t *in, const sh2z_vd_contact_t *c) {
+#if FZX_PHYS_TUBES
+    if (k == 1 && opp_cpu) fzx_duel_opp_step2_contact(b, &course[k].track2, &course[k].vehicle, rules, in, c);
+    else sh2z_vd_step2_contact(b, &course[k].track2, &course[k].vehicle, rules, in, c);
+#else
+    if (k == 1 && opp_cpu) fzx_duel_opp_step_contact(b, &course[k].track, &course[k].vehicle, rules, in, c);
+    else sh2z_vd_step_contact(b, &course[k].track, &course[k].vehicle, rules, in, c);
+#endif
+}
 static int pads_b[2][20000], pads_x[2][20000];
 static signed char draw[2][20000];   /* --spin-draws: the reference's spin side per tick and racer (0 none) */
 
 int main(int argc, char **argv) {
     const char *p0 = 0, *p1 = 0, *pads = 0, *trace = 0, *mutate = "", *pairlog = 0, *draws = 0;
-    int from = -1, ticks = 120, c0 = 0, c1 = 0, since = -1, toucher = -1, touching = 0, side[2] = { 0, 0 }, nudge = 0;
+    int from = -1, ticks = 120, c0 = 0, c1 = 0, since = -1, toucher = -1, touching = 0, side[2] = { 0, 0 }, nudge = 0, regain_pending = 0;
     for (int i = 1; i + 1 < argc; i += 2) {
         if (!strcmp(argv[i], "--pack0")) p0 = argv[i + 1];
         else if (!strcmp(argv[i], "--pack1")) p1 = argv[i + 1];
@@ -60,6 +88,12 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[i], "--spin-side1")) side[1] = atoi(argv[i + 1]);
         else if (!strcmp(argv[i], "--spin-draws")) draws = argv[i + 1];
         else if (!strcmp(argv[i], "--mutate")) mutate = argv[i + 1];
+        else if (!strcmp(argv[i], "--regain-pending")) regain_pending = atoi(argv[i + 1]);
+        else if (!strcmp(argv[i], "--opponent-search")) {
+            if (!strcmp(argv[i + 1], "cpu")) opp_cpu = 1;
+            else if (!strcmp(argv[i + 1], "player")) opp_cpu = 0;
+            else die("--opponent-search cpu|player");
+        }
         else if (!strcmp(argv[i], "--machines")) { if (sscanf(argv[i + 1], "%d,%d", &c0, &c1) != 2) die("--machines c0,c1"); }
         else die("unknown argument");
     }
@@ -99,6 +133,7 @@ int main(int argc, char **argv) {
     else if (!strcmp(mutate, "reach45")) br.reach = Q16(45.0);
     else if (!strcmp(mutate, "heavy9")) br.heavy_gain = Q16(9.0);
     else if (!strcmp(mutate, "heavy5")) br.heavy_gain = Q16(5.0);
+    else if (!strcmp(mutate, "opp-player")) opp_cpu = 0;   /* the control for the opponent's search */
     else if (*mutate) die("unknown mutation");
     sh2z_vd_body_t b[2] = { course[0].start, course[1].start };
     /* --nudge N: racer 0 starts N Q16 LSB to the side (the sensitivity probe: native against itself). */
@@ -112,7 +147,7 @@ int main(int argc, char **argv) {
     bc[1].since = since > 0 ? (uint32_t)since - 1u : UINT32_MAX;   /* the reference's unk_288 counts the contact tick as 1 */
     if (!credit) bc[1].toucher = -1;   /* the control: no contact is credited, the seeded one included */
     bool was_touching = touching != 0;
-    int32_t regain = 0;
+    int32_t regain = regain_pending ? course[0].vehicle.max_energy / 8 : 0;
     int kos = 0;
     /* The buttons held on tick T (the duel bake carries no pad state): edges from T + 1 on are the reference's. */
     uint16_t prev[2] = { (uint16_t)pads_b[0][from], (uint16_t)pads_b[1][from] };
@@ -169,11 +204,7 @@ int main(int argc, char **argv) {
             if (k == 0) regain = 0;
             const sh2z_vd_body_t pre = b[k];
             const sh2z_vd_contact_t c_in = c;
-#if FZX_PHYS_TUBES
-            sh2z_vd_step2_contact(&b[k], &course[k].track2, &course[k].vehicle, &rules, &in, &c);
-#else
-            sh2z_vd_step_contact(&b[k], &course[k].track, &course[k].vehicle, &rules, &in, &c);
-#endif
+            step(k, &b[k], &rules, &in, &c);
             /* --spin-draws: where the reference drew a spin side on this tick, the native takes the
              * same side at its own draw, inside the step (the step turns by it at once). The native
              * side is the parity of race_ticks: the step is redone with the parity flipped, and the
@@ -183,11 +214,7 @@ int main(int argc, char **argv) {
                 sh2z_vd_body_t alt = pre;
                 sh2z_vd_contact_t c2 = c_in;
                 alt.race_ticks ^= 1;
-#if FZX_PHYS_TUBES
-                sh2z_vd_step2_contact(&alt, &course[k].track2, &course[k].vehicle, &rules, &in, &c2);
-#else
-                sh2z_vd_step_contact(&alt, &course[k].track, &course[k].vehicle, &rules, &in, &c2);
-#endif
+                step(k, &alt, &rules, &in, &c2);
                 if (alt.spin_steer != 0 && ((alt.spin_steer > 0) == (want > 0))) {
                     alt.race_ticks = b[k].race_ticks; alt.race_time = b[k].race_time;
                     b[k] = alt;

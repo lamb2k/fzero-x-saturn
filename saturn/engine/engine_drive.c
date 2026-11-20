@@ -9,6 +9,12 @@
 #include "sh2zam/rotation_sprite_experimental.h"
 #include "sh2zam/sprite_cache_experimental.h"
 #include "sh2zam/divu_experimental.h"
+#ifndef ENG_ROSTER
+#define ENG_ROSTER 0
+#endif
+#if ENG_ROSTER
+#include "engine_roster.h"
+#endif
 #if E1_FIELD
 #include "engine_field.h"
 #endif
@@ -370,6 +376,43 @@ bool fzx_drive_sprites_load(const vdp1_vram_partitions_t *parts, uint32_t clut_u
 
 uint32_t fzx_drive_texture_floor(void) { return fzx_e1_vram[14]; }
 
+#ifndef ENG_SCENES
+#define ENG_SCENES 0
+#endif
+#if ENG_SCENES
+/* Scenes image: race-local state back to the start of a race, with the packs, the
+ * sprite set and the slot pool layout kept (a retry). The slot pool is emptied so
+ * a retry fills it exactly as the first race did. */
+#if E1_FIELD
+static void field_state_reset(void);
+#endif
+void fzx_drive_reset(void) {
+    body = course.start; prev_n64 = 0; ticks = 0;
+#if E1_FIELD
+    /* The rival field back to its grid (the pack is resident; no CD read) and the per-car draw state. */
+    (void)fzx_field_load(&course.track, &body);
+    field_state_reset();
+#endif
+    memset(&pad_state, 0, sizeof(pad_state));
+    memset((void *)fzx_e1_checkpoints, 0, sizeof(fzx_e1_checkpoints));
+    memset((void *)fzx_e1_report, 0, sizeof(fzx_e1_report));
+    fzx_e1_report[9] = 1; fzx_e1_report[12] = FZX_PHYSICS_PACK_BYTES;
+    if (fzx_e1_status == 1) {
+        sh2z_scache_t *const c = CT(&pool);
+        const uint32_t n = c->count;
+        for (uint32_t i = 0; i < n; ++i) {
+            sh2z_scache_slot_t *const slot = CT(&pool_slots[i]);
+            slot->key = SH2Z_SCACHE_NO_KEY; slot->last_use = 0; slot->state = SH2Z_SCACHE_FREE;
+        }
+        (void)sh2z_scache_init(c, CT(&pool_slots[0]), n, 2u);
+    }
+    fill_count = 0; fill_done = 0;
+    drawn_slot = UINT32_MAX; drawn_cell = 0;
+    memset((void *)fzx_e1_cache, 0, sizeof(fzx_e1_cache));
+}
+const sh2z_vd_body_t *fzx_drive_state(void) { return &body; }
+#endif
+
 /* Slave, right after the track build: copy queued cells into their slots. */
 void fzx_drive_slave_fill(void) {
     if (fzx_e1_status != 1) return;
@@ -382,6 +425,17 @@ void fzx_drive_slave_fill(void) {
         if (done && (uint16_t)(cpu_frt_count_get() - t0) >= FILL_BUDGET_TICKS) break;
         const fill_t f = fill_queue[done];
         if (!sh2z_scache_live(c, f.slot)) { (void)sh2z_scache_abandon(c, f.slot); ++fzx_e1_cache[8]; ++done; continue; }
+#if E2_ROSTER && ENG_ROSTER
+        if (f.set) {
+            /* The scenes image's roster stays compressed: the cell is decoded into its slot. */
+            const sh2z_rspr_cell_t *const fc = sh2z_rspr_cells(f.set) + f.cell;
+            volatile uint16_t *d16 = (volatile uint16_t *)(VDP1_VRAM_BASE + c->slots[f.slot].addr);
+            if (!fzx_roster_fill(f.set, f.cell, d16)) { (void)sh2z_scache_abandon(c, f.slot); ++fzx_e1_cache[8]; ++done; continue; }
+            (void)sh2z_scache_ready(c, f.slot);
+            bytes += (uint32_t)fc->width * fc->height / 2u; ++done;
+            continue;
+        }
+#endif
 #if E2_ROSTER
         const sh2z_rspr_cell_t *const fc = f.set ? sh2z_rspr_cells(f.set) + f.cell : &cells[f.cell];
         const uintptr_t fbase = f.set ? (uintptr_t)f.set : set_cart;
@@ -528,6 +582,16 @@ static uint8_t car_prof[FZX_FIELD_CARS];
 #endif
 static uint8_t car_has_cell[FZX_FIELD_CARS];
 volatile uint32_t fzx_field_draw[8]; /* sprites drawn, 3D cars drawn, shadows, sprite skips, cells pending, commands, -, - */
+#if ENG_SCENES
+static void field_state_reset(void) {
+    memset(car_cell, 0, sizeof(car_cell));
+    memset(car_has_cell, 0, sizeof(car_has_cell));
+#if E2_ROSTER
+    memset(car_prof, 0, sizeof(car_prof));
+#endif
+    memset((void *)fzx_field_draw, 0, sizeof(fzx_field_draw));
+}
+#endif
 #if defined(E2_PROF) && E2_PROF
 /* Diagnostic: FRT totals over the run: [0] cull + pose + sort, [1] shadows, [2] sprite cache + emit, [3] frames. */
 volatile uint32_t fzx_e2_emit_split[4];
@@ -820,10 +884,31 @@ static const sh2z_rspr_set_t *roster_find(const uint8_t *pak, const char key[8],
 }
 bool fzx_drive_roster_load(void *scratch, uint32_t scratch_bytes, uintptr_t cart_limit) {
     const uintptr_t base = (set_cart + FZX_RACER_SPRITE_BYTES + 2047u) & ~(uintptr_t)2047u;
+#if ENG_ROSTER
+    /* Scenes image: only the field's families, compressed (engine_roster.c, ROSTERZ.PAK). */
+    {
+        uint8_t fams[FZX_FIELD_CARS]; unsigned nf = 0;
+        for (uint32_t id = 1; id < FZX_FIELD_CARS; ++id) {
+            const int32_t fam = fzx_rivals_field[id][5];
+            if (fam < 0 || fam > 29) { fzx_e2_roster[0] = 3; return false; }
+            bool seen = false;
+            for (unsigned j = 0; j < nf; ++j) if (fams[j] == (uint8_t)fam) seen = true;
+            if (!seen) fams[nf++] = (uint8_t)fam;
+        }
+        extern volatile uint32_t fzx_scn_roster[8];
+        extern uint32_t video_fields_get(void);
+        const uint32_t r0 = video_fields_get();
+        const bool ok = fzx_roster_select_load(fams, nf, base, cart_limit, scratch, scratch_bytes);
+        fzx_scn_roster[0] = video_fields_get() - r0; /* the roster's share of LOAD, in fields */
+        if (!ok) { fzx_e2_roster[0] = 2; return false; }
+        fzx_e2_roster[4] = (uint32_t)base; fzx_e2_roster[5] = fzx_roster_report[2];
+    }
+#else
     fzx_e2_roster[4] = (uint32_t)base; fzx_e2_roster[5] = FZX_ROSTER_BYTES;
     if (base + FZX_ROSTER_BYTES > cart_limit ||
         !fzx_texture_cd_load("ROSTER.PAK", FZX_ROSTER_BYTES, FZX_ROSTER_HASH, (void *)base, scratch, scratch_bytes)) { fzx_e2_roster[0] = 2; return false; }
     const uint8_t *pak = (const uint8_t *)base;
+#endif
     uint32_t next = racer_set->clut_count, bound = 0;
     volatile uint8_t *const clut_cpu = (volatile uint8_t *)(VDP1_VRAM_BASE + clut_vram);
     static const char prof[2][4] = { { 'n', 'e', 'a', 'r' }, { 'f', 'a', 'r', 0 } };
@@ -832,7 +917,12 @@ bool fzx_drive_roster_load(void *scratch, uint32_t scratch_bytes, uintptr_t cart
         if (fam < 0 || fam > 29) { fzx_e2_roster[0] = 3; return false; }
         const char key[8] = { 'c', (char)('0' + fam / 10), (char)('0' + fam % 10), 's', '1', 0, 0, 0 };
         for (unsigned k = 0; k < 2u; ++k) {
+#if ENG_ROSTER
+            (void)key; (void)prof;
+            const sh2z_rspr_set_t *set = fzx_roster_set((uint32_t)fam, k);
+#else
             const sh2z_rspr_set_t *set = roster_find(pak, key, prof[k]);
+#endif
             if (!set) { fzx_e2_roster[0] = 4; return false; }
             if (next + set->clut_count > CLUT_SETS) { fzx_e2_roster[0] = 5; return false; }
             const uint8_t *src = (const uint8_t *)set + set->clut_offset;

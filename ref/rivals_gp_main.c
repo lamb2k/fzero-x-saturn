@@ -162,6 +162,7 @@ int main(int argc, char** argv) {
         behave.air_spread = 2600; behave.fall_margin = U(30); behave.fall_ticks = 95;
         behave.ko_window = 120; behave.ko_near = U(1500); behave.ko_floor = 26;
         behave.drop_mask = 0x0200; behave.drop_value = 0x0200; behave.drop_lat = DROP_LAT; behave.drop_chance = DROP_CHANCE; behave.launch_chance = LAUNCH_CHANCE;
+        behave.contact_norm = 36045;   /* 0.55: racer.c's impact, 1.1 x the closing speed along the line between the two, shared */
         P.behave = &behave;
     }
     /* Tuning overrides for HOST experiments only: --tune "name=value,..." (integers, the field's own units). */
@@ -175,7 +176,7 @@ int main(int argc, char** argv) {
             #undef T
             if (!strcmp(tok, "boost_ticks")) { P.boost_ticks = (int16_t)val; continue; }
             #define B(n) if (!strcmp(tok, #n)) { behave.n = val; continue; }
-            B(drop_lat) B(drop_chance) B(launch_chance)
+            B(drop_lat) B(drop_chance) B(launch_chance) B(contact_norm)
             B(roll_chance) B(roll_latch) B(roll_lead) B(roll_well) B(hold_lead) B(roll_exit_ahead) B(lat_accel) B(air_spread) B(fall_margin) B(fall_ticks) B(ko_window) B(ko_near) B(ko_floor)
             #undef B
             if (!strcmp(tok, "roll_min")) { behave.roll_min = (int16_t)val; continue; }

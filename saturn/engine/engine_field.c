@@ -536,6 +536,7 @@ bool fzx_field_load(const sh2z_vd_track_t *track, const sh2z_vd_body_t *player) 
         /* Drops (HOST tuning seeds 1-6 and 101-106, judged on 201-206): launches out of a pipe on a drop node 1 in 16;
          * beyond 1.8 of the radius round a drop cylinder, 16 / 65536 a step. */
         behave.drop_mask = 0x0200u; behave.drop_value = 0x0200u; behave.drop_lat = 117965; behave.drop_chance = 16; behave.launch_chance = 4096;
+        behave.contact_norm = 36045; /* racer.c's impact: 1.1 x the closing speed along the line between the two, shared */
         params.behave = &behave;
         params.boost_energy = 0;
         fzx_field_event_count = 0;

@@ -574,7 +574,10 @@ static unsigned snap_n;
 static int32_t snap_hover;
 static bool snap_ok;
 /* The emit's results, written by its SH-2 and read by the master through the cache-through window. */
-typedef struct { uint32_t n, demand, dropped, boost, live, ticks; } fx_out_t;
+typedef struct { uint32_t n, demand, dropped, boost, live, ticks; uint16_t phase[8]; } fx_out_t;
+/* Diagnostic: the emit's phases (FRT since its start; last frame), when the master ran it. */
+#define JP(k) (job_out.phase[(k)] = (uint16_t)(cpu_frt_count_get() - t0))
+volatile uint32_t fzx_fx_jobmax[8], fzx_fx_jobworst[8];   /* per phase, the most master FRT counts (cumulative from the emit's start) */
 static fx_out_t job_out;
 
 bool fzx_fx_stage(const fzx_view_t *view, const fzx_engine_cam_t *cam, const fzx_field_car_t *cars, unsigned n) {
@@ -635,6 +638,7 @@ unsigned fzx_fx_job(vdp1_cmdt_t *commands, unsigned capacity) {
     /* By priority, while the budget lasts: the player's boosters, explosions, sparks, flying
      * sparks, debris, smoke, then the rivals' boosters (the budget keeps the nearest). */
     for (unsigned k = 0; k < n; ++k) if (cars[k].id == 0u) boosters(&v, &cars[k], view_depth(&v, cars[k].pos), hover_frac, true);
+    JP(0);
     for (uint32_t k = 0; k < p_exp2.count; ++k) {
         const sh2z_ep_particle_t *e = sh2z_ep_at(&p_exp2, k);
         diamond(&v, e, FZX_FX_EXPLOSION + (uint32_t)(e->timer >> 2) * 512u, 32u, FZX_FX_CLUT_EXPLOSION + (uint32_t)(e->timer >> 1) * 32u,
@@ -656,6 +660,7 @@ unsigned fzx_fx_job(vdp1_cmdt_t *commands, unsigned capacity) {
         diamond(&v, &d, FZX_FX_SPARK + (uint32_t)(e->timer >> 1) * 512u, 32u, FZX_FX_CLUT_SPARK + (uint32_t)e->timer * 32u,
                 pmod_tex, NEAR_BOOST * 16384);
     }
+    JP(1);
     for (uint32_t k = 0; k < p_fly.count; ++k) {
         const sh2z_ep_particle_t *e = sh2z_ep_at(&p_fly, k);
         int32_t tail[3]; pt1_t a, b;
@@ -665,6 +670,7 @@ unsigned fzx_fx_job(vdp1_cmdt_t *commands, unsigned capacity) {
         const int16_t xy[4][2] = { { (int16_t)a.x, (int16_t)a.y }, { (int16_t)b.x, (int16_t)b.y }, { 0, 0 }, { 0, 0 } };
         if (sh2z_ep_emit_shape(t->w, SH2Z_EP_LINE, xy, 0x821Fu, pmod_line, (uint32_t)art + FZX_FX_GOURAUD_SPARK)) commit(t);
     }
+    JP(2);
     for (uint32_t k = 0; k < p_debris.count; ++k) {
         const sh2z_ep_particle_t *e = sh2z_ep_at(&p_debris, k);
         pt1_t pt;
@@ -688,6 +694,7 @@ unsigned fzx_fx_job(vdp1_cmdt_t *commands, unsigned capacity) {
         const bool half = (sh2z_sin12_u30(ph & 0x7ffu) >> 22) >= 128;
         if (sh2z_ep_emit_shape(t->w, SH2Z_EP_POLYGON, (const int16_t (*)[2])xy, colour, half ? pmod_poly_half : pmod_poly, 0u)) commit(t);
     }
+    JP(3);
     for (uint32_t k = 0; k < p_smoke.count; ++k) {
         const sh2z_ep_particle_t *e = sh2z_ep_at(&p_smoke, k);
         diamond(&v, e, FZX_FX_SMOKE + (uint32_t)(e->timer >> 2) * 512u, 32u, FZX_FX_CLUT_SMOKE, pmod_tex_half, NEAR_BOOST * 16384);
@@ -705,6 +712,7 @@ unsigned fzx_fx_job(vdp1_cmdt_t *commands, unsigned capacity) {
         sh2z_ep_sort(co, cd, m);
             for (unsigned j = m; j-- > 0;) boosters(&v, &cars[ck[co[j]]], cd[co[j]], hover_frac, false);
     }
+    JP(5);
     /* Far to near, after the cars. */
     static int32_t depth[FZX_FX_SLOTS];
     static uint8_t order[FZX_FX_SLOTS];
@@ -712,6 +720,7 @@ unsigned fzx_fx_job(vdp1_cmdt_t *commands, unsigned capacity) {
     sh2z_ep_sort(order, depth, n_items);
     unsigned out = 0;
     for (unsigned i = 0; i < n_items && out < capacity; ++i) memcpy(&commands[out++], items[order[i]].w, sizeof(vdp1_cmdt_t));
+    JP(6);
     job_out.n = out; job_out.demand = demand; job_out.dropped = dropped; job_out.boost = boost_cmds;
     job_out.live = p_spark.count + p_exp1.count + p_exp2.count + p_fly.count + p_smoke.count + p_debris.count;
     job_out.ticks = (uint16_t)(cpu_frt_count_get() - t0);
@@ -727,5 +736,7 @@ void fzx_fx_job_done(bool slave) {
     fzx_fx_report[10] += o->dropped;
     fzx_fx_report[11] = o->boost;
     fzx_fx_demand[0] = o->demand; if (o->demand > fzx_fx_demand[1]) fzx_fx_demand[1] = o->demand;
-    if (slave) ++fzx_fx_on_slave; else { fzx_fx_report[13] = o->ticks; if (o->ticks > fzx_fx_report[14]) fzx_fx_report[14] = o->ticks; }
+    if (slave) ++fzx_fx_on_slave; else {
+        for (unsigned k = 0; k < 7u; ++k) if (o->phase[k] > fzx_fx_jobmax[k]) fzx_fx_jobmax[k] = o->phase[k];
+        if (o->ticks > fzx_fx_report[14]) { for (unsigned k = 0; k < 7u; ++k) fzx_fx_jobworst[k] = o->phase[k]; fzx_fx_jobworst[7] = o->demand; } fzx_fx_report[13] = o->ticks; if (o->ticks > fzx_fx_report[14]) fzx_fx_report[14] = o->ticks; }
 }

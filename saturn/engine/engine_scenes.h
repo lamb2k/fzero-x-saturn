@@ -84,4 +84,11 @@ vdp1_cmdt_t *fzx_race_list(unsigned *count, unsigned *capacity);
 void fzx_race_load(void);
 void fzx_race_begin(void);
 bool fzx_race_frame(void);
+#if E0_HW_COUNTER
+/* The hardware disc's cadence readout (engine_main.c): a manager frame's gap in fields, the
+ * race run's break, and the readout (printed when due or forced; true when it printed). */
+void fzx_hw_menu_gap(uint32_t gap);
+void fzx_hw_race_break(void);
+bool fzx_hw_overlay(bool force);
+#endif
 #endif

@@ -166,7 +166,8 @@ E0_CHUNK_CAP ?= 26
 E0_LEAN_CLIP ?= 1
 # Exact fog early-out: pieces wholly before the first fog threshold reuse one shading result per image.
 E0_FOG_EARLY ?= 1
-# Hardware disc only: on-screen presented-frame counters, looping flythrough.
+# Hardware disc only: on-screen presented-frame counters. E0: looping flythrough, readout top left.
+# Drive and scenes images: race and menu cadence (fps, worst gap, over-two count, gap histogram), rows 21-25.
 E0_HW_COUNTER ?= 0
 # Diagnostics: VDP2 register/CRAM capture for the map; low-RAM sentinel overwrite control.
 E0_VDP2_MAP ?= 0

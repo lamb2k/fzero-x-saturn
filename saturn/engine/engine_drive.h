@@ -72,6 +72,13 @@ unsigned fzx_drive_sprites(vdp1_cmdt_t *commands, unsigned capacity, const fzx_v
 unsigned fzx_drive_cars(vdp1_cmdt_t *commands, unsigned capacity, const fzx_view_t *view, const fzx_engine_cam_t *cam,
                         const fzx_field_car_t *cars, unsigned n, const vdp1_cmdt_t *const *staged, const uint16_t *staged_n);
 extern volatile uint32_t fzx_field_sim_ticks, fzx_field_draw[8];
+#if defined(E2_EMIT_LINK) && E2_EMIT_LINK
+/* E2_EMIT_LINK: fzx_drive_cars leaves the 3D cars' staged commands where they are and lists the
+ * list's pieces in order (its own commands and the staged ones); the caller copies each piece once. */
+typedef struct { const vdp1_cmdt_t *src; uint32_t n; } fzx_emit_seg_t;
+extern fzx_emit_seg_t fzx_emit_segs[2u * FZX_FIELD_K_MAX + 2u];
+extern unsigned fzx_emit_nsegs;
+#endif
 const sh2z_vd_body_t *fzx_drive_body(void);
 #endif
 /* HUD text (dbgio, VDP2). */

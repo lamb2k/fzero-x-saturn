@@ -551,11 +551,20 @@ class Gate:
         t0 = time.time()
         builds = {}
         bdir = self.ev / 'builds'
+        # The runs use each image as gated (the lane's switches at their defaults). With --identity-vars the
+        # identity images are built a second time with those variables, under their own name, and only those
+        # builds are compared with the base (before 2026-11-20 the runs used the identity builds instead).
+        id_builds = {}
         for img in need:
-            vars_ = m['images'][img]['vars'] + (a.identity_vars.split() if a.identity_vars and img in ident else [])
-            builds[img] = self.build(bdir, img, vars_)
+            builds[img] = self.build(bdir, img, m['images'][img]['vars'])
             log('build %-16s %s' % (img, builds[img]['bin'][:16] if builds[img]['ok'] else 'FAILED'))
             self.add('build', img, builds[img]['ok'], builds[img].get('bin', '')[:16], builds[img].get('error', '')[-300:].replace('\n', ' '))
+        for img in ident:
+            if a.identity_vars:
+                id_builds[img] = self.build(bdir, img + '.identity', m['images'][img]['vars'] + a.identity_vars.split())
+                log('build %-16s %s (identity: %s)' % (img, id_builds[img]['bin'][:16] if id_builds[img]['ok'] else 'FAILED', a.identity_vars))
+            else:
+                id_builds[img] = builds[img]
         self.times['builds'] = round(time.time() - t0)
         self.head_builds = builds
 
@@ -590,7 +599,7 @@ class Gate:
             receipt['base'] = base_sha
             base_bins = self.base_bins(base_sha, ident, head)
             for img in ident:
-                hb, bb = builds[img].get('bin'), base_bins.get(img)
+                hb, bb = id_builds[img].get('bin'), base_bins.get(img)
                 self.add('identity', img, hb is not None and hb == bb, '%s vs base %s' % ((hb or '-')[:16], (bb or '-')[:16]),
                          'base %s%s' % (base_sha[:12], (' with ' + a.identity_vars) if a.identity_vars else ''))
         if a.expect:

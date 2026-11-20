@@ -1,4 +1,4 @@
-/* Native duel window (attacks lane, claude/attacks): two native bodies (SH2ZAM vehicle-dynamics-2) in
+/* Native duel window (attacks lane, claude/attacks): two native bodies (SH2ZAM vehicle-dynamics-3) in
  * contact through SH2ZAM body-contact-1, started from the duel reference's state after tick T and
  * driven by the reference's recorded pads from T + 1. The engine's rules (engine_attacks.c) for a
  * human player (racer 0: heavy, credited) against an opponent (racer 1). HOST only. MIT; see ../../LICENSE.

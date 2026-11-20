@@ -5,7 +5,7 @@ The reference is the original race code with two pad-driven racers (ref/duel_mai
 scenario the reference runs once with its pads recorded; windows start at reference events (chosen from
 the reference alone) and on a 300-tick grid from the start. Each window bakes both racers' state after
 tick T (fzx-duel --bake-at T), starts the native pair there (tools/attacks_host/duel_native.c: SH2ZAM
-vehicle-dynamics-2 bodies in contact through body-contact-1) and replays the recorded pads from T + 1.
+vehicle-dynamics-3 bodies in contact through body-contact-1) and replays the recorded pads from T + 1.
 
 Scored per window, as C-076: both racers' endpoint 3D position within 32 units and speed within
 0.5% of the reference (plus one Q16 quantum); events one-to-one by class, in order, at most one tick

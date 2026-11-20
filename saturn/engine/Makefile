@@ -129,7 +129,7 @@ E2_EMIT_CULL ?= $(if $(filter 1,$(E2_CULL)),$(E2_EMIT_EXACT),0)
 E2_EMIT_YAW ?= $(if $(filter 1,$(E2_EMIT_POSE)),$(E2_EMIT_EXACT),0)
 # ENG_ATTACKS (lane claude/attacks, generated/ATTACKS-PLAN.md): racer-racer contact, side and spin attacks,
 #   damage, spin-out, retirement and KO credit for the player and the field (engine_attacks.c, SH2ZAM
-#   body-contact-1 and vehicle-dynamics-2). Needs E1_FIELD with E2_PACK and E2_FASTPOSE, the attack
+#   body-contact-1 and vehicle-dynamics-3). Needs E1_FIELD with E2_PACK and E2_FASTPOSE, the attack
 #   tables (tools/attacks_tables.py, local) and an SH2ZAM checkout with body-contact-1. Default 0 until qualified.
 ENG_ATTACKS ?= 0
 # ENG_PACE: frame pacing. 0 as built (a frame as soon as it is ready); 1 adaptive (a two-field gap

@@ -4,7 +4,7 @@
  * original's sphere rule (racer.c Racer_Update): reach 46, along-line gap 92, impact 1.1 x |n . dv|
  * shared by contact weight, a push while closing, an attacker's victim pushed 3x with no grip for
  * 60 ticks, the human player's attacks 10x. The player takes its contact through SH2ZAM
- * vehicle-dynamics-2 (sh2z_vd_step_contact). Rivals are line-field agents; a rival that attacks, is
+ * vehicle-dynamics-3 (sh2z_vd_step_contact). Rivals are line-field agents; a rival that attacks, is
  * hit by an attack, spins out or has crashed is driven here as an external vehicle (a line-space
  * body with lateral momentum, walls and damage) and handed back to the field afterwards.
  *

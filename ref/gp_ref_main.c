@@ -27,6 +27,9 @@ void rb_gp_frame(void);
 void rb_gp_zones(void);
 void rb_cpu_diag(int i, float f[5], int n[8]);
 void rb_cpu_diag2(int i, float f[6], int n[2]);
+void rb_set_ko_age(int i, int age, int by);
+int rb_ko_count(void);
+float rb_regain(int i);
 
 #define MAXR 30
 #define ST_RETIRED (1 << 18)
@@ -75,7 +78,7 @@ static void tube_add(double angle_deg) {
 }
 
 int main(int argc, char** argv) {
-    const char *course = 0, *rom = 0, *line = 0, *report = 0, *trace = 0, *tube_pack = 0, *diag = 0;
+    const char *course = 0, *rom = 0, *line = 0, *report = 0, *trace = 0, *tube_pack = 0, *diag = 0, *ko_probe = 0;
     int difficulty = 1, max_ticks = 14000, player_cpu = 1, tuning_course = 0, zones = 0;
     unsigned seed = 1;
     for (int i = 1; i + 1 < argc; i += 2) {
@@ -91,7 +94,8 @@ int main(int argc, char** argv) {
         else if (!strcmp(argv[i], "--tuning-course")) tuning_course = atoi(argv[i + 1]);
         else if (!strcmp(argv[i], "--zones")) zones = atoi(argv[i + 1]);
         else if (!strcmp(argv[i], "--tube-pack")) tube_pack = argv[i + 1];   /* RIVALS.PAK: tube_angles over its pipe and cylinder nodes */   /* 1: the surface zones, jumps and mines (rivals_bake.c) */
-        else if (!strcmp(argv[i], "--diag")) diag = argv[i + 1];   /* line-field-5: per racer and tick, see DIAG below */
+        else if (!strcmp(argv[i], "--diag")) diag = argv[i + 1];
+        else if (!strcmp(argv[i], "--ko-probe")) ko_probe = argv[i + 1];   /* RACER:TICK:AGE:BY, see KO PROBE below */   /* line-field-5: per racer and tick, see DIAG below */
         else die("unknown argument");
     }
     if (!course || !rom || !line || !report) die("usage: see gp_ref_main.c");
@@ -134,6 +138,21 @@ int main(int argc, char** argv) {
     for (int t = 0; t < max_ticks; ++t) {
         rb_gp_frame();
         ref_tick(0, 0, 0);
+        /* KO PROBE (claude/line-field-5): after race tick TICK (from the start), racer RACER's KO-credit age is set
+         * to AGE with racer BY (-1 none) as its attacker; every tick from then until 3 ticks after its fall
+         * starts prints the age, flags, KO count and BY's pending regain (stderr). HOST diagnostics only. */
+        if (ko_probe && start_tick >= 0) {
+            int kr, kt, ka, kb; static int fall_seen = -1;
+            if (sscanf(ko_probe, "%d:%d:%d:%d", &kr, &kt, &ka, &kb) == 4) {
+                if (t - start_tick == kt) rb_set_ko_age(kr, ka, kb);
+                if (t - start_tick >= kt && (fall_seen < 0 || t - start_tick <= fall_seen + 3)) {
+                    float g[5]; int m[8]; rb_cpu_diag(kr, g, m);
+                    if ((m[0] & (1 << 19)) && fall_seen < 0) fall_seen = t - start_tick;
+                    fprintf(stderr, "ko-probe t %d racer %d age %d attacker %d flags %08x falling %d kos %d regain_by %.3f energy_victim %.2f\n",
+                            t - start_tick, kr, m[2], m[3], (unsigned)m[0], (m[0] >> 19) & 1, rb_ko_count(), kb >= 0 ? rb_regain(kb) : 0.0f, g[2]);
+                }
+            }
+        }
         float f[5]; int v[8];
         double lead = -1e18, last = 1e18; int changed = 0;
         for (int i = 0; i < MAXR; ++i) {

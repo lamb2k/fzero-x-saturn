@@ -205,3 +205,13 @@ void rb_cpu_diag2(int i, float f[6], int n[2]) {
     f[4] = r->currentRadiusLeft; f[5] = r->currentRadiusRight;
     n[0] = r->boostTimer; n[1] = r->machineLod;
 }
+
+/* KO-credit probe (claude/line-field-5): set racer i's ticks since a player's contact (unk_288) and its
+ * attacker (unk_28C, racer `by`, or none when by < 0); read the KO count and racer i's pending regain. */
+extern s16 gRacersKOd;
+void rb_set_ko_age(int i, int age, int by) {
+    gRacers[i].unk_288 = age;
+    gRacers[i].unk_28C = by >= 0 ? &gRacers[by] : NULL;
+}
+int rb_ko_count(void) { return gRacersKOd; }
+float rb_regain(int i) { return gRacers[i].energyRegain; }

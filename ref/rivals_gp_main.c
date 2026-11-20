@@ -30,6 +30,7 @@ static void die(const char* m) { fprintf(stderr, "fzx-rivals-gp: %s\n", m); exit
 static sh2z_line_node_t nodes[MAXN];
 static sh2z_field_zone_t zones[256];
 static sh2z_field_surface_t surface;
+static sh2z_field_behave_t behave;   /* line-field-5 (--behave 1) */
 static uint32_t be32(const unsigned char* p) { return ((uint32_t)p[0] << 24) | ((uint32_t)p[1] << 16) | ((uint32_t)p[2] << 8) | p[3]; }
 static uint16_t be16(const unsigned char* p) { return (uint16_t)((p[0] << 8) | p[1]); }
 
@@ -40,6 +41,7 @@ int main(int argc, char** argv) {
     int tube_angles = 0; long tube_ticks = 0, tube_bin[4] = {0, 0, 0, 0};
     /* line-field-5: --sources 1 adds rivals' energy losses by source (contact, wall, boost, other), wall incidents
      * and the near-edge share, as tools judge the reference's (fzx-gp-ref --diag). */
+    int use_behave = 0;
     int sources = 0; double src_amount[4] = {0, 0, 0, 0}; long src_n[4] = {0, 0, 0, 0}, wall_inc = 0, edge_ticks = 0, road_ticks = 0;
     int32_t tune_accel = 40, tune_grip = U(6), tune_lane = 30;
     long length = 0, dash = 0; unsigned seed = 1; int max_ticks = 14000, start_tick = 420, lod = 1, hash_every = 0;
@@ -61,6 +63,7 @@ int main(int argc, char** argv) {
         else if (!strcmp(argv[i], "--dash")) dash = atol(argv[i + 1]);
         else if (!strcmp(argv[i], "--tube-angles")) tube_angles = atoi(argv[i + 1]);   /* 1: tube_angles over pipe and cylinder nodes */
         else if (!strcmp(argv[i], "--sources")) sources = atoi(argv[i + 1]);
+        else if (!strcmp(argv[i], "--behave")) use_behave = atoi(argv[i + 1]);   /* line-field-5 behaviours, defaults below */
         else die("unknown argument");
     }
     if (!pack || !config || !report || length <= 0) die("usage: see rivals_gp_main.c");
@@ -119,6 +122,22 @@ int main(int argc, char** argv) {
     }
     if (zone_file || wrap) P.surface = &surface;
     P.dash_from = (int32_t)dash; P.dash_pace = 72090;   /* 1.10 */
+    /* line-field-5 defaults (claude/line-field-5; see the lane's FROZEN-FALLS.txt and step-1 report): the source's tube
+     * bias pick (1/64 a decision; half the picks hold to an exit, the rest 20..35 decisions), cylinders hold their
+     * angle, pipes end rolls near their exit; air nodes (shape 0x180), open-edge road (0x000); the KO window 120. */
+    if (use_behave) {
+        behave.roll_chance = 1024; behave.roll_latch = 32768; behave.roll_min = 20; behave.roll_span = 16;
+        behave.roll_lead = 26214;  /* 0.4 of speed */
+        behave.hold_lead = 7864;   /* 0.12 of speed */
+        behave.roll_well = 52429;  /* 0.8 radians round a pipe */
+        behave.hold_mask = 0x01c0; behave.hold_value = 0x00c0; behave.exit_mask = 0x01c0; behave.exit_value = 0x0080;
+        behave.roll_exit_ahead = U(3000);
+        behave.lat_accel = 192;
+        behave.air_mask = 0x01c0; behave.air_value = 0x0180; behave.open_mask = 0x01c0; behave.open_value = 0x0000;
+        behave.air_spread = 2600; behave.fall_margin = U(30); behave.fall_ticks = 95;
+        behave.ko_window = 120; behave.ko_near = U(1500); behave.ko_floor = 26;
+        P.behave = &behave;
+    }
     /* Tuning overrides for HOST experiments only: --tune "name=value,..." (integers, the field's own units). */
     if (tune) {
         char tb[1024]; strncpy(tb, tune, sizeof tb - 1); tb[sizeof tb - 1] = 0;
@@ -129,6 +148,13 @@ int main(int argc, char** argv) {
             T(bump_keep) T(hit_energy) T(side_energy) T(attack_energy) T(wall_energy) T(wall_keep) T(boost_speed) T(boost_energy) T(boost_behind) T(cruise) T(rank_lead)
             #undef T
             if (!strcmp(tok, "boost_ticks")) { P.boost_ticks = (int16_t)val; continue; }
+            #define B(n) if (!strcmp(tok, #n)) { behave.n = val; continue; }
+            B(roll_chance) B(roll_latch) B(roll_lead) B(roll_well) B(hold_lead) B(roll_exit_ahead) B(lat_accel) B(air_spread) B(fall_margin) B(fall_ticks) B(ko_window) B(ko_near) B(ko_floor)
+            #undef B
+            if (!strcmp(tok, "roll_min")) { behave.roll_min = (int16_t)val; continue; }
+            if (!strcmp(tok, "roll_span")) { behave.roll_span = (int16_t)val; continue; }
+            if (!strcmp(tok, "open_mask")) { behave.open_mask = (uint16_t)val; continue; }
+            if (!strcmp(tok, "hold_mask")) { behave.hold_mask = (uint16_t)val; continue; }
             if (!strcmp(tok, "plate_ticks")) { surface.plate_ticks = val; continue; }
             if (!strcmp(tok, "slip_steer")) { surface.slip_steer = val; continue; }
             if (!strcmp(tok, "rough_keep")) { surface.rough_keep = val; continue; }
@@ -239,7 +265,7 @@ int main(int argc, char** argv) {
             const int32_t loss = e_before[i] - v->energy;
             const int src = (v->flags & SH2Z_VEH_TOUCH) ? 0 : (v->flags & SH2Z_VEH_WALL) ? 1 : (v->flags & SH2Z_VEH_BOOST) ? 2 : 3;
             if (loss > 0) { src_amount[src] += loss / 256.0; ++src_n[src]; }
-            if ((v->flags & SH2Z_VEH_WALL) && !(f_before[i] & SH2Z_VEH_WALL)) ++wall_inc;
+            if ((v->flags & SH2Z_VEH_WALL) && !(v->flags & SH2Z_VEH_TOUCH) && !(f_before[i] & SH2Z_VEH_WALL)) ++wall_inc;   /* as the reference: nobody near */
             sh2z_line_sample_t at; sh2z_line_sample(&L, v->t.node, v->t.dist, &at);
             const int tb = P.surface && surface.wrap_mask && (at.flags & surface.wrap_mask) == surface.wrap_value;
             if (!tb && t - start_tick > 300) { ++road_ticks; if (at.half_width - (v->t.lateral < 0 ? -v->t.lateral : v->t.lateral) < U(30)) ++edge_ticks; }
@@ -298,6 +324,7 @@ int main(int argc, char** argv) {
     fprintf(o, " \"spread_every_600_ticks\": [");
     for (int i = 0; i < marks; ++i) fprintf(o, "%s%.0f", i ? "," : "", spread_at[i]);
     fprintf(o, "],\n");
+    if (use_behave) fprintf(o, " \"falls\": %u, \"kos\": %u,\n",(unsigned)F.falls, (unsigned)F.kos);
     if (sources) fprintf(o, " \"damage\": {\"contact\": [%ld, %.1f], \"wall\": [%ld, %.1f], \"boost\": [%ld, %.1f], \"other\": [%ld, %.1f]}, \"wall_incidents\": %ld, \"near_edge_share\": %.4f,\n",
                          src_n[0], src_amount[0], src_n[1], src_amount[1], src_n[2], src_amount[2], src_n[3], src_amount[3], wall_inc,
                          road_ticks ? (double)edge_ticks / road_ticks : 0.0);

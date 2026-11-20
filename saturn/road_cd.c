@@ -52,10 +52,13 @@ static int stream_head_fad(fad_t *head, uint16_t *last, uint32_t *elapsed) {
 #if FZX_CD_TRACE
 /* Diagnostic (FZX_CD_TRACE=1, 2 also asks the block for each sector's FAD): one record per sector read,
  * a ring of 1024: requested FAD | starting << 31, the block's FAD of its first buffered sector (2; else 0),
- * the first two words and an FNV-1a 32 of the 2048 bytes. [0] of fzx_cd_trace_n counts records. */
+ * the first two words and words 64 ^ 65. [0] of fzx_cd_trace_n counts records. */
 #define CD_TRACE_N 1024u
 volatile uint32_t fzx_cd_trace[CD_TRACE_N][5];
 volatile uint32_t fzx_cd_trace_n[2];
+#endif
+#if FZX_CD_STALE_CONTROL
+volatile uint32_t fzx_cd_stale_control; /* stream starts that met a stale sector of the previous play */
 #endif
 static int stream_read(fad_t fad,sector_buffer_t *out) {
     int rc;
@@ -66,6 +69,17 @@ static int stream_read(fad_t fad,sector_buffer_t *out) {
         if((rc=cd_block_cmd_sector_length_set(SECTOR_LENGTH_2048))) return rc;
         if((rc=cd_block_cmd_selector_reset(0,0))) return rc;
         if((rc=cd_block_cmd_cd_dev_connection_set(0))) return rc;
+#if FZX_CD_STALE_CONTROL
+        /* Control (diagnostic): the race that delivered a wrong first sector. The selector reset freed the
+         * partition, so a drive that had paused on a full buffer resumes the previous play and puts its next
+         * sector in partition 0 before the new play seeks. Wait up to ~40 ms for such a sector here, so every
+         * discontinuous start that follows a running stream meets one. */
+        {
+            uint16_t l=cpu_frt_count_get();uint32_t e=0;
+            while((rc=cd_block_cmd_sector_number_get(0))==0 && e<36000u){const uint16_t now=cpu_frt_count_get();e+=(uint16_t)(now-l);l=now;}
+            if(rc>0) ++fzx_cd_stale_control;
+        }
+#endif
         if((rc=cd_block_cmd_disk_play(0,fad,STREAM_SECTORS))) return rc;
         streaming=true;stream_end=fad+STREAM_SECTORS;++fzx_cd_stats[1];
     }
@@ -111,9 +125,9 @@ static int stream_read(fad_t fad,sector_buffer_t *out) {
 #if FZX_CD_TRACE
     {
         volatile uint32_t *t=fzx_cd_trace[fzx_cd_trace_n[0]++ % CD_TRACE_N];
-        uint32_t h=2166136261u;
-        for(unsigned i=0;i<CDFS_SECTOR_SIZE;++i) h=(h^((const uint8_t *)out->buffer32)[i])*16777619u;
-        t[0]=fad|(starting?0x80000000u:0u); t[1]=trace_head; t[2]=out->buffer32[0]; t[3]=out->buffer32[1]; t[4]=h;
+        /* No per-sector hash: the first trace's 2 KB loop moved the timing and hid the fault. Words 0, 1, 64, 65. */
+        t[0]=fad|(starting?0x80000000u:0u); t[1]=trace_head; t[2]=out->buffer32[0]; t[3]=out->buffer32[1];
+        t[4]=out->buffer32[64]^out->buffer32[65];
     }
 #endif
     stream_next=fad+1u;++fzx_cd_stats[0];

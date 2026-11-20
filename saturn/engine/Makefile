@@ -85,6 +85,9 @@ ENG_SCN_STALL_CONTROL ?= 0
 # Diagnostic (scenes CD stream, saturn/road_cd.c): 1 records every sector read (FAD, first words, FNV) in
 # fzx_cd_trace; 2 also reads the CD block's FAD of the buffered sector before each transfer. 0 compiles nothing.
 FZX_CD_TRACE ?= 0
+# Control (scenes CD stream, saturn/road_cd.c): 1 waits after each stream start's selector reset until the
+# previous play delivers a stale sector, so the read must drop it (fzx_cd_seek_stats[1]). 0 compiles nothing.
+FZX_CD_STALE_CONTROL ?= 0
 # Private F Zero S main title. ENG_TITLE_ART=title selects the original atlas.
 ENG_TITLE_ART ?= title_guest
 ifeq ($(ENG_P3_UI),1)
@@ -336,7 +339,7 @@ BAL_SWITCHES := $(ENG_BAL_CLOUDS)$(ENG_BAL_EARLY)$(ENG_BAL_FORCE)$(ENG_BAL_HASH)
 EMIT_SWITCHES := $(E2_EMIT_PROF)$(E2_EMIT_HINT)$(E2_EMIT_CMD)$(E2_EMIT_SHADOW)$(E2_EMIT_POSE)$(E2_EMIT_SETUP)$(E2_EMIT_LINK)$(E2_EMIT_CULL)$(E2_EMIT_YAW)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter-out 0,$(subst 0,,$(EMIT_SWITCHES))),-em$(EMIT_SWITCHES),)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter-out 00000,$(BAL_SWITCHES)),-bal$(BAL_SWITCHES),)
-SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter-out mute-city-1,$(ENG_COURSE)),-$(ENG_COURSE),)$(if $(E1_DRIVER_KH),-kh$(E1_DRIVER_KH),)$(if $(filter 1,$(ENG_COURSE_SELECT)),-sel,)$(if $(filter 1,$(ENG_TUBES)),-tubes,)$(if $(filter 0,$(ENG_RIVAL_SURFACE)),-rs0,)$(if $(filter 1,$(ENG_SCN_STALL_CONTROL)),-stallctl,)$(if $(filter-out 0,$(FZX_CD_TRACE)),-cdtrace$(FZX_CD_TRACE),)
+SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter-out mute-city-1,$(ENG_COURSE)),-$(ENG_COURSE),)$(if $(E1_DRIVER_KH),-kh$(E1_DRIVER_KH),)$(if $(filter 1,$(ENG_COURSE_SELECT)),-sel,)$(if $(filter 1,$(ENG_TUBES)),-tubes,)$(if $(filter 0,$(ENG_RIVAL_SURFACE)),-rs0,)$(if $(filter 1,$(ENG_SCN_STALL_CONTROL)),-stallctl,)$(if $(filter-out 0,$(FZX_CD_TRACE)),-cdtrace$(FZX_CD_TRACE),)$(if $(filter 1,$(FZX_CD_STALE_CONTROL)),-stalectl,)
 ifeq ($(ENG_SCENES)$(ENG_P3_UI),10)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)-p3off
 endif
@@ -351,6 +354,9 @@ include $(YAUL_INSTALL_ROOT)/share/build.pre.mk
 
 ifneq ($(FZX_CD_TRACE),0)
 SH_CFLAGS += -DFZX_CD_TRACE=$(FZX_CD_TRACE)
+endif
+ifneq ($(FZX_CD_STALE_CONTROL),0)
+SH_CFLAGS += -DFZX_CD_STALE_CONTROL=$(FZX_CD_STALE_CONTROL)
 endif
 
 ifeq ($(ENG_P3_UI),0)

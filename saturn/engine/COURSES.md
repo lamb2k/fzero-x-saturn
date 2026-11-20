@@ -225,3 +225,36 @@ Estimate before building. Section 4 says what exists.
 
 **Total:** about 7 to 9 days for both courses, in this order: Sand Ocean physics and pick (its road
 already bakes), then the tube render, then the Big Blue strip pairing and cylinder physics.
+
+**Legacy recipe:** built from this branch, the legacy recipe BIN is 4b4cacb2 (sha256 4b4cacb26d22...),
+byte-identical to the recipe of record (docs/FUNCTIONAL_RECIPE.md).
+
+## 7. Next cards
+
+**Rivals on surface zones (`line-field-4`; Port Town's last band).**
+- **What the source does:** CPU racers ride dash plates (a free boost) and lose grip on ice like
+  the player. The native field ignores both. Port Town has 6 plates and 3 ice zones. Its reference
+  field changes order 455..575 ticks against native 192..272.
+- **Data:**
+  - The physics pack already holds each segment's zones: kind, t range and side bounds (`ref/handling_probe.c` `zone`,
+    `tools/physics_pack.py`).
+  - The course-line stations (`fzx-ref --line`) give each RIVALS.PAK node its segment and t.
+  - A small offline table (node range, kind, lateral range) per course can be baked from these two.
+    It needs no change to RIVALS.PAK. It goes into the field header, and into `course_ids` for
+    the one-disc image.
+- **Library (generic):** a zone list in `sh2z_field_params_t`.
+  - An agent whose node and lateral fall inside a plate zone starts a free boost.
+  - On ice its steer gain drops; on rough ground its target speed is damped unless it is boosting.
+  - With no zones, the field is `line-field-3` step for step.
+- **Gates:**
+  - Port Town 14/14.
+  - Mute City (4 plates), Silence (8) and Devil's Forest (dirt) keep passing.
+  - Pinned `line-field-3` hashes when zones are absent.
+
+**Silence's night sky.**
+- **Stars:** 100 IA8 8x8 sprites at random sky points, from the source's `Background_InitStars`.
+  Bake the positions offline with a fixed seed. Draw them as VDP1 sprites in the prelude. The
+  source projects them with the camera and draws those inside the scissor. The star texture
+  `D_F2207C8` goes into the skyline pack's spare slots.
+- **Windows:** the skyline palette's white entry flashes at night (`Background_UpdateBackgroundSprites`,
+  `whiteIndex`). The plan is one CLUT word rewritten per frame, behind the change flag.

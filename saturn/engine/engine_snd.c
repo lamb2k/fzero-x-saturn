@@ -66,6 +66,7 @@ typedef struct {
     int8_t rival_oct[2][SND_RACE_EVENT_PARTS]; uint16_t rival_fns[2][SND_RACE_EVENT_PARTS];
     uint8_t rival_level[2][SND_RACE_EVENT_PARTS];
     uint8_t pitch_ok[3][SND_RACE_EVENT_PARTS];
+    uint8_t start_engines;   /* the race's first frame: key the engine voices on at its present */
 } stage_t;
 static stage_t stage[2];
 static volatile uint32_t build_stage, sealed = 0xFFu;
@@ -191,19 +192,18 @@ static uint32_t read_toc(uint32_t *toc) {
     return cd_block_cmd_data_transfer_end() < 0 ? 0u : 1u;
 }
 
+/* The race start writes no register: the CD commands go out with the first frame's build and the
+ * engine voices key on at its present, so the race's first frames keep the timing they have
+ * without sound. */
+static uint32_t start_pending;
+
 void engine_snd_start(uint32_t epoch) {
     epoch_now = epoch;
     sh2z_snd_queue_open(&queue, epoch);
-    const uint32_t mask = cpu_intc_mask_get();
-    cpu_intc_mask_set(15);                          /* the VBlank-In plays on the same voices */
-    play_event(SND_RACE_EV_ENGINE_PLAYER, SLOTS_PLAYER, 3u, player_slot);
-    play_event(SND_RACE_EV_ENGINE_RIVAL, SLOTS_RIVAL0, 3u, rival_slot[0]);
-    play_event(SND_RACE_EV_ENGINE_RIVAL, SLOTS_RIVAL1, 3u, rival_slot[1]);
-    for (unsigned r = 0; r < 2u; ++r)
-        for (unsigned p = 0; p < SND_RACE_EVENT_PARTS; ++p)
-            if (rival_slot[r][p] >= 0 && snd_race_events[SND_RACE_EV_ENGINE_RIVAL][p].clip != 0xFFu)
-                sh2z_snd_set_level(&snd, (uint32_t)rival_slot[r][p], 0u);
-    cpu_intc_mask_set(mask);
+    start_pending = 1u;
+}
+
+static void start_cd(void) {
     if (!music_fad) return;
     /* Set CD Device Connection to none (audio sectors must not fill the data buffers), without
      * waiting: the Play follows at a later frame, once the block reports CMOK. */
@@ -214,6 +214,16 @@ void engine_snd_start(uint32_t epoch) {
     if (music_loop == FZX_CDDA_NO_LOOP) sh2z_cdda_play(&cd, music_fad, music_sectors, 0u, 0u);
     else sh2z_cdda_play(&cd, music_fad, music_sectors, music_fad + music_loop, music_sectors - music_loop);
     engine_snd_report[0] = 1u;
+}
+
+static void start_engines(void) {
+    play_event(SND_RACE_EV_ENGINE_PLAYER, SLOTS_PLAYER, 3u, player_slot);
+    play_event(SND_RACE_EV_ENGINE_RIVAL, SLOTS_RIVAL0, 3u, rival_slot[0]);
+    play_event(SND_RACE_EV_ENGINE_RIVAL, SLOTS_RIVAL1, 3u, rival_slot[1]);
+    for (unsigned r = 0; r < 2u; ++r)
+        for (unsigned p = 0; p < SND_RACE_EVENT_PARTS; ++p)
+            if (rival_slot[r][p] >= 0 && snd_race_events[SND_RACE_EV_ENGINE_RIVAL][p].clip != 0xFFu)
+                sh2z_snd_set_level(&snd, (uint32_t)rival_slot[r][p], 0u);
 }
 
 void engine_snd_tick(const sh2z_vd_body_t *body, const sh2z_vd_vehicle_t *vehicle, int32_t laps) {
@@ -333,6 +343,8 @@ void engine_snd_build(void) {
     const uint16_t t0 = cpu_frt_count_get();
     stage_t *st = &stage[build_stage];
     st->count = 0u;
+    st->start_engines = (uint8_t)start_pending;
+    if (start_pending) { start_pending = 0u; start_cd(); }
     sh2z_snd_queue_drain(&queue, collect, st);
     pitch_into(SND_RACE_EV_ENGINE_PLAYER, engine_ratio(player_speed), st->player_oct, st->player_fns, st->pitch_ok[0]);
     for (unsigned r = 0; r < 2u; ++r) {
@@ -371,6 +383,7 @@ static void level_if_changed(int8_t slot, uint8_t level) {
 }
 
 static void apply(const stage_t *st) {
+    if (st->start_engines) start_engines();
     for (uint32_t i = 0; i < st->count; ++i) {
         sh2z_snd_event_t e; e.id = st->ev[i]; e.arg = 0; e.epoch = epoch_now;
         deliver(&e, NULL);
@@ -409,6 +422,8 @@ void engine_snd_leave(uint32_t frames) {
     cpu_intc_mask_set(15);
     sealed = 0xFFu;
     stage[0].count = stage[1].count = 0u;
+    stage[0].start_engines = stage[1].start_engines = 0u;
+    start_pending = 0u;
     sh2z_snd_queue_close(&queue);
     sh2z_cdda_fade(&cd, frames);
     for (uint32_t s = 0; s < SH2Z_SND_SLOTS; ++s) if (s != 16u && s != 17u) sh2z_snd_stop(&snd, s);

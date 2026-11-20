@@ -195,7 +195,8 @@ static uint32_t read_toc(uint32_t *toc) {
 /* The race start writes no register: the CD commands go out with the first frame's build and the
  * engine voices key on at its present, so the race's first frames keep the timing they have
  * without sound. */
-static uint32_t start_pending;
+static uint32_t start_pending;   /* 1 at the race start, then the frames built since */
+#define START_CD_FRAME 8u
 
 void engine_snd_start(uint32_t epoch) {
     epoch_now = epoch;
@@ -354,8 +355,9 @@ void engine_snd_build(void) {
     const uint16_t t0 = cpu_frt_count_get();
     stage_t *st = &stage[build_stage];
     st->count = 0u;
-    st->start_engines = (uint8_t)start_pending;
-    if (start_pending) { start_pending = 0u; start_cd(); }
+    st->start_engines = (uint8_t)(start_pending == 1u);
+    /* The CD commands a few frames into the race, once its pacing has settled. */
+    if (start_pending && ++start_pending > START_CD_FRAME) { start_pending = 0u; start_cd(); }
     sh2z_snd_queue_drain(&queue, collect, st);
     pitch_into(SND_RACE_EV_ENGINE_PLAYER, engine_ratio(player_speed), st->player_oct, st->player_fns, st->pitch_ok[0]);
     for (unsigned r = 0; r < 2u; ++r) {

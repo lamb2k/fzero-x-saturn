@@ -741,7 +741,7 @@ class Gate:
 
     def control_jobs(self, builds, hosts):
         jobs = []
-        for c in self.m['controls']:
+        for c in self.selected_controls():
             if c.get('vars'):
                 key = c['name']
                 vars_ = self.m['images'][c['image']]['vars'] + c['vars']
@@ -749,7 +749,7 @@ class Gate:
                 log('control build %-14s %s' % (key, self.ctl_builds[key].get('bin', 'FAILED')[:16]))
                 if self.m['images'][c['image']].get('sound') and self.ctl_builds[key]['ok'] and c.get('kind'):
                     self.discs[key] = self.mixed_disc(self.ctl_builds[key]['dir'])[0]
-            if c['check'] in ('identity', 'legacy', 'host', 'determinism'):
+            if c['check'] in ('identity', 'legacy', 'determinism') or c.get('reuse'):
                 continue
             r = dict(name=c['name'], image=c['image'], kind=c['kind'], course=c.get('course'), pokes=c.get('pokes', '-'), disc=c.get('disc'),
                      image_build=c['name'] if c.get('vars') else None)
@@ -761,7 +761,7 @@ class Gate:
         return jobs
 
     def score_controls(self, builds, hosts):
-        for c in self.m['controls']:
+        for c in self.selected_controls():
             sink = []
             name, chk = c['name'], c['check']
             if chk == 'identity':
@@ -775,7 +775,7 @@ class Gate:
                     got = re.search(r'LEGACY off ([0-9a-f]{64})', out)
                     off = got.group(1) if got else ''
                 self.add('legacy', name, off.startswith(self.m['legacy']['recipe']), '%s vs recipe %s' % (off[:16], self.m['legacy']['recipe'][:16]), sink=sink)
-            elif chk == 'host':
+            elif chk == 'host' and c.get('reuse'):
                 rd = self.ev / 'runs' / c['reuse']
                 kv, chkl = result_kv(read_result(rd))
                 href = self.host(self.ev / 'host', 'mute-city-1', c['host_driver'])
@@ -806,7 +806,12 @@ class Gate:
             # A control whose run or script dies before its check is scored has still failed; the table says which.
             failed = [r for r in sink if r['check'] in (chk, 'run', 'script') and r['status'] == 'FAIL']
             self.controls.append(dict(control=name, check=chk, how=c['how'], status='PASS' if failed else 'FAIL',
-                                      shown='; '.join('%s: %s' % (r['subject'], r['value']) for r in (failed or target))[:300]))
+                                      shown=('; '.join('%s: %s' % (r['subject'], r['value']) for r in (failed or target))
+                                             + ''.join('; %s' % r['value'] for r in sink if r['check'] == 'audio' and chk == 'disc'))[:400]))
+
+    def selected_controls(self):
+        want = set(self.a.control_names.split(',')) if self.a.control_names else None
+        return [c for c in self.m['controls'] if want is None or c['name'] in want]
 
     # -- output ---------------------------------------------------------------------------------------------------------
     def write(self, receipt):
@@ -845,6 +850,47 @@ class Gate:
         (self.ev / 'cleanup-manifest.txt').write_text('deleted (rebuildable: disc images, dumps, stills)\n' + '\n'.join(gone) + '\n')
 
 
+class Rescore(Gate):
+    """--rescore: score an earlier run's evidence again (same label) without building or running anything."""
+
+    def stage_cmd(self, *args, check=True):
+        if args[0] == 'legacy':
+            f = self.ev / 'legacy' / args[3] / 'fzero-x-saturn.bin'
+            return (0, 'LEGACY %s %s' % (args[3], sha256(f))) if f.exists() else (1, 'no legacy build kept')
+        if args[0] == 'cdda':
+            return Gate.stage_cmd(self, *args, check=check)
+        raise RuntimeError('rescore does not touch the stage (%s)' % args[0])
+
+    def prepare_tree(self, rev):
+        return dict(sha=git('rev-parse', rev), pin='-', submodule='-', regenerated=['rescored'], stale_receipts=[])
+
+    def build(self, where, name, vars_):
+        d = Path(where) / name
+        if not (d / 'fzs-engine.bin').exists():
+            return dict(name=name, vars=vars_, ok=False, error='not in the evidence')
+        return dict(name=name, vars=vars_, ok=True, bin=sha256(d / 'fzs-engine.bin'), dir=str(d),
+                    outdir=(d / 'outdir.txt').read_text().strip() if (d / 'outdir.txt').exists() else '')
+
+    def mixed_disc(self, build_dir):
+        cue = Path(build_dir) / 'mixed' / 'fzs-engine.cue'
+        return (cue, 'kept from the run') if cue.exists() else (None, 'not kept')
+
+    def host(self, hdir, slug, driver):
+        return host_ref(Path(hdir) / ('%s-%s.txt' % (slug, driver)))
+
+    def execute(self, jobs):
+        res = {}
+        for r, kind, arg in jobs:
+            b = self.ctl_builds.get(r['image_build']) if r.get('image_build') else None
+            bd = b['dir'] if b else self.builds_dir(r['image'])
+            sound = self.m['images'][r['image']].get('sound', False)
+            mixed = Path(bd) / 'mixed' / 'fzs-engine.cue'
+            cue = mixed if sound and r.get('disc') != 'data' and mixed.exists() else Path(bd) / 'fzs-engine.cue'
+            ok = result_kv(read_result(self.ev / 'runs' / r['name']))[0].get('exit') == 'ok'
+            res[r['name']] = dict(rc=0 if ok else 1, seconds=None, cue=str(cue), rescored=True)
+        return res
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     g = ap.add_mutually_exclusive_group()
@@ -872,6 +918,8 @@ def main():
                     help='bgm_cdda.py output (local, ROM-derived) for the shipping mixed-mode discs')
     ap.add_argument('--jobs', type=int, default=max(2, min(12, (os.cpu_count() or 4) - 2)))
     ap.add_argument('--clips', action='store_true', help='keep the scripts\' clip windows')
+    ap.add_argument('--control-names', default='', help='with --controls: only these controls (comma list)')
+    ap.add_argument('--rescore', action='store_true', help="score an earlier run's evidence (same --label) again")
     ap.add_argument('--keep', action='store_true', help='keep discs, dumps and stills')
     a = ap.parse_args()
     for p in (a.harness, a.bios):
@@ -880,7 +928,7 @@ def main():
     if not a.label:
         a.label = '%s-%s%s' % (git('rev-parse', '--short=12', a.rev), 'full' if a.full else 'quick', '-ctl' if a.controls else '')
     matrix = json.loads(Path(a.matrix).read_text())
-    gate = Gate(a, matrix)
+    gate = (Rescore if a.rescore else Gate)(a, matrix)
     if a.seed_stage:
         log(gate.stage_cmd('init', a.stage, a.seed_stage)[1])
     sys.exit(gate.run())

@@ -4,7 +4,7 @@
  *   fzx-sim --course RECORD --byte-order big|little (--inputs SCRIPT | --inputs-hex HEX)
  *           [--rom ROM] [--select SKIN,ENGINE_BITS] [--ticks N] [--trace OUT]
  *           [--camera-trace OUT] [--read-every K] [--restart-at T]
- *           [--read-after-restart 0|1] [--records-probe T]
+ *           [--read-after-restart 0|1] [--records-probe T] [--cpu-driver T]
  *
  * The STRICT trace hash is ref/main.c's (FNV-1a 64 over tick, inputs and
  * RefState), so it compares directly with ref/main.c and the fixture hashes.
@@ -25,7 +25,14 @@
  * otherwise constant on every captured route) before tick T, and after that tick
  * reads camera 1 the way the records scene does (flush, then read). Knob on and
  * off must log the same matrices; a build without that flush must not.
- * Both probes are HOST controls (ref_sim_test_move_camera is never in an image). */
+ * Both probes are HOST controls (ref_sim_test_move_camera is never in an image).
+ *
+ * --cpu-driver T hands racer 0 to the original CPU driver (ref_set_cpu_driver, as the title
+ * demo does) before tick T; the pad inputs then only set the run's length. A replayed
+ * recording leaves the road when the full game's state drifts from the race it was recorded
+ * in (Big Blue: the car leaves the cylinder at tick 1,045 and the camera falls with it); the
+ * CPU driver races the whole course, so the camera trace covers every lap (course-look lane,
+ * the engine flythrough's camera path). */
 #include <stdint.h>
 #include <math.h>
 #ifndef FZX_ENGINE_DUMP
@@ -210,7 +217,7 @@ int main(int argc, char** argv) {
     const char *camera_path = NULL, *select = NULL;
     static Step steps[16384];
     static unsigned char record[REF_COURSE_RECORD_SIZE];
-    int nsteps, i, tick = 0, limit = -1, restart_at = -1, records_probe = -1, read_after_restart = 0;
+    int nsteps, i, tick = 0, limit = -1, restart_at = -1, records_probe = -1, read_after_restart = 0, cpu_from = -1;
 #if FZX_ENGINE_DUMP
     const char* engine_course = NULL;
 #endif
@@ -235,6 +242,7 @@ int main(int argc, char** argv) {
         else if (strcmp(argv[i], "--restart-at") == 0) restart_at = atoi(argv[i + 1]);
         else if (strcmp(argv[i], "--read-after-restart") == 0) read_after_restart = atoi(argv[i + 1]);
         else if (strcmp(argv[i], "--records-probe") == 0) records_probe = atoi(argv[i + 1]);
+        else if (strcmp(argv[i], "--cpu-driver") == 0) cpu_from = atoi(argv[i + 1]);
 #if FZX_ENGINE_DUMP
         else if (strcmp(argv[i], "--engine-course") == 0) engine_course = argv[i + 1];
 #endif
@@ -301,6 +309,7 @@ int main(int argc, char** argv) {
                  * the cameras had at the restart, as without the knob. */
                 if (read_after_restart) camera_read(d, -1 - tick);
             }
+            if (tick == cpu_from) ref_set_cpu_driver(1);
             /* Give camera 1 a state its last matrix build has not seen (HOST control). */
             if (tick == records_probe) ref_sim_test_move_camera(1, 64.0f);
             ref_tick(steps[i].button, steps[i].sx, steps[i].sy);
@@ -339,6 +348,7 @@ int main(int argc, char** argv) {
 #if FZX_DEFER_PROJECTION
     printf(" deferrals %u builds %u", ref_camera_deferrals, ref_camera_deferred_builds);
 #endif
+    if (cpu_from >= 0) printf(" cpu-driver %d", cpu_from);
     printf(" restart %d\n", restart_at);
     return 0;
 }

@@ -226,6 +226,30 @@ ENG_TUBES ?= $(if $(filter sand-ocean-1 big-blue-1,$(ENG_COURSE)),1,0)
 ifeq ($(filter 0 1,$(ENG_TUBES)),)
 $(error ENG_TUBES must be 0 or 1)
 endif
+# Course look (lane claude/course-look, saturn/engine/COURSES.md 8), drive images only; each 0 builds
+# the image as before. They read generated[/courses/<slug>]/look/look_inside.h (tools/course_look_assets.py
+# from fzx-ref --inside): the spans the camera can be inside (course.c TRACK_FLAG_INSIDE: pipes, tunnels).
+# ENG_LOOK_FOG: the course fog a quarter of its colour inside a pipe or tunnel, tapered over the joins
+#   (course.c Course_Draw, courseFogColors >> 2).
+# ENG_LOOK_OUTER: the road plan's outer bit 0 inside a tunnel too (course.c D_800F89D8), not only a pipe.
+# ENG_LOOK_CLOSE: the VDP2 floor and clouds closed (empty windows, no fade bands, no prepare) while the
+#   camera is inside a whole pipe span.
+# ENG_LOOK_STARS (a starry night course; look_night.h from course_look_assets.py --night): background.c's
+#   100 stars as 8x8 VDP1 sprites over the sky (status 55 if their 1,280 B do not fit after the track).
+# ENG_LOOK_WINDOWS (night): the skyline palettes' white entry flashes through the source's window colours.
+ENG_LOOK_FOG ?= 0
+ENG_LOOK_OUTER ?= 0
+ENG_LOOK_CLOSE ?= 0
+ENG_LOOK_STARS ?= 0
+ENG_LOOK_WINDOWS ?= 0
+ENG_LOOK_SWITCHES := $(ENG_LOOK_FOG) $(ENG_LOOK_OUTER) $(ENG_LOOK_CLOSE) $(ENG_LOOK_STARS) $(ENG_LOOK_WINDOWS)
+ifneq ($(filter-out 0 1,$(ENG_LOOK_SWITCHES)),)
+$(error ENG_LOOK_FOG, _OUTER, _CLOSE, _STARS and _WINDOWS must be 0 or 1)
+endif
+ENG_LOOK_ANY := $(if $(filter 1,$(ENG_LOOK_SWITCHES)),1,0)
+ifeq ($(ENG_LOOK_ANY):$(FZX_E1_DRIVE),1:0)
+$(error ENG_LOOK_* need FZX_E1_DRIVE=1 (the player's place on the course))
+endif
 ENG_SND_FADETEST ?= 0
 ifeq ($(filter 0 1 2,$(ENG_DSP_BANDS)),)
 $(error ENG_DSP_BANDS must be 0, 1 or 2)
@@ -281,6 +305,8 @@ SH_OUTPUT_DIR := build-$(if $(filter-out 1,$(ENG_DSP_BANDS)),dspb$(ENG_DSP_BANDS
 EMIT_SWITCHES := $(E2_EMIT_PROF)$(E2_EMIT_HINT)$(E2_EMIT_CMD)$(E2_EMIT_SHADOW)$(E2_EMIT_POSE)$(E2_EMIT_SETUP)$(E2_EMIT_LINK)$(E2_EMIT_CULL)$(E2_EMIT_YAW)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter-out 0,$(subst 0,,$(EMIT_SWITCHES))),-em$(EMIT_SWITCHES),)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter-out mute-city-1,$(ENG_COURSE)),-$(ENG_COURSE),)$(if $(E1_DRIVER_KH),-kh$(E1_DRIVER_KH),)$(if $(filter 1,$(ENG_COURSE_SELECT)),-sel,)$(if $(filter 1,$(ENG_TUBES)),-tubes,)
+SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter-out engine_path,$(ENG_PATH)),-$(ENG_PATH),)
+SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter 1,$(ENG_LOOK_ANY)),-look$(ENG_LOOK_FOG)$(ENG_LOOK_OUTER)$(ENG_LOOK_CLOSE)$(ENG_LOOK_STARS)$(ENG_LOOK_WINDOWS),)
 SH_BUILD_DIR := $(SH_OUTPUT_DIR)/yaul
 IMAGE_DIRECTORY := $(SH_OUTPUT_DIR)/cd
 IMAGE_1ST_READ_BIN := A.BIN
@@ -295,7 +321,17 @@ endif
 G := ../../generated
 GCREL := $(if $(filter mute-city-1,$(ENG_COURSE)),,courses/$(ENG_COURSE)/)
 GC := $(G)$(if $(GCREL),/$(GCREL:%/=%),)
-E0_RECEIPTS := engine_path/engine_path.receipt road_pack/road_pack.receipt road_bake/road_bake.receipt \
+# ENG_PATH (course-look lane): the camera path folder under the course's generated root. The default
+# engine_path is the replayed R01 race; engine_path_cpu (fzx-sim --cpu-driver 0, tools/engine_path.py)
+# is the original CPU driver's race, which stays on the course for every lap (Big Blue's replay leaves the
+# cylinder at tick 1,045). Flythrough (E0) images only: the drive images take their lens from engine_path.
+ENG_PATH ?= engine_path
+ifneq ($(ENG_PATH),engine_path)
+ifeq ($(FZX_E1_DRIVE),1)
+$(error ENG_PATH is for the flythrough (E0) images; the drive images read engine_path)
+endif
+endif
+E0_RECEIPTS := $(ENG_PATH)/engine_path.receipt road_pack/road_pack.receipt road_bake/road_bake.receipt \
                skyline/skyline.receipt sky/sky.receipt planes_cloud/planes.receipt floor_rbg/floor_rbg.receipt \
                $(if $(filter 1,$(E0_CLUSTERS)),road_cluster/road_cluster.receipt,)
 E0_RECEIPT_CHECK := $(foreach R,$(E0_RECEIPTS),$(shell sh ../../tools/check_receipt.sh $(GC)/$(R) >/dev/null 2>&1 || echo $(R)))
@@ -359,7 +395,7 @@ SH_CFLAGS += -DENG_PACE=$(ENG_PACE) $(if $(filter 3,$(ENG_PACE)),-DENG_VDP1_INTE
     -DFZX_SOURCE_ROAD=1 -I$(GC)/road_pack -DFZX_SOURCE_ROAD_TILES=1 -DFZX_SOURCE_ROAD_STREAM=1 -I$(GC)/road_bake \
     -DFZX_ROAD_STREAM_NATIVE_LAYOUT=1 -DFZX_RS_PACK_PATH=0 -DFZX_ROAD_STREAM_EMIT=1 -DFZX_RS_PACKET_PATH=0 \
     -DFZX_ROAD_STREAM_BUDGET=1 -DFZX_RBG_FAST=1 -DFZX_SLAVE_ROAD=1 -DFZX_ROAD_LOD=1 \
-    -I$(GC)/engine_path -DFZX_SH2_DIVU=1 -O2 -std=c11 -Wall -Wextra \
+    -I$(GC)/$(ENG_PATH) -DFZX_SH2_DIVU=1 -O2 -std=c11 -Wall -Wextra \
     -I. -I.. -I../../include -I../../ref -I$(SH2ZAM_ROOT)/saturn/include -DSH2Z_REQUIRE_SH2=1 \
     -ffunction-sections -fdata-sections \
     -DE0_ISR_MAC_SAVE=$(E0_ISR_MAC_SAVE) -DE0_MAC_PROBE=$(E0_MAC_PROBE) -DFZX_DBANK_QUEUE_ATOMIC=$(E0_QUEUE_ATOMIC) -DE0_QUEUE_STRESS=$(E0_QUEUE_STRESS) -DFZX_DBANK_QUEUE_WIDEN=$(E0_QUEUE_WIDEN) -DFZX_E1_DRIVE=$(FZX_E1_DRIVE) -DE1_DRIVER=$(E1_DRIVER) -DE1_DRIVER_BOOST=$(E1_DRIVER_BOOST) $(if $(E1_DRIVER_KH),-DE1_DRIVER_KH=$(E1_DRIVER_KH)f,) \
@@ -451,6 +487,17 @@ endif
 # may use a larger track texture budget (tools/road_bake.py --texture-limit; placement checked at load); its
 # sky gradient need not be monotonic in brightness (a sunset), so sky bands pick their colour by distance.
 SH_CFLAGS += $(if $(filter 1,$(FZX_E1_DRIVE)),$(if $(filter 1,$(ENG_TUBES)),-DFZX_PHYS_TUBES=1,),)
+ifeq ($(ENG_LOOK_ANY),1)
+ifeq ($(wildcard $(GC)/look/look_inside.h),)
+$(error ENG_LOOK_* need $(GC)/look/look_inside.h (fzx-ref --inside, then tools/course_look_assets.py))
+endif
+ifneq ($(ENG_LOOK_STARS)$(ENG_LOOK_WINDOWS),00)
+ifeq ($(wildcard $(GC)/look/look_night.h),)
+$(error ENG_LOOK_STARS and ENG_LOOK_WINDOWS need a night course's $(GC)/look/look_night.h (course_look_assets.py --night))
+endif
+endif
+SH_CFLAGS += -DENG_LOOK_FOG=$(ENG_LOOK_FOG) -DENG_LOOK_OUTER=$(ENG_LOOK_OUTER) -DENG_LOOK_CLOSE=$(ENG_LOOK_CLOSE)     -DENG_LOOK_STARS=$(ENG_LOOK_STARS) -DENG_LOOK_WINDOWS=$(ENG_LOOK_WINDOWS) -I$(GC)/look
+endif
 SH_CFLAGS += $(if $(GCREL),-DENG_COURSE_SKYLINE=1 -DFZX_ROAD_STREAM_TEXTURE_LIMIT=240000u -DFZX_SKY_LINEAR_PICK=1 -DENG_COURSE_INDEX=$(COURSE_INDEX_$(ENG_COURSE)),)
 ifeq ($(ENG_COURSE_SELECT),1)
 ifneq ($(ENG_SCENES),1)
@@ -477,12 +524,12 @@ IP_1ST_READ_SIZE := 0
 
 include $(YAUL_INSTALL_ROOT)/share/build.post.iso-cue.mk
 
-$(SH_OUTPUT_PATH)/$(SH_PROGRAM).iso: $(GC)/engine_path/ENGPATH.PAK
+$(SH_OUTPUT_PATH)/$(SH_PROGRAM).iso: $(GC)/$(ENG_PATH)/ENGPATH.PAK
 pre-build-iso: stage-e0-packs
 .PHONY: stage-e0-packs
 stage-e0-packs:
 	mkdir -p "$(IMAGE_DIRECTORY)"
-	cp $(GC)/engine_path/ENGPATH.PAK $(GC)/road_pack/ROAD.PAK $(GC)/road_bake/ROADLOD.PAK $(GC)/road_bake/ROADLTX.PAK \
+	cp $(GC)/$(ENG_PATH)/ENGPATH.PAK $(GC)/road_pack/ROAD.PAK $(GC)/road_bake/ROADLOD.PAK $(GC)/road_bake/ROADLTX.PAK \
 	   $(GC)/skyline/SKYLINE.PAK $(GC)/planes_cloud/PLANES.PAK \
 	   $(GC)/floor_rbg/FLOORCHR.BIN $(GC)/floor_rbg/FLOORMAP.BIN $(GC)/floor_rbg/FLOORKOF.BIN "$(IMAGE_DIRECTORY)/"
 	$(if $(filter 1,$(E0_CLUSTERS)),cp $(GC)/road_cluster/ROADCL.PAK "$(IMAGE_DIRECTORY)/",)

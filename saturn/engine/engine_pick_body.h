@@ -34,8 +34,11 @@ static void pop_mark(uint32_t *map, const sh2z_segmesh_run_t *r, uint32_t from, 
 }
 #endif
 static const fzx_engine_cam_t *volatile job_cam;
-#if FZX_PHYS_TUBES
-static volatile uint8_t job_outer = 1u; /* the road plan's outer bit for the job (tube courses) */
+#if FZX_PHYS_TUBES || ENG_LOOK_OUTER
+static volatile uint8_t job_outer = 1u; /* the road plan's outer bit for the job (tube courses; ENG_LOOK_OUTER) */
+#endif
+#if ENG_LOOK_FOG
+static volatile uint8_t job_fog[3]; /* ENG_LOOK_FOG: the course fog for the job, darker inside pipes and tunnels */
 #endif
 static volatile uint32_t job_tick;
 static int32_t pick_depth[FZX_EPATH_MAX_CHUNKS + 1u];
@@ -133,13 +136,16 @@ bool fzx_engine_slave_pick(void) {
     const uint16_t t0 = cpu_frt_count_get();
     fzx_engine_pick_t pv;
     out->faults = 0; out->count = 0; out->visible_chunks = 0;
-#if FZX_PHYS_TUBES
-    out->outer = job_outer; /* 0 inside a pipe: the tube's outer shell is not drawn */
+#if FZX_PHYS_TUBES || ENG_LOOK_OUTER
+    out->outer = job_outer; /* 0 inside a pipe (ENG_LOOK_OUTER: or a tunnel): its outer shell is not drawn */
 #else
     out->outer = 1; /* the camera is outside the track surface on this course */
 #endif
     out->fog_start = k->fog_start;
     memcpy(out->fog, k->fog, 4);
+#if ENG_LOOK_FOG
+    out->fog[0] = job_fog[0]; out->fog[1] = job_fog[1]; out->fog[2] = job_fog[2];
+#endif
     out->primitive[0] = (unsigned char)(255u - ((job_tick * 8u) & 255u));
     out->primitive[1] = out->primitive[2] = 0; out->primitive[3] = 255;
     ++fzx_e0_pick[5];

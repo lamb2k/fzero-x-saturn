@@ -27,5 +27,7 @@ void ref_handling_race_features(void);
 int ref_handling_select_machine(int character, float engine);
 typedef void (*RefBakeEmit)(const char* key, int a, int b, const float* v, int n);
 void ref_handling_bake(RefBakeEmit emit);
+/* Inside spans (pipes, tunnels) with their joins (course-look lane). */
+void ref_handling_inside(RefBakeEmit emit);
 
 #endif

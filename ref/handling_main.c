@@ -4,7 +4,7 @@
  *
  *   fzx-ref --course RECORD --inputs SCRIPT [--rom ROM] [--out TRACE.tsv] [--zones 0|1]
  *           [--driver kl,kh[,boost_period[,start_tick[,target[,end_tick]]]]] [--selection skin,engine] [--bake SOURCE]
- *           [--line STATIONS] [--machine CHARACTER,ENGINE]
+ *           [--line STATIONS] [--machine CHARACTER,ENGINE] [--inside OUT]
  *
  * SCRIPT lines are "<ticks> <buttons> [stick_x stick_y]" as for main.c. RECORD is a
  * big-endian 0x7E0 course record. --zones 1 (default) sets up surface effects, jumps
@@ -24,6 +24,9 @@
  * --boost-reserve R (C-059): the driver's scheduled B only when the previous tick's energy
  * is at least R of the maximum (10 x energy >= 10R x max; R = 0.3 is the candidate).
  * --machine re-initialises racer 0 as stock machine CHARACTER (0-29) at ENGINE (0-1).
+ * --inside writes the spans the camera can be inside (pipes, tunnels: course.c
+ * TRACK_FLAG_INSIDE) as "inside SEG SHAPE prev_end next_start join_scale", after set-up:
+ * local only (course data).
  * --line writes the shared course-line stations (ref/course_line.h): a header line
  * "course-line-1 length_q12 count hash" and one "dist_q12 segment t_q16 t" per station.
  *
@@ -108,7 +111,7 @@ static int load_script(const char* path, Step* steps, int capacity) {
 }
 
 int main(int argc, char** argv) {
-    const char *course = NULL, *inputs = NULL, *rom = NULL, *out_path = NULL, *driver = NULL, *selection = NULL, *bake = NULL, *line = NULL, *machine = NULL;
+    const char *course = NULL, *inputs = NULL, *rom = NULL, *out_path = NULL, *driver = NULL, *selection = NULL, *bake = NULL, *line = NULL, *machine = NULL, *inside = NULL;
     int bake_at = -1;
     int reserve_tenths = 0;
     static Step steps[32768];
@@ -130,6 +133,7 @@ int main(int argc, char** argv) {
         else if (strcmp(argv[i], "--bake") == 0) bake = argv[i + 1];
         else if (strcmp(argv[i], "--line") == 0) line = argv[i + 1];
         else if (strcmp(argv[i], "--machine") == 0) machine = argv[i + 1];
+        else if (strcmp(argv[i], "--inside") == 0) inside = argv[i + 1];
         else if (strcmp(argv[i], "--bake-at") == 0) bake_at = atoi(argv[i + 1]);
         else if (strcmp(argv[i], "--boost-reserve") == 0) reserve_tenths = (int) (atof(argv[i + 1]) * 10.0 + 0.5);
         else die("unknown option");
@@ -182,6 +186,12 @@ int main(int argc, char** argv) {
         if ((bake_out = fopen(bake, "w")) == NULL) die("cannot write the bake source");
         fprintf(bake_out, "# fzx-physics-source v1\n");
         ref_handling_bake(bake_emit);
+        fclose(bake_out);
+    }
+    if (inside != NULL) {
+        if ((bake_out = fopen(inside, "w")) == NULL) die("cannot write the inside spans");
+        fprintf(bake_out, "# fzx-inside-spans v1\n");
+        ref_handling_inside(bake_emit);
         fclose(bake_out);
     }
     if (line != NULL) {

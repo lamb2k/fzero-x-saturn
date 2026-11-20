@@ -17,6 +17,9 @@
 #define BAND_MAX 64u
 
 fzx_clouds_rbg_t fzx_clouds_rbg;
+#if ENG_LOOK_CLOSE
+extern volatile uint8_t fzx_look_closed; /* engine_main.c */
+#endif
 volatile uint32_t fzx_clouds_status,fzx_clouds_pending,fzx_clouds_commits;
 volatile uint32_t fzx_clouds_degenerate,fzx_clouds_bands,fzx_clouds_sky_line_count;
 static uint16_t sky_lines[224];
@@ -268,6 +271,12 @@ bool fzx_clouds_native(vdp1_cmdt_t *commands,unsigned capacity,const fzx_view_t 
     /* The plane status words stay live for the capture harness: busy, and the
      * cloud stats in the plane stats block (draws = fade bands). */
     fzx_plane_busy=1;
+#if ENG_LOOK_CLOSE
+    /* Course look: inside a whole pipe span the clouds' stage is closed (every line
+     * empty, no fade bands) instead of prepared; the sky lines stay. */
+    if(fzx_look_closed){for(unsigned y=0;y<224;++y){CLOUDS_STAGE.window[y][0]=640;CLOUDS_STAGE.window[y][1]=0;}CLOUDS_STAGE.visible_lines=0;CLOUDS_STAGE.degenerate=0;CLOUDS_STAGE.commands=0;}
+    else
+#endif
     if(!fzx_clouds_rbg_prepare(view,source,&CLOUDS_STAGE,emit,&submit)) {
         fzx_plane_stats.fault=CLOUDS_STAGE.fault;fzx_clouds_status=3;return false;
     }

@@ -156,6 +156,41 @@ uint8_t fzx_drive_outer(void) {
     return (body.t < course.joins[n].prev_end || course.joins[n].next_start < body.t) ? 1u : 0u;
 }
 #endif
+#if ENG_LOOK_FOG || ENG_LOOK_OUTER || ENG_LOOK_CLOSE
+#include "look_inside.h"
+/* Course_Draw (course.c) on a span with TRACK_FLAG_INSIDE: away from the joins the outer
+ * shell is not drawn (D_800F89D8 false) and the course fog is a quarter of its colour
+ * (courseFogColors >> 2); over a join the fog tapers back by the join share,
+ * prop / joinScale at the start or (1 - prop) / joinScale at the end. */
+typedef struct { uint16_t node; uint8_t shape; int32_t prev_end, next_start, scale, open_ahead; } look_inside_t;
+static const look_inside_t look_inside[FZX_LOOK_INSIDE_COUNT + 1u] = FZX_LOOK_INSIDE_TABLE;
+void fzx_drive_look(fzx_drive_look_t *out, const uint8_t fog[3], int32_t clear_q12) {
+    const look_inside_t *s = NULL;
+    for (uint32_t i = 0; i < FZX_LOOK_INSIDE_COUNT; ++i) if (look_inside[i].node == body.node) { s = &look_inside[i]; break; }
+    out->inside = 0; out->shape = 0; out->outer = 1; out->closed = 0;
+    out->fog[0] = fog[0]; out->fog[1] = fog[1]; out->fog[2] = fog[2];
+    if (!s) return;
+    int32_t share = 1 << 30; /* Q30: 1 = the whole quarter */
+    out->shape = s->shape;
+    if (s->next_start < body.t) share = (int32_t)(((int64_t)((1 << 30) - body.prop) << 30) / s->scale);
+    else if (body.t < s->prev_end) share = (int32_t)(((int64_t)body.prop << 30) / s->scale);
+    else { out->inside = 1; out->outer = 0; }
+    if (!out->inside) out->inside = 2;
+    /* Closed: inside a whole pipe span with the tube's next opening further ahead than the
+     * track is drawn (so no opening, and nothing beyond one, can be in view). */
+    if (out->inside == 1u && s->shape == 2u) {
+        int32_t ahead = s->open_ahead - body.lap_dist;
+        if (ahead < 0) ahead += FZX_LOOK_LAP_Q12;
+        out->closed = ahead > clear_q12;
+    }
+    if (share < 0) share = 0;
+    if (share > (1 << 30)) share = 1 << 30;
+    for (unsigned c = 0; c < 3u; ++c) {
+        const int64_t m = (int64_t)(fog[c] - (fog[c] >> 2)) * share; /* the darkening, rounded */
+        out->fog[c] = (uint8_t)(fog[c] - (int32_t)((m + (1 << 29)) >> 30));
+    }
+}
+#endif
 #if E1_CLOSEUP == 1 || E1_FIELD
 /* Arm A (engine_closeup.c) poses the 3D model from the body itself. */
 const sh2z_vd_body_t *fzx_drive_body(void) { return &body; }

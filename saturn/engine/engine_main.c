@@ -164,6 +164,17 @@ volatile uint32_t fzx_e0_report[16];
 /* Floor refusal (E1): queue front, presented tick and commits before and after the
  * refused call, floor status, build bank (bit 8: VDP1 busy), field, prelude, count. */
 volatile uint32_t fzx_e0_floor_diag[11];
+#if ENG_LOOK_FOG || ENG_LOOK_OUTER || ENG_LOOK_CLOSE
+/* Course look: the last kick's place (inside | shape << 8 | outer << 16), for captures. */
+volatile uint32_t fzx_look_state;
+#endif
+#if ENG_LOOK_CLOSE
+/* ENG_LOOK_CLOSE: 1 while the camera is inside a whole pipe span and the tube's next opening
+ * is beyond the drawn track; the floor and cloud stages are then closed (empty windows, no fade
+ * bands) instead of prepared. */
+volatile uint8_t fzx_look_closed;
+volatile uint32_t fzx_look_closed_frames;
+#endif
 #include "fzx_floor_rbg.h"
 /* Floor fault probe (E1): the first refused frame's inputs, then the same prepare
  * run again as is and with every interrupt masked. [0] refusals seen, [1] tick,
@@ -228,6 +239,98 @@ static vdp1_vram_partitions_t partitions;
 static void *skyline_vram, *planes_vram, *road_pixels, *road_shades[2];
 static volatile uint32_t video_fields;
 static volatile uint16_t vblank_frt, field_frt;
+
+#if ENG_LOOK_STARS || ENG_LOOK_WINDOWS
+/* Course look, night sky (Makefile ENG_LOOK_STARS, ENG_LOOK_WINDOWS; generated look_night.h). */
+#include "look_night.h"
+#endif
+#if ENG_LOOK_STARS
+#include "sh2zam/divu_experimental.h"
+/* background.c Background_UpdateStars / Background_DrawStars: 100 stars far above the course,
+ * each an 8x8 sprite whose top-left corner is the star's projected point, drawn over the sky
+ * and under the skyline, floor and track. VDP1 RGB sprites (ten brightness levels, 1,280 B
+ * after the track's textures); a star behind the camera or off the view is not drawn. */
+typedef struct { int32_t x, y, z, level; } look_star_t;
+static const look_star_t look_stars[FZX_LOOK_STAR_COUNT] = FZX_LOOK_STARS;
+static const uint16_t look_star_sprites[FZX_LOOK_STAR_LEVELS * 64u] = FZX_LOOK_STAR_SPRITES;
+enum { STAR_VRAM_BYTES = FZX_LOOK_STAR_LEVELS * 128u, STAR_KEEP = 48u /* prelude commands left for skyline + floor */ };
+static uintptr_t stars_vram;
+/* Last frame: [0] drawn, [1] behind the camera, [2] off the view, [3] dropped for want of
+ * commands, [4] frames drawn, [5] most drawn in a frame, [6] VRAM offset. */
+volatile uint32_t fzx_look_stars[8];
+static bool stars_load(uintptr_t vram) {
+    volatile uint16_t *out = (volatile uint16_t *)vram;
+    for (unsigned i = 0; i < FZX_LOOK_STAR_LEVELS * 64u; ++i) out[i] = look_star_sprites[i];
+    for (unsigned i = 0; i < FZX_LOOK_STAR_LEVELS * 64u; ++i) if (out[i] != look_star_sprites[i]) return false;
+    stars_vram = vram;
+    return true;
+}
+static unsigned stars_emit(vdp1_cmdt_t *commands, unsigned capacity, const fzx_view_t *view, const fzx_engine_cam_t *cam) {
+    const int32_t ex = cam->eye[0] >> 16, ey = cam->eye[1] >> 16, ez = cam->eye[2] >> 16;
+    const int32_t (*r)[3] = view->rotation;
+    unsigned n = 0, behind = 0, off = 0, dropped = 0;
+    for (unsigned i = 0; i < FZX_LOOK_STAR_COUNT; ++i) {
+        const look_star_t *s = &look_stars[i];
+        const int32_t d[3] = { s->x - ex, s->y - ey, s->z - ez };
+        /* Camera space, Q30 x source units (|d| < 2^21, so < 2^51); only the ratios matter. */
+        const int64_t c2 = (int64_t)r[2][0] * d[0] + (int64_t)r[2][1] * d[1] + (int64_t)r[2][2] * d[2];
+        if (c2 <= 0) { ++behind; continue; }
+        const int64_t c0 = (int64_t)r[0][0] * d[0] + (int64_t)r[0][1] * d[1] + (int64_t)r[0][2] * d[2];
+        const int64_t c1 = (int64_t)r[1][0] * d[0] + (int64_t)r[1][1] * d[1] + (int64_t)r[1][2] * d[2];
+        const int32_t z = (int32_t)(c2 >> 22);
+        if (z <= 0) { ++behind; continue; }
+        bool ox = false, oy = false;
+        const int32_t sx = sh2z_divu_div64((int64_t)view->focal[0] * (c0 >> 22), z, &ox);
+        const int32_t sy = sh2z_divu_div64((int64_t)view->focal[1] * (c1 >> 22), z, &oy);
+        if (ox || oy) { ++off; continue; }
+        const int32_t x = (int32_t)(((int64_t)view->center[0] + sx) >> 16), y = (int32_t)(((int64_t)view->center[1] - sy) >> 16);
+        if (x < view->clip[0] || x >= view->clip[2] || y < view->clip[1] || y >= view->clip[3]) { ++off; continue; }
+        if (n >= capacity) { ++dropped; continue; }
+        vdp1_cmdt_t *c = &commands[n++];
+        memset(c, 0, sizeof(*c));
+        vdp1_cmdt_normal_sprite_set(c);
+        const vdp1_cmdt_draw_mode_t mode = { .end_code_disable = 1, .user_clipping_mode = 2,
+                                             .color_mode = VDP1_CMDT_CM_RGB_32768, .cc_mode = VDP1_CMDT_CC_REPLACE };
+        vdp1_cmdt_draw_mode_set(c, mode);
+        vdp1_cmdt_char_base_set(c, (vdp1_vram_t)(stars_vram + (uint32_t)s->level * 128u));
+        vdp1_cmdt_char_size_set(c, 8, 8);
+        c->cmd_xa = (int16_t)x; c->cmd_ya = (int16_t)y;
+    }
+    fzx_look_stars[0] = n; fzx_look_stars[1] = behind; fzx_look_stars[2] = off; fzx_look_stars[3] = dropped;
+    fzx_look_stars[4] += n ? 1u : 0u;
+    if (n > fzx_look_stars[5]) fzx_look_stars[5] = n;
+    return n;
+}
+#endif
+#if ENG_LOOK_WINDOWS
+/* background.c Background_UpdateBackgroundSprites at night: the white entry of each skyline
+ * image's palette (RGBA5551 white) takes Background_GetWhitePaletteFlashingReplacementColor,
+ * a blend through sBackgroundFlashingColors that steps every 16 frames. Here: the skyline
+ * CLUT word in VDP1 VRAM, rewritten once per built frame from the logic tick (60 Hz, as the
+ * source's frame count). [0] CLUT entries found at load, [1] writes, [2] last colour. */
+volatile uint32_t fzx_look_windows[4];
+static volatile uint16_t *window_entry[4];
+static unsigned window_count;
+static const uint8_t look_flash[FZX_LOOK_FLASH_COUNT][3] = FZX_LOOK_FLASH;
+static void windows_load(uintptr_t skyline) {
+    window_count = 0;
+    for (unsigned t = 0; t < 4u; ++t) {
+        volatile uint16_t *clut = (volatile uint16_t *)(skyline + 8192u + t * 32u);
+        for (unsigned j = 0; j < 16u; ++j) if (clut[j] == 0xffffu) { window_entry[window_count++] = &clut[j]; break; }
+    }
+    fzx_look_windows[0] = window_count;
+}
+static void windows_update(uint32_t tick) {
+    const unsigned a = (tick >> 4) % FZX_LOOK_FLASH_COUNT, b = (a + 1u) % FZX_LOOK_FLASH_COUNT, k = tick % 16u;
+    uint16_t colour = 0x8000u;
+    for (unsigned c = 0; c < 3u; ++c) {
+        const int32_t v = look_flash[a][c] + ((look_flash[b][c] - look_flash[a][c]) * (int32_t)k) / 15;
+        colour |= (uint16_t)((uint32_t)v << (5u * c));
+    }
+    for (unsigned i = 0; i < window_count; ++i) *window_entry[i] = colour;
+    ++fzx_look_windows[1]; fzx_look_windows[2] = colour;
+}
+#endif
 
 /* ---- frame table: one row per presented frame, in low work RAM ----------- */
 typedef struct {
@@ -687,6 +790,25 @@ static void kick(const fzx_engine_cam_t *cam, uint32_t tick) {
 #if FZX_PHYS_TUBES
     job_outer = fzx_drive_outer();
 #endif
+#if ENG_LOOK_FOG || ENG_LOOK_OUTER || ENG_LOOK_CLOSE
+    {
+        /* Course look (Makefile ENG_LOOK_*): the player's place against the pipes and tunnels. */
+        fzx_drive_look_t look;
+        /* The track is drawn to the far distance; 512 units more cover the chase camera. */
+        fzx_drive_look(&look, k->fog, (k->far_distance >> 4) + (512 << 12));
+#if ENG_LOOK_OUTER
+        job_outer = look.outer;
+#endif
+#if ENG_LOOK_FOG
+        job_fog[0] = look.fog[0]; job_fog[1] = look.fog[1]; job_fog[2] = look.fog[2];
+#endif
+#if ENG_LOOK_CLOSE
+        fzx_look_closed = look.closed;
+        fzx_look_closed_frames += fzx_look_closed;
+#endif
+        fzx_look_state = (uint32_t)look.inside | (uint32_t)look.shape << 8 | (uint32_t)look.outer << 16 | (uint32_t)look.closed << 24;
+    }
+#endif
     fzx_slave_road_args_t job;
     job.pa = k->pa; job.pb = k->pb;
     job.eye[0] = cam->eye[0]; job.eye[1] = cam->eye[1]; job.eye[2] = cam->eye[2];
@@ -807,6 +929,16 @@ static void build(row_t *row, const fzx_engine_cam_t *cam, uint32_t tick, uint16
     PROF(1, pt);
     if (!fzx_clouds_native(&commands[CMD_FIRST], FZX_SLAVE_ROAD_RESERVE - 1u, &fzx_native_view, &fzx_source_backdrop, &first))
         fail(23, "CLOUDS", fzx_clouds_rbg.fault);
+#if ENG_LOOK_STARS
+    {
+        /* Course look: the stars over the sky, under the skyline, floor and track. */
+        const unsigned room = FZX_SLAVE_ROAD_RESERVE - 1u - first;
+        first += stars_emit(&commands[CMD_FIRST + first], room > STAR_KEEP ? room - STAR_KEEP : 0u, &fzx_native_view, cam);
+    }
+#endif
+#if ENG_LOOK_WINDOWS
+    windows_update(tick);
+#endif
     PROF(2, pt);
     if (!fzx_skyline_native(&commands[CMD_FIRST + first], FZX_SLAVE_ROAD_RESERVE - 1u - first, &fzx_native_view, skyline_vram, &n))
         fail(24, "SKYLINE DRAW", fzx_skyline_stats.fault);
@@ -1059,6 +1191,9 @@ void fzx_race_load(void) {
     uint32_t offset = FZX_SKY_VRAM_BYTES;
     skyline_vram = (void *)((uintptr_t)partitions.texture_base + offset);
     if (offset + FZX_SKYLINE_VRAM_BYTES > partitions.texture_size || !fzx_skyline_load(skyline_vram)) fail(30, "SKYLINE LOAD", 0);
+#if ENG_LOOK_WINDOWS
+    windows_load((uintptr_t)skyline_vram);
+#endif
     offset += FZX_SKYLINE_VRAM_BYTES;
     /* The cloud plane bank is only the VDP2 cloud load's source: it is staged
      * where the track textures go next, and the track overwrites it. */
@@ -1082,6 +1217,14 @@ void fzx_race_load(void) {
     if (offset + FZX_ROAD_LOD_TEXTURE_BYTES + FZX_ROAD_STREAM_SHADE_BYTES > partitions.texture_size || !fzx_road_stream_load(road_pixels))
         fail(35, "TRACK LOAD", fzx_road_stream_status);
     offset += FZX_ROAD_LOD_TEXTURE_BYTES + FZX_ROAD_STREAM_SHADE_BYTES;
+#if ENG_LOOK_STARS
+    /* Course look: the ten star sprites after the track's textures and shades (8-byte aligned). */
+    offset = (offset + 7u) & ~7u;
+    if (offset + STAR_VRAM_BYTES > partitions.texture_size || !stars_load((uintptr_t)partitions.texture_base + offset))
+        fail(55, "STARS LOAD", offset);
+    fzx_look_stars[6] = offset;
+    offset += STAR_VRAM_BYTES;
+#endif
     SCN_STAMP(3);
     SCN_ONCE(fzx_slave_road_init());
     if (fzx_slave_road_status != 1) fail(36, "SLAVE INIT", fzx_slave_road_status);

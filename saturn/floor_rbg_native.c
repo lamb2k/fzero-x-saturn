@@ -20,6 +20,9 @@ _Static_assert(offsetof(fzx_floor_rp_t,coefficient_start)==offsetof(vdp2_scrn_rp
 #define FLOOR_WINDOW VDP2_VRAM_ADDR(3,0)
 extern unsigned char sat_stub_data_end[];
 extern volatile uint32_t fzx_input_count;
+#if ENG_LOOK_CLOSE
+extern volatile uint8_t fzx_look_closed; /* engine_main.c */
+#endif
 fzx_floor_rbg_t fzx_floor_rbg;
 volatile uint32_t fzx_floor_status,fzx_floor_busy,fzx_floor_ticks;
 volatile uint32_t fzx_floor_pending,fzx_floor_presented,fzx_floor_commits;
@@ -147,6 +150,12 @@ bool fzx_floor_native(vdp1_cmdt_t *commands,unsigned capacity,const fzx_view_t *
     memset(commands,0,sizeof(*commands));vdp1_cmdt_user_clip_coord_set(commands);
     commands->cmd_xa=view->clip[0];commands->cmd_ya=view->clip[1];commands->cmd_xc=view->clip[2]-1;commands->cmd_yc=view->clip[3]-1;
     submit_t submit={commands+1,capacity-1,0};
+#if ENG_LOOK_CLOSE
+    /* Course look: inside a whole pipe span the tube covers the view, so the floor's
+     * stage is closed (every line empty, no band polygons) instead of prepared. */
+    if(fzx_look_closed){for(unsigned y=0;y<224;++y){FLOOR_STAGE.window[y][0]=640;FLOOR_STAGE.window[y][1]=0;}FLOOR_STAGE.visible_lines=0;FLOOR_STAGE.commands=0;}
+    else
+#endif
     if(!fzx_floor_rbg_prepare(view,source,&FLOOR_STAGE,emit,&submit)){fzx_floor_status=3;fzx_floor_busy=0;return false;}
     *count=submit.count+1;fzx_floor_ticks=(uint16_t)(cpu_frt_count_get()-start);
 #if FZX_VDP1_DBANK

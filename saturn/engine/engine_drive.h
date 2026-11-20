@@ -85,6 +85,19 @@ const sh2z_vd_body_t *fzx_drive_body(void);
 /* 0 while the player is inside a pipe away from its joins (the road plan's outer bit). */
 uint8_t fzx_drive_outer(void);
 #endif
+#if ENG_LOOK_FOG || ENG_LOOK_OUTER || ENG_LOOK_CLOSE
+/* Course look (generated/look/look_inside.h; course.c Course_Draw): where the player is
+ * against the spans the camera can be inside (pipes, tunnels). */
+typedef struct {
+    uint8_t inside;   /* 0 outside, 1 inside a whole span, 2 inside over a join */
+    uint8_t shape;    /* 2 pipe, 5 tunnel (TRACK_SHAPE_INDEX) when inside */
+    uint8_t outer;    /* the road plan's outer bit (course.c D_800F89D8): 0 only when inside == 1 */
+    uint8_t fog[3];   /* the course fog, darkened to a quarter inside, tapered over the joins */
+    uint8_t closed;   /* inside a whole pipe span, its next opening more than clear_q12 ahead */
+} fzx_drive_look_t;
+/* clear_q12: lap distance (Q12) beyond which no opening of the tube can be in view. */
+void fzx_drive_look(fzx_drive_look_t *out, const uint8_t fog[3], int32_t clear_q12);
+#endif
 /* HUD text (dbgio, VDP2). */
 void fzx_drive_hud(void);
 /* The HUD text only, into the dbgio buffer; the caller flushes it (dbgio_flush). */

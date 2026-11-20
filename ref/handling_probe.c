@@ -202,3 +202,19 @@ void ref_handling_bake(RefBakeEmit emit) {
         emit("dynamics", 0, 0, w, (int) (sizeof(w) / sizeof(w[0])));
     }
 }
+
+/* Course-look lane (claude/course-look): the spans the camera can be inside (course.c
+ * TRACK_FLAG_INSIDE: pipes and tunnels) with their join t values and scale: Course_Draw
+ * darkens the course fog to a quarter inside them and drops the outer shell. HOST only;
+ * the output is course data, so it stays in the git-ignored generated/ folder. */
+void ref_handling_inside(RefBakeEmit emit) {
+    const CourseInfo* c = gCurrentCourseInfo;
+    s32 i;
+    for (i = 0; i < c->segmentCount; i++) {
+        const CourseSegment* s = &c->courseSegments[i];
+        if (s->trackSegmentInfo & TRACK_FLAG_INSIDE) {
+            float jv[3] = { s->previousJoinEndTValue, s->nextJoinStartTValue, s->joinScale };
+            emit("inside", i, TRACK_SHAPE_INDEX((u32) s->trackSegmentInfo & TRACK_SHAPE_MASK), jv, 3);
+        }
+    }
+}

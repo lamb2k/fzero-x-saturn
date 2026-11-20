@@ -111,13 +111,20 @@ typedef struct {
   | 35..255 | reserved |
 
   - Each guest is gated on its own: `FZX_GUEST_MASK` has bit 33 for Robotnik and bit 34 for Metal Sonic (bit n =
-    identity n; default 0).
+    identity n). The P3 guest build enables both bits.
     - An enabled guest is selectable through select, race, results and records. A disabled guest is hidden in all
       four.
     - Owner lineup choice (C-066): Robotnik (33) is one of the three selectable racers in the C8 machine-select
       lineup. Metal Sonic (34) is tracked separately and has its own bit.
   - A build with a guest's bit clear keeps that guest's rows in a save, showing a generic machine name and preview.
     Its identity is never dropped or renumbered.
+  - P3 SELECT includes the 30 stock machines and the enabled guests. Up/down changes machine,
+    L/R adjusts balance in steps of 1/128, X chooses minimum and Z chooses maximum.
+    The two initial guest handling presets are Black Bull for Dr. Robotnik's Eggmobile and
+    Sonic Phantom for Metal Sonic. Both keep their guest IDs through LOAD, RESULTS and RECORDS.
+  - RECORDS opens from TITLE with B. Left/right wraps across the six Jack courses,
+    C switches between Time Attack and Death Race, and B or Start returns to TITLE.
+    Empty entries display dashes. Browsing never writes a record.
   - Our side is plumbing only: the identity, the gate, save stability, and loading the art pack the session names.
     The artwork itself is Codex's lane.
 

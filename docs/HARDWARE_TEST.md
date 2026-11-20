@@ -11,6 +11,7 @@
 3. Return to title. Run Sand Ocean or Big Blue and record the same observations on a tube section. Pause and resume, then try pause/retry after music has played. Test the remaining courses in the table; distinguish a completed race, a retirement and a course only booted.
 4. Cancel a load near the start, middle and end with A+B+C+Start. Release the chord after each return to title. Start another race and check disc reads, music and input. Exercise soft reset from title, select, race, results and records. Record the scene and what happened if the return or next load fails.
 5. Reboot after the save indicator has settled. Open records and verify the saved time/name under its original course. If this disc exposes Jack GP, check the next-round load with music active and record the two courses. Mark GP unavailable if gated.
+6. On a guest-enabled disc, select Dr. Robotnik and Metal Sonic in turn. Check each portrait on SELECT, the Eggmobile or Metal Sonic model on the grid and during turns, and the machine name on RESULTS. For a saved finish, check the same name and time in RECORDS after reboot.
 
 | Course | Outcome / time | Race WORST / OVER2 | Menu WORST / OVER2 | Music, picture, pad or fault |
 |---|---|---|---|---|

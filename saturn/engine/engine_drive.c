@@ -7,6 +7,12 @@
 #endif
 #include "physics_native.h"
 #include "physics_identity.h"
+#ifndef FZX_P3_BASELINE
+#if ENG_SCENES
+#include "engine_scenes.h"
+#include "machine_tuning.h"
+#endif
+#endif
 #include "course_select.h"
 #include "racer_sprites_identity.h"
 #include "texture_cd.h"
@@ -373,6 +379,14 @@ bool fzx_drive_load(void *scratch, uint32_t scratch_bytes) {
     if (!fzx_texture_cd_load(CNAME(FZX_CF_PHYS,"PHYS.PAK"), CSEL(phys_bytes,FZX_PHYSICS_PACK_BYTES), CSEL(phys_hash,FZX_PHYSICS_PACK_HASH), pack_buf, scratch, scratch_bytes))
         { fzx_e1_status = 2; return false; }
     if (fzx_phys_load(&course, (const uint8_t *)pack_buf, CSEL(phys_bytes,FZX_PHYSICS_PACK_BYTES), 1) != 0) { fzx_e1_status = 3; return false; }
+#ifndef FZX_P3_BASELINE
+#if ENG_SCENES
+    if (!fzx_machine_tune(&course, fzx_session.machine_id, fzx_session.slider_bits)) {
+        fzx_e1_status = 11;
+        return false;
+    }
+#endif
+#endif
     body = course.start; prev_n64 = 0; ticks = 0;
     memset(&pad_state, 0, sizeof(pad_state));
 #if E1_FIELD

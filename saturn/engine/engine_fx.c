@@ -169,32 +169,12 @@ static void racer_state(uint32_t i, const sh2z_vd_body_t *pl, int32_t pos[3], in
         vel[c] = (int32_t)(((int64_t)rows[0][c] * v->t.speed - (int64_t)rows[2][c] * v->t.lat_vel) >> 6);
 }
 
-/* The effects' billboard projection with one divide a point: the camera terms of sh2z_ep_project
- * (t = r . (p - eye) / 2^16, Q14), then s = focal_x / t.z once and sy = s x focal_y / focal_x
- * (fy, once a frame). Positions within a pixel of sh2z_ep_project; r = world half size in pixels. */
-typedef struct { int32_t x, y, depth, sy; } pt1_t;
-static int32_t fy_ratio;   /* focal_y / focal_x, Q16 */
-static int32_t vdot(const int16_t r[3], int32_t d0, int32_t d1, int32_t d2) {
-    return (int32_t)(((int64_t)r[0] * d0 + (int64_t)r[1] * d1 + (int64_t)r[2] * d2) >> 16);
-}
-/* The view depth only (Q14), no divide. */
-static int32_t view_depth(const sh2z_ep_view_t *v, const int32_t p[3]) {
-    return vdot(v->r[2], p[0] - v->eye[0], p[1] - v->eye[1], p[2] - v->eye[2]);
-}
-static bool proj1(const sh2z_ep_view_t *v, const int32_t p[3], pt1_t *o) {
-    const int32_t d0 = p[0] - v->eye[0], d1 = p[1] - v->eye[1], d2 = p[2] - v->eye[2];
-    const int32_t tz = vdot(v->r[2], d0, d1, d2);
-    if (tz <= v->near_z || tz <= 0) return false;
-    const int32_t s = sh2z_divu_div64((int64_t)v->focal_x << 16, tz, NULL);
-    const int32_t sy = (int32_t)(((int64_t)s * fy_ratio) >> 16);
-    const int32_t x = v->center_x + (int32_t)(((int64_t)vdot(v->r[0], d0, d1, d2) * s) >> 32);
-    const int32_t y = v->center_y - (int32_t)(((int64_t)vdot(v->r[1], d0, d1, d2) * sy) >> 32);
-    if (x < -v->guard || x >= v->width + v->guard || y < -v->guard || y >= v->height + v->guard) return false;
-    o->x = x; o->y = y; o->depth = tz; o->sy = sy;
-    return true;
-}
-/* Whole pixels of a world half size (Q16) at a projected point. */
-static int32_t px1(const pt1_t *o, int32_t length) { return length <= 0 ? 0 : (int32_t)(((int64_t)(length >> 2) * o->sy) >> 32); }
+/* The effects' billboards: effect-pool-1's one-divide spot (within a pixel of sh2z_ep_project). */
+typedef sh2z_ep_spot_t pt1_t;
+static int32_t fy_ratio;   /* sh2z_ep_ratio of the frame's view */
+#define view_depth(v, p) sh2z_ep_depth((v), (p))
+#define proj1(v, p, o) sh2z_ep_spot((v), fy_ratio, (p), (o))
+#define px1(o, l) sh2z_ep_spot_pixels((o), (l))
 
 /* The source's machineLod != 0 (on the player's screen within 2,500 units), from the last frame's view. */
 static bool visible(const int32_t pos[3]) {
@@ -611,7 +591,7 @@ bool fzx_fx_stage(const fzx_view_t *view, const fzx_engine_cam_t *cam, const fzx
     v.near_z = view->near_plane * 4;
     v.width = 320; v.height = 224; v.guard = 96;
     view_last = v; view_ok = true;
-    fy_ratio = sh2z_divu_div64((int64_t)v.focal_y << 16, v.focal_x, NULL);
+    fy_ratio = sh2z_ep_ratio(&v);
     /* The player's flash and low-energy flicker on the 3D body (racer.c 5795). */
     if (tick_player && player_max > 0) {
         uint8_t col[3] = { player_body[0], player_body[1], player_body[2] };

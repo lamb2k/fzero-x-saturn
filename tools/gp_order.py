@@ -13,7 +13,8 @@ Every check must hold for PASS (C-097):
   the player first on a tie with a rival; engine_scenes.c gp_ahead) are printed.
 
 Controls (each must FAIL): --control missing-round drops the last round's standings dump; --control wrong-points
-replaces round 2's award by a monotone but wrong schedule (100, 99, 98, ...)."""
+replaces round 2's award by a monotone but wrong schedule (100, 99, 98, ...).
+--player-ms a,b,...: also require the player's official time each round to equal these (HOST) values."""
 import struct, sys
 
 POINTS = [100, 93, 87, 81, 76, 71, 66, 62, 58, 54, 50, 47, 44, 41, 38,
@@ -25,6 +26,10 @@ control = None
 if '--control' in sys.argv:
     control = sys.argv[sys.argv.index('--control') + 1]
     args.remove(control)
+player_ms = None   # --player-ms a,b,...: the player's official time each round must equal (HOST references)
+if '--player-ms' in sys.argv:
+    v = sys.argv[sys.argv.index('--player-ms') + 1]; args.remove(v)
+    player_ms = [int(x) for x in v.split(',')]
 run, symf = args[0], args[1]
 R = int(args[2]) if len(args) > 2 else 6
 sym = {}
@@ -88,6 +93,12 @@ for r in range(1, R + 1):
     got_pts = [c['total'][e] - prev_total[e] for e in range(30)]
     bad = [e for e in range(30) if got_pts[e] != want_pts[e]]
     print('  points by place: %s' % ' '.join(str(got_pts[e]) for e in fin))
+    prow = [row for row in c['rows'] if row[0] == 0]
+    pms = prow[0][4] if prow else None
+    print('  player time %s ms (status %s)' % (pms, prow[0][1] if prow else '-'))
+    if player_ms is not None:
+        check(r <= len(player_ms) and pms == player_ms[r - 1],
+              'round %d: player time %s ms, HOST %s' % (r, pms, player_ms[r - 1] if r <= len(player_ms) else '-'))
     check(not bad, 'round %d: points differ from the schedule for entrants %s' % (r, bad))
     check(all(c['last_place'][e] == k + 1 for k, e in enumerate(fin)), 'round %d: last_place inconsistent' % r)
     prev, prev_total = c, list(c['total'])

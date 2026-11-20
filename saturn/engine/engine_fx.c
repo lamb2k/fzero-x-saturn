@@ -51,6 +51,10 @@ typedef struct {
     uint8_t smoke_flash;  /* a wreck's smoke puff this frame: the yellow highlight (racer.c 5875) */
     uint8_t flare;        /* the boosters' flare after an accelerator press (racer.c unk_214: 27, -1 a tick) */
 } car_fx_t;
+enum { SORT_BANDS = 192u };   /* 16-unit bands to 3,072 units */
+/* The debris shards' corner offsets (cos, sin of c x 1365 + c x 97 k, Q14) for the eight shapes k. */
+static int16_t shard_off[8][3][2];
+
 static car_fx_t car[CARS];
 static uint32_t whites, linger, seen_contacts;   /* bit i: car i flashes white / has an effect state running */
 static uint32_t rng = 0x2f6b9e1du, fx_ticks;
@@ -98,6 +102,11 @@ static void pmods(void) {
 static int32_t sqrt_share[101];
 
 static void reset(void) {
+    for (uint32_t k = 0; k < 8u; ++k)
+        for (uint32_t c = 0; c < 3u; ++c) {
+            const uint32_t a = (c * 1365u + k * 97u * c) & 4095u;
+            shard_off[k][c][0] = (int16_t)(sh2z_cos12_u30(a) >> 16); shard_off[k][c][1] = (int16_t)(sh2z_sin12_u30(a) >> 16);
+        }
     for (uint32_t t = 0, r = 0; t <= 100u; ++t) {
         while ((r + 1u) * (r + 1u) <= t * 100u) ++r;
         sqrt_share[t] = (int32_t)(Q16(7.5) / 100 * (int32_t)r);
@@ -172,6 +181,11 @@ static void racer_state(uint32_t i, const sh2z_vd_body_t *pl, int32_t pos[3], in
 /* The effects' billboards: effect-pool-1's one-divide spot (within a pixel of sh2z_ep_project). */
 typedef sh2z_ep_spot_t pt1_t;
 static int32_t fy_ratio;   /* sh2z_ep_ratio of the frame's view */
+static int32_t fx_ratio;   /* focal_x / focal_y, Q16 */
+/* floor(r . d / 2^16): a Q1.14 row and a Q16 vector (the projection's terms). */
+static int32_t vdot16(const int16_t r[3], const int32_t d[3]) {
+    return (int32_t)(((int64_t)r[0] * d[0] + (int64_t)r[1] * d[1] + (int64_t)r[2] * d[2]) >> 16);
+}
 #define view_depth(v, p) sh2z_ep_depth((v), (p))
 #define proj1(v, p, o) sh2z_ep_spot((v), fy_ratio, (p), (o))
 #define px1(o, l) sh2z_ep_spot_pixels((o), (l))
@@ -595,6 +609,7 @@ bool fzx_fx_stage(const fzx_view_t *view, const fzx_engine_cam_t *cam, const fzx
     v.width = 320; v.height = 224; v.guard = 96;
     view_last = v; view_ok = true;
     fy_ratio = sh2z_ep_ratio(&v);
+    fx_ratio = sh2z_divu_div64((int64_t)v.focal_x << 16, v.focal_y, NULL);
     /* The player's flash and low-energy flicker on the 3D body (racer.c 5795). */
     if (tick_player && player_max > 0) {
         uint8_t col[3] = { player_body[0], player_body[1], player_body[2] };
@@ -663,11 +678,14 @@ unsigned fzx_fx_job(vdp1_cmdt_t *commands, unsigned capacity) {
     JP(1);
     for (uint32_t k = 0; k < p_fly.count; ++k) {
         const sh2z_ep_particle_t *e = sh2z_ep_at(&p_fly, k);
-        int32_t tail[3]; pt1_t a, b;
-        for (int c = 0; c < 3; ++c) tail[c] = e->pos[c] - 3 * e->vel[c];
-        if (!proj1(&v, e->pos, &a) || !proj1(&v, tail, &b)) continue;
+        pt1_t a;
+        if (!proj1(&v, e->pos, &a)) continue;
+        /* The tail 3 ticks back: its screen offset at the head's scale (one projection a spark). */
+        const int32_t s = (int32_t)(((int64_t)a.scale * fx_ratio) >> 16);   /* focal_x / depth */
+        const int32_t bx = a.x - (int32_t)(((int64_t)vdot16(v.r[0], e->vel) * 3 * s) >> 32);
+        const int32_t by = a.y + (int32_t)(((int64_t)vdot16(v.r[1], e->vel) * 3 * a.scale) >> 32);
         item_t *t = slot(a.depth);
-        const int16_t xy[4][2] = { { (int16_t)a.x, (int16_t)a.y }, { (int16_t)b.x, (int16_t)b.y }, { 0, 0 }, { 0, 0 } };
+        const int16_t xy[4][2] = { { (int16_t)a.x, (int16_t)a.y }, { (int16_t)bx, (int16_t)by }, { 0, 0 }, { 0, 0 } };
         if (sh2z_ep_emit_shape(t->w, SH2Z_EP_LINE, xy, 0x821Fu, pmod_line, (uint32_t)art + FZX_FX_GOURAUD_SPARK)) commit(t);
     }
     JP(2);
@@ -681,11 +699,14 @@ unsigned fzx_fx_job(vdp1_cmdt_t *commands, unsigned capacity) {
         /* A shard turning on itself: three corners at phases from its seed, 0xCC a tick (racer.c debris). */
         int16_t xy[4][2];
         const uint32_t ph = (uint32_t)e->seed * 16u + (uint32_t)e->timer * 0xCCu;
-        for (int c = 0; c < 3; ++c) {
-            const uint32_t a = (ph + (uint32_t)c * 1365u + (uint32_t)(e->seed & 7u) * 97u * (uint32_t)c) & 4095u;
-            const int32_t sx = sh2z_sin12_u30(a) >> 16, cx = sh2z_cos12_u30(a) >> 16;    /* Q14 */
-            xy[c][0] = (int16_t)(pt.x + ((r * cx) >> 14));
-            xy[c][1] = (int16_t)(pt.y + ((r * sx) >> 14) / (c == 1 ? 2 : 1));
+        {   /* corner c at phase ph + its offset: one sine pair a shard, the offsets' from shard_off */
+            const int32_t sp = sh2z_sin12_u30(ph & 4095u) >> 16, cp = sh2z_cos12_u30(ph & 4095u) >> 16;   /* Q14 */
+            const int16_t (*o)[2] = shard_off[e->seed & 7u];
+            for (int c = 0; c < 3; ++c) {
+                const int32_t cx = (cp * o[c][0] - sp * o[c][1]) >> 14, sx = (sp * o[c][0] + cp * o[c][1]) >> 14;
+                xy[c][0] = (int16_t)(pt.x + ((r * cx) >> 14));
+                xy[c][1] = (int16_t)(pt.y + ((r * sx) >> 14) / (c == 1 ? 2 : 1));
+            }
         }
         xy[3][0] = xy[2][0]; xy[3][1] = xy[2][1];
         const uint32_t id = e->user < CARS ? e->user : 0u;
@@ -714,10 +735,19 @@ unsigned fzx_fx_job(vdp1_cmdt_t *commands, unsigned capacity) {
     }
     JP(5);
     /* Far to near, after the cars. */
-    static int32_t depth[FZX_FX_SLOTS];
-    static uint8_t order[FZX_FX_SLOTS];
-    for (unsigned i = 0; i < n_items; ++i) depth[i] = items[i].depth;
-    sh2z_ep_sort(order, depth, n_items);
+    /* By 16-unit depth bands, far to near (a counting sort; the order inside a band is the emit
+     * order): an insertion sort of 70 items cost 1.6 ms. */
+    static uint16_t band_n[SORT_BANDS + 1];
+    static uint8_t band_of[FZX_FX_SLOTS], order[FZX_FX_SLOTS];
+    memset(band_n, 0, sizeof(band_n));
+    for (unsigned i = 0; i < n_items; ++i) {
+        uint32_t b = (uint32_t)items[i].depth >> 18;            /* Q14 depth / 16 units */
+        if (b >= SORT_BANDS) b = SORT_BANDS - 1u;
+        b = SORT_BANDS - 1u - b;                                /* far first */
+        band_of[i] = (uint8_t)b; ++band_n[b + 1u];
+    }
+    for (unsigned b = 0; b < SORT_BANDS; ++b) band_n[b + 1u] = (uint16_t)(band_n[b + 1u] + band_n[b]);
+    for (unsigned i = 0; i < n_items; ++i) order[band_n[band_of[i]]++] = (uint8_t)i;
     unsigned out = 0;
     for (unsigned i = 0; i < n_items && out < capacity; ++i) memcpy(&commands[out++], items[order[i]].w, sizeof(vdp1_cmdt_t));
     JP(6);

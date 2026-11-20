@@ -62,6 +62,10 @@ receipts)
   done
   echo "receipts checked"
   ;;
+cdda)
+  # cdda STAGE: print the image's compiled CD track table (generated/cdda/cdda_tracks.h) for the disc check.
+  cat "$S/w/generated/cdda/cdda_tracks.h"
+  ;;
 regen)
   # regen STAGE RECEIPT CMD...: when RECEIPT is stale, rerun the ROM-free generator CMD and say whether its outputs moved.
   receipt=${3:?}; shift 3

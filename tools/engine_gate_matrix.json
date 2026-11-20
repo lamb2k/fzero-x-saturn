@@ -13,7 +13,8 @@
   "e0": {
    "vars": [],
    "kind": "race",
-   "note": "E0 flythrough"
+   "note": "E0 flythrough",
+   "sound": false
   },
   "field": {
    "vars": [
@@ -21,7 +22,8 @@
     "E1_DRIVER=1"
    ],
    "kind": "race",
-   "note": "29 rivals, driver; sound on (default)"
+   "note": "29 rivals, driver; sound on (default)",
+   "sound": true
   },
   "field-snd0": {
    "vars": [
@@ -30,14 +32,16 @@
     "ENG_SND=0"
    ],
    "kind": "race",
-   "note": "field, sound off"
+   "note": "field, sound off",
+   "sound": false
   },
   "field-pad": {
    "vars": [
     "FZX_E1_DRIVE=1"
    ],
    "kind": "race",
-   "note": "field as shipped (pad), identity only"
+   "note": "field as shipped (pad), identity only",
+   "sound": true
   },
   "drive": {
    "vars": [
@@ -46,7 +50,8 @@
     "E1_FIELD=0"
    ],
    "kind": "race",
-   "note": "player alone, driver"
+   "note": "player alone, driver",
+   "sound": true
   },
   "roster": {
    "vars": [
@@ -56,7 +61,8 @@
     "E2_ROSTER=1"
    ],
    "kind": "race",
-   "note": "field with the roster sprites"
+   "note": "field with the roster sprites",
+   "sound": true
   },
   "scenes": {
    "vars": [
@@ -64,7 +70,8 @@
     "ENG_SCENES=1"
    ],
    "kind": "scenes",
-   "note": "the disc as shipped (pad), identity only"
+   "note": "the disc as shipped (pad), identity only",
+   "sound": true
   },
   "scenes-drv": {
    "vars": [
@@ -73,7 +80,8 @@
     "E1_DRIVER=1"
    ],
    "kind": "scenes",
-   "note": "scenes, driver; sound on"
+   "note": "scenes, driver; sound on",
+   "sound": true
   },
   "scenes-drv-snd0": {
    "vars": [
@@ -83,7 +91,8 @@
     "ENG_SND=0"
    ],
    "kind": "scenes",
-   "note": "scenes, driver; sound off"
+   "note": "scenes, driver; sound off",
+   "sound": false
   }
  },
  "identity": {
@@ -280,10 +289,11 @@
   {
    "name": "ctl-cadence",
    "check": "cadence",
-   "how": "field image with ENG_PACE_LEAD=2 (lead 2 presents late)",
+   "how": "field image with the chunk cap off (E0_CAP_STABLE=0 E0_CHUNK_CAP=0)",
    "image": "field",
    "vars": [
-    "ENG_PACE_LEAD=2"
+    "E0_CAP_STABLE=0",
+    "E0_CHUNK_CAP=0"
    ],
    "kind": "race",
    "course": "mute-city-1"
@@ -345,7 +355,7 @@
   {
    "name": "ctl-reset",
    "check": "reset",
-   "how": "the chord without C (0B00) from SELECT",
+   "how": "at SELECT the chord lacks one button (0E00), so A confirms and the image goes to LOAD",
    "image": "scenes-drv",
    "kind": "reset",
    "script": "ctl-reset.txt"
@@ -353,7 +363,7 @@
   {
    "name": "ctl-cancel",
    "check": "cancel",
-   "how": "the cancel chord without C (0B00) at 30 fields into the load",
+   "how": "the chord lacks one button (0E00) 30 fields into the load, so the load runs on",
    "image": "scenes-drv",
    "kind": "cancel",
    "script": "ctl-cancel.txt"
@@ -371,13 +381,23 @@
   },
   {
    "name": "ctl-course",
-   "check": "course",
+   "check": "host",
    "how": "Silence raced but judged against Mute City's HOST reference",
    "image": "scenes-drv",
    "kind": "course",
    "course": "silence-1",
    "host_course": "mute-city-1",
    "script": "course.txt"
+  },
+  {
+   "name": "ctl-disc",
+   "check": "disc",
+   "how": "the sound-on cancel script on the data-only CUE (no CD audio tracks): flagged non-shipping; its audio is compared with the mixed-disc run",
+   "image": "scenes-drv",
+   "kind": "cancel",
+   "script": "cancel.txt",
+   "disc": "data",
+   "against": "cancel"
   }
  ],
  "regenerate": [
@@ -391,5 +411,11 @@
    "cmd": "python3 tools/road_tiles.py",
    "rom": false
   }
+ ],
+ "determinism_mask": [
+  [
+   "__oreg_buf",
+   128
+  ]
  ]
 }

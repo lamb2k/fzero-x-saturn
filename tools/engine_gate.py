@@ -200,6 +200,7 @@ class Gate:
         self.ev = Path(args.evidence) / args.label
         self.stage = args.stage
         self.checks, self.controls = [], []
+        self.discs, self.results = {}, {}
         self.times = {}
         self.ev.mkdir(parents=True, exist_ok=True)
         (self.ev / 'tmp').mkdir(exist_ok=True)
@@ -250,19 +251,67 @@ class Gate:
                     outdir=(d / 'outdir.txt').read_text().strip())
 
     # -- harness -------------------------------------------------------------------------------------------------------
-    def harness(self, build_dir, run_dir, mode, arg, cap, audio=False):
+    def harness(self, build_dir, run_dir, mode, arg, cap, audio=False, cue=None):
         run_dir = Path(run_dir)
         if run_dir.exists():
             shutil.rmtree(run_dir)
         run_dir.parent.mkdir(parents=True, exist_ok=True)
         env = dict(os.environ, GATE_AUDIO='1' if audio else '0')
         t0 = time.time()
-        r = subprocess.run([str(self.a.harness), str(self.a.bios), str(Path(build_dir) / 'fzs-engine.cue'),
+        r = subprocess.run([str(self.a.harness), str(self.a.bios), str(cue or Path(build_dir) / 'fzs-engine.cue'),
                             str(Path(build_dir) / 'fzs-engine.sym'), str(run_dir), str(cap), mode, arg],
                            capture_output=True, text=True, env=env)
         (run_dir.parent / (run_dir.name + '.log')).write_text(
             '\n'.join(l for l in (r.stdout + r.stderr).splitlines() if not l.startswith(('debug', 'info'))))
-        return dict(rc=r.returncode, seconds=round(time.time() - t0, 1))
+        return dict(rc=r.returncode, seconds=round(time.time() - t0, 1), cue=str(cue or Path(build_dir) / 'fzs-engine.cue'))
+
+    # -- the shipping disc ---------------------------------------------------------------------------------------------
+    def mixed_disc(self, build_dir):
+        """The shipping mixed-mode disc for a sound-on image: data track 1 from its ISO plus every music track, as
+        tools/disc_cdda.py lays it out (--ids all). The music tracks are written once per gate run and hard-linked into
+        each image's disc. Validated: the image's compiled CD track table equals the music's, the CUE lists 1 + N
+        tracks (MODE1/2352, then AUDIO), and every file has its TOC length. Returns (cue or None, detail)."""
+        sys.path.insert(0, str(TOOLS))
+        import disc_cdda
+        music = Path(self.a.music)
+        manifest = json.loads((music / 'manifest.json').read_text())['tracks']
+        ids = [t['music_id'] for t in manifest]
+        if not hasattr(self, 'cdda_table_ok'):
+            tmp = self.ev / 'tmp' / 'cdda'
+            disc_cdda.write_header(tmp / 'cdda_tracks.h', [dict(music_id=a, track=k + 2, sectors=t['sectors'], loop_sector=t['loop_sector'])
+                                                           for k, t in enumerate(manifest) for a in [t['music_id']] + t.get('aliases', [])])
+            _, compiled = self.stage_cmd('cdda', self.stage)
+            self.cdda_table_ok = (tmp / 'cdda_tracks.h').read_text().strip() == compiled.strip()
+        if not self.cdda_table_ok:
+            return None, "the image's CD track table (generated/cdda/cdda_tracks.h) differs from the music manifest"
+        shared = self.ev / 'discs' / 'audio'
+        if not (shared / 'fzs-engine.cue').exists():
+            disc_cdda.build(Path(build_dir) / 'fzs-engine.iso', music, ids, shared, 'fzs-engine')
+        out = Path(build_dir) / 'mixed'
+        shutil.rmtree(out, ignore_errors=True)
+        disc_cdda.build(Path(build_dir) / 'fzs-engine.iso', music, [], out, 'fzs-engine')   # data track 1 only
+        for k in range(len(ids)):
+            name = 'fzs-engine (Track %02d).bin' % (k + 2)
+            os.link(shared / name, out / name)
+        shutil.copy(shared / 'fzs-engine.cue', out / 'fzs-engine.cue')
+        cue = (out / 'fzs-engine.cue').read_text()
+        files = re.findall(r'FILE "([^"]+)" BINARY', cue)
+        modes = re.findall(r'TRACK (\d\d) (\S+)', cue)
+        bad = []
+        if len(files) != 1 + len(ids) or len(modes) != 1 + len(ids):
+            bad.append('CUE lists %d tracks, want %d' % (len(modes), 1 + len(ids)))
+        if not modes or modes[0][1] != 'MODE1/2352' or any(m != 'AUDIO' for _, m in modes[1:]):
+            bad.append('track modes %s' % [m for _, m in modes][:3])
+        iso_sectors = (Path(build_dir) / 'fzs-engine.iso').stat().st_size // 2048
+        if (out / files[0]).stat().st_size != iso_sectors * 2352:
+            bad.append('track 1 length')
+        for f, t in zip(files[1:], manifest):
+            if (out / f).stat().st_size != (150 + t['sectors']) * 2352:
+                bad.append('%s length' % f)
+        audio_sectors = sum(150 + t['sectors'] for t in manifest)
+        detail = '%d tracks: data %d sectors, audio %d sectors (%.1f min); track 1 %s' % (
+            len(modes), iso_sectors, audio_sectors, (iso_sectors + audio_sectors) / 4500, sha256(out / files[0])[:12])
+        return (None if bad else out / 'fzs-engine.cue'), ('; '.join(bad) if bad else detail)
 
     def script_for(self, name, course_index=None):
         text = (GATE / 'scripts' / name).read_text()
@@ -423,18 +472,38 @@ class Gate:
                 self.add('host', name, False, 'no RESULTS mark', error_text(run_dir), sink=sink)
         self.menus_check(name, lines, sink)
 
-    def determinism(self, name, dir_a, dir_b, dumps, sink=None):
+    def determinism(self, name, dir_a, dir_b, dumps, sink=None, build_dir=None):
+        """Two runs: per-field ticks and pixel hashes, work RAM, VRAM and stills identical. The matrix's
+        determinism_mask (symbol, bytes) is cleared in work RAM first: the SMPC OREG buffer holds the RTC, which
+        Ymir reads from the host clock."""
         a, b = Path(dir_a), Path(dir_b)
         diffs = []
+        masks = []
+        if build_dir is not None:
+            sym = load_syms(Path(build_dir) / 'fzs-engine.sym')
+            masks = [(sym[n], k) for n, k in self.m.get('determinism_mask', []) if n in sym]
+
+        def masked(data, base):
+            data = bytearray(data)
+            for addr, k in masks:
+                o = (addr & 0x07ffffff) - base
+                if 0 <= o < len(data):
+                    data[o:o + k] = bytes(min(k, len(data) - o))
+            return bytes(data)
         if (a / 'fields.txt').read_bytes() != (b / 'fields.txt').read_bytes():
             diffs.append('fields.txt (tick/pixel per field)')
         for d in dumps:
             for ext in ('.wram-high', '.wram-low', '.vdp1-vram', '.vdp2-vram', '.rgba'):
                 fa, fb = a / (d + ext), b / (d + ext)
-                if fa.exists() and fb.exists() and fa.read_bytes() != fb.read_bytes():
-                    diffs.append(d + ext)
+                if fa.exists() and fb.exists():
+                    base = 0x06000000 if ext == '.wram-high' else 0x00200000 if ext == '.wram-low' else None
+                    da, db = fa.read_bytes(), fb.read_bytes()
+                    if base is not None:
+                        da, db = masked(da, base), masked(db, base)
+                    if da != db:
+                        diffs.append(d + ext)
         self.add('determinism', name, not diffs, 'two runs: %s' % ('identical (per-field ticks and pixels, RAM, VRAM)' if not diffs else 'DIFFERENT'),
-                 ', '.join(diffs[:6]), sink=sink)
+                 ', '.join(diffs[:6]) or ('masked: %s' % ', '.join('%s %d B' % (n, k) for n, k in self.m.get('determinism_mask', []))), sink=sink)
 
     # -- the main flow ----------------------------------------------------------------------------------------------
     def run(self):
@@ -472,6 +541,16 @@ class Gate:
             self.add('build', img, builds[img]['ok'], builds[img].get('bin', '')[:16], builds[img].get('error', '')[-300:].replace('\n', ' '))
         self.times['builds'] = round(time.time() - t0)
         self.head_builds = builds
+
+        # The shipping mixed-mode disc (data + every CD audio track) for each sound-on image a run uses.
+        t0 = time.time()
+        for img in dict.fromkeys(r['image'] for r in runs):
+            if m['images'][img].get('sound') and builds[img]['ok']:
+                cue, detail = self.mixed_disc(builds[img]['dir'])
+                self.discs[img] = cue
+                self.add('disc', img, cue is not None, 'mixed-mode disc' if cue else 'no shipping disc', detail)
+                log('disc %-17s %s' % (img, detail))
+        self.times['discs'] = round(time.time() - t0)
 
         # Legacy recipe pair.
         if mode in m['legacy']['modes'] or a.legacy:
@@ -535,6 +614,10 @@ class Gate:
         ctl_jobs = self.control_jobs(builds, hosts) if a.controls else []
         results = self.execute(jobs + ctl_jobs)
         self.times['runs'] = round(time.time() - t0)
+        self.results = results
+        for r, kind, arg in jobs:
+            if not r.get('repeat'):
+                self.disc_check(r)
 
         # Scoring.
         for r, kind, arg in jobs:
@@ -551,7 +634,8 @@ class Gate:
             if r.get('repeat'):
                 base_name = r['name'][:-2]
                 dumps = ['final'] if r['kind'] == 'race' else list(marks(read_result(self.ev / 'runs' / base_name)))
-                self.determinism(base_name, self.ev / 'runs' / base_name, self.ev / 'runs' / r['name'], dumps)
+                self.determinism(base_name, self.ev / 'runs' / base_name, self.ev / 'runs' / r['name'], dumps,
+                                 build_dir=builds[r['image']]['dir'])
         if a.controls:
             self.score_controls(builds, hosts)
 
@@ -610,7 +694,12 @@ class Gate:
             bd = b['dir'] if b else self.builds_dir(r['image'])
             cap = r.get('cap', 40000 if r['kind'] in ('loop', 'cancel', 'reset') else 30000)
             pokes = r.get('pokes', '-') if kind == 'race' else str(arg)
-            return r['name'], self.harness(bd, self.ev / 'runs' / r['name'], kind, pokes if kind == 'race' else str(arg), cap)
+            sound = self.m['images'][r['image']].get('sound', False)
+            cue = None
+            if sound and r.get('disc') != 'data':
+                cue = self.discs.get(r.get('image_build') or r['image'])
+            return r['name'], self.harness(bd, self.ev / 'runs' / r['name'], kind, pokes if kind == 'race' else str(arg), cap,
+                                           audio=sound, cue=cue)
 
         log('running %d harness jobs, %d at a time' % (len(jobs), self.a.jobs))
         with cf.ThreadPoolExecutor(max_workers=self.a.jobs) as ex:
@@ -621,6 +710,19 @@ class Gate:
 
     def builds_dir(self, img):
         return str(self.ev / 'builds' / img)
+
+    def disc_check(self, r, sink=None):
+        """A sound-on run must have used the shipping mixed-mode disc; its audio is reported (INFO)."""
+        if not self.m['images'][r['image']].get('sound'):
+            return
+        res = self.results.get(r['name'], {})
+        mixed = res.get('cue', '').endswith(os.path.join('mixed', 'fzs-engine.cue'))
+        self.add('disc', r['name'], mixed, 'shipping mixed-mode disc' if mixed else 'NON-SHIPPING disc: data track only',
+                 res.get('cue', '-')[-60:], sink=sink)
+        kv, _ = result_kv(read_result(self.ev / 'runs' / r['name']))
+        if 'audio_peak' in kv:
+            self.add('audio', r['name'], True, 'peak %s, non-zero samples %s, hash %s' % (kv['audio_peak'], kv['audio_nonzero'], kv.get('audio_hash', '-')),
+                     'EMULATOR; music from CD-DA needs the mixed disc', info=True, sink=sink)
 
     # -- controls ------------------------------------------------------------------------------------------------------
     ctl_builds = {}
@@ -633,9 +735,11 @@ class Gate:
                 vars_ = self.m['images'][c['image']]['vars'] + c['vars']
                 self.ctl_builds[key] = self.build(self.ev / 'ctl-builds', key, vars_)
                 log('control build %-14s %s' % (key, self.ctl_builds[key].get('bin', 'FAILED')[:16]))
+                if self.m['images'][c['image']].get('sound') and self.ctl_builds[key]['ok'] and c.get('kind'):
+                    self.discs[key] = self.mixed_disc(self.ctl_builds[key]['dir'])[0]
             if c['check'] in ('identity', 'legacy', 'host', 'determinism'):
                 continue
-            r = dict(name=c['name'], image=c['image'], kind=c['kind'], course=c.get('course'), pokes=c.get('pokes', '-'),
+            r = dict(name=c['name'], image=c['image'], kind=c['kind'], course=c.get('course'), pokes=c.get('pokes', '-'), disc=c.get('disc'),
                      image_build=c['name'] if c.get('vars') else None)
             if c['kind'] == 'race':
                 jobs.append((r, 'race', '-'))
@@ -664,8 +768,16 @@ class Gate:
                 kv, chkl = result_kv(read_result(rd))
                 href = self.host(self.ev / 'host', 'mute-city-1', c['host_driver'])
                 self.host_check(name, kv, chkl, href, full_final=True, sink=sink, against=c['host_driver'])
+            elif chk == 'disc':
+                self.disc_check(dict(name=name, image=c['image']), sink=sink)
+                rd, ref = self.ev / 'runs' / name, self.ev / 'runs' / c['against']
+                ka, kb = result_kv(read_result(rd))[0], result_kv(read_result(ref))[0]
+                self.add('audio', name, True, 'data-only audio hash %s (non-zero %s) vs mixed-disc %s run %s (non-zero %s)' % (
+                    ka.get('audio_hash'), ka.get('audio_nonzero'), c['against'], kb.get('audio_hash'), kb.get('audio_nonzero')), info=True, sink=sink)
+                self.score_scenes(dict(name=name, kind=c['kind']), rd, self.head_builds[c['image']]['dir'], None, sink=sink)
             elif chk == 'determinism':
-                self.determinism(name, self.ev / 'runs' / c['reuse'], self.ev / 'runs' / c['against'], ['final'], sink=sink)
+                self.determinism(name, self.ev / 'runs' / c['reuse'], self.ev / 'runs' / c['against'], ['final'], sink=sink,
+                                 build_dir=builds['field']['dir'])
             else:
                 rd = self.ev / 'runs' / name
                 bd = self.ctl_builds[name]['dir'] if c.get('vars') else builds[c['image']]['dir']
@@ -713,6 +825,10 @@ class Gate:
             if p.is_file() and (p.suffix in ('.iso', '.rgba') or p.name.endswith(('.wram-high', '.wram-low', '.vdp1-vram', '.vdp2-vram'))):
                 gone.append(str(p.relative_to(self.ev)))
                 p.unlink()
+        for d in [self.ev / 'discs'] + list(self.ev.rglob('mixed')):
+            if d.is_dir():
+                gone.append(str(d.relative_to(self.ev)) + '/ (mixed-mode disc)')
+                shutil.rmtree(d, ignore_errors=True)
         shutil.rmtree(self.ev / 'tmp', ignore_errors=True)
         (self.ev / 'cleanup-manifest.txt').write_text('deleted (rebuildable: disc images, dumps, stills)\n' + '\n'.join(gone) + '\n')
 
@@ -740,6 +856,8 @@ def main():
     ap.add_argument('--harness', default=str(DEF_HARNESS))
     ap.add_argument('--bios', default=str(DEF_BIOS))
     ap.add_argument('--sh2zam', default=str(DEF_SH2ZAM))
+    ap.add_argument('--music', default=os.environ.get('FZX_GATE_MUSIC', r'C:\Users\lambd\fzx-evidence\host\claude-snd\music-all'),
+                    help='bgm_cdda.py output (local, ROM-derived) for the shipping mixed-mode discs')
     ap.add_argument('--jobs', type=int, default=max(2, min(12, (os.cpu_count() or 4) - 2)))
     ap.add_argument('--clips', action='store_true', help='keep the scripts\' clip windows')
     ap.add_argument('--keep', action='store_true', help='keep discs, dumps and stills')

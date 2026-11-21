@@ -330,6 +330,25 @@ static int16_t rs_guard[4]; /* set per frame from the view's clip rectangle */
 #define RS_GX1 900
 #define RS_GY1 900
 #endif
+#ifndef FZX_ROAD_STREAM_ROW_CLIP
+#define FZX_ROAD_STREAM_ROW_CLIP 0
+#endif
+/* The rectangle a row-cut quad must fit to be drawn unclipped: 0 the guard band,
+ * N > 0 +/-N pixels (at most 900). */
+#ifndef FZX_ROAD_STREAM_ROW_ACCEPT
+#define FZX_ROAD_STREAM_ROW_ACCEPT 0
+#endif
+#if FZX_ROAD_STREAM_ROW_ACCEPT
+#define RS_AX0 (-FZX_ROAD_STREAM_ROW_ACCEPT)
+#define RS_AY0 (-FZX_ROAD_STREAM_ROW_ACCEPT)
+#define RS_AX1 FZX_ROAD_STREAM_ROW_ACCEPT
+#define RS_AY1 FZX_ROAD_STREAM_ROW_ACCEPT
+#else
+#define RS_AX0 RS_GX0
+#define RS_AY0 RS_GY0
+#define RS_AX1 RS_GX1
+#define RS_AY1 RS_GY1
+#endif
 /* Inputs to area are clipped to +/-900, bounding the 16-corner sum in int32. */
 static int32_t area(const sh2z_view_vertex_t *const *v,unsigned count){
     int32_t sum=0;for(unsigned i=0;i<count;++i){unsigned j=i+1<count?i+1:0;
@@ -428,14 +447,179 @@ static FZX_RS_COLD int fallback_shades(draw_t *d,uint16_t *shades,const sh2z_vie
         slope[c]=(int16_t)(live-mean);bias[c]=(int16_t)(selected*(base-mean));}
     return sh2z_shade_fade_offset(shades,2,fade,1,count,slope,bias)?(int)variant:-1;
 }
+#if FZX_ROAD_STREAM_ROW_CLIP
+/* Rows a piece's texture may start at: row*stride must keep the 8-byte texture alignment. */
+static unsigned row_align(const fzx_road_stream_draw_work_t *w,unsigned image){
+    const fzx_road_stream_material_t *m0=&w->images[image].variant[0];
+    const uint32_t stride=m0->mode?m0->width/2u:m0->width*2u;
+    unsigned align=1;while(align<8u&&((align*stride)&7u))align<<=1;
+    return align;
+}
+#endif
+#if FZX_ROAD_STREAM_ROW_CLIP>=2
+/* One quad of a clipped piece's strip: corner indices into the clipped polygon
+ * (left chain, right chain, right chain, left chain) and its texture rows. */
+typedef struct {uint8_t c[4];uint16_t k0,rows;} strip_t;
+/* The clipped polygon o[0..n-1] (attr 0 the row, 0..65536 from the start ends to the end
+ * ends; attr 1 the side, 0 on the left rail, 65536 on the right) as a strip between its two
+ * rails. The input winding (left start, right start, right end, left end) puts the right
+ * rail forward and the left rail backward from the first row, so the boundary splits into a
+ * left chain (backward from the first row to the last) and a right chain (forward). The
+ * chains are walked together in row order; each step is one quad (a triangle when one
+ * chain does not move) whose VDP1 lines cross from the left chain to the right one, so no
+ * line runs along a sliver. Each quad's texture covers the rows its corners span. */
+static unsigned strip_plan(const sh2z_view_guard_vertex_t *o,int n,unsigned height,unsigned align,strip_t *out){
+    int ls=0,rs=0,le=0,re=0;
+    for(int i=1;i<n;++i){const int32_t ti=o[i].attr[0],si=o[i].attr[1];
+        if(ti<o[ls].attr[0]||(ti==o[ls].attr[0]&&si<o[ls].attr[1]))ls=i;
+        if(ti<o[rs].attr[0]||(ti==o[rs].attr[0]&&si>o[rs].attr[1]))rs=i;
+        if(ti>o[le].attr[0]||(ti==o[le].attr[0]&&si<o[le].attr[1]))le=i;
+        if(ti>o[re].attr[0]||(ti==o[re].attr[0]&&si>o[re].attr[1]))re=i;}
+    unsigned q=0;int li=ls,ri=rs;
+    for(int steps=0;(li!=le||ri!=re)&&steps<2*n&&q<SH2Z_VIEW_GUARD_MAX_OUT;++steps){
+        const int ln=(li+n-1)%n,rn=(ri+1)%n;
+        bool al=li!=le,ar=ri!=re;
+        if(al&&ar){if(o[ln].attr[0]<o[rn].attr[0])ar=false;else if(o[rn].attr[0]<o[ln].attr[0])al=false;}
+        const int nl=al?ln:li,nr=ar?rn:ri;
+        int32_t a=o[li].attr[0]<o[ri].attr[0]?o[li].attr[0]:o[ri].attr[0];
+        int32_t b=o[nl].attr[0]>o[nr].attr[0]?o[nl].attr[0]:o[nr].attr[0];
+        if(a<0)a=0;
+        if(b>65536)b=65536;
+        unsigned k0=(unsigned)(((int64_t)a*height)>>16),k1=(unsigned)(((int64_t)b*height+65535)>>16);
+        k0-=k0%align;if(k1>height)k1=height;
+        if(k1<=k0){if(k0<height)k1=k0+1u;else{k0=height>=align?height-align:0u;k1=height;}}
+        strip_t *s=&out[q++];s->c[0]=(uint8_t)li;s->c[1]=(uint8_t)ri;s->c[2]=(uint8_t)nr;s->c[3]=(uint8_t)nl;
+        s->k0=(uint16_t)k0;s->rows=(uint16_t)(k1-k0);
+        li=nl;ri=nr;
+    }
+    return q;
+}
+#if FZX_ROAD_STREAM_LEAN_CLIP
+/* lean_clip with the row and side attributes (row clip mode 2): the near plane in 3D (the
+ * vertices of sh2z_view_clip_near_center_divu, the attributes interpolated in its walk order
+ * as its crossings are, linearly in 3D), then the guard sides in 2D, the attributes linear
+ * along the screen edge (as VDP1 maps them). Output in hot->clip_out with attr 0 and 1;
+ * -1 asks for the exact clip. */
+typedef struct {sh2z_view_vertex_t v;int32_t t,s;} lean_ts_t;
+static void lean_cross_ts(lean_ts_t *q,const lean_ts_t *a,const lean_ts_t *b,unsigned axis,int32_t edge){
+    lean_cross(&q->v,&a->v,&b->v,axis,edge);
+    const int32_t a0=axis?a->v.sy:a->v.sx,b0=axis?b->v.sy:b->v.sx,num=edge-a0,den=b0-a0;
+    q->t=a->t+sh2z_divu_div64((int64_t)(b->t-a->t)*num,den,NULL);
+    q->s=a->s+sh2z_divu_div64((int64_t)(b->s-a->s)*num,den,NULL);
+}
+static unsigned lean_side_ts(const lean_ts_t *in,unsigned n,lean_ts_t *out,unsigned axis,int32_t edge,bool lower){
+    unsigned w=0;if(!n)return 0;
+    const lean_ts_t *a=in+n-1;int32_t av=axis?a->v.sy:a->v.sx;bool ain=lower?av>=edge:av<=edge;
+    for(unsigned i=0;i<n;++i){const lean_ts_t *b=in+i;const int32_t bv=axis?b->v.sy:b->v.sx;
+        const bool bin=lower?bv>=edge:bv<=edge;
+        if(ain!=bin)lean_cross_ts(out+w++,ain?a:b,ain?b:a,axis,edge);
+        if(bin)out[w++]=*b;
+        a=b;ain=bin;}
+    return w;
+}
+static int lean_clip_ts(draw_t *d,const vref_t v[4],const int16_t guard[4]){
+    static const int32_t T[4]={0,0,65536,65536},S[4]={0,65536,65536,0};
+    lean_ts_t buf[2][12];unsigned n=4;bool near=false;
+    for(unsigned i=0;i<4;++i){buf[0][i].v=*v[i];buf[0][i].t=T[i];buf[0][i].s=S[i];if(v[i]->outcode&SH2Z_OUT_NEAR)near=true;}
+    if(near){
+        sh2z_view_vertex_t q[6];
+        for(unsigned i=0;i<4;++i)q[i]=*v[i];
+        n=sh2z_view_clip_near_center_divu(q,&d->view,q);
+        if(n<3)return 0;
+        /* The clip's walk: edges in[i] -> in[i+1] from i = 0; each inside corner, then the crossing. */
+        const int32_t nz=d->view.view.near_z;unsigned k=0;
+        for(unsigned i=0;i<4u;++i){const unsigned j=(i+1u)&3u;
+            const bool ii=v[i]->z>=nz,ji=v[j]->z>=nz;
+            if(ii){if(k>=n)return -1;buf[1][k].t=T[i];buf[1][k].s=S[i];++k;}
+            if(ii!=ji){if(k>=n)return -1;
+                const unsigned a=ii?i:j,o=ii?j:i;
+                const int64_t num=(int64_t)v[a]->z-nz,den=(int64_t)v[a]->z-v[o]->z;
+                buf[1][k].t=T[a]+(int32_t)(((int64_t)(T[o]-T[a])*num)/den);
+                buf[1][k].s=S[a]+(int32_t)(((int64_t)(S[o]-S[a])*num)/den);++k;}
+        }
+        if(k!=n)return -1;
+        for(unsigned i=0;i<n;++i){buf[0][i].v=q[i];buf[0][i].t=buf[1][i].t;buf[0][i].s=buf[1][i].s;}
+    }
+    for(unsigned i=0;i<n;++i)if(buf[0][i].v.sx<= -32767||buf[0][i].v.sx>=32767||buf[0][i].v.sy<= -32767||buf[0][i].v.sy>=32767)return -1;
+    int32_t x0=buf[0][0].v.sx,x1=x0,y0=buf[0][0].v.sy,y1=y0;
+    for(unsigned i=1;i<n;++i){const int32_t x=buf[0][i].v.sx,y=buf[0][i].v.sy;
+        if(x<x0)x0=x;
+        if(x>x1)x1=x;
+        if(y<y0)y0=y;
+        if(y>y1)y1=y;}
+    if(x1<guard[0]||x0>guard[2]||y1<guard[1]||y0>guard[3])return 0;
+    unsigned cur=0;
+    if(x0<guard[0]){n=lean_side_ts(buf[cur],n,buf[cur^1u],0,guard[0],true);cur^=1u;}
+    if(x1>guard[2]){n=lean_side_ts(buf[cur],n,buf[cur^1u],0,guard[2],false);cur^=1u;}
+    if(y0<guard[1]){n=lean_side_ts(buf[cur],n,buf[cur^1u],1,guard[1],true);cur^=1u;}
+    if(y1>guard[3]){n=lean_side_ts(buf[cur],n,buf[cur^1u],1,guard[3],false);cur^=1u;}
+    if(n<3)return 0;
+    if(n>SH2Z_VIEW_GUARD_MAX_OUT)return -1;
+    for(unsigned i=0;i<n;++i){d->hot->clip_out[i].v=buf[cur][i].v;d->hot->clip_out[i].attr[0]=buf[cur][i].t;d->hot->clip_out[i].attr[1]=buf[cur][i].s;}
+    return (int)n;
+}
+#endif
+#endif
 static bool piece(draw_t *d,const vref_t v[4],unsigned quad,unsigned piece_id,
     unsigned base_image,unsigned image,unsigned row,unsigned height,unsigned tier,bool solid){
     fzx_road_stream_draw_work_t *w=d->work;bool safe;
     FZX_RSP(QPIECE);FZX_RSP_COUNT(PIECES,1);
     if(classify(v,&safe)){++d->stats->culled;return true;}
     int n=4;
+#if FZX_ROAD_STREAM_ROW_CLIP
+    sh2z_view_vertex_t cut[4];bool cut_quad=false;
+#if FZX_ROAD_STREAM_ROW_CLIP>=2
+    strip_t strip[SH2Z_VIEW_GUARD_MAX_OUT];unsigned strip_n=0;
+#endif
+#endif
     if(!safe){const int16_t guard[4]={RS_GX0,RS_GY0,RS_GX1,RS_GY1};
         FZX_RSP(CLIP);FZX_RSP_COUNT(PIECE_CLIPS,1);
+#if FZX_ROAD_STREAM_ROW_CLIP
+        if(!solid&&height>1u){
+            /* FZX_ROAD_STREAM_ROW_CLIP: the guard clip carries each corner's row (attr 0,
+             * 0 at the start rail ends, 65536 at the end), so its output gives the rows
+             * the band can show. The piece is cut to those rows on both rails at once,
+             * from the rails' own points: if the cut quad fits the band it is drawn
+             * unclipped, with its texture starting at its first row (balanced rails,
+             * exact spans); otherwise the clipped polygon is drawn as before, with the
+             * texture limited to those rows. Rows outside the band are not drawn. */
+#if FZX_ROAD_STREAM_ROW_CLIP>=2 && FZX_ROAD_STREAM_LEAN_CLIP
+            n=d->emit?lean_clip_ts(d,v,guard):-1;
+            if(n<0)
+#endif
+            {clip_input(d->hot,v);
+             for(unsigned i=0;i<4;++i){d->hot->clip_in[i].attr[0]=i<2u?0:65536;d->hot->clip_in[i].attr[1]=i==1u||i==2u?65536:0;}
+             n=sh2z_view_clip_guard_src_center_divu(d->hot->clip_out,&d->view,guard,d->hot->clip_in,4,2,10);}
+            if(n<0)return fail(d,FZX_RS_CLIP);
+            if(n<3){++d->stats->culled;return true;}
+#if FZX_ROAD_STREAM_ROW_CLIP>=2
+            if(d->emit){strip_n=strip_plan(d->hot->clip_out,n,height,row_align(w,image),strip);++d->stats->clipped;}
+            else
+#endif
+            {
+            int32_t t0=65536,t1=0;
+            for(int i=0;i<n;++i){const int32_t t=d->hot->clip_out[i].attr[0];if(t<t0)t0=t;if(t>t1)t1=t;}
+            const unsigned align=row_align(w,image);
+            unsigned k0=(unsigned)(((int64_t)(t0<0?0:t0)*height)>>16),k1=(unsigned)(((int64_t)(t1>65536?65536:t1)*height+65535)>>16);
+            k0-=k0%align;if(k1>height)k1=height;
+            if(k1>k0&&(k0>0u||k1<height)){
+                bool ok=true;
+                if(k0){if(!sh2z_view_edge_steps_center_divu(&cut[0],&d->view,v[0],v[3],(uint16_t)k0,1,(uint16_t)height,1)||
+                           !sh2z_view_edge_steps_center_divu(&cut[1],&d->view,v[1],v[2],(uint16_t)k0,1,(uint16_t)height,1))ok=false;}
+                else {cut[0]=*v[0];cut[1]=*v[1];}
+                if(k1<height){if(!sh2z_view_edge_steps_center_divu(&cut[3],&d->view,v[0],v[3],(uint16_t)k1,1,(uint16_t)height,1)||
+                                 !sh2z_view_edge_steps_center_divu(&cut[2],&d->view,v[1],v[2],(uint16_t)k1,1,(uint16_t)height,1))ok=false;}
+                else {cut[2]=*v[2];cut[3]=*v[3];}
+                if(ok)for(unsigned i=0;i<4;++i)
+                    if((cut[i].outcode&SH2Z_OUT_NEAR)||cut[i].sx<RS_AX0||cut[i].sx>RS_AX1||cut[i].sy<RS_AY0||cut[i].sy>RS_AY1)ok=false;
+                cut_quad=ok;row+=k0;height=k1-k0;
+            }
+            FZX_RSP(QPIECE);
+            if(!cut_quad)++d->stats->clipped;
+            }
+        } else
+#endif
+        {
 #if FZX_ROAD_STREAM_LEAN_CLIP
         n=lean_clip(d,v,guard);
         if(n<0)
@@ -446,9 +630,15 @@ static bool piece(draw_t *d,const vref_t v[4],unsigned quad,unsigned piece_id,
         if(n<0)return fail(d,FZX_RS_CLIP);
         if(n<3){++d->stats->culled;return true;}
         ++d->stats->clipped;
+        }
     }
     const sh2z_view_vertex_t *corners[SH2Z_VIEW_GUARD_MAX_OUT];
+#if FZX_ROAD_STREAM_ROW_CLIP
+    const unsigned count=cut_quad?(corners[0]=&cut[0],corners[1]=&cut[1],corners[2]=&cut[2],corners[3]=&cut[3],4u):
+        corners_of(d->hot,v,safe,n,corners);
+#else
     const unsigned count=corners_of(d->hot,v,safe,n,corners);
+#endif
     if(!area(corners,count)){++d->stats->culled;return true;}
     uint16_t shades[16];
     FZX_RSP(FOG);
@@ -498,6 +688,33 @@ static bool piece(draw_t *d,const vref_t v[4],unsigned quad,unsigned piece_id,
         const uint16_t srca=(uint16_t)((e->texture_offset+material.pixels)>>3);
         const uint16_t size=(uint16_t)((((unsigned)material.width>>3)<<8|material.height)&0x3fffu);
         const uint16_t colr=material.mode&&!solid?(uint16_t)(((e->texture_offset+material.palette)&0x7ffffu)>>3):tmpl->colr;
+#if FZX_ROAD_STREAM_ROW_CLIP>=2
+        if(strip_n){
+            /* Row clip mode 2: the strip's quads, each with the texture from its first row. */
+            const uint32_t stride=material.mode?material.width/2u:material.width*2u;
+            for(unsigned k=0;k<strip_n;++k){
+                const strip_t *s=&strip[k];
+                const vref_t fan[4]={corners[s->c[0]],corners[s->c[1]],corners[s->c[2]],corners[s->c[3]]};
+                if(!area(fan,4))continue;
+                const uint32_t at=d->stats->commands;
+#if FZX_ROAD_STREAM_BUDGET
+                FZX_RS_KEEP()
+#else
+                if(at>=d->capacity)return fail(d,FZX_RS_CAPACITY);
+#endif
+                fzx_road_stream_vdp1_t *c=e->commands+at;uint16_t *g=e->shades+at*4u;
+                c->ctrl=tmpl->ctrl;c->link=tmpl->link;c->pmod=tmpl->pmod;c->reserved=tmpl->reserved;
+                c->srca=(uint16_t)((e->texture_offset+material.pixels+s->k0*stride)>>3);
+                c->size=(uint16_t)((((unsigned)material.width>>3)<<8|s->rows)&0x3fffu);c->colr=colr;
+                c->xa=fan[0]->sx;c->ya=fan[0]->sy;c->xb=fan[1]->sx;c->yb=fan[1]->sy;
+                c->xc=fan[2]->sx;c->yc=fan[2]->sy;c->xd=fan[3]->sx;c->yd=fan[3]->sy;
+                g[0]=shades[s->c[0]];g[1]=shades[s->c[1]];g[2]=shades[s->c[2]];g[3]=shades[s->c[3]];
+                c->grda=(uint16_t)(((e->shade_offset+at*8u)&0x7ffffu)>>3);
+                d->stats->commands=at+1;
+            }
+            return true;
+        }
+#endif
         for(unsigned first=1;first+1<count;first+=2){
 #if FZX_ROAD_STREAM_FAN_FIX
             /* FZX_ROAD_STREAM_FAN_FIX (default 0): a clipped polygon's fan can

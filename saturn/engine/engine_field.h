@@ -68,8 +68,15 @@ extern volatile uint32_t fzx_e2_report[16];
 /* Before fzx_field_load: RIVALS.PAK from the disc (size and hash checked). */
 bool fzx_field_pack_load(void *scratch, uint32_t scratch_bytes);
 #endif
-/* After the physics load: builds the line and the field (high work RAM). */
+/* After the physics load: builds the line and the field (high work RAM). In a Grand Prix round
+ * after the first (scenes image) the grid is the previous finish reversed, the player included;
+ * the grid is placed round the player's start body, as in round one. */
 bool fzx_field_load(const sh2z_vd_track_t *track, const sh2z_vd_body_t *player);
+/* Scenes image: each car's grid place (1 = front) in the race loaded last, and where it came from:
+ * fzx_field_grid_src 1 the course header (round one, retries of it, other modes), 2 the cup's
+ * reversed finish (GP rounds after the first). */
+extern volatile uint8_t fzx_field_grid[30];
+extern volatile uint32_t fzx_field_grid_src;
 /* One tick, after the player's step: the player into the field, then the field. */
 void fzx_field_tick(const sh2z_vd_body_t *player);
 /* This frame's cars (player first) with the K/D selection applied; returns the count. */

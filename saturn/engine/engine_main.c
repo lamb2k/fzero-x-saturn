@@ -1281,7 +1281,16 @@ void fzx_race_load(void) {
         const uint32_t clut_used = 0;
 #endif
         void *const cart_area = dram_cart_area_get();
+#ifndef FZX_P3_BASELINE
+        const uintptr_t cart = (uintptr_t)cart_area;
+#if ENG_SCENES
+        const uintptr_t cart_limit = fzx_title_cart_limit();
+#else
+        const uintptr_t cart_limit = cart + dram_cart_size_get();
+#endif
+#else
         const uintptr_t cart = (uintptr_t)cart_area, cart_limit = cart + dram_cart_size_get();
+#endif
         if (!fzx_drive_sprites_load(&partitions, clut_used, (uintptr_t)fzx_road_stream_cart_end + 32u, cart_limit,
                                     (void *)scratch, 0x0028D000u - 32u - scratch))
             fail(52, "SPRITE LOAD", fzx_e1_status * 100u + fzx_texture_cd_status.status);

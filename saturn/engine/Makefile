@@ -56,7 +56,8 @@ E0_QUEUE_WIDEN ?= 0
 # generated/racer_sprites (tools/racer_sprites.py), and an SH2ZAM pin with
 # vehicle-dynamics-1 and rotation-sprites-1 (claude/e1-train).
 FZX_E1_DRIVE ?= 0
-# 1: the R01 test driver steers from boot (captures); 0: the pad (owner).
+# 1: the R01 test driver steers from boot (captures); 2: R03, the look-ahead driver (drive_ahead.h, GP cup
+# tests: it finishes all six Jack courses); 0: the pad (owner).
 E1_DRIVER ?= 0
 # Test driver boost period in ticks (0 = R01; 240 = R02).
 E1_DRIVER_BOOST ?= 0
@@ -72,21 +73,41 @@ E1_CLOSEUP_EARLY ?= $(if $(filter 1,$(E1_CLOSEUP)),1,0)
 # (needs FZX_E1_DRIVE=1, E1_CLOSEUP=1, E1_CLOSEUP_EARLY=1 and the per-family packs
 # generated/mach3d/MACH3D<ff>.PAK + mach3d_identity.h). 0 builds the E1 image unchanged.
 ENG_SCENES ?= 0
+# Set to 0 to build the pre-P3 scenes and original disc contents.
+ENG_P3_UI ?= $(ENG_SCENES)
 # Roster LOAD phase (scenes, with E2_ROSTER): the field's sets from ROSTERZ.PAK, compressed and read
 # selectively (tools/racer_stream.py pack + tools/roster_select_identity.py into generated/roster, local only).
 ENG_ROSTER ?= 0
 # Guest identities enabled in select, race, results and records (bit n = identity n:
+ifeq ($(ENG_P3_UI),1)
+# 33 Robotnik, 34 Metal Sonic). Both are enabled on the scenes disc.
+FZX_GUEST_MASK ?= $(if $(filter 1,$(ENG_SCENES)),25769803776,0)
+else
 # 33 Robotnik, 34 Metal Sonic). Owner 2026-11-19 (O-078): both locked in the test build.
 FZX_GUEST_MASK ?= 0
+endif
 # Diagnostic only (scenes image): Jack's six rounds GP-available on course 0's assets (engine_cup.c),
 # for the GP flow and pause-retry checks until the courses lane lands. Never a release build.
 FZX_CUP_DIAG_CATALOG ?= 0
 # Engine gate control (tools/engine_gate.py ctl-menus): 1 links a probe that holds one menu frame for 3 fields
 # when fzx_scn_stall_ctl is written. Diagnostic only; 0 (default) compiles nothing.
 ENG_SCN_STALL_CONTROL ?= 0
+# Diagnostic (scenes CD stream, saturn/road_cd.c): 1 records every sector read (FAD, first words, FNV) in
+# fzx_cd_trace; 2 also reads the CD block's FAD of the buffered sector before each transfer. 0 compiles nothing.
+FZX_CD_TRACE ?= 0
+# Control (scenes CD stream, saturn/road_cd.c): 1 waits after each stream start's selector reset until the
+# previous play delivers a stale sector, so the read must drop it (fzx_cd_seek_stats[1]). 0 compiles nothing.
+FZX_CD_STALE_CONTROL ?= 0
+# Private F Zero S main title. ENG_TITLE_ART=title selects the original atlas.
+ENG_TITLE_ART ?= title_guest
+ifeq ($(ENG_P3_UI),1)
+# SELECT addresses each stock family's pack by its two-digit identity.
+ENG_ENTRANT_PACKS := 00 01 02 03 04 05 06 07 08 09 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29
+else
 # The 3D player packs on the disc: the select screen's entrants (C-069: Blue Falcon 0,
 # Golden Fox 1, Fire Stingray 3). The CD loader reads at most 32 root entries.
 ENG_ENTRANT_PACKS ?= 00 01 03
+endif
 # The 3D vehicle's generated folders (stills of other machines: machine_rebake_fNN / closeup_fNN).
 E1_REBAKE ?= machine_rebake
 E1_VEHICLE ?= closeup
@@ -244,6 +265,15 @@ ENG_TUBES ?= $(if $(filter sand-ocean-1 big-blue-1,$(ENG_COURSE)),1,$(if $(filte
 ifeq ($(filter 0 1,$(ENG_TUBES)),)
 $(error ENG_TUBES must be 0 or 1)
 endif
+# ENG_RIVAL_SURFACE (field images with the rival pack, E2_PACK=1): the rivals meet the course's surface
+# (SH2ZAM line-field-4): its zones (plates, low grip, rough ground, recharge strips), its pipes and cylinders
+# as tubes (no edge, the lateral wraps round; the cars drawn round the tube), and the final dash on the
+# last lap (cpu.c). The zones come from generated/.../rivals/rivals_zones.h (tools/rivals_zones_header.py).
+# Default 1 (claude/jack, 2026-11-20: E2 bands 14/14 on all six Jack courses); 0 is line-field-3's field.
+ENG_RIVAL_SURFACE ?= 1
+ifeq ($(filter 0 1,$(ENG_RIVAL_SURFACE)),)
+$(error ENG_RIVAL_SURFACE must be 0 or 1)
+endif
 ENG_SND_FADETEST ?= 0
 ifeq ($(filter 0 1 2,$(ENG_DSP_BANDS)),)
 $(error ENG_DSP_BANDS must be 0, 1 or 2)
@@ -319,12 +349,30 @@ BAL_SWITCHES := $(ENG_BAL_CLOUDS)$(ENG_BAL_EARLY)$(ENG_BAL_FORCE)$(ENG_BAL_HASH)
 EMIT_SWITCHES := $(E2_EMIT_PROF)$(E2_EMIT_HINT)$(E2_EMIT_CMD)$(E2_EMIT_SHADOW)$(E2_EMIT_POSE)$(E2_EMIT_SETUP)$(E2_EMIT_LINK)$(E2_EMIT_CULL)$(E2_EMIT_YAW)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter-out 0,$(subst 0,,$(EMIT_SWITCHES))),-em$(EMIT_SWITCHES),)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter-out 00000,$(BAL_SWITCHES)),-bal$(BAL_SWITCHES),)
-SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter-out mute-city-1,$(ENG_COURSE)),-$(ENG_COURSE),)$(if $(E1_DRIVER_KH),-kh$(E1_DRIVER_KH),)$(if $(filter 1,$(ENG_COURSE_SELECT)),-sel,)$(if $(filter 1,$(ENG_TUBES)),-tubes,)$(if $(filter 1,$(ENG_SCN_STALL_CONTROL)),-stallctl,)
+SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter-out mute-city-1,$(ENG_COURSE)),-$(ENG_COURSE),)$(if $(E1_DRIVER_KH),-kh$(E1_DRIVER_KH),)$(if $(filter 1,$(ENG_COURSE_SELECT)),-sel,)$(if $(filter 1,$(ENG_TUBES)),-tubes,)$(if $(filter 0,$(ENG_RIVAL_SURFACE)),-rs0,)$(if $(filter 1,$(ENG_SCN_STALL_CONTROL)),-stallctl,)$(if $(filter-out 0,$(FZX_CD_TRACE)),-cdtrace$(FZX_CD_TRACE),)$(if $(filter 1,$(FZX_CD_STALE_CONTROL)),-stalectl,)
+ifeq ($(ENG_SCENES)$(ENG_P3_UI),10)
+SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)-p3off
+endif
+ifeq ($(ENG_SCENES),1)
+SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)-$(ENG_TITLE_ART)
+endif
 SH_BUILD_DIR := $(SH_OUTPUT_DIR)/yaul
 IMAGE_DIRECTORY := $(SH_OUTPUT_DIR)/cd
 IMAGE_1ST_READ_BIN := A.BIN
 
 include $(YAUL_INSTALL_ROOT)/share/build.pre.mk
+
+ifneq ($(FZX_CD_TRACE),0)
+SH_CFLAGS += -DFZX_CD_TRACE=$(FZX_CD_TRACE)
+endif
+ifneq ($(FZX_CD_STALE_CONTROL),0)
+SH_CFLAGS += -DFZX_CD_STALE_CONTROL=$(FZX_CD_STALE_CONTROL)
+endif
+
+ifeq ($(ENG_P3_UI),0)
+SH_CFLAGS += -DFZX_P3_BASELINE=1
+endif
+
 
 SH2ZAM_ROOT ?=
 ifeq ($(wildcard $(SH2ZAM_ROOT)/saturn/include/sh2zam/segmesh_experimental.h),)
@@ -341,7 +389,17 @@ E0_RECEIPT_CHECK := $(foreach R,$(E0_RECEIPTS),$(shell sh ../../tools/check_rece
 ifeq ($(FZX_E1_DRIVE),1)
 # The scenes image takes the 3D player from generated/mach3d (tools/mach3d_packs.py) and its own
 # offline bakes (road_prep, engine_path_ranges).
+ifeq ($(ENG_P3_UI),1)
+E1_CLOSEUP_RECEIPTS := $(if $(filter 1,$(ENG_SCENES)),mach3d/mach3d.receipt machine_tuning/machine_tuning.receipt $(GCREL)road_prep/road_prep.receipt $(GCREL)engine_path_ranges/engine_path_ranges.receipt,$(E1_REBAKE)/machine_rebake.receipt $(E1_VEHICLE)/closeup.receipt)
+ifeq ($(ENG_SCENES),1)
+ifneq ($(FZX_GUEST_MASK),0)
+E1_CLOSEUP_RECEIPTS += guest_mach3d/guest_machines.receipt
+GUEST_PLAYER_PACKS := $(G)/guest_mach3d/MACH3D33.PAK $(G)/guest_mach3d/MACH3D34.PAK
+endif
+endif
+else
 E1_CLOSEUP_RECEIPTS := $(if $(filter 1,$(ENG_SCENES)),mach3d_scn/mach3d.receipt $(GCREL)road_prep/road_prep.receipt $(GCREL)engine_path_ranges/engine_path_ranges.receipt,$(E1_REBAKE)/machine_rebake.receipt $(E1_VEHICLE)/closeup.receipt)
+endif
 E1_RECEIPT_CHECK := $(foreach R,$(GCREL)physics/physics.receipt $(E1_SPRITES)/racer_sprites.receipt $(if $(filter 1,$(E1_CLOSEUP)),$(E1_CLOSEUP_RECEIPTS),),$(shell sh ../../tools/check_receipt.sh $(G)/$(R) >/dev/null 2>&1 || echo $(R)))
 ifneq ($(strip $(E1_RECEIPT_CHECK)),)
 $(error Missing or stale E1 assets; run their generators: $(E1_RECEIPT_CHECK))
@@ -362,7 +420,7 @@ SH2ZAM_UNITS := sh2zam.c sh2zam_angles.c sh2zam_batch_sh2.c sh2zam_box2.c sh2zam
     $(if $(filter 1,$(FZX_E1_DRIVE)),sh2zam_vehicle_dynamics.c sh2zam_unit30.c sh2zam_rotation_sprite.c sh2zam_sprite_cache.c sh2zam_vlc2.c,)     $(if $(filter 1,$(FZX_E1_DRIVE)),$(if $(filter 1,$(ENG_TUBES)),sh2zam_vehicle_dynamics2.c,),) \
     $(if $(filter-out 0,$(E1_FIELD)),$(if $(filter 1,$(E2_EMIT_CMD) $(E2_EMIT_POSE) $(E2_EMIT_YAW)),sh2zam_rotation_sprite3.c,),) \
     $(if $(filter 1,$(E1_CLOSEUP)),sh2zam_vehicle.c sh2zam_view_indexed.c sh2zam_pose.c,) \
-    $(if $(filter-out 0,$(E1_FIELD)),sh2zam_line_follower.c sh2zam_line_field.c,) \
+    $(if $(filter-out 0,$(E1_FIELD)),sh2zam_line_follower.c sh2zam_line_field.c $(if $(filter 1,$(E2_PACK)),$(if $(filter 1,$(ENG_RIVAL_SURFACE)),sh2zam_trig12.c,),),) \
     $(if $(filter 1,$(ENG_SCENES)),sh2zam_scene.c,)     $(if $(filter 2,$(ENG_BAL_CLOUDS)),sh2zam_dual_claim.c,)
 
 SH_SRCS := engine_main.c engine_scene.c engine_path.c \
@@ -438,7 +496,7 @@ endif
 ifneq ($(E1_FIELD),0)
 # FZX_CLOSEUP_CARS: 3D slots (engine_field.h FZX_FIELD_K_MAX).
 SH_CFLAGS += -DE1_FIELD=$(E1_FIELD) -DFZX_CLOSEUP_CARS=6
-SH_CFLAGS += -DE2_PACK=$(E2_PACK) -DE2_FASTPOSE=$(E2_FASTPOSE) -DE2_CULL=$(E2_CULL) -DE2_LOD=$(E2_LOD) -DE2_LOD_NEAR=$(E2_LOD_NEAR) -DE2_EARLY=$(E2_EARLY) -DE2_PROF=$(E2_PROF) -DE2_FASTSPRITE=$(E2_FASTSPRITE) -DE2_ROSTER=$(E2_ROSTER)
+SH_CFLAGS += -DENG_RIVAL_SURFACE=$(ENG_RIVAL_SURFACE) -DE2_PACK=$(E2_PACK) -DE2_FASTPOSE=$(E2_FASTPOSE) -DE2_CULL=$(E2_CULL) -DE2_LOD=$(E2_LOD) -DE2_LOD_NEAR=$(E2_LOD_NEAR) -DE2_EARLY=$(E2_EARLY) -DE2_PROF=$(E2_PROF) -DE2_FASTSPRITE=$(E2_FASTSPRITE) -DE2_ROSTER=$(E2_ROSTER)
 SH_CFLAGS += -DE2_EMIT_PROF=$(E2_EMIT_PROF) -DE2_EMIT_HINT=$(E2_EMIT_HINT) -DE2_EMIT_CMD=$(E2_EMIT_CMD) -DE2_EMIT_SHADOW=$(E2_EMIT_SHADOW) -DE2_EMIT_POSE=$(E2_EMIT_POSE) -DE2_EMIT_SETUP=$(E2_EMIT_SETUP) -DE2_EMIT_LINK=$(E2_EMIT_LINK) -DE2_EMIT_CULL=$(E2_EMIT_CULL) -DE2_EMIT_YAW=$(E2_EMIT_YAW)
 ifeq ($(E2_EMIT_YAW):$(E2_EMIT_POSE),1:0)
 $(error E2_EMIT_YAW needs E2_EMIT_POSE=1)
@@ -473,12 +531,26 @@ ifeq ($(E1_CLOSEUP),1)
 # As ../Makefile: view_indexed shares assembler names with view_rails, and pose-1's
 # assembly reads a file-static table, so both stay out of LTO.
 ifeq ($(ENG_SCENES),1)
+ifeq ($(ENG_P3_UI),1)
+C8_ART_CHECK := $(foreach R,$(ENG_TITLE_ART)/title.receipt course_menu/course_menu.receipt select_art/select_art.receipt,$(shell sh ../../tools/check_receipt.sh $(G)/$(R) >/dev/null 2>&1 || echo $(R)))
+ifneq ($(strip $(C8_ART_CHECK)),)
+$(error Missing or stale C8 title/course art: $(C8_ART_CHECK))
+endif
+SH_CFLAGS += -I$(G)/$(ENG_TITLE_ART) -I$(G)/c8_cards -I$(G)/guest_mach3d
+SH_SRCS += machine_tuning.c
+SH_CFLAGS += -DENG_SCENES=1 -DFZX_CUP_DIAG_CATALOG=$(FZX_CUP_DIAG_CATALOG) -DFZX_GUEST_MASK=$(FZX_GUEST_MASK)ull -I$(G)/mach3d -I$(G)/machine_tuning -I$(G)/select_art -DFZX_CD_STREAM=1 -DFZX_LOAD_VERIFIED=1 -DENG_ROSTER=$(ENG_ROSTER) -DENG_SCN_STALL_CONTROL=$(ENG_SCN_STALL_CONTROL) -I$(G)/roster -DFZX_ROAD_PREP_BAKED=1 -I$(GC)/road_prep -I$(GC)/engine_path_ranges
+else
 SH_CFLAGS += -DENG_SCENES=1 -DFZX_CUP_DIAG_CATALOG=$(FZX_CUP_DIAG_CATALOG) -DFZX_GUEST_MASK=$(FZX_GUEST_MASK)ull -I$(G)/mach3d_scn -DFZX_CD_STREAM=1 -DFZX_LOAD_VERIFIED=1 -DENG_ROSTER=$(ENG_ROSTER) -DENG_SCN_STALL_CONTROL=$(ENG_SCN_STALL_CONTROL) -I$(G)/roster -DFZX_ROAD_PREP_BAKED=1 -I$(GC)/road_prep -I$(GC)/engine_path_ranges
+endif
 else
 SH_CFLAGS += -I$(G)/$(E1_REBAKE) -I$(G)/$(E1_VEHICLE)
 endif
 # 16 root files plus MACHAB.PAK: the CD loader reads up to 32 root entries (default 16).
+ifeq ($(ENG_P3_UI),1)
+SH_CFLAGS += $$(if $$(filter %/texture_cd.c,$$<),-DFZX_TEXTURE_CD_ROOT_ENTRIES=$(if $(filter 1,$(ENG_SCENES)),128,32),)
+else
 SH_CFLAGS += $$(if $$(filter %/texture_cd.c,$$<),-DFZX_TEXTURE_CD_ROOT_ENTRIES=$(if $(filter 1,$(ENG_COURSE_SELECT)),96,32),)
+endif
 SH_CFLAGS += $$(if $$(filter engine_closeup.c %/fzx_vehicle.c %/fzx_vehicle_draw.c,$$<),-DFZX_SOURCE_CAMERA=1 -DFZX_SOURCE_MACHINE=1 -DFZX_VEHICLE_NATIVE=1 -DFZX_VEHICLE_FAST=1 -DFZX_VEHICLE_POSE1=1,)
 SH_CFLAGS += $$(if $$(filter %/sh2zam_view_indexed.c %/sh2zam_pose.c,$$<),-fno-lto,)
 endif
@@ -525,6 +597,13 @@ IP_1ST_READ_SIZE := 0
 include $(YAUL_INSTALL_ROOT)/share/build.post.iso-cue.mk
 
 $(SH_OUTPUT_PATH)/$(SH_PROGRAM).iso: $(GC)/engine_path/ENGPATH.PAK
+ifeq ($(ENG_P3_UI),1)
+ifeq ($(ENG_SCENES),1)
+$(filter %engine_scenes.o,$(SH_OBJS_UNIQ)): $(G)/c8_cards/engine_load_cards.h $(G)/select_art/select_art.h
+$(SH_OUTPUT_PATH)/$(SH_PROGRAM).iso: $(G)/$(ENG_TITLE_ART)/TITLE.PAK $(G)/select_art/SELECT.PAK
+$(SH_OUTPUT_PATH)/$(SH_PROGRAM).iso: $(GUEST_PLAYER_PACKS)
+endif
+endif
 pre-build-iso: stage-e0-packs
 .PHONY: stage-e0-packs
 stage-e0-packs:
@@ -538,8 +617,15 @@ ifeq ($(FZX_E1_DRIVE),1)
 	cp $(GC)/physics/PHYS.PAK $(G)/$(E1_SPRITES)/RSPRITE.PAK "$(IMAGE_DIRECTORY)/"
 endif
 ifeq ($(ENG_SCENES),1)
+ifeq ($(ENG_P3_UI),1)
+	cp $(G)/$(ENG_TITLE_ART)/TITLE.PAK $(G)/select_art/SELECT.PAK "$(IMAGE_DIRECTORY)/"
+	rm -f "$(IMAGE_DIRECTORY)"/MACH3D*.PAK
+	cp $(foreach F,$(ENG_ENTRANT_PACKS),$(G)/mach3d/MACH3D$(F).PAK) "$(IMAGE_DIRECTORY)/"
+	$(if $(GUEST_PLAYER_PACKS),cp $(GUEST_PLAYER_PACKS) "$(IMAGE_DIRECTORY)/",)
+else
 	rm -f "$(IMAGE_DIRECTORY)"/MACH3D*.PAK
 	cp $(foreach F,$(ENG_ENTRANT_PACKS),$(G)/mach3d_scn/MACH3D$(F).PAK) "$(IMAGE_DIRECTORY)/"
+endif
 	$(if $(filter 1,$(ENG_ROSTER)),cp $(G)/roster/ROSTERZ.PAK "$(IMAGE_DIRECTORY)/",rm -f "$(IMAGE_DIRECTORY)/ROSTERZ.PAK")
 	cp $(GC)/road_prep/ROADPREP.PAK "$(IMAGE_DIRECTORY)/"
 else ifeq ($(E1_CLOSEUP),1)

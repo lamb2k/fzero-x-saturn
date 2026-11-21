@@ -7,6 +7,15 @@
 #endif
 #include "physics_native.h"
 #include "physics_identity.h"
+#if E1_DRIVER == 2
+#include "drive_ahead.h"
+#endif
+#ifndef FZX_P3_BASELINE
+#if ENG_SCENES
+#include "engine_scenes.h"
+#include "machine_tuning.h"
+#endif
+#endif
 #include "course_select.h"
 #include "racer_sprites_identity.h"
 #include "texture_cd.h"
@@ -26,7 +35,8 @@
 #ifndef E1_DRIVER
 #define E1_DRIVER 0
 #endif
-/* R01: kl 0.004, kh 2.5, target 0; R02 adds B every 240 ticks. */
+/* 1, R01: kl 0.004, kh 2.5, target 0; R02 adds B every 240 ticks. 2, R03: the original CPU steering law with
+ * its look-ahead (drive_ahead.h), the GP test driver that finishes every Jack course (Port Town included). */
 #ifndef E1_DRIVER_BOOST
 #define E1_DRIVER_BOOST 0
 #endif
@@ -148,7 +158,11 @@ void fzx_drive_step(uint32_t n) {
             uint16_t button = ticks >= RACE_START_TICK ? N64_A : 0u;
             signed char sx = 0;
             if (body.intro == 0) {
+#if E1_DRIVER == 2
+                sx = fzx_e1_driver == 2u ? fzx_drive_ahead(&course.track, &body, 0.1f, &button) : driver_stick();
+#else
                 sx = driver_stick();
+#endif
                 if (E1_DRIVER_BOOST > 0 && ticks % E1_DRIVER_BOOST == 0u) button |= N64_B;
             }
             sh2z_vd_input_t in;
@@ -373,6 +387,14 @@ bool fzx_drive_load(void *scratch, uint32_t scratch_bytes) {
     if (!fzx_texture_cd_load(CNAME(FZX_CF_PHYS,"PHYS.PAK"), CSEL(phys_bytes,FZX_PHYSICS_PACK_BYTES), CSEL(phys_hash,FZX_PHYSICS_PACK_HASH), pack_buf, scratch, scratch_bytes))
         { fzx_e1_status = 2; return false; }
     if (fzx_phys_load(&course, (const uint8_t *)pack_buf, CSEL(phys_bytes,FZX_PHYSICS_PACK_BYTES), 1) != 0) { fzx_e1_status = 3; return false; }
+#ifndef FZX_P3_BASELINE
+#if ENG_SCENES
+    if (!fzx_machine_tune(&course, fzx_session.machine_id, fzx_session.slider_bits)) {
+        fzx_e1_status = 11;
+        return false;
+    }
+#endif
+#endif
     body = course.start; prev_n64 = 0; ticks = 0;
     memset(&pad_state, 0, sizeof(pad_state));
 #if E1_FIELD

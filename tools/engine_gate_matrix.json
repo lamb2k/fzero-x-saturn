@@ -378,7 +378,22 @@
    ],
    "expect_error": "until timed out: until 1 1 3000",
    "expect_mark_not": "title",
-   "expect_open": "fzx_smpc_quiet"
+   "expect_open": "fzx_smpc_quiet",
+   "pair": "arm-smpc2"
+  },
+  {
+   "name": "arm-smpc2",
+   "check": "loop",
+   "how": "test arm paired with ctl-smpc (counts when it passes): the same window held open across a vertical blank with the quiet SMPC kept; the loop passes and reaches title with fzx_smpc_quiet balanced",
+   "image": "scenes-drv-snd0",
+   "kind": "loop",
+   "script": "loop.txt",
+   "course": "mute-city-1",
+   "vars": [
+    "ENG_SMPC_OVERLAP_CONTROL=2"
+   ],
+   "expect_mark": "title",
+   "expect_pass": "fzx_smpc_quiet"
   },
   {
    "name": "ctl-reset",

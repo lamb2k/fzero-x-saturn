@@ -205,9 +205,25 @@ def host_ref(path):
 # The gate
 # ---------------------------------------------------------------------------------------------------------------------
 
+def check_controls(matrix):
+    """Matrix rules for controls that count only at an intended stop (C-124): a control with expect_open also names its
+    harness error and expect_mark_not; ctl-smpc stops before title and is paired with a test arm that reaches title
+    with its sections balanced (expect_pass)."""
+    by = {c['name']: c for c in matrix.get('controls', [])}
+    for c in by.values():
+        if c.get('expect_open') and not (c.get('expect_error') and c.get('expect_mark_not')):
+            raise SystemExit('matrix: control %s has expect_open without expect_error and expect_mark_not' % c['name'])
+        if c.get('pair') and not by.get(c['pair'], {}).get('expect_pass'):
+            raise SystemExit('matrix: control %s pairs with %s, which is not an expect_pass arm' % (c['name'], c['pair']))
+    s = by.get('ctl-smpc')
+    if s and not (s.get('expect_open') and s.get('expect_mark_not') == 'title' and s.get('expect_error') and s.get('pair')):
+        raise SystemExit('matrix: ctl-smpc must keep expect_error, expect_open, expect_mark_not=title and its pair')
+
+
 class Gate:
     def __init__(self, args, matrix):
         self.a, self.m = args, matrix
+        check_controls(matrix)
         self.lim = matrix['limits']
         self.ev = Path(args.evidence) / args.label
         self.stage = args.stage
@@ -718,10 +734,10 @@ class Gate:
     def base_bins(self, base_sha, ident, head):
         """BIN hashes of the base's identity images: from the shared receipt cache, else built in this stage."""
         cache = Path(self.a.receipts) / ('%s.bins.json' % base_sha)
-        have = json.loads(cache.read_text()) if cache.exists() else {}
         vars_key = lambda img: ' '.join(self.m['images'][img]['vars'])
         if self.a.base_vars:
-            # The base with extra vars: always built here, kept out of the shared cache (its entries mean default vars).
+            # The base with extra vars: always built here, kept out of the shared cache (its entries mean default vars);
+            # the cache is not read on this path, so a bad or unrelated cache file cannot stop it.
             if base_sha != head['sha']:
                 self.prepare_tree(base_sha)
             got = {}
@@ -733,6 +749,7 @@ class Gate:
             if base_sha != head['sha']:
                 self.prepare_tree(head['sha'])
             return got
+        have = json.loads(cache.read_text()) if cache.exists() else {}
         missing = [img for img in ident if have.get(img, {}).get('vars') != vars_key(img)] if not self.a.rebuild_base else list(ident)
         if missing and base_sha == head['sha'] and not self.a.identity_vars:
             for img in missing:  # the head is the base: its own builds are the base's
@@ -768,8 +785,11 @@ class Gate:
             cue = None
             if sound and r.get('disc') != 'data':
                 cue = self.discs.get(r.get('image_build') or r['image'])
-            return r['name'], self.harness(bd, self.ev / 'runs' / r['name'], kind, pokes if kind == 'race' else str(arg), cap,
-                                           audio=sound, cue=cue)
+            out = self.harness(bd, self.ev / 'runs' / r['name'], kind, pokes if kind == 'race' else str(arg), cap,
+                               audio=sound, cue=cue)
+            # The run-to-image mapping, explicit in the receipt (census tools read it; they never guess from names).
+            out.update(image=r['image'], kind=r.get('kind', ''), build=str(bd), control_build=r.get('image_build') or '')
+            return r['name'], out
 
         log('running %d harness jobs, %d at a time' % (len(jobs), self.a.jobs))
         with cf.ThreadPoolExecutor(max_workers=self.a.jobs) as ex:
@@ -887,7 +907,30 @@ class Gate:
                     at = at and w is not None and w[0] == w[1] + 1
                     shown += '; %s %s' % (c['expect_open'], '%d begun, %d ended' % w if w else 'not read')
                 failed = failed if at else []
+            if c.get('expect_pass'):
+                # A test arm, not a control: it counts when its run passed, reached expect_mark, and the expect_pass
+                # counter pair [begun, ended] is balanced (and non-zero) in that mark's own dump.
+                rd = self.ev / 'runs' / name
+                bd = self.ctl_builds[name]['dir'] if c.get('vars') else builds[c['image']]['dir']
+                seen = marks(read_result(rd))
+                try:
+                    w = Mem(rd, c['expect_mark'], load_syms(Path(bd) / 'fzs-engine.sym')).words(c['expect_pass'], 2)
+                except (OSError, KeyError, struct.error):
+                    w = None
+                ok = (not failed and bool(target) and c['expect_mark'] in seen and w is not None and w[0] == w[1] and w[0] > 0)
+                shown = '%s; mark %s %s; %s %s' % (shown, c['expect_mark'], 'reached' if c['expect_mark'] in seen else 'NOT reached',
+                                                   c['expect_pass'], '%d begun, %d ended' % w if w else 'not read')
+                self.controls.append(dict(control=name, check=chk, how=c['how'], status='PASS' if ok else 'FAIL', shown=shown[:400]))
+                continue
             self.controls.append(dict(control=name, check=chk, how=c['how'], status='PASS' if failed else 'FAIL', shown=shown[:400]))
+        # A paired control counts only when its arm counted (C-124: the forced overlap with the aligned quiet arm).
+        st = {r['control']: r for r in self.controls}
+        for c in self.selected_controls():
+            if c.get('pair') and c['name'] in st:
+                arm = st.get(c['pair'])
+                if not arm or arm['status'] != 'PASS':
+                    st[c['name']]['status'] = 'FAIL'
+                    st[c['name']]['shown'] = (st[c['name']]['shown'] + '; pair %s %s' % (c['pair'], 'not run' if not arm else 'failed'))[:400]
 
     def selected_controls(self):
         want = set(self.a.control_names.split(',')) if self.a.control_names else None

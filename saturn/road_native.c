@@ -29,6 +29,8 @@ static sector_buffer_t sector __aligned(32);
 enum { ROOT_ENTRIES=256 };
 #elif FZX_SOURCE_COUNTDOWN
 enum { ROOT_ENTRIES=32 };
+#elif ENG_SCENES && !defined(FZX_P3_BASELINE)
+enum { ROOT_ENTRIES=128 }; /* course packs, menu art and all 30 stock machine packs */
 #elif ENG_COURSE_SELECT
 enum { ROOT_ENTRIES=96 }; /* every bundled course's packs (six courses x 10 + the image's own) */
 #else

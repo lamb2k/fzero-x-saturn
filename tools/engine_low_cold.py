@@ -12,13 +12,21 @@ The harness is GPL (it links Ymir) and stays outside the repository with the gat
 
 Usage:
     python3 tools/engine_low_cold.py --map BUILD/fzs-engine.map --census RUN [RUN ...] \
-        [--keep NAME,...] [--out saturn/engine/engine_low_text.ld] [--report REPORT.tsv]
+        [--keep NAME,...] [--keep-file NAMES.txt] [--hot-phases 4,100,201] \
+        [--out saturn/engine/engine_low_text.ld] [--report REPORT.tsv]
 
-The map is the ENG_LOW_COLD=0 build the census ran on. Output lines name exact input sections
+The map is the build the census ran on (ENG_LOW_COLD=0, or 1 with an empty function list). Output lines name exact input sections
 (.text.NAME); a section whose name without its .lto_priv.N suffix also belongs to a hot function is left in high
 work RAM, so an LTO renumbering can only move a function back, never move a hot one out. main and
 engine_low_init run before the copy and always stay; --keep adds names (without the leading underscore).
-Exit 1 if a run has no race-phase census (phase 4 or the race image's 201).
+--keep-file adds names from a file (one per line, # comments), for example every function whose source is Yaul,
+libc or libgcc: interrupts are enabled before main, so their handlers must never be in .low. One way to list them:
+    sh2eb-elf-nm -l --defined-only BUILD/fzs-engine.elf | awk -F'\t' '$2 ~ /yaul|libgcc|newlib/ {split($1, a, " ");
+        if (a[2] ~ /^[tT]$/) print substr(a[3], 2)}' > KEEP.txt
+--hot-phases gives the census phases that count as hot (default 4,100,201: the RACE scene, before main, the race
+image's ticking race). With a census that splits the RACE scene (4 = entry, loads and countdown; 204 = from the
+race's first tick on) use --hot-phases 100,201,204.
+Exit 1 if a run has no race-phase census (a hot phase other than 100).
 """
 import argparse
 import bisect
@@ -55,7 +63,7 @@ def text_sections(map_path):
     return [s for s in out if 0x06000000 <= s[1] < 0x06100000 and s[2] > 0]
 
 
-def census(runs):
+def census(runs, hot_phases=HOT_PHASES):
     hot = set()
     for rd in runs:
         phases = set()
@@ -64,11 +72,11 @@ def census(runs):
             if not m:
                 continue
             phases.add(m.group(2))
-            if m.group(2) not in HOT_PHASES:
+            if m.group(2) not in hot_phases:
                 continue
             for line in open(os.path.join(rd, fn)):
                 hot.add(int(line.split()[0], 16))
-        if not phases & {'4', '201'}:
+        if not phases & (set(hot_phases) - {'100'}):
             sys.exit('%s: no race-phase census' % rd)
     return hot
 
@@ -78,12 +86,16 @@ def main():
     ap.add_argument('--map', required=True)
     ap.add_argument('--census', nargs='+', required=True)
     ap.add_argument('--keep', default='')
+    ap.add_argument('--keep-file', default='')
+    ap.add_argument('--hot-phases', default=','.join(sorted(HOT_PHASES)))
     ap.add_argument('--out', default='saturn/engine/engine_low_text.ld')
     ap.add_argument('--report', default='')
     a = ap.parse_args()
     secs = sorted(text_sections(a.map), key=lambda s: s[1])
-    hot_pcs = sorted(census(a.census))
+    hot_pcs = sorted(census(a.census, set(filter(None, a.hot_phases.split(',')))))
     keep = ALWAYS_KEEP | set(filter(None, a.keep.split(',')))
+    if a.keep_file:
+        keep |= {LTO.sub('', l.split('#')[0].strip()) for l in open(a.keep_file)} - {''}
 
     def executed(lo, n):
         i = bisect.bisect_left(hot_pcs, lo)

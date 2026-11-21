@@ -610,13 +610,12 @@ ifneq ($(ENG_LOW_COLD),0)
 ifneq ($(ENG_SCENES),1)
 $(error ENG_LOW_COLD=1 needs ENG_SCENES=1: the block is the scenes image's unused path-pack space)
 endif
-SH_SPECS := engine_low.specs yaul-main.specs
+# engine_low_hot.ld (included after the cold list) comes from the specs' -L: ldctl/off (no section), or with
+# ENG_LOW_HOT_CONTROL=1 (census control only) ldctl/hot, a function every race frame runs, so the census check must fail.
+LOW_HOT := $(if $(filter 1,$(ENG_LOW_HOT_CONTROL)),hot,off)
+SH_SPECS := $(if $(filter 1,$(ENG_LOW_HOT_CONTROL)),engine_low_hotctl.specs,engine_low.specs) yaul-main.specs
 SH_CFLAGS += -DENG_LOW_COLD=1
-# engine_low_hot.ld (included after the cold list): empty (ldctl/off), or with ENG_LOW_HOT_CONTROL=1 (census control
-# only) a function every race frame runs (ldctl/hot), so the census check must fail.
-LOW_HOT_DIR := $(CURDIR)/ldctl/$(if $(filter 1,$(ENG_LOW_HOT_CONTROL)),hot,off)
-SH_LDFLAGS += -Wl,-L,$(LOW_HOT_DIR)
-$(SH_BUILD_PATH)/$(SH_PROGRAM).elf: engine_low.x engine_low_text.ld engine_low_rodata.ld engine_low_bss.ld engine_low.specs $(LOW_HOT_DIR)/engine_low_hot.ld
+$(SH_BUILD_PATH)/$(SH_PROGRAM).elf: engine_low.x engine_low_text.ld engine_low_rodata.ld engine_low_bss.ld engine_low.specs engine_low_hotctl.specs ldctl/$(LOW_HOT)/engine_low_hot.ld
 endif
 
 ifeq ($(ENG_SCENES),1)

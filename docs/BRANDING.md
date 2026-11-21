@@ -9,7 +9,7 @@ to the remaining content. Source attribution remains F-Zero X.
 | Surface | Required change | Status |
 | --- | --- | --- |
 | Product/documentation/workbench name | F Zero S | Local naming updated; no hosting deployment |
-| Cover | F ZERO S logo, original F-Zero identity plus both guests | Private 1800?2400 illustrated cover and uppercase lettering candidate prepared for owner review |
+| Cover | F ZERO S logo, original F-Zero identity plus both guests | Private 1800x2400 illustrated cover and uppercase lettering candidate prepared for owner review |
 | Main title | F ZERO S and both guests, readable at native resolution | Guest title integrated in the P3 scenes image; uppercase lettering candidate verified at HOST, pending look call |
 | Falcon title variant | Consistent F ZERO S branding and guest presence | Pending |
 | Comic title variant | Consistent F ZERO S branding and guest presence | Pending |
@@ -34,12 +34,13 @@ remain stable internal identifiers; credits retain their original source names.
 
 The owner review sheet at `$FZX_EVIDENCE/host/codex-c123-brand/owner-title-review.png`
 compares the current mixed-case wordmark and the uppercase **F ZERO S** candidate
-at 320?224. The lower row shows the candidate before the prompt and with the
+at 320x224. The lower row shows the candidate before the prompt and with the
 controller warning. All four are HOST compositions decoded from their respective
 title atlases. Both options use the same existing guest illustrations.
 
 Choose the lettering for the title and cover, and confirm whether the guests
-and live prompt are readable at native size. The uppercase candidate changes
+and live prompt are readable at native size. In the disconnected still, check
+the red controller warning against the background: its contrast is low. The uppercase candidate changes
 only the wordmark slot and keeps the atlas size fixed. Its private generator,
 receipt-bound pack and input lineage sit beside the review sheet. The emulator
 pad entry in C-113 covered the current title. The uppercase candidate still

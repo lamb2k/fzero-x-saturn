@@ -292,6 +292,8 @@ endif
 # --classes, four reference GP reports) and, in the one-disc image, generated/courses/select/course_class.c
 # (tools/course_class_bundle.py). Scenes images race fzx_session.difficulty, others fzx_field_class (default 1).
 # Default 0: every class races the Standard rows (rivals_field.h).
+# Parked at 0 (coordinator 2026-11-21): class pace is not measured or judged in any line-field-5 gate; the rival-class
+# lane (claude/rival-class, SH2ZAM line-field-6) owns C-097's class-pace judge, turns it on and gates it.
 ENG_RIVAL_CLASS ?= 0
 ifeq ($(filter 0 1,$(ENG_RIVAL_CLASS)),)
 $(error ENG_RIVAL_CLASS must be 0 or 1)

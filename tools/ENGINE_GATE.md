@@ -21,6 +21,9 @@ python tools/engine_gate.py --full --only loop,cancel --courses sand-ocean-1
   builds it in your stage. `--rebuild-base` always rebuilds it, for example when your stage's generated assets differ.
 - **`--identity-vars`** gives the make variables for the identity builds, so a lane whose switch defaults to on
   can show that the switch's off position keeps the base's images.
+- **`--base-vars`** adds make variables to the base's identity builds as well, for a switch that already exists on
+  the base with another default (`--identity-vars "ENG_LOW_COLD=0" --base-vars "ENG_LOW_COLD=0"`: both sides with it
+  off). Those base images are always built in your stage and never read from or written to the shared cache.
 - **`--expect image=prefix,...`** checks BINs that were already reported for the same code.
 - **`--rescore`** scores an earlier run's evidence again (same `--label`) without building or running anything.
 - **`--control-names`** limits `--controls` to the named controls.
@@ -49,7 +52,7 @@ with the base's receipt.
 | `host` | SH-2 checkpoints equal HOST's (`fzx-phys --checkpoints 256`, tubes build, the stage's packs); the finish ms equal, or a retirement where HOST retires; a whole race also matches HOST's final state hash | field race; loop's cold race | plus drive, roster, and each course |
 | `determinism` | two runs give the same per-field ticks and pixel hashes, work RAM, VRAM and stills | field race | field race; loop |
 | `loop` | cold and retry races give equal finish ms, checkpoints and tick-2000 stills | sound on | sound on and off |
-| `reboot` | the saved name survives a reboot (the loop script waits for it, and for the saved Mute City record, `RECORD_MS` in `loop.txt`: the image's own HOST finish, from `fzx-atk` for an image built with `ENG_ATTACKS`) | yes | yes |
+| `reboot` | the saved name survives a reboot (the loop script waits for it, and for the saved Mute City record, `RECORD_MS` in `loop.txt`: the image's own Mute City HOST finish from `fzx-phys`; an image built with `ENG_ATTACKS` stops the gate, since this line has no `fzx-atk` reference) | yes | yes |
 | `reset` | the soft reset returns to TITLE from title, select, records, a fade, load, race and results; the fire count rises each time | sound on | sound on and off |
 | `cancel` | loads cancelled at 30, 100 and 180 fields return to TITLE (load state 3), and the next cold load races | sound on | sound on and off |
 | `menus` | no menu frame over two fields: `fzx_scn_ctl[7]` is 0 and `[6]` is at most 2 at every mark | every scenes run | every scenes run |

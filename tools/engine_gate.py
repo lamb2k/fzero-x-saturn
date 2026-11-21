@@ -331,9 +331,14 @@ class Gate:
         return (None if bad else out / 'fzs-engine.cue'), ('; '.join(bad) if bad else detail)
 
     def record_ms(self, hosts, build_dir, offset=0):
-        """The Mute City record a loop script waits for (RECORD_MS): the image's own R01 HOST finish (host_for: fzx-phys,
-        or fzx-atk for an image built with ENG_ATTACKS), plus OFFSET for the control that must time out."""
-        ref = self.host_for(hosts, 'mute-city-1', build_dir)
+        """The Mute City record a loop script waits for (RECORD_MS): the image's own R01 HOST finish (fzx-phys, the
+        player alone), plus OFFSET for the control that must time out. This line has no attack HOST (fzx-atk): an
+        image whose symbols hold fzx_atk_chk stops the gate rather than wait for the wrong record."""
+        if ' _fzx_atk_chk' in (Path(build_dir) / 'fzs-engine.sym').read_text():
+            raise SystemExit('RECORD_MS: %s is built with ENG_ATTACKS and this gate has no fzx-atk reference' % build_dir)
+        if 'mute-city-1' not in hosts:
+            hosts['mute-city-1'] = self.host(self.ev / 'host', 'mute-city-1', '0.004,2.5')
+        ref = hosts['mute-city-1']
         if not ref or ref['finish_ms'] is None:
             raise SystemExit('no Mute City HOST finish for RECORD_MS (%s)' % build_dir)
         return ref['finish_ms'] + offset
@@ -623,7 +628,8 @@ class Gate:
             for img in ident:
                 hb, bb = id_builds[img].get('bin'), base_bins.get(img)
                 self.add('identity', img, hb is not None and hb == bb, '%s vs base %s' % ((hb or '-')[:16], (bb or '-')[:16]),
-                         'base %s%s' % (base_sha[:12], (' with ' + a.identity_vars) if a.identity_vars else ''))
+                         'base %s%s%s' % (base_sha[:12], (' with ' + a.identity_vars) if a.identity_vars else '',
+                                          ('; base with ' + a.base_vars) if a.base_vars else ''))
         if a.expect:
             for spec in a.expect.split(','):
                 img, pre = spec.split('=')
@@ -712,6 +718,19 @@ class Gate:
         cache = Path(self.a.receipts) / ('%s.bins.json' % base_sha)
         have = json.loads(cache.read_text()) if cache.exists() else {}
         vars_key = lambda img: ' '.join(self.m['images'][img]['vars'])
+        if self.a.base_vars:
+            # The base with extra vars: always built here, kept out of the shared cache (its entries mean default vars).
+            if base_sha != head['sha']:
+                self.prepare_tree(base_sha)
+            got = {}
+            for img in ident:
+                b = self.build(self.ev / 'base-builds', img, self.m['images'][img]['vars'] + self.a.base_vars.split())
+                if b['ok']:
+                    got[img] = b['bin']
+                log('base %-16s %s (with %s)' % (img, b.get('bin', 'FAILED')[:16], self.a.base_vars))
+            if base_sha != head['sha']:
+                self.prepare_tree(head['sha'])
+            return got
         missing = [img for img in ident if have.get(img, {}).get('vars') != vars_key(img)] if not self.a.rebuild_base else list(ident)
         if missing and base_sha == head['sha'] and not self.a.identity_vars:
             for img in missing:  # the head is the base: its own builds are the base's
@@ -950,6 +969,9 @@ def main():
     ap.add_argument('--base', default='origin/engine', help='identity base (default origin/engine); "" skips identity')
     ap.add_argument('--rebuild-base', action='store_true', help="build the base's images here even if the receipt cache has them")
     ap.add_argument('--identity-vars', default='', help='make vars for the identity builds (a lane\'s switches off)')
+    ap.add_argument('--base-vars', default='', help='make vars added to the base\'s identity builds too (built in this '
+                    'stage, never read from or written to the shared receipt cache): for a switch that already exists '
+                    'on the base, compare both with it off')
     ap.add_argument('--expect', default='', help='image=binprefix,... : BINs already reported for this code')
     ap.add_argument('--only', default='', help='run names or kinds to run (comma list)')
     ap.add_argument('--courses', default='', help='course slugs for course runs (comma list)')

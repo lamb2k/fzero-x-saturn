@@ -1160,9 +1160,17 @@ static void build(row_t *row, const fzx_engine_cam_t *cam, uint32_t tick, uint16
 extern uint32_t __low_start[], __low_end[], __low_load[], __lowbss_start[], __lowbss_end[], __end[];
 volatile uint32_t fzx_low_report[4];
 static void __attribute__((noinline)) engine_low_init(void) {
-    const volatile uint32_t *src = __low_load;
-    for (volatile uint32_t *dst = __low_start; dst < __low_end; ) *dst++ = *src++;
-    for (volatile uint32_t *p = __lowbss_start; p < __lowbss_end; ) *p++ = 0u;
+    /* The linker labels are distinct arrays to C, so the extents are integer address differences and the loops
+     * run by word count; no pointer into one label is ordered against another (C-127 finding 5). engine_low.x
+     * aligns every label to 16 bytes and asserts the block's limits. */
+    const uintptr_t low = (uintptr_t)__low_start, bss = (uintptr_t)__lowbss_start;
+    const uint32_t low_words = (uint32_t)(((uintptr_t)__low_end - low) / 4u);
+    const uint32_t bss_words = (uint32_t)(((uintptr_t)__lowbss_end - bss) / 4u);
+    const volatile uint32_t *src = (const volatile uint32_t *)(uintptr_t)__low_load;
+    volatile uint32_t *dst = (volatile uint32_t *)low;
+    for (uint32_t n = low_words; n; --n) *dst++ = *src++;
+    volatile uint32_t *p = (volatile uint32_t *)bss;
+    for (uint32_t n = bss_words; n; --n) *p++ = 0u;
     cpu_cache_purge();
     const uint32_t control = (uint32_t)(tlsf_size() + tlsf_pool_overhead() + tlsf_block_size_min());
     fzx_low_report[0] = (uint32_t)((uintptr_t)__low_end - (uintptr_t)__low_start);

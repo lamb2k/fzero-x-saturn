@@ -226,31 +226,45 @@ void fzx_road_stream_clut_touch(void){
     if(!d)return;
     for(uint32_t i=0;i<fzx_road_stream_clut_report[0]*16u;++i)d[i]=d[i];
 }
+/* While the tables move, a moved material keeps its old offset in the low 20 bits and its slot + 1
+ * above them (no work-RAM list; the offsets are below the 512 KB of VDP1 VRAM). */
+#define CLUT_SLOT_SHIFT 20u
+#define CLUT_SLOTS 256u
 bool fzx_road_stream_clut_align(void *area,uint32_t area_bytes,uint32_t *used){
-    enum{MOVED_MAX=256u};
-    static uint32_t moved_from[MOVED_MAX];
     const uintptr_t pixels=(uintptr_t)fzx_road_stream_report[7],dest=(uintptr_t)area;
     const uintptr_t base=(uintptr_t)VDP1_VRAM(0);
     fzx_road_stream_clut_report[0]=0;fzx_road_stream_clut_report[1]=0;fzx_road_stream_clut_report[2]=2;
     if(!used||fzx_road_stream_status!=1||!work||!work->images||(dest&31u)||dest<base||
        area_bytes>base+0x80000u-dest||dest<pixels+CSEL(lod_tex_bytes,FZX_ROAD_LOD_TEXTURE_BYTES))return false;
     *used=0;
+    const uint32_t low=(1u<<CLUT_SLOT_SHIFT)-1u,count=work->image_capacity*3u;
     uint32_t n=0,lookups=0;
-    for(uint32_t i=0;i<work->image_capacity;++i)for(unsigned v=0;v<3u;++v){
-        fzx_road_stream_material_t *m=&work->images[i].variant[v];
+    for(uint32_t q=0;q<count;++q){
+        fzx_road_stream_material_t *m=&work->images[q/3u].variant[q%3u];
         if(!m->mode)continue;
         ++lookups;
         if(!((pixels+m->palette)&31u))continue;
-        uint32_t k=0;
-        while(k<n&&moved_from[k]!=m->palette)++k;
+        uint32_t k=n;
+        for(uint32_t p=0;p<q&&k==n;++p){
+            const fzx_road_stream_material_t *o=&work->images[p/3u].variant[p%3u];
+            if(o->mode&&(o->palette>>CLUT_SLOT_SHIFT)&&(o->palette&low)==m->palette)k=(o->palette>>CLUT_SLOT_SHIFT)-1u;
+        }
         if(k==n){
-            if(n==MOVED_MAX||(n+1u)*32u>area_bytes){fzx_road_stream_clut_report[2]=3;return false;}
+            if(n==CLUT_SLOTS||(n+1u)*32u>area_bytes||m->palette>low){
+                for(uint32_t p=0;p<q;++p){fzx_road_stream_material_t *o=&work->images[p/3u].variant[p%3u];
+                    if(o->mode)o->palette&=low;} /* the old offsets back, then refuse */
+                fzx_road_stream_clut_report[2]=3;return false;
+            }
             const volatile uint16_t *s=(const volatile uint16_t *)(pixels+m->palette);
             volatile uint16_t *d=(volatile uint16_t *)(dest+n*32u);
             for(unsigned j=0;j<16u;++j)d[j]=s[j];
-            moved_from[n++]=m->palette;
+            ++n;
         }
-        m->palette=(uint32_t)(dest+k*32u-pixels);
+        m->palette|=(k+1u)<<CLUT_SLOT_SHIFT;
+    }
+    for(uint32_t q=0;q<count;++q){
+        fzx_road_stream_material_t *m=&work->images[q/3u].variant[q%3u];
+        if(m->mode&&(m->palette>>CLUT_SLOT_SHIFT))m->palette=(uint32_t)(dest+((m->palette>>CLUT_SLOT_SHIFT)-1u)*32u-pixels);
     }
     *used=n*32u;clut_area=dest;
     fzx_road_stream_clut_report[0]=n;fzx_road_stream_clut_report[1]=lookups;fzx_road_stream_clut_report[2]=1;

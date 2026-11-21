@@ -588,7 +588,12 @@ void fzx_field_tick(const sh2z_vd_body_t *player) {
     if (fzx_field_report[0] != 1) return;
     player_into_field(player);
     if (!field.started && player->race_time > 0) { sh2z_field_start(&field); fzx_field_report[4] = field.tick; }
-    sh2z_field_step(&field);
+    /* line-field-7: the step for this image's behaviour block (the other is not linked). */
+#if ENG_RIVAL_BEHAVE && E2_PACK
+    sh2z_field_step_behave(&field);
+#else
+    sh2z_field_step_plain(&field);
+#endif
     fzx_field_report[3] = field.tick; fzx_field_report[5] = field.contacts;
     fzx_field_report[11] = field.finished; fzx_field_report[12] = field.retired;
 #if ENG_RIVAL_BEHAVE

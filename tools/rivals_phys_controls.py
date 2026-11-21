@@ -9,7 +9,7 @@ under $FZX_CONTACT_ROOT/<arm>/.
   rivals_phys_controls.py synth ARM...             per arm: stuck events, and contact incidents with vehicle 0 after the switch"""
 import sys, json, glob, os
 import numpy as np
-CON = os.environ.get('FZX_CONTACT_ROOT', '/root/ptp2/contact'); ARM = os.environ.get('FZX_ARM_ROOT', '/dev/shm/ptp2/arm')
+CON = os.environ['FZX_CONTACT_ROOT']; ARM = os.environ['FZX_ARM_ROOT']
 rt = np.dtype([('t', '<i4'), ('seg', '<i4'), ('flags', '<i4'), ('lap', '<i4'), ('ld', '<f4'), ('lat', '<f4'), ('up', '<f4'),
                ('speed', '<f4'), ('rd', '<f4'), ('x', '<f4'), ('y', '<f4'), ('z', '<f4')])
 

@@ -97,7 +97,8 @@ FZX_CUP_DIAG_CATALOG ?= 0
 ENG_SCN_STALL_CONTROL ?= 0
 # Engine gate control (ctl-smpc): 1 builds the scenes image's backup-library calls without the quiet SMPC
 # (engine_smpc_quiet, engine_main.c) and starts each right after the vertical blank's INTBACK issue, so its
-# RESDISA meets the INTBACK in flight (the hang memory lane part 4 found). Control only; 0 (default).
+# RESDISA meets the INTBACK in flight (the hang memory lane part 4 found). 2 starts each the same way but keeps
+# the quiet SMPC (the fix from its worst starting point). Control and test arms only; 0 (default).
 ENG_SMPC_OVERLAP_CONTROL ?= 0
 # Diagnostic (scenes CD stream, saturn/road_cd.c): 1 records every sector read (FAD, first words, FNV) in
 # fzx_cd_trace; 2 also reads the CD block's FAD of the buffered sector before each transfer. 0 compiles nothing.
@@ -357,7 +358,7 @@ EMIT_SWITCHES := $(E2_EMIT_PROF)$(E2_EMIT_HINT)$(E2_EMIT_CMD)$(E2_EMIT_SHADOW)$(
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter-out 0,$(subst 0,,$(EMIT_SWITCHES))),-em$(EMIT_SWITCHES),)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter-out 00000,$(BAL_SWITCHES)),-bal$(BAL_SWITCHES),)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter 0,$(E0_FLOOR_NEAR0)),-fn0,)
-SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter-out mute-city-1,$(ENG_COURSE)),-$(ENG_COURSE),)$(if $(E1_DRIVER_KH),-kh$(E1_DRIVER_KH),)$(if $(filter 1,$(ENG_COURSE_SELECT)),-sel,)$(if $(filter 1,$(ENG_TUBES)),-tubes,)$(if $(filter 0,$(ENG_RIVAL_SURFACE)),-rs0,)$(if $(filter 1,$(ENG_SCN_STALL_CONTROL)),-stallctl,)$(if $(filter 1,$(ENG_SMPC_OVERLAP_CONTROL)),-smpcctl,)$(if $(filter-out 0,$(FZX_CD_TRACE)),-cdtrace$(FZX_CD_TRACE),)$(if $(filter 1,$(FZX_CD_STALE_CONTROL)),-stalectl,)
+SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter-out mute-city-1,$(ENG_COURSE)),-$(ENG_COURSE),)$(if $(E1_DRIVER_KH),-kh$(E1_DRIVER_KH),)$(if $(filter 1,$(ENG_COURSE_SELECT)),-sel,)$(if $(filter 1,$(ENG_TUBES)),-tubes,)$(if $(filter 0,$(ENG_RIVAL_SURFACE)),-rs0,)$(if $(filter 1,$(ENG_SCN_STALL_CONTROL)),-stallctl,)$(if $(filter-out 0,$(ENG_SMPC_OVERLAP_CONTROL)),-smpcctl$(ENG_SMPC_OVERLAP_CONTROL),)$(if $(filter-out 0,$(FZX_CD_TRACE)),-cdtrace$(FZX_CD_TRACE),)$(if $(filter 1,$(FZX_CD_STALE_CONTROL)),-stalectl,)
 ifeq ($(ENG_SCENES)$(ENG_P3_UI),10)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)-p3off
 endif

@@ -353,7 +353,9 @@ class Gate:
             text = text.replace('RECORD_MS', str(record_ms))
         if not self.a.clips:
             text = '\n'.join(l for l in text.splitlines() if not l.startswith('clip ')) + '\n'
-        p = self.ev / 'scripts' / ('%s-%s' % (course_index if course_index is not None else 'x', name))
+        # The record is in the file name: ctl-record's loop.txt (RECORD_MS + 1) must not overwrite the loop's.
+        p = self.ev / 'scripts' / ('%s-%s%s' % (course_index if course_index is not None else 'x',
+                                                'r%d-' % record_ms if record_ms is not None else '', name))
         p.parent.mkdir(exist_ok=True)
         p.write_text(text)
         return p

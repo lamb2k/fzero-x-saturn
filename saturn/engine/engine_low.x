@@ -137,3 +137,6 @@ ASSERT (_fzx_course_ids >= ___low_start && _fzx_course_ids < ___low_end, "engine
 /* The load image fits inside its host buffers, which lie outside the range start-up zeroes. */
 ASSERT (___low_load_end <= ___bsshost_end, "engine_low.x: .low is larger than its host buffers (.bsshost)")
 ASSERT (___bsshost_end <= ___bss_start, "engine_low.x: .bsshost overlaps the range start-up zeroes")
+/* main runs before .low is copied in; it is .text.startup.main, which a name check can miss. (engine_low_init, also
+ * run before the copy, is a local symbol that ld cannot name here; engine_low_cold.py always keeps it.) */
+ASSERT (_main >= ___low_end || _main < ___low_start, "engine_low.x: main is in .low")

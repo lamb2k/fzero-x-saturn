@@ -51,6 +51,14 @@ import sys
 HOT_PHASES = {'4', '100', '201'}
 ALWAYS_KEEP = {'main', 'engine_low_init'}
 LTO = re.compile(r'(\.lto_priv\.\d+)+$')
+GCC_SUB = re.compile(r'^(startup|unlikely|hot|exit)\.')
+
+
+def function_name(section):
+    """The function a .text.* input section holds: without .lto_priv.N and without GCC's subsection prefix
+    (.text.startup.main is main: memory lane part 4 found main linked into .low because the keep check saw
+    startup.main)."""
+    return GCC_SUB.sub('', LTO.sub('', section[len('.text.'):]))
 
 
 def text_sections(map_path, anywhere=False):
@@ -90,7 +98,7 @@ def listed(path):
 def filter_list(a):
     """--filter: the sections of an earlier list that this image has (by name, or by a base name unique in both
     maps); the rest skipped, and both reported."""
-    base = lambda name: LTO.sub('', name[len('.text.'):])
+    base = function_name
 
     def by_base(path):
         out = collections.defaultdict(list)
@@ -217,7 +225,7 @@ def main():
         i = bisect.bisect_left(hot_pcs, lo)
         return i < len(hot_pcs) and hot_pcs[i] < lo + n
 
-    base = lambda name: LTO.sub('', name[len('.text.'):])
+    base = function_name
     hot = {s[0] for s in secs if executed(s[1], s[2])}
     hot_bases = {base(n) for n in hot}
     rows, cold = [], []

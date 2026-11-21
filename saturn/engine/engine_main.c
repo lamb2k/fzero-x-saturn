@@ -1150,26 +1150,30 @@ static void build(row_t *row, const fzx_engine_cam_t *cam, uint32_t tick, uint16
 }
 
 #if ENG_LOW_COLD
-#include <mm/tlsf.h>
-/* Cold code and data in low work RAM (ENG_LOW_COLD, engine_low.x). The BIN carries .low above ___end, past the
- * user heap's control block that Yaul writes at ___end before main; nothing in .low runs before main (the census
- * that made engine_low_text.ld keeps every function executed before main in high work RAM). This runs first in
- * main: it copies .low down, zeroes .lowbss, then checks that the heap's control block (tlsf_size() and its first
- * block) ended below the load image, so the copy read what the BIN carried. [0] .low bytes, [1] .lowbss bytes,
- * [2] heap control bytes, [3] gap from ___end to the load image. Fault 63 if the control block reached it. */
-extern uint32_t __low_start[], __low_end[], __low_load[], __lowbss_start[], __lowbss_end[], __end[];
+/* Cold code and data in low work RAM (ENG_LOW_COLD, engine_low.x). The BIN carries .low's load image inside
+ * .bsshost (high work RAM buffers between .data and .bss, here engine_closeup.c's tables), which Yaul's start-up
+ * does not zero and nothing touches before main; nothing in .low runs before main or in a running race (the
+ * census that made engine_low_text.ld keeps every function executed then, and all Yaul code, in high work RAM).
+ * This runs first in main: it copies .low down, zeroes .lowbss and .bsshost, then reads .bsshost back. [0] .low
+ * bytes, [1] .lowbss bytes, [2] .bsshost bytes, [3] the first .bsshost word offset found non-zero + 1 (0: all
+ * zero). Fault 63 if .bsshost is not zero after the copy: its owners expect zeroed buffers. */
+extern uint32_t __low_start[], __low_end[], __low_load[], __lowbss_start[], __lowbss_end[];
+extern uint32_t __bsshost_start[], __bsshost_end[];
 volatile uint32_t fzx_low_report[4];
 static void __attribute__((noinline)) engine_low_init(void) {
     const volatile uint32_t *src = __low_load;
     for (volatile uint32_t *dst = __low_start; dst < __low_end; ) *dst++ = *src++;
     for (volatile uint32_t *p = __lowbss_start; p < __lowbss_end; ) *p++ = 0u;
+    for (volatile uint32_t *p = __bsshost_start; p < __bsshost_end; ) *p++ = 0u;
     cpu_cache_purge();
-    const uint32_t control = (uint32_t)(tlsf_size() + tlsf_pool_overhead() + tlsf_block_size_min());
+    uint32_t dirty = 0u;
+    for (const volatile uint32_t *p = __bsshost_start; p < __bsshost_end; ++p)
+        if (*p != 0u) { dirty = (uint32_t)(p - (const volatile uint32_t *)__bsshost_start) + 1u; break; }
     fzx_low_report[0] = (uint32_t)((uintptr_t)__low_end - (uintptr_t)__low_start);
     fzx_low_report[1] = (uint32_t)((uintptr_t)__lowbss_end - (uintptr_t)__lowbss_start);
-    fzx_low_report[2] = control;
-    fzx_low_report[3] = (uint32_t)((uintptr_t)__low_load - (uintptr_t)__end);
-    if (control > fzx_low_report[3]) { fzx_e0_fault = 63u; fzx_e0_status = 63u; for (;;) {} }
+    fzx_low_report[2] = (uint32_t)((uintptr_t)__bsshost_end - (uintptr_t)__bsshost_start);
+    fzx_low_report[3] = dirty;
+    if (dirty) { fzx_e0_fault = 63u; fzx_e0_status = 63u; for (;;) {} }
 }
 #endif
 

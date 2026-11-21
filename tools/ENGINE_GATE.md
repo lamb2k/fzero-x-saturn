@@ -49,7 +49,7 @@ with the base's receipt.
 | `host` | SH-2 checkpoints equal HOST's (`fzx-phys --checkpoints 256`, tubes build, the stage's packs); the finish ms equal, or a retirement where HOST retires; a whole race also matches HOST's final state hash | field race; loop's cold race | plus drive, roster, and each course |
 | `determinism` | two runs give the same per-field ticks and pixel hashes, work RAM, VRAM and stills | field race | field race; loop |
 | `loop` | cold and retry races give equal finish ms, checkpoints and tick-2000 stills | sound on | sound on and off |
-| `reboot` | the saved name survives a reboot (the loop script waits for it) | yes | yes |
+| `reboot` | the saved name survives a reboot (the loop script waits for it, and for the saved Mute City record, `RECORD_MS` in `loop.txt`: the image's own HOST finish, from `fzx-atk` for an image built with `ENG_ATTACKS`) | yes | yes |
 | `reset` | the soft reset returns to TITLE from title, select, records, a fade, load, race and results; the fire count rises each time | sound on | sound on and off |
 | `cancel` | loads cancelled at 30, 100 and 180 fields return to TITLE (load state 3), and the next cold load races | sound on | sound on and off |
 | `menus` | no menu frame over two fields: `fzx_scn_ctl[7]` is 0 and `[6]` is at most 2 at every mark | every scenes run | every scenes run |
@@ -86,6 +86,7 @@ table says so.
 | ctl-stack | memory | a word written into the painted master stack 4 KB above its floor at tick 600 |
 | ctl-guard | memory | the slave stack's first guard word cleared at tick 600 |
 | ctl-loop | loop | the retry race forced to retire |
+| ctl-record | loop | the loop waits for a Mute City record 1 ms off the image's HOST finish (`RECORD_MS` + 1), so the wait times out |
 | ctl-reset | reset | the chord without B at SELECT |
 | ctl-cancel | cancel | the chord without B during the load |
 | ctl-menus | menus | `ENG_SCN_STALL_CONTROL=1`: one TITLE frame held for 3 fields |

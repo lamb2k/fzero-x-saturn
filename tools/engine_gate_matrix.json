@@ -353,6 +353,16 @@
    "course": "mute-city-1"
   },
   {
+   "name": "ctl-record",
+   "check": "loop",
+   "how": "the loop script waits for a Mute City record 1 ms off the image's own HOST finish (RECORD_MS + 1): the wait times out",
+   "image": "scenes-drv",
+   "kind": "loop",
+   "script": "loop.txt",
+   "course": "mute-city-1",
+   "record_offset": 1
+  },
+  {
    "name": "ctl-reset",
    "check": "reset",
    "how": "at SELECT the chord lacks one button (0E00), so A confirms and the image goes to LOAD",

@@ -72,7 +72,12 @@ regen)
   cd "$S/w"
   if sh tools/check_receipt.sh "$receipt" >/dev/null 2>&1; then echo "REGEN $receipt current"; exit 0; fi
   d=$(dirname "$receipt"); rm -rf /tmp/gate-regen-$stage; cp -a "$d" /tmp/gate-regen-$stage
-  "$@" > /tmp/gate-regen-$stage.log 2>&1 || { tail -5 /tmp/gate-regen-$stage.log; echo "REGEN $receipt failed"; exit 1; }
+  # The art tools write only into git-ignored folders (git check-ignore). w/ is a git archive, so the generator gets
+  # an empty repository for the tree's .gitignore rules, removed again before anything is built.
+  made_git=0; [ -e .git ] || { git init -q . && made_git=1; }
+  rc=0; "$@" > /tmp/gate-regen-$stage.log 2>&1 || rc=$?
+  [ "$made_git" = 0 ] || rm -rf .git
+  [ "$rc" = 0 ] || { tail -5 /tmp/gate-regen-$stage.log; echo "REGEN $receipt failed"; exit 1; }
   sh tools/check_receipt.sh "$receipt" >/dev/null 2>&1 || { echo "REGEN $receipt still stale"; exit 1; }
   moved=$(cd "$d" && for f in $(sed -n 's/^output [0-9a-f]* //p' "$(basename "$receipt")"); do cmp -s "$f" "/tmp/gate-regen-$stage/$f" || echo "$f"; done | tr '\n' ' ')
   echo "REGEN $receipt regenerated; outputs ${moved:+changed: }${moved:-unchanged}"

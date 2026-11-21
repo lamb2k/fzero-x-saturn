@@ -366,6 +366,21 @@
    "expect_mark_not": "saved1"
   },
   {
+   "name": "ctl-smpc",
+   "check": "loop",
+   "how": "image built with ENG_SMPC_OVERLAP_CONTROL=1: the backup library's SMPC commands without the quiet SMPC, each started right after the vertical blank's INTBACK issue; the boot's records load hangs inside one (fzx_smpc_quiet: one section open) before TITLE",
+   "image": "scenes-drv-snd0",
+   "kind": "loop",
+   "script": "loop.txt",
+   "course": "mute-city-1",
+   "vars": [
+    "ENG_SMPC_OVERLAP_CONTROL=1"
+   ],
+   "expect_error": "until timed out: until 1 1 3000",
+   "expect_mark_not": "title",
+   "expect_open": "fzx_smpc_quiet"
+  },
+  {
    "name": "ctl-reset",
    "check": "reset",
    "how": "at SELECT the chord lacks one button (0E00), so A confirms and the image goes to LOAD",

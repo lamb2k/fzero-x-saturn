@@ -874,9 +874,19 @@ class Gate:
                 bd = self.ctl_builds[name]['dir'] if c.get('vars') else builds[c['image']]['dir']
                 want = c['expect_error'].replace('RECORD_MS', str(self.record_ms(hosts, bd, c.get('record_offset', 0))))
                 got, seen = error_text(self.ev / 'runs' / name), marks(read_result(self.ev / 'runs' / name))
-                at = got == want and c.get('expect_mark', '') in seen and not c.get('expect_mark_not', '') in seen
-                failed = failed if at else []
+                at = (got == want and (not c.get('expect_mark') or c['expect_mark'] in seen)
+                      and not (c.get('expect_mark_not') and c['expect_mark_not'] in seen))
                 shown = 'error "%s" (want "%s"); marks reached %s' % (got, want, ','.join(seen) or '-')
+                if c.get('expect_open'):
+                    # Two words [begun, ended] in the error dump: the run must have stopped inside one section.
+                    try:
+                        mem = Mem(self.ev / 'runs' / name, 'error', load_syms(Path(bd) / 'fzs-engine.sym'))
+                        w = mem.words(c['expect_open'], 2)
+                    except (OSError, KeyError, struct.error):
+                        w = None
+                    at = at and w is not None and w[0] == w[1] + 1
+                    shown += '; %s %s' % (c['expect_open'], '%d begun, %d ended' % w if w else 'not read')
+                failed = failed if at else []
             self.controls.append(dict(control=name, check=chk, how=c['how'], status='PASS' if failed else 'FAIL', shown=shown[:400]))
 
     def selected_controls(self):

@@ -1,0 +1,58 @@
+# CONTROL for the loop check: the retry race is forced to retire after tick 2000, so race 2 cannot equal race 1.
+# P3 (codex/p3-frontend): the new TITLE takes Start after its intro (wait 220); X at SELECT sets the engine
+# balance to 0.0, the setting of the HOST references.
+# C8 integration TA loop (sound on): title, select, cold race to the finish, name entry AAB saved, retry race, name entry, title, cold race 3, soft reset, reboot (the saved name survives).
+until 1 1 3000
+wait 4
+mark title
+wait 220
+pad 0800 2
+until 2 1 600
+wait 4
+pad 0040 3
+wait 6
+wait 6
+mark select
+pad 0400 2
+until 4 1 4000
+mark race1_start
+poke _fzx_e0_hold_tick 2000
+untilword _fzx_input_count 0 2000 4000
+wait 8
+mark race1_t2000
+poke _fzx_e0_hold_tick 0
+until 5 1 12000
+wait 4
+untilword _fzx_rec_report 10 0 4
+mark results1
+pad 0400 3
+wait 3
+pad 0400 3
+wait 3
+pad 0400 3
+wait 3
+pad 0100 3
+wait 3
+pad 8000 3
+wait 3
+pad 0400 3
+wait 3
+pad 0400 5
+wait 5
+untilword _fzx_rec_report 10 1 20
+untilword _table 9 0x41414200 10
+untilword _table 6 104040 10
+wait 4
+mark saved1
+pad 0400 2
+until 4 1 4000
+mark race2_start
+poke _fzx_e0_hold_tick 2000
+untilword _fzx_input_count 0 2000 4000
+wait 8
+mark race2_t2000
+poke _fzx_e0_hold_tick 0
+poke _fzx_scn_force_end 2
+until 5 1 12000
+wait 4
+mark results2

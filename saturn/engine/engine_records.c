@@ -16,8 +16,14 @@ volatile uint32_t fzx_rec_fault;
 static bup_t bup __attribute__((aligned(4)));
 static bup_devices_t devices;
 static bool bup_ready;
+#if ENG_LOW_COLD
+/* Read and written only by the scenes (select, results, records), never during a race frame: low work RAM
+ * (engine_low.x). `io` and `bup` stay in high work RAM: the backup library reads and writes them and has not run
+ * with its buffers in low work RAM on hardware. */
+__attribute__((section(".bss.lowcold.records_table")))
+#endif
 static fzx_records_t table;          /* the RAM table (what the screens read) */
-static fzx_records_t io;             /* one file's image for reads and writes */
+static fzx_records_t io;            /* one file's image for reads and writes */
 static uint32_t file_gen[2];         /* generation of each file, 0 = absent or invalid */
 static bool dirty;
 static uint32_t recent[RECENT], recent_at;

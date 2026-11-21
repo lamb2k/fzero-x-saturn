@@ -33,9 +33,18 @@ const fzx_course_id_t *fzx_course_bundled(uint32_t id) {
     return NULL;
 }
 
+#if ENG_LOW_COLD
+/* The bundle's table is cold and sits in low work RAM (engine_low_rodata.ld); LOAD copies the selected row here,
+ * so everything the race reads through fzx_cid (the skyline ring, the sky colours) stays in high work RAM. */
+static fzx_course_id_t cid_row;
+#endif
 bool fzx_course_use(uint32_t id) {
     const fzx_course_id_t *c = fzx_course_bundled(id);
     if (!c) return false;
+#if ENG_LOW_COLD
+    cid_row = *c;
+    c = &cid_row;
+#endif
     fzx_cid = c;
     return true;
 }

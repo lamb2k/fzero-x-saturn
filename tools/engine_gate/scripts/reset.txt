@@ -1,0 +1,74 @@
+# Engine gate: soft reset from every scene (from claude-c8int scripts/reset.txt).
+# P3 (codex/p3-frontend): the new TITLE takes Start after its intro (wait 220); X at SELECT sets the engine
+# balance to 0.0, the setting of the HOST references.
+# Soft reset (A+B+C+Start) from each scene and mid-fade; the chord fires once (held 30 fields).
+until 1 1 2000
+mark t0
+pad 0F00 30
+wait 2
+until 1 1 600
+mark from_title
+wait 220
+pad 0800 2
+until 2 1 600
+wait 4
+pad 0040 3
+wait 6
+pad 0F00 30
+wait 2
+until 1 1 600
+mark from_select
+pad 0100 2
+until 6 1 600
+pad 0F00 30
+wait 2
+until 1 1 600
+mark from_records
+wait 220
+pad 0800 2
+wait 4
+pad 0F00 30
+wait 2
+until 1 1 600
+mark from_fade
+wait 220
+pad 0800 2
+until 2 1 600
+wait 4
+pad 0040 3
+wait 6
+pad 0400 2
+until 3 1 600
+wait 30
+pad 0F00 1800
+wait 2
+until 1 1 6000
+mark from_load
+wait 220
+pad 0800 2
+until 2 1 600
+wait 4
+pad 0040 3
+wait 6
+pad 0400 2
+until 4 1 6000
+wait 120
+pad 0F00 30
+wait 2
+until 1 1 1200
+mark from_race
+wait 220
+pad 0800 2
+until 2 1 600
+wait 4
+pad 0040 3
+wait 6
+pad 0400 2
+until 4 1 6000
+wait 60
+poke _fzx_scn_force_end 2
+until 5 1 1200
+pad 0F00 30
+wait 2
+until 1 1 1200
+mark from_results

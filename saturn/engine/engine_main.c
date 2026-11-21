@@ -1149,7 +1149,34 @@ static void build(row_t *row, const fzx_engine_cam_t *cam, uint32_t tick, uint16
     if (visible > fzx_e0_report[15]) fzx_e0_report[15] = visible;
 }
 
+#if ENG_LOW_COLD
+#include <mm/tlsf.h>
+/* Cold code and data in low work RAM (ENG_LOW_COLD, engine_low.x). The BIN carries .low above ___end, past the
+ * user heap's control block that Yaul writes at ___end before main; nothing in .low runs before main (the census
+ * that made engine_low_text.ld keeps every function executed before main in high work RAM). This runs first in
+ * main: it copies .low down, zeroes .lowbss, then checks that the heap's control block (tlsf_size() and its first
+ * block) ended below the load image, so the copy read what the BIN carried. [0] .low bytes, [1] .lowbss bytes,
+ * [2] heap control bytes, [3] gap from ___end to the load image. Fault 63 if the control block reached it. */
+extern uint32_t __low_start[], __low_end[], __low_load[], __lowbss_start[], __lowbss_end[], __end[];
+volatile uint32_t fzx_low_report[4];
+static void __attribute__((noinline)) engine_low_init(void) {
+    const volatile uint32_t *src = __low_load;
+    for (volatile uint32_t *dst = __low_start; dst < __low_end; ) *dst++ = *src++;
+    for (volatile uint32_t *p = __lowbss_start; p < __lowbss_end; ) *p++ = 0u;
+    cpu_cache_purge();
+    const uint32_t control = (uint32_t)(tlsf_size() + tlsf_pool_overhead() + tlsf_block_size_min());
+    fzx_low_report[0] = (uint32_t)((uintptr_t)__low_end - (uintptr_t)__low_start);
+    fzx_low_report[1] = (uint32_t)((uintptr_t)__lowbss_end - (uintptr_t)__lowbss_start);
+    fzx_low_report[2] = control;
+    fzx_low_report[3] = (uint32_t)((uintptr_t)__low_load - (uintptr_t)__end);
+    if (control > fzx_low_report[3]) { fzx_e0_fault = 63u; fzx_e0_status = 63u; for (;;) {} }
+}
+#endif
+
 int main(void) {
+#if ENG_LOW_COLD
+    engine_low_init();
+#endif
     cpu_intc_mask_set(0);
     dbgio_init();
 #if FZX_E1_DRIVE
@@ -1191,6 +1218,10 @@ void fzx_race_load(void) {
     if (scratch != PATH_BASE + PATH_CAPACITY) fail(16, "LOW RAM LAYOUT", (uint32_t)scratch);
     for (unsigned i = 0; i < 8u; ++i) ((volatile uint32_t *)(PATH_BASE + PATH_CAPACITY))[(int)i - 8] = LOW_SENTINEL;
 #if ENG_SCENES
+#if ENG_LOW_COLD
+    /* The path header shares the reservation with the low work RAM block (engine_low.x) at 0x00240000. */
+    if (PATH_BASE + CSEL(head_bytes,FZX_EPATH_HEAD_BYTES) > (uintptr_t)__low_start) fail(47, "LOW RAM BLOCK", (uint32_t)(uintptr_t)__low_start);
+#endif
     /* The drive reads only the header and anchors and the lens record (engine_path_ranges.h:
      * about 2 KB of the pack), each checked as it arrives. */
     static fzx_engine_cam_t lens_record __attribute__((aligned(4)));
@@ -1252,6 +1283,18 @@ void fzx_race_load(void) {
     if (offset + CSEL(lod_tex_bytes,FZX_ROAD_LOD_TEXTURE_BYTES) + FZX_ROAD_STREAM_SHADE_BYTES > partitions.texture_size || !fzx_road_stream_load(road_pixels))
         fail(35, "TRACK LOAD", fzx_road_stream_status);
     offset += CSEL(lod_tex_bytes,FZX_ROAD_LOD_TEXTURE_BYTES) + FZX_ROAD_STREAM_SHADE_BYTES;
+#if FZX_ROAD_STREAM_CLUT_ALIGN
+    {
+        /* The track's lookup tables at 32-byte VDP1 addresses (VDP1 ignores CMDCOLR's two low bits). */
+        const uintptr_t tb = (uintptr_t)partitions.texture_base;
+        offset = (uint32_t)((((tb + offset) + 31u) & ~(uintptr_t)31u) - tb);
+        uint32_t clut_bytes = 0;
+        if (offset > partitions.texture_size ||
+            !fzx_road_stream_clut_align((void *)(tb + offset), partitions.texture_size - offset, &clut_bytes))
+            fail(39, "TRACK CLUT ALIGN", fzx_road_stream_clut_report[2]);
+        offset += clut_bytes;
+    }
+#endif
     SCN_STAMP(3);
     SCN_ONCE(fzx_slave_road_init());
     if (fzx_slave_road_status != 1) fail(36, "SLAVE INIT", fzx_slave_road_status);
@@ -1269,7 +1312,16 @@ void fzx_race_load(void) {
         const uint32_t clut_used = 0;
 #endif
         void *const cart_area = dram_cart_area_get();
+#ifndef FZX_P3_BASELINE
+        const uintptr_t cart = (uintptr_t)cart_area;
+#if ENG_SCENES
+        const uintptr_t cart_limit = fzx_title_cart_limit();
+#else
+        const uintptr_t cart_limit = cart + dram_cart_size_get();
+#endif
+#else
         const uintptr_t cart = (uintptr_t)cart_area, cart_limit = cart + dram_cart_size_get();
+#endif
         if (!fzx_drive_sprites_load(&partitions, clut_used, (uintptr_t)fzx_road_stream_cart_end + 32u, cart_limit,
                                     (void *)scratch, 0x0028D000u - 32u - scratch))
             fail(52, "SPRITE LOAD", fzx_e1_status * 100u + fzx_texture_cd_status.status);
@@ -1633,6 +1685,11 @@ bool fzx_race_frame(void) {
         vdp1_sync();
 #endif
         vdp2_sync();
+#if ENG_CLUT_RACE_CONTROL
+        /* Control for the emulator's VRAM race detector (diagnostic only): rewrite the track's
+         * lookup tables for a field while VDP1 draws the frame that reads them. */
+        { const uint32_t f0 = video_fields; while (video_fields == f0) fzx_road_stream_clut_touch(); }
+#endif
 #if ENG_SND
         engine_snd_late(); /* off the build's critical path */
 #endif

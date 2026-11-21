@@ -1,0 +1,57 @@
+# Engine gate: load cancelled at 30, 100 and 180 fields, then a cold load that races (from claude-c8int scripts/cancel.txt).
+# P3 (codex/p3-frontend): the new TITLE takes Start after its intro (wait 220); X at SELECT sets the engine
+# balance to 0.0, the setting of the HOST references.
+until 1 1 2000
+wait 220
+pad 0800 2
+until 2 1 600
+wait 4
+pad 0040 3
+wait 6
+pad 0400 2
+until 3 1 600
+wait 30
+pad 0F00 4
+wait 2
+until 1 1 2000
+mark cancel30
+wait 220
+pad 0800 2
+until 2 1 600
+wait 4
+pad 0040 3
+wait 6
+pad 0400 2
+until 3 1 600
+wait 100
+pad 0F00 4
+wait 2
+until 1 1 2000
+mark cancel100
+wait 220
+pad 0800 2
+until 2 1 600
+wait 4
+pad 0040 3
+wait 6
+pad 0400 2
+until 3 1 600
+wait 180
+pad 0F00 4
+wait 2
+until 1 1 2000
+mark cancel180
+wait 220
+pad 0800 2
+until 2 1 600
+wait 4
+pad 0040 3
+wait 6
+pad 0400 2
+until 3 1 600
+clip on
+until 4 0 3000
+clip off
+until 4 1 3000
+wait 600
+mark race_after

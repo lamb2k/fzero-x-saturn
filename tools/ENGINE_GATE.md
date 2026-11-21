@@ -90,7 +90,7 @@ table says so.
 | ctl-guard | memory | the slave stack's first guard word cleared at tick 600 |
 | ctl-loop | loop | the retry race forced to retire |
 | ctl-record | loop | the loop waits for a Mute City record 1 ms off the image's HOST finish (`RECORD_MS` + 1), so the wait times out; it counts only when the harness error is that record wait (`RECORD_MS` + 1) after mark `results1` and before `saved1` (`expect_error`, `expect_mark`, `expect_mark_not`) |
-| ctl-smpc | loop | `ENG_SMPC_OVERLAP_CONTROL=1` (sound off): the backup library's SMPC commands without the quiet SMPC, each started right after the vertical blank's INTBACK issue; it counts only when the boot hangs before `title` with one quiet section open in the error dump (`fzx_smpc_quiet` begun = ended + 1, `expect_open`) |
+| ctl-smpc | loop | `ENG_SMPC_OVERLAP_CONTROL=1` (sound off): the backup library's SMPC commands without the quiet SMPC, each opened by a RESENAB whose SF stays set across a vertical blank before its command is written (the race's window held open: the handler's INTBACK issue waits on that SF); it counts only when the boot hangs before `title` with one quiet section open in the error dump (`fzx_smpc_quiet` begun = ended + 1, `expect_open`) |
 | ctl-reset | reset | the chord without B at SELECT |
 | ctl-cancel | cancel | the chord without B during the load |
 | ctl-menus | menus | `ENG_SCN_STALL_CONTROL=1`: one TITLE frame held for 3 fields |

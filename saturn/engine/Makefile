@@ -96,9 +96,10 @@ FZX_CUP_DIAG_CATALOG ?= 0
 # when fzx_scn_stall_ctl is written. Diagnostic only; 0 (default) compiles nothing.
 ENG_SCN_STALL_CONTROL ?= 0
 # Engine gate control (ctl-smpc): 1 builds the scenes image's backup-library calls without the quiet SMPC
-# (engine_smpc_quiet, engine_main.c) and starts each right after the vertical blank's INTBACK issue, so its
-# RESDISA meets the INTBACK in flight (the hang memory lane part 4 found). 2 starts each the same way but keeps
-# the quiet SMPC (the fix from its worst starting point). Control and test arms only; 0 (default).
+# (engine_smpc_quiet, engine_main.c) and opens each with a RESENAB whose SF stays set across a vertical blank
+# before its command is written, so the handler's INTBACK issue waits on it for good (the hang memory lane part 4
+# found). 2 does the same but keeps the quiet SMPC (the fix from its worst starting point). Control and test arms
+# only; 0 (default).
 ENG_SMPC_OVERLAP_CONTROL ?= 0
 # Census control (claude-mem4 lowpcs): 1 links fzx_race_frame into .low (ldctl/hot/engine_low_hot.ld), so the
 # check that no low work RAM code runs in a race frame must fail. Control only; 0 (default).

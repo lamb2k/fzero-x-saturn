@@ -514,27 +514,18 @@ static void vblank_out(void *work) {
 
 #if FZX_E1_DRIVE && ENG_SCENES
 /* A quiet SMPC for a command from this thread (the backup library's RESDISA/RESENAB, engine_records.c).
- * vblank_out issues INTBACK every field and does not wait for it to end (Yaul's smpc_smc_intback_call: "does not
- * wait until the SMPC INTBACK command ends"; "Yaul uses this function to [get] SMPC status and fetch peripheral
- * data"). smpc_smc_call's SF wait (smpc/smc.h smpc_smc_wait) is not atomic with the handler's, and a command
- * written while an INTBACK is still in flight never ends: SF stays set and smpc_smc_wait spins for good (memory
- * lane part 4: the sound-off loop hung in the reboot's records save, boot_enter -> fzx_records_load ->
- * write_table -> bup_write's RESDISA). Yaul has no lock for this, so the engine keeps the two apart, as user_init
- * does for the sound commands (before smpc_peripheral_init): begin holds the next issue and waits for one
- * vblank-out to pass without one, so the last INTBACK (issued a field or more earlier) has ended; end lets the
- * next field issue again. The pads miss one or two fields of input per quiet section. The wait is bounded in case
- * vertical blank is not running (then nothing issues INTBACK either). ENG_SMPC_OVERLAP_CONTROL=1 is the control:
- * no hold, and the command starts right after the handler's issue, so it meets the INTBACK. */
+ * vblank_out issues INTBACK every field through smpc_smc_wait(true) (smpc/smc.h: wait for SF clear, set SF, then
+ * the command); smpc_smc_call from this thread does the same, and the two are not atomic. When the vertical blank
+ * lands between this thread's SF set and its COMREG write, the handler waits for an SF that only that command can
+ * clear, and both stop for good (memory lane part 4: the sound-off loop hung in the reboot's records save,
+ * boot_enter -> fzx_records_load -> write_table -> bup_write's RESDISA; the dump's saved main PC is the COMREG
+ * write, and the master spins in smpc_peripheral_intback_issue's SF wait). Yaul has no lock for this, so the
+ * engine keeps the two apart, as user_init does for the sound commands (before smpc_peripheral_init): begin holds
+ * the next issue and waits for one vblank-out to pass without one, so the last INTBACK (issued a field or more
+ * earlier) has ended; end lets the next field issue again. The pads miss one or two fields of input per quiet
+ * section. The wait is bounded in case vertical blank is not running (then nothing issues INTBACK either). */
 void engine_smpc_quiet(bool on) {
     ++fzx_smpc_quiet[on ? 0 : 1];
-#if ENG_SMPC_OVERLAP_CONTROL
-    /* 1 and 2 (test arms): start right after the handler's INTBACK issue; 1 then calls with no hold (the
-     * control), 2 goes on into the quiet SMPC below (the fix from its worst starting point). */
-    if (on) {
-        const uint32_t f0 = video_fields;
-        for (uint32_t spin = 0; video_fields == f0 && spin < (1u << 22); ++spin) { }
-    }
-#endif
 #if ENG_SMPC_OVERLAP_CONTROL == 1
     (void)smpc_hold;
 #else
@@ -542,6 +533,21 @@ void engine_smpc_quiet(bool on) {
     smpc_hold = 1u;
     const uint32_t f = video_fields;
     for (uint32_t spin = 0; video_fields == f && spin < (1u << 22); ++spin) { }
+#endif
+#if ENG_SMPC_OVERLAP_CONTROL
+    /* Control and test arm: the race's window held open. Begin issues a RESENAB (the state each backup call
+     * leaves) the way smpc_smc_call does, with SF set across one vblank-out before the COMREG write. 1 (the
+     * control, no hold): the handler meets SF set and the boot stops in its first section. 2 (test arm): the same
+     * after the hold above (the fix from its worst starting point). */
+    if (on) {
+        volatile uint8_t *const sf = (volatile uint8_t *)SMPC(SF);
+        while (*sf & 0x01u) { }
+        *sf = 0x01u;
+        const uint32_t f0 = video_fields;
+        for (uint32_t spin = 0; video_fields == f0 && spin < (1u << 22); ++spin) { }
+        MEMORY_WRITE(8, SMPC(COMREG), SMPC_SMC_RESENAB);
+        while (*sf & 0x01u) { }
+    }
 #endif
 }
 #endif

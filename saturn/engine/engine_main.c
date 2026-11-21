@@ -232,6 +232,12 @@ static volatile uint16_t vblank_frt, field_frt;
 #if FZX_E1_DRIVE && ENG_SCENES
 static volatile uint8_t smpc_hold; /* engine_smpc_quiet: vblank_out issues no INTBACK while set */
 volatile uint32_t fzx_smpc_quiet[2]; /* engine_smpc_quiet: [0] sections begun, [1] ended (one open = inside) */
+#if ENG_SMPC_OVERLAP_CONTROL
+/* Control and test arm only: the first 4 sections, 6 words each: [0] hold-wait spins (bit 31: bound reached),
+ * [1] SF-wait spins before the held window, [2] window spins (bit 31: bound reached), [3] window spins that read
+ * SF clear (the SMPC cleared it), [4] SF at the COMREG write, [5] video_fields at the section's begin. */
+volatile uint32_t fzx_smpc_diag[24];
+#endif
 #endif
 
 /* ---- frame table: one row per presented frame, in low work RAM ----------- */
@@ -526,13 +532,25 @@ static void vblank_out(void *work) {
  * section. The wait is bounded in case vertical blank is not running (then nothing issues INTBACK either). */
 void engine_smpc_quiet(bool on) {
     ++fzx_smpc_quiet[on ? 0 : 1];
+#if ENG_SMPC_OVERLAP_CONTROL
+    const uint32_t k = fzx_smpc_quiet[0] - 1u;
+    volatile uint32_t *const d = on && k < 4u ? &fzx_smpc_diag[k * 6u] : &fzx_smpc_diag[0];
+    const bool rec = on && k < 4u;
+    if (rec) d[5] = video_fields;
+#endif
 #if ENG_SMPC_OVERLAP_CONTROL == 1
     (void)smpc_hold;
 #else
     if (!on) { smpc_hold = 0u; return; }
     smpc_hold = 1u;
     const uint32_t f = video_fields;
+#if ENG_SMPC_OVERLAP_CONTROL
+    uint32_t spin = 0;
+    for (; video_fields == f && spin < (1u << 22); ++spin) { }
+    if (rec) d[0] = spin | (video_fields == f ? 0x80000000u : 0u);
+#else
     for (uint32_t spin = 0; video_fields == f && spin < (1u << 22); ++spin) { }
+#endif
 #endif
 #if ENG_SMPC_OVERLAP_CONTROL
     /* Control and test arm: the race's window held open. Begin issues a RESENAB (the state each backup call
@@ -541,10 +559,13 @@ void engine_smpc_quiet(bool on) {
      * after the hold above (the fix from its worst starting point). */
     if (on) {
         volatile uint8_t *const sf = (volatile uint8_t *)SMPC(SF);
-        while (*sf & 0x01u) { }
+        uint32_t w = 0, clear = 0, n = 0;
+        while (*sf & 0x01u) { ++w; }
         *sf = 0x01u;
         const uint32_t f0 = video_fields;
-        for (uint32_t spin = 0; video_fields == f0 && spin < (1u << 22); ++spin) { }
+        for (; video_fields == f0 && n < (1u << 22); ++n) { if (!(*sf & 0x01u)) ++clear; }
+        const uint32_t at = *sf;
+        if (rec) { d[1] = w; d[2] = n | (video_fields == f0 ? 0x80000000u : 0u); d[3] = clear; d[4] = at; }
         MEMORY_WRITE(8, SMPC(COMREG), SMPC_SMC_RESENAB);
         while (*sf & 0x01u) { }
     }

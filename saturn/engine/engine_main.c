@@ -528,10 +528,15 @@ static void vblank_out(void *work) {
 void engine_smpc_quiet(bool on) {
     ++fzx_smpc_quiet[on ? 0 : 1];
 #if ENG_SMPC_OVERLAP_CONTROL
+    /* 1 and 2 (test arms): start right after the handler's INTBACK issue; 1 then calls with no hold (the
+     * control), 2 goes on into the quiet SMPC below (the fix from its worst starting point). */
     if (on) {
-        const uint32_t f = video_fields;
-        for (uint32_t spin = 0; video_fields == f && spin < (1u << 22); ++spin) { }
+        const uint32_t f0 = video_fields;
+        for (uint32_t spin = 0; video_fields == f0 && spin < (1u << 22); ++spin) { }
     }
+#endif
+#if ENG_SMPC_OVERLAP_CONTROL == 1
+    (void)smpc_hold;
 #else
     if (!on) { smpc_hold = 0u; return; }
     smpc_hold = 1u;

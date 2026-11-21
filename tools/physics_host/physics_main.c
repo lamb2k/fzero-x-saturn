@@ -15,6 +15,8 @@
  * --checkpoints K prints "chk N HASH" after every K-th step: FNV-1a 64 over the state alone, in
  * big-endian words, as the engine image (saturn/engine/engine_drive.c) records it.
  * --boost-reserve R: the C-059 energy-aware driver, as in the reference driver.
+ * --driver-ahead LOOK: test driver R03 (saturn/engine/drive_ahead.h, the original CPU steering law with
+ * a look-ahead of LOOK * speed ticks) in place of the kl,kh law; --driver still gives the start and end ticks.
  * --mutate NAME plants one model mutation for the controls: grip+5%, turn+2%, damp0.9968,
  * wall1.6, boost99, zones-off, stick+1 (a one-unit stick offset on non-zero input).
  * Output: the fzx-handling v1 trace, and "ticks N hash H" with H = FNV-1a 64 over the
@@ -25,6 +27,7 @@
 #include <string.h>
 
 #include "physics_native.h"
+#include "engine/drive_ahead.h"
 
 static uint64_t hash = 0xCBF29CE484222325ull;
 
@@ -107,7 +110,7 @@ int main(int argc, char** argv) {
     static uint8_t image[1 << 20];
     sh2z_vd_body_t b;
     int nsteps, i, tick = 0, zones = 1, driver_boost = 0, driver_start = 0, repeat = 0, vd1 = 0;
-    float driver_kl = 0.0f, driver_kh = 0.0f, driver_target = 0.0f;
+    float driver_kl = 0.0f, driver_kh = 0.0f, driver_target = 0.0f, driver_ahead = -1.0f;
     int driver_end = 0x7FFFFFFF;
     unsigned short prev = 0;
     size_t size;
@@ -120,6 +123,7 @@ int main(int argc, char** argv) {
         else if (strcmp(argv[i], "--out") == 0) out_path = argv[i + 1];
         else if (strcmp(argv[i], "--zones") == 0) zones = atoi(argv[i + 1]);
         else if (strcmp(argv[i], "--driver") == 0) driver = argv[i + 1];
+        else if (strcmp(argv[i], "--driver-ahead") == 0) driver_ahead = (float) atof(argv[i + 1]);
         else if (strcmp(argv[i], "--steps") == 0) repeat = atoi(argv[i + 1]);
         else if (strcmp(argv[i], "--dump") == 0) dump_path = argv[i + 1];
         else if (strcmp(argv[i], "--mutate") == 0) mutate = argv[i + 1];
@@ -198,6 +202,7 @@ int main(int argc, char** argv) {
                 if (steer > 1.0f) steer = 1.0f;
                 if (steer < -1.0f) steer = -1.0f;
                 sx = (signed char) (steer >= 0.0f ? (int) (steer * 63.0f + 0.5f) : -(int) (-steer * 63.0f + 0.5f));
+                if (driver_ahead >= 0.0f) sx = fzx_drive_ahead(&course.track, &b, driver_ahead, &button);
                 if (driver_boost > 0 && tick % driver_boost == 0 &&
                     (reserve_tenths <= 0 || 10 * (int64_t) b.energy >= (int64_t) reserve_tenths * course.vehicle.max_energy))
                     button |= 0x4000;

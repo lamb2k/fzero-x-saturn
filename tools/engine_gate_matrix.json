@@ -402,6 +402,36 @@
  ],
  "regenerate": [
   {
+   "receipt": "generated/floor_rbg/floor_rbg.receipt",
+   "cmd": "python3 tools/floor_rbg_assets.py --source generated/backdrop --output generated/floor_rbg",
+   "rom": false
+  },
+  {
+   "receipt": "generated/courses/silence-1/floor_rbg/floor_rbg.receipt",
+   "cmd": "python3 tools/floor_rbg_assets.py --source generated/courses/silence-1/backdrop --output generated/courses/silence-1/floor_rbg",
+   "rom": false
+  },
+  {
+   "receipt": "generated/courses/sand-ocean-1/floor_rbg/floor_rbg.receipt",
+   "cmd": "python3 tools/floor_rbg_assets.py --source generated/courses/sand-ocean-1/backdrop --output generated/courses/sand-ocean-1/floor_rbg",
+   "rom": false
+  },
+  {
+   "receipt": "generated/courses/devils-forest-1/floor_rbg/floor_rbg.receipt",
+   "cmd": "python3 tools/floor_rbg_assets.py --source generated/courses/devils-forest-1/backdrop --output generated/courses/devils-forest-1/floor_rbg",
+   "rom": false
+  },
+  {
+   "receipt": "generated/courses/big-blue-1/floor_rbg/floor_rbg.receipt",
+   "cmd": "python3 tools/floor_rbg_assets.py --source generated/courses/big-blue-1/backdrop --output generated/courses/big-blue-1/floor_rbg",
+   "rom": false
+  },
+  {
+   "receipt": "generated/courses/port-town-1/floor_rbg/floor_rbg.receipt",
+   "cmd": "python3 tools/floor_rbg_assets.py --source generated/courses/port-town-1/backdrop --output generated/courses/port-town-1/floor_rbg",
+   "rom": false
+  },
+  {
    "receipt": "generated/courses/select/course_ids.receipt",
    "cmd": "python3 tools/course_bundle.py",
    "rom": false

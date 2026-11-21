@@ -29,6 +29,8 @@ static sector_buffer_t sector __aligned(32);
 enum { ROOT_ENTRIES=256 };
 #elif FZX_SOURCE_COUNTDOWN
 enum { ROOT_ENTRIES=32 };
+#elif ENG_SCENES && !defined(FZX_P3_BASELINE)
+enum { ROOT_ENTRIES=128 }; /* course packs, menu art and all 30 stock machine packs */
 #elif ENG_COURSE_SELECT
 enum { ROOT_ENTRIES=96 }; /* every bundled course's packs (six courses x 10 + the image's own) */
 #else
@@ -44,6 +46,10 @@ static void road_list_guards(void){
     for(unsigned i=0;i<8u;++i){g[i]=FZX_SIMPIPE_GUARD;h[i]=FZX_SIMPIPE_GUARD;}
 }
 #else
+#if ENG_LOW_COLD
+/* Engine scenes image: read only by the road pack load (low work RAM, saturn/engine/engine_low.x). */
+__attribute__((section(".bss.lowcold.road_entries")))
+#endif
 static cdfs_filelist_entry_t entries[ROOT_ENTRIES];
 #endif
 void fzx_road_note_tick(void) {

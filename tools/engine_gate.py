@@ -269,6 +269,11 @@ class Gate:
             shutil.rmtree(run_dir)
         run_dir.parent.mkdir(parents=True, exist_ok=True)
         env = dict(os.environ, GATE_AUDIO='1' if audio else '0')
+        # Machine rule (owner, 2026-11-20): every Ymir launch waits for a free slot. FZX_GATE_SLOT_CMD is a command
+        # that exits 0 when a run may start (the lane skill's ymir_slot.sh); it is retried every 60 s.
+        slot = os.environ.get('FZX_GATE_SLOT_CMD')
+        while slot and subprocess.run(slot, shell=True, capture_output=True).returncode != 0:
+            time.sleep(60)
         t0 = time.time()
         r = subprocess.run([str(self.a.harness), str(self.a.bios), str(cue or Path(build_dir) / 'fzs-engine.cue'),
                             str(Path(build_dir) / 'fzs-engine.sym'), str(run_dir), str(cap), mode, arg],
@@ -408,12 +413,22 @@ class Gate:
 
     def menus_check(self, name, lines, sink=None):
         worst = over = 0
+        where = {}
         for m in marks(lines):
             kv, _ = result_kv(lines, m)
             worst = max(worst, int(kv.get('_fzx_scn_ctl6', 0)))
-            over = max(over, int(kv.get('_fzx_scn_ctl7', 0)))
+            n = int(kv.get('_fzx_scn_ctl7', 0))
+            over = max(over, n)
+            # fzx_scn_gap_at[k & 7] (a harness with the gap dump): scene << 16 | phase << 8 | fields of the k-th gap
+            for k in range(max(1, n - 7), n + 1):
+                v = int(kv.get('_fzx_scn_gap_at%d' % (k & 7), 0))
+                if v and k not in where:
+                    where[k] = '#%d by %s: scene %d phase %d, %d fields' % (k, m, v >> 16, (v >> 8) & 0xFF, v & 0xFF)
+        detail = 'fzx_scn_ctl[7], [6] at every mark'
+        if where:
+            detail += '; gaps (fzx_scn_gap_at): ' + '; '.join(where[k] for k in sorted(where))
         self.add('menus', name, over == 0 and worst <= self.lim['menu_worst_fields'],
-                 'menu frames over two %d, worst gap %d fields' % (over, worst), 'fzx_scn_ctl[7], [6] at every mark', sink=sink)
+                 'menu frames over two %d, worst gap %d fields' % (over, worst), detail, sink=sink)
 
     def score_scenes(self, run, run_dir, build_dir, host, sink=None, host_label=''):
         lines = read_result(run_dir)
@@ -546,11 +561,20 @@ class Gate:
         t0 = time.time()
         builds = {}
         bdir = self.ev / 'builds'
+        # The runs use each image as gated (the lane's switches at their defaults). With --identity-vars the
+        # identity images are built a second time with those variables, under their own name, and only those
+        # builds are compared with the base (before 2026-11-20 the runs used the identity builds instead).
+        id_builds = {}
         for img in need:
-            vars_ = m['images'][img]['vars'] + (a.identity_vars.split() if a.identity_vars and img in ident else [])
-            builds[img] = self.build(bdir, img, vars_)
+            builds[img] = self.build(bdir, img, m['images'][img]['vars'])
             log('build %-16s %s' % (img, builds[img]['bin'][:16] if builds[img]['ok'] else 'FAILED'))
             self.add('build', img, builds[img]['ok'], builds[img].get('bin', '')[:16], builds[img].get('error', '')[-300:].replace('\n', ' '))
+        for img in ident:
+            if a.identity_vars:
+                id_builds[img] = self.build(bdir, img + '.identity', m['images'][img]['vars'] + a.identity_vars.split())
+                log('build %-16s %s (identity: %s)' % (img, id_builds[img]['bin'][:16] if id_builds[img]['ok'] else 'FAILED', a.identity_vars))
+            else:
+                id_builds[img] = builds[img]
         self.times['builds'] = round(time.time() - t0)
         self.head_builds = builds
 
@@ -585,7 +609,7 @@ class Gate:
             receipt['base'] = base_sha
             base_bins = self.base_bins(base_sha, ident, head)
             for img in ident:
-                hb, bb = builds[img].get('bin'), base_bins.get(img)
+                hb, bb = id_builds[img].get('bin'), base_bins.get(img)
                 self.add('identity', img, hb is not None and hb == bb, '%s vs base %s' % ((hb or '-')[:16], (bb or '-')[:16]),
                          'base %s%s' % (base_sha[:12], (' with ' + a.identity_vars) if a.identity_vars else ''))
         if a.expect:

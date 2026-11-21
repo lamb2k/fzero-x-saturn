@@ -38,6 +38,20 @@
 #error the reference field has fewer vehicles than E1_FIELD + 1
 #endif
 #endif
+#ifndef ENG_RIVAL_SURFACE
+#define ENG_RIVAL_SURFACE 0
+#endif
+#if E2_PACK && ENG_RIVAL_SURFACE
+/* line-field-4 (COURSES.md section 10): the course's zones, its pipes and cylinders as tubes, and
+ * the final dash, as the HOST bands were checked with (ref/rivals_gp_main.c). */
+#include "rivals_zones.h"
+#include "sh2zam/trig12_experimental.h"
+#define RIVAL_TUBES 1
+static sh2z_field_zone_t zones[FZX_RIVALS_ZONE_MAX];
+static sh2z_field_surface_t surface;
+#else
+#define RIVAL_TUBES 0
+#endif
 
 volatile uint32_t fzx_field_k = 1, fzx_field_d = 250, fzx_field_margin = 40;
 volatile uint32_t fzx_field_report[16];
@@ -79,6 +93,19 @@ static void frame30(int32_t f[3], int32_t u[3], const int32_t fwd[3], const int3
     for (int c = 0; c < 3; ++c) t[c] = up[c] - mul30(d, f[c]);
     if (!sh2z_vec3_normalize_u30(u, t)) { u[0] = 0; u[1] = 1 << 30; u[2] = 0; }
 }
+
+#if RIVAL_TUBES
+/* A tube node (the pack's shape code: pipe 0x80, cylinder 0xC0): the lateral is an arc round a circle of
+ * radius half_width about the line, which is the tube's axis. Returns 1 pipe, 2 cylinder, 0 road, and the
+ * angle's sine and cosine (Q30). Lateral positive right turns toward -left. */
+static int tube_at(uint32_t n, int32_t lateral, int32_t *s, int32_t *c) {
+    const uint16_t shape = (uint16_t)(nodes[n].flags & 0x01c0u);
+    if ((shape != 0x0080u && shape != 0x00c0u) || !nodes[n].half_width) return 0;
+    const int32_t a12 = (int32_t)(((int64_t)lateral * 10430) / ((int64_t)nodes[n].half_width << 12)); /* 4096 / 2 pi */
+    sh2z_sincos12_u30((uint32_t)a12, s, c);
+    return shape == 0x0080u ? 1 : 2;
+}
+#endif
 
 static bool build_line(const sh2z_vd_track_t *track) {
     uint32_t count = 0;
@@ -138,8 +165,24 @@ static void line_pose(const sh2z_track_state_t *t, int32_t pos[3], int32_t f[3],
     }
     frame30(f, u, fw, up);
     cross30(l, u, f);
+    for (int c = 0; c < 3; ++c) l[c] *= left_sign;
+#if RIVAL_TUBES
+    int32_t sn, cs;
+    const int tube = tube_at(n, t->lateral, &sn, &cs);
+    if (tube) {
+        /* Round the tube: a cylinder's car sits outside, up away from the axis; a pipe's inside, up
+         * toward it (at lateral 0 on top and at the bottom). The frame turns about forward. */
+        const int32_t r = (int32_t)nodes[n].half_width << 16;
+        for (int c = 0; c < 3; ++c) {
+            const int32_t uc = u[c], lc = l[c];
+            if (tube == 2) { u[c] = mul30(uc, cs) - mul30(lc, sn); l[c] = mul30(lc, cs) + mul30(uc, sn); }
+            else { u[c] = mul30(uc, cs) + mul30(lc, sn); l[c] = mul30(lc, cs) - mul30(uc, sn); }
+            pos[c] += tube == 2 ? mul30(u[c], r + hover) : -mul30(u[c], r - hover);
+        }
+        return;
+    }
+#endif
     for (int c = 0; c < 3; ++c) {
-        l[c] *= left_sign;
         /* lateral Q8 -> Q16 offset along -left; hover Q16 along up */
         pos[c] += -mul30(l[c], t->lateral << 8) + mul30(u[c], hover);
     }
@@ -155,6 +198,24 @@ static void line_pose_fast(const sh2z_track_state_t *t, int32_t pos[3], int16_t 
     int32_t fr = (int32_t)(((uint64_t)(uint32_t)(d < 0 ? 0 : d) * nodes[n].inv_span) >> 16);
     if (fr > 65535) fr = 65535;
     const int64_t lat = (int64_t)t->lateral << 8; /* Q16 */
+#if RIVAL_TUBES
+    int32_t sn, cs;
+    const int tube = tube_at(n, t->lateral, &sn, &cs);
+    if (tube) {   /* as line_pose, in Q1.14 */
+        const int32_t r = (int32_t)nodes[n].half_width << 16, s14 = sn >> 16, c14 = cs >> 16;
+        for (int c = 0; c < 3; ++c) {
+            const int32_t f = a->fwd[c] + (int32_t)((((int32_t)b->fwd[c] - a->fwd[c]) * fr) >> 16);
+            const int32_t u = a->up[c] + (int32_t)((((int32_t)b->up[c] - a->up[c]) * fr) >> 16);
+            const int32_t l = a->left[c] + (int32_t)((((int32_t)b->left[c] - a->left[c]) * fr) >> 16);
+            const int32_t nu = tube == 2 ? (u * c14 - l * s14) >> 14 : (u * c14 + l * s14) >> 14;
+            const int32_t nl = tube == 2 ? (l * c14 + u * s14) >> 14 : (l * c14 - u * s14) >> 14;
+            rows[0][c] = (int16_t)f; rows[1][c] = (int16_t)nu; rows[2][c] = (int16_t)nl;
+            pos[c] = a->pos[c] + (int32_t)(((int64_t)(b->pos[c] - a->pos[c]) * fr) >> 16)
+                   + (tube == 2 ? (int32_t)(((int64_t)nu * (r + hover)) >> 14) : -(int32_t)(((int64_t)nu * (r - hover)) >> 14));
+        }
+        return;
+    }
+#endif
     for (int c = 0; c < 3; ++c) {
         const int32_t f = a->fwd[c] + (int32_t)((((int32_t)b->fwd[c] - a->fwd[c]) * fr) >> 16);
         const int32_t u = a->up[c] + (int32_t)((((int32_t)b->up[c] - a->up[c]) * fr) >> 16);
@@ -239,6 +300,32 @@ bool fzx_field_pack_load(void *scratch, uint32_t scratch_bytes) {
     pack_ok = fzx_texture_cd_load(CNAME(FZX_CF_RIVALS,"RIVALS.PAK"), CSEL(rivals_bytes,FZX_RIVALS_PACK_BYTES), CSEL(rivals_hash,FZX_RIVALS_PACK_HASH), pack_buf, scratch, scratch_bytes);
     fzx_e2_report[0] = pack_ok ? 1u : 2u;
     return pack_ok;
+}
+#endif
+
+#if E2_PACK && defined(ENG_SCENES) && ENG_SCENES
+volatile uint8_t fzx_field_grid[30];
+volatile uint32_t fzx_field_grid_src;
+/* Grid places (cpu.c, the race set-up): round one of a cup, and every other mode, uses the tier grid
+ * with the player last (the course header, from the reference's own set-up). From round two,
+ * position = N - D_80115D50[i] + 1, where D_80115D50 holds the last finish (menus.c, NEXT):
+ * the previous finish reversed, the player included. The cup's grid[] is that finish (entrant
+ * by place, set at NEXT), so a retry of a round starts from the same grid. */
+static void grid_places(void) {
+    for (uint32_t i = 0; i < FZX_FIELD_CARS; ++i) fzx_field_grid[i] = (uint8_t)CSEL(field,fzx_rivals_field)[i][0];
+    fzx_field_grid_src = 1;
+    const fzx_cup_t *c = fzx_cup();
+    if ((c->state != FZX_CUP_READY && c->state != FZX_CUP_RACING) || c->round == 0u || c->entrants.count != FZX_FIELD_CARS) return;
+    uint8_t place[FZX_FIELD_CARS];
+    uint32_t seen = 0;
+    for (uint32_t p = 0; p < FZX_FIELD_CARS; ++p) {
+        const uint8_t e = c->grid[p];
+        if (e >= FZX_FIELD_CARS || (seen & (1u << e))) return; /* not a whole finish: the tier grid, as cpu.c */
+        seen |= 1u << e;
+        place[e] = (uint8_t)(FZX_FIELD_CARS - p);
+    }
+    for (uint32_t i = 0; i < FZX_FIELD_CARS; ++i) fzx_field_grid[i] = place[i];
+    fzx_field_grid_src = 2;
 }
 #endif
 
@@ -330,14 +417,22 @@ bool fzx_field_load(const sh2z_vd_track_t *track, const sh2z_vd_body_t *player) 
     {
         uint32_t rs = CSEL(field_seed,FZX_RIVALS_FIELD_SEED) * 2654435761u + 12345u;
 #define RND() (rs ^= rs << 13, rs ^= rs >> 17, rs ^= rs << 5, rs)
+#if defined(ENG_SCENES) && ENG_SCENES
+        /* The grid is anchored on the player, as for round one: the pack's start body stays where it
+         * is and the rivals take their places round the player's place in this race. */
+        grid_places();
+#define GRID_PLACE(i, cf) ((uint32_t)fzx_field_grid[i])
+#else
+#define GRID_PLACE(i, cf) ((uint32_t)(cf)[0])
+#endif
         sh2z_track_state_t ps;
-        sh2z_field_grid_slot(&line, (uint32_t)(CSEL(field,fzx_rivals_field)[0][0] - 1), U(146), U(100), U(50), 4, &ps);
+        sh2z_field_grid_slot(&line, GRID_PLACE(0, CSEL(field,fzx_rivals_field)[0]) - 1u, U(146), U(100), U(50), 4, &ps);
         const int64_t shift = ((int64_t)veh[0].t.lap * line.length + veh[0].t.dist) - ((int64_t)ps.lap * line.length + ps.dist);
         for (uint32_t i = 0; i < FZX_FIELD_CARS; ++i) {
             const int32_t *cf = CSEL(field,fzx_rivals_field)[i];
             const int32_t ms = cf[1], chase = cf[2], maxe = cf[3], aggr = cf[4];
             sh2z_track_state_t slot;
-            sh2z_field_grid_slot(&line, (uint32_t)(cf[0] - 1), U(146), U(100), U(50), 4, &slot);
+            sh2z_field_grid_slot(&line, GRID_PLACE(i, cf) - 1u, U(146), U(100), U(50), 4, &slot);
             const int32_t lap_ticks = (ms > 0 ? ms : 36000) * 60 / 1000;
             int32_t pace = line.length / lap_ticks;
             pace += (int32_t)((int64_t)pace * ((int32_t)(RND() % 81u) - 40) / 10000);
@@ -363,11 +458,29 @@ bool fzx_field_load(const sh2z_vd_track_t *track, const sh2z_vd_body_t *player) 
             b->first_lap_cap = cf[7] > 0 ? cf[7] : 0;            /* line-field-3: a chaser's first-lap cap (0 none) */
         }
 #undef RND
+#undef GRID_PLACE
     }
 #if E2_LOD
     {
         static const int32_t lod[3] = { E2_LOD_NEAR };
         params.lod_near[0] = U(lod[0]); params.lod_near[1] = U(lod[1]); params.lod_near[2] = U(lod[2]);
+    }
+#endif
+#if ENG_RIVAL_SURFACE
+    {
+        /* line-field-4: the values ref/rivals_gp_main.c checks the bands with. */
+        const uint32_t nz = (uint32_t)CSEL(zone_count,FZX_RIVALS_ZONE_COUNT);
+        memset(&surface, 0, sizeof(surface));
+        for (uint32_t k = 0; k < nz && k < FZX_RIVALS_ZONE_MAX; ++k) {
+            const int32_t *z = CSEL(zones,fzx_rivals_zones)[k];
+            zones[k].start = z[0]; zones[k].end = z[1]; zones[k].lat_lo = z[2]; zones[k].lat_hi = z[3]; zones[k].kind = (uint32_t)z[4];
+        }
+        surface.zones = zones; surface.zone_count = nz < FZX_RIVALS_ZONE_MAX ? nz : FZX_RIVALS_ZONE_MAX;
+        surface.plate_ticks = 60; surface.slip_steer = 16384; surface.rough_keep = 58982; surface.recharge = 512;
+        surface.wrap_mask = 0x0180u; surface.wrap_value = 0x0080u; /* pipe 0x80 and cylinder 0xC0 */
+        params.surface = &surface;
+        params.dash_from = (int32_t)CSEL(dash_from,FZX_RIVALS_DASH_FROM); params.dash_pace = 72090; /* 1.10 */
+        fzx_e2_report[10] = surface.zone_count; fzx_e2_report[11] = (uint32_t)params.dash_from;
     }
 #endif
     sh2z_field_init(&field, &line, &params, veh, brain, order, slot_of, rank_order, FZX_FIELD_CARS, CSEL(field_seed,FZX_RIVALS_FIELD_SEED));

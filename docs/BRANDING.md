@@ -9,8 +9,8 @@ to the remaining content. Source attribution remains F-Zero X.
 | Surface | Required change | Status |
 | --- | --- | --- |
 | Product/documentation/workbench name | F Zero S | Local naming updated; no hosting deployment |
-| Cover | F ZERO S logo, original F-Zero identity plus both guests | Private 1800x2400 illustrated cover and uppercase lettering candidate prepared for owner review |
-| Main title | F ZERO S and both guests, readable at native resolution | Guest title integrated in the P3 scenes image; uppercase lettering candidate verified at HOST, pending look call |
+| Cover | F ZERO S logo, original F-Zero identity plus both guests | Private 1800x2400 illustrated cover and uppercase lettering approved in O-128 |
+| Main title | F ZERO S and both guests, readable at native resolution | Guest title integrated in the P3 scenes image; uppercase lettering candidate verified at HOST, approved under O-128 |
 | Falcon title variant | F ZERO S and both guests | Receipt-verified HOST stills ready for the owner |
 | Comic title variant | F ZERO S and both guests | Receipt-verified HOST stills ready for the owner |
 | Title input/warnings | Preserve pad behavior and readable prompts | Original prompt, credits and warning slots preserved in the uppercase candidate; connected, pre-prompt and disconnected HOST stills prepared |
@@ -38,13 +38,16 @@ at 320x224. The lower row shows the candidate before the prompt and with the
 controller warning. All four are HOST compositions decoded from their respective
 title atlases. Both options use the same existing guest illustrations.
 
-Choose the lettering for the title and cover, and confirm whether the guests
-and live prompt are readable at native size. In the disconnected still, check
-the red controller warning against the background: its contrast is low. The uppercase candidate changes
-only the wordmark slot and keeps the atlas size fixed. Its private generator,
-receipt-bound pack and input lineage sit beside the review sheet. The emulator
-pad entry in C-113 covered the current title. The uppercase candidate still
-needs stage integration, emulator checks and hardware review after selection.
+On 2026-11-21 the owner approved uppercase **F ZERO S** for the main title
+and cover, both guests and PUSH START at 320x224, and the red controller
+warning as shown. The selected private cover is
+`$FZX_EVIDENCE/host/codex-c123-brand/F Zero S - illustrated cover.png`.
+
+Run `python3 tools/stage_guest_titles.py "$FZX_EVIDENCE"` in the build
+checkout before the live check. The scenes default reads the selected main
+pack from `generated/title_guest`. Its atlas remains 186,944 bytes.
+Check connected, pre-prompt and disconnected states, then enter with the
+pad when the coordinator grants a slot.
 
 ## Falcon and comic look call
 
@@ -59,7 +62,9 @@ existing native static warning.
 The owner can judge all three together. On Falcon, check whether the guest
 portraits leave the machine prominent. On comic, check whether both guests
 read against the lower panels. Check warning readability in all three rows.
-Lettering and both variant compositions await owner approval.
+Both variants use the approved lettering. Their compositions await owner review.
+Select each staged pack for a separate build with `ENG_TITLE_ART=title_guest_falcon`
+or `ENG_TITLE_ART=title_guest_comic`.
 
 Each variant pack adds 7,680 bytes over the main pack and fits separately in the
 192 KiB title allocation. The private build script, per-variant receipts and

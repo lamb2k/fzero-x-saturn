@@ -192,7 +192,12 @@ int main(int argc, char **argv) {
             }
         }
         const uint64_t a1 = ns_now();
+#if FZX_PHYS_TUBES
+        /* tube courses: the tube tick, as engine_drive.c phys_step_contact (vehicle-dynamics-3) */
+        sh2z_vd_step2_contact(&body, &course.track2, &course.vehicle, &fzx_phys_rules, &in, &contact);
+#else
         sh2z_vd_step_contact(&body, &course.track, &course.vehicle, &fzx_phys_rules, &in, &contact);
+#endif
         if (retire_t < 0 && (body.flags & ((1u << 14) | (1u << 19) | (1u << 27)))) retire_t = (long)t;
         if (fin_ms < 0 && (body.flags & (1u << 25))) fin_ms = (long)body.race_time;
         const uint64_t a2 = ns_now();

@@ -1252,6 +1252,18 @@ void fzx_race_load(void) {
     if (offset + CSEL(lod_tex_bytes,FZX_ROAD_LOD_TEXTURE_BYTES) + FZX_ROAD_STREAM_SHADE_BYTES > partitions.texture_size || !fzx_road_stream_load(road_pixels))
         fail(35, "TRACK LOAD", fzx_road_stream_status);
     offset += CSEL(lod_tex_bytes,FZX_ROAD_LOD_TEXTURE_BYTES) + FZX_ROAD_STREAM_SHADE_BYTES;
+#if FZX_ROAD_STREAM_CLUT_ALIGN
+    {
+        /* The track's lookup tables at 32-byte VDP1 addresses (VDP1 ignores CMDCOLR's two low bits). */
+        const uintptr_t tb = (uintptr_t)partitions.texture_base;
+        offset = (uint32_t)((((tb + offset) + 31u) & ~(uintptr_t)31u) - tb);
+        uint32_t clut_bytes = 0;
+        if (offset > partitions.texture_size ||
+            !fzx_road_stream_clut_align((void *)(tb + offset), partitions.texture_size - offset, &clut_bytes))
+            fail(39, "TRACK CLUT ALIGN", fzx_road_stream_clut_report[2]);
+        offset += clut_bytes;
+    }
+#endif
     SCN_STAMP(3);
     SCN_ONCE(fzx_slave_road_init());
     if (fzx_slave_road_status != 1) fail(36, "SLAVE INIT", fzx_slave_road_status);
@@ -1642,6 +1654,11 @@ bool fzx_race_frame(void) {
         vdp1_sync();
 #endif
         vdp2_sync();
+#if ENG_CLUT_RACE_CONTROL
+        /* Control for the emulator's VRAM race detector (diagnostic only): rewrite the track's
+         * lookup tables for a field while VDP1 draws the frame that reads them. */
+        { const uint32_t f0 = video_fields; while (video_fields == f0) fzx_road_stream_clut_touch(); }
+#endif
 #if ENG_SND
         engine_snd_late(); /* off the build's critical path */
 #endif

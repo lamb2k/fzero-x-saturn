@@ -5,7 +5,9 @@
 #
 #   make -C saturn/engine SH2ZAM_ROOT=<checkout of the engine pin> [FZX_VDP1_DBANK=0|1]
 #
-# The SH2ZAM pin is saturn/engine/sh2zam.pin: SH2ZAM main accd505, merge train 7 (PR #56: vehicle-dynamics-2,
+# The SH2ZAM pin is saturn/engine/sh2zam.pin: SH2ZAM main 63449de, merge train 9 (PR #61: rotation-sprites-4 with
+# emit_cell refusing a misaligned lookup-table COLR, body-contact-1, vehicle-dynamics-3, effect-pool-1), after train 8
+# (PR #58: line-field-4). Before it, main accd505, merge train 7 (PR #56: vehicle-dynamics-2,
 # pipes and cylinders), after train 6 (PR #55: line-field-3, the first-lap chase cap). Before it, branch
 # claude/jack-train 8449e35 (the same library sources). Before that, main 5a94dbe, merge train 5 (PR #51: dual-claim-1,
 # compiled only with ENG_BAL_CLOUDS=2, and line-field-2, whose second-lap re-target is off while a brain's
@@ -20,6 +22,17 @@ endif
 SH_PROGRAM := fzs-engine
 FZX_VDP1_DBANK ?= 1
 FZX_VDP1_DBANK_STALE ?= 0
+# VDP1 lookup tables at 32-byte addresses (VDP1 ignores CMDCOLR's two low bits): the track's
+# tables are copied to aligned VRAM at load, the shadow's table is placed aligned. 0 is the
+# control (the road and shadow read the 16 bytes before their tables: wrong colours on Mednafen
+# and, by the VDP1 manual, on hardware; Ymir does not mask the bits).
+ENG_CLUT_ALIGN ?= 1
+ENG_CLUT_RACE_CONTROL ?= 0
+# Road lines start on the visible side (mirrored commands; same texels per corner). See fzx_road_stream_draw.c.
+E0_LINE_START ?= 0
+# Floor band 0 (exact): the unfogged floor polygon covers only the near strip (fractions 0..1/14 of
+# both halves) instead of the whole floor quad, which bands 1-7 overdraw. 0 draws the whole quad.
+E0_FLOOR_NEAR0 ?= 1
 # Road guard band: pieces reaching more than this many pixels past the view
 # are clipped on the CPU instead of rasterised off screen by VDP1.
 E0_GUARD_MARGIN ?= 256
@@ -339,6 +352,7 @@ BAL_SWITCHES := $(ENG_BAL_CLOUDS)$(ENG_BAL_EARLY)$(ENG_BAL_FORCE)$(ENG_BAL_HASH)
 EMIT_SWITCHES := $(E2_EMIT_PROF)$(E2_EMIT_HINT)$(E2_EMIT_CMD)$(E2_EMIT_SHADOW)$(E2_EMIT_POSE)$(E2_EMIT_SETUP)$(E2_EMIT_LINK)$(E2_EMIT_CULL)$(E2_EMIT_YAW)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter-out 0,$(subst 0,,$(EMIT_SWITCHES))),-em$(EMIT_SWITCHES),)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter-out 00000,$(BAL_SWITCHES)),-bal$(BAL_SWITCHES),)
+SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter 0,$(E0_FLOOR_NEAR0)),-fn0,)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter-out mute-city-1,$(ENG_COURSE)),-$(ENG_COURSE),)$(if $(E1_DRIVER_KH),-kh$(E1_DRIVER_KH),)$(if $(filter 1,$(ENG_COURSE_SELECT)),-sel,)$(if $(filter 1,$(ENG_TUBES)),-tubes,)$(if $(filter 0,$(ENG_RIVAL_SURFACE)),-rs0,)$(if $(filter 1,$(ENG_SCN_STALL_CONTROL)),-stallctl,)$(if $(filter-out 0,$(FZX_CD_TRACE)),-cdtrace$(FZX_CD_TRACE),)$(if $(filter 1,$(FZX_CD_STALE_CONTROL)),-stalectl,)
 ifeq ($(ENG_SCENES)$(ENG_P3_UI),10)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)-p3off
@@ -438,7 +452,7 @@ endif
 
 SH_CFLAGS += -DENG_BAL_CLOUDS=$(ENG_BAL_CLOUDS) -DENG_BAL_EARLY=$(ENG_BAL_EARLY) -DENG_BAL_FORCE=$(ENG_BAL_FORCE) -DENG_BAL_HASH=$(ENG_BAL_HASH) -DENG_BAL_PREWARM=$(ENG_BAL_PREWARM)
 SH_CFLAGS += -DENG_PACE=$(ENG_PACE) $(if $(filter 3,$(ENG_PACE)),-DENG_VDP1_INTERVAL=$(ENG_VDP1_INTERVAL),) $(if $(filter 4,$(ENG_PACE)),-DENG_PACE_LEAD=$(ENG_PACE_LEAD) -DENG_PACE_EARLY_CONTROL=$(ENG_PACE_EARLY_CONTROL) -DENG_PACE_HUD_LEAD=$(ENG_PACE_HUD_LEAD),) -DFZX_ENGINE=1 -DFZX_FRAME_PROFILE=1 -DFZX_VDP1_DBANK=$(FZX_VDP1_DBANK) \
-    -DFZX_VDP1_DBANK_STALE=$(FZX_VDP1_DBANK_STALE) -DFZX_ROAD_STREAM_GUARD_MARGIN=$(E0_GUARD_MARGIN) \
+    -DFZX_VDP1_DBANK_STALE=$(FZX_VDP1_DBANK_STALE) -DFZX_ROAD_STREAM_CLUT_ALIGN=$(ENG_CLUT_ALIGN) -DENG_CLUT_ALIGN=$(ENG_CLUT_ALIGN) -DENG_CLUT_RACE_CONTROL=$(ENG_CLUT_RACE_CONTROL) -DFZX_ROAD_STREAM_GUARD_MARGIN=$(E0_GUARD_MARGIN) -DFZX_ROAD_STREAM_LINE_START=$(E0_LINE_START) -DFZX_RBG_NEAR0=$(E0_FLOOR_NEAR0) \
     -DFZX_ROAD_STREAM_PHASES=$(E0_PHASES) -DFZX_SCENE_PHASES=$(E0_PHASES) -DFZX_ROAD_STREAM_FAST_CULL=$(E0_FAST_CULL) -DFZX_ROAD_STREAM_LOD_SHIFT=$(E0_LOD_SHIFT) -DFZX_ROAD_STREAM_FAN_FIX=$(E0_FAN_FIX) -DFZX_RBG_LEAN=$(E0_RBG_LEAN) -DFZX_RBG_SHARE=$(E0_PRELUDE_SHARE) -DFZX_RBG_WINDOW=$(E0_PRELUDE_WINDOW) -DFZX_RBG_DIV=$(E0_PRELUDE_DIV) \
     -DFZX_ROAD_STREAM_CLUSTERS=$(E0_CLUSTERS) -DFZX_ROAD_STREAM_CLUSTER_AUDIT=$(E0_CLUSTER_AUDIT) -I$(GC)/road_cluster -DFZX_ROAD_STREAM_WORK_HIGH=$(E0_WORK_HIGH) -DE0_CHUNK_CAP=$(E0_CHUNK_CAP) -DFZX_ROAD_STREAM_LEAN_CLIP=$(E0_LEAN_CLIP) -DFZX_ROAD_STREAM_FOG_EARLY=$(E0_FOG_EARLY) -DE0_HW_COUNTER=$(E0_HW_COUNTER) -DE0_VDP2_MAP=$(E0_VDP2_MAP) -DE0_SENTINEL_CONTROL=$(E0_SENTINEL_CONTROL) -DE0_POP_LOG=$(E0_POP_LOG) -DE0_CAP_STABLE=$(E0_CAP_STABLE) \
     -DFZX_SOURCE_SKY=1 -I$(GC)/sky -DFZX_SKY_SIMPLIFY=1 -DFZX_SOURCE_SKYLINE=1 -I$(GC)/skyline -DFZX_SKYLINE_CD=1 \

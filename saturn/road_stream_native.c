@@ -217,6 +217,98 @@ bool fzx_road_stream_load(void *vram){
     fzx_road_stream_report[22]=(uint32_t)(uintptr_t)work->images;fzx_road_stream_report[23]=work->image_capacity;
     fzx_road_stream_status=1;return true;
 }
+#if FZX_ROAD_STREAM_CLUT_ALIGN
+volatile uint32_t fzx_road_stream_clut_report[3];
+static uintptr_t clut_area;
+/* Detector control only: rewrite the copied tables (same values) while VDP1 may be reading them. */
+void fzx_road_stream_clut_touch(void){
+    volatile uint16_t *d=(volatile uint16_t *)clut_area;
+    if(!d)return;
+    for(uint32_t i=0;i<fzx_road_stream_clut_report[0]*16u;++i)d[i]=d[i];
+}
+/* While the tables move, a moved material keeps its old offset in the low 20 bits and its slot + 1
+ * above them (no work-RAM list; the offsets are below the 512 KB of VDP1 VRAM). */
+#define CLUT_SLOT_SHIFT 20u
+#define CLUT_SLOTS 256u
+bool fzx_road_stream_clut_align(void *area,uint32_t area_bytes,uint32_t *used){
+    const uintptr_t pixels=(uintptr_t)fzx_road_stream_report[7],dest=(uintptr_t)area;
+    const uintptr_t base=(uintptr_t)VDP1_VRAM(0);
+    fzx_road_stream_clut_report[0]=0;fzx_road_stream_clut_report[1]=0;fzx_road_stream_clut_report[2]=2;
+    if(!used||fzx_road_stream_status!=1||!work||!work->images||(dest&31u)||dest<base||
+       area_bytes>base+0x80000u-dest||dest<pixels+CSEL(lod_tex_bytes,FZX_ROAD_LOD_TEXTURE_BYTES))return false;
+    *used=0;
+    const uint32_t low=(1u<<CLUT_SLOT_SHIFT)-1u,count=work->image_capacity*3u;
+    uint32_t n=0,lookups=0;
+    for(uint32_t q=0;q<count;++q){
+        fzx_road_stream_material_t *m=&work->images[q/3u].variant[q%3u];
+        if(!m->mode)continue;
+        ++lookups;
+        if(!((pixels+m->palette)&31u))continue;
+        uint32_t k=n;
+        for(uint32_t p=0;p<q&&k==n;++p){
+            const fzx_road_stream_material_t *o=&work->images[p/3u].variant[p%3u];
+            if(o->mode&&(o->palette>>CLUT_SLOT_SHIFT)&&(o->palette&low)==m->palette)k=(o->palette>>CLUT_SLOT_SHIFT)-1u;
+        }
+        if(k==n){
+            if(n==CLUT_SLOTS||(n+1u)*32u>area_bytes||m->palette>low){
+                for(uint32_t p=0;p<q;++p){fzx_road_stream_material_t *o=&work->images[p/3u].variant[p%3u];
+                    if(o->mode)o->palette&=low;} /* the old offsets back, then refuse */
+                fzx_road_stream_clut_report[2]=3;return false;
+            }
+            const volatile uint16_t *s=(const volatile uint16_t *)(pixels+m->palette);
+            volatile uint16_t *d=(volatile uint16_t *)(dest+n*32u);
+            for(unsigned j=0;j<16u;++j)d[j]=s[j];
+            ++n;
+        }
+        m->palette|=(k+1u)<<CLUT_SLOT_SHIFT;
+    }
+    for(uint32_t q=0;q<count;++q){
+        fzx_road_stream_material_t *m=&work->images[q/3u].variant[q%3u];
+        if(m->mode&&(m->palette>>CLUT_SLOT_SHIFT))m->palette=(uint32_t)(dest+((m->palette>>CLUT_SLOT_SHIFT)-1u)*32u-pixels);
+    }
+    *used=n*32u;clut_area=dest;
+    fzx_road_stream_clut_report[0]=n;fzx_road_stream_clut_report[1]=lookups;fzx_road_stream_clut_report[2]=1;
+    return true;
+}
+#endif
+#ifndef FZX_ROAD_STREAM_LINE_START
+#define FZX_ROAD_STREAM_LINE_START 0
+#endif
+#if FZX_ROAD_STREAM_LINE_START
+/* FZX_ROAD_STREAM_LINE_START: VDP1 draws a distorted sprite or polygon as lines from its
+ * A-D edge to its B-C edge and ends a line once it leaves the clip, but it walks every
+ * pixel before a line enters it. A road command whose B-C corners lie nearer the view
+ * than its A-D corners is mirrored after the build: corners B,A,D,C, the horizontal flip
+ * toggled and the Gouraud words swapped the same way, so the same texels and shades land
+ * on the same screen corners and the lines start on the visible side. */
+volatile uint32_t fzx_road_stream_line_flips;
+static int32_t line_out(int32_t x,int32_t y,const int16_t clip[4]){
+    int32_t o=0;
+    if(x<clip[0])o+=clip[0]-x;else if(x>=clip[2])o+=x-clip[2]+1;
+    if(y<clip[1])o+=clip[1]-y;else if(y>=clip[3])o+=y-clip[3]+1;
+    return o;
+}
+static void line_start(vdp1_cmdt_t *commands,uint32_t n,const int16_t clip[4]){
+    for(uint32_t i=0;i<n;++i){
+        fzx_road_stream_vdp1_t *c=(fzx_road_stream_vdp1_t *)(void *)(commands+i);
+        const unsigned kind=c->ctrl&0xfu;
+        if(kind!=2u&&kind!=3u&&kind!=4u)continue;
+        if(line_out(c->xb,c->yb,clip)+line_out(c->xc,c->yc,clip)>=line_out(c->xa,c->ya,clip)+line_out(c->xd,c->yd,clip))continue;
+        int16_t t;
+        t=c->xa;c->xa=c->xb;c->xb=t;t=c->ya;c->ya=c->yb;c->yb=t;
+        t=c->xd;c->xd=c->xc;c->xc=t;t=c->yd;c->yd=c->yc;c->yc=t;
+        if(kind!=4u)c->ctrl^=0x0010u;
+        if(c->pmod&4u){
+            /* Two 32-bit reads; a word pair is rewritten only when its halves differ (VDP1 VRAM is slow). */
+            volatile uint32_t *g=(volatile uint32_t *)((uintptr_t)VDP1_VRAM(0)+((uintptr_t)c->grda<<3));
+            const uint32_t ab=g[0],cd=g[1];
+            if((ab>>16)!=(ab&0xffffu))g[0]=(ab<<16)|(ab>>16);
+            if((cd>>16)!=(cd&0xffffu))g[1]=(cd<<16)|(cd>>16);
+        }
+        ++fzx_road_stream_line_flips;
+    }
+}
+#endif
 bool fzx_road_stream_native(vdp1_cmdt_t *commands,unsigned capacity,const fzx_view_t *view,
     const int32_t eye[3],const RefRoadPlan *plan,int32_t pa,int32_t pb,void *pixels,void *shades,uint32_t *count){
     if(count)*count=0;
@@ -273,6 +365,9 @@ bool fzx_road_stream_native(vdp1_cmdt_t *commands,unsigned capacity,const fzx_vi
           shades,FZX_ROAD_STREAM_SHADE_BYTES,&emitted)||emitted!=n){
         fzx_road_stream_status=4;fzx_road_stream_busy=0;return false;
     }
+#endif
+#if FZX_ROAD_STREAM_LINE_START
+    line_start(commands+1,n,view->clip);
 #endif
     FZX_RSP(REPORT);
     memset(commands,0,sizeof(*commands));vdp1_cmdt_user_clip_coord_set(commands);

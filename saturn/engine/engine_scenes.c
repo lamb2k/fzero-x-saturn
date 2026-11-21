@@ -1275,6 +1275,14 @@ static void load_tick(void *u, uint32_t s) {
             load_done = true;
             fzx_scn_report[10] = video_fields_get() - f0;
             fzx_scn_report[11] = 3; /* cancelled */
+            /* As a finished load does (below): settle VDP1 and VDP2 and put the first list after
+             * the idle load inside this frame, so the LEAVE frame that follows does not take the
+             * three-field first show (2026-11-20, Ymir gap dump: LOAD LEAVE, 3 fields, at cancel 30). */
+            vdp1_sync_wait();
+            vdp2_sync_wait();
+            own_frame();
+            vdp1_sync_wait();
+            vdp2_sync_wait();
             (void)sh2z_scene_request(&seq, FZX_SCN_TITLE, RANK_RESET);
             return;
         }
@@ -1648,8 +1656,14 @@ void fzx_scn_main(void) {
         fault(1, "INIT");
 #ifndef FZX_P3_BASELINE
     /* Queue the manager's black VDP1 list after the CD reads, so its first
-     * visible frame starts with the same active display pipeline as later ones. */
+     * visible frame starts with the same active display pipeline as later ones.
+     * Then wait for it, as a load's end does (load_tick): the first put after the idle
+     * boot is shown two or three fields later, by where in a field the CD reads end, and
+     * the first manager frame would otherwise take that wait (2026-11-20, Ymir gap dump:
+     * BOOT phase 0, 3 fields, on images whose layout moved). */
     own_frame();
+    vdp1_sync_wait();
+    vdp2_sync_wait();
 #endif
     frame_fields = video_fields_get();
     for (;;) {

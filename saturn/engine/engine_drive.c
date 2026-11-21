@@ -423,7 +423,14 @@ bool fzx_drive_sprites_load(const vdp1_vram_partitions_t *parts, uint32_t clut_u
     /* CLUT partition: E0's bank stages first, then the set CLUTs (60 reserved), then the shadow. */
     const uintptr_t clut_base = (uintptr_t)parts->clut_base, clut_end = clut_base + parts->clut_size;
     const uintptr_t cl = (clut_base + clut_used + 31u) & ~(uintptr_t)31u, cl_end = cl + CLUT_SETS * 32u;
+#if ENG_CLUT_ALIGN
+    /* The shadow's lookup table at a 32-byte VDP1 address: VDP1 ignores CMDCOLR's two low bits. */
+    _Static_assert(!(offsetof(shadow_set_t, clut) & 7u), "shadow set layout");
+    const uintptr_t sh = ((cl_end + offsetof(shadow_set_t, clut) + 31u) & ~(uintptr_t)31u) - offsetof(shadow_set_t, clut);
+    const uintptr_t sh_end = sh + ((sizeof(shadow_set_t) + 7u) & ~7u);
+#else
     const uintptr_t sh = (cl_end + 7u) & ~(uintptr_t)7u, sh_end = sh + ((sizeof(shadow_set_t) + 7u) & ~7u);
+#endif
     if (sh_end > clut_end) { fzx_e1_status = 6; return false; }
     memcpy((void *)cl, (const void *)(set_cart + full->clut_offset), cluts);
     clut_vram = (uint32_t)(cl & 0x7ffffu);

@@ -37,6 +37,7 @@ SECTIONS
   {
      ___low_start = .;
      INCLUDE engine_low_text.ld
+     INCLUDE engine_low_hot.ld
      . = ALIGN (4);
      INCLUDE engine_low_rodata.ld
      . = ALIGN (16);

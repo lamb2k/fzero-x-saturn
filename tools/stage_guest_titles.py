@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Stage the O-128 title packs from private review evidence."""
+"""Stage the approved title packs from private review evidence."""
 import argparse
 import hashlib
 from pathlib import Path
@@ -12,8 +12,8 @@ PACKS = (
      "762cf89112aee81a906756d00ff1edeb165a6adce49fc5154ce8b55c7222314b"),
     ("codex-c124-brand/Falcon", "title_guest_falcon",
      "124fbfca4d0639bfda25ab7795617eb4c68507eaf44dc71cd7dbd87e311c53ff"),
-    ("codex-c124-brand/Comic", "title_guest_comic",
-     "589a16cb8d168b4a8c53a760d65bffa2b55161f555b9109bb2532ea92acae434"),
+    ("codex-c126-brand/Comic", "title_guest_comic",
+     "26b16eaa07a7afea4819021f1d09ee9e85eeb58ff4968cab69b9f65a112515f7"),
 )
 
 

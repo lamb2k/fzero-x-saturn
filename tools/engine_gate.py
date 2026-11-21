@@ -413,12 +413,22 @@ class Gate:
 
     def menus_check(self, name, lines, sink=None):
         worst = over = 0
+        where = {}
         for m in marks(lines):
             kv, _ = result_kv(lines, m)
             worst = max(worst, int(kv.get('_fzx_scn_ctl6', 0)))
-            over = max(over, int(kv.get('_fzx_scn_ctl7', 0)))
+            n = int(kv.get('_fzx_scn_ctl7', 0))
+            over = max(over, n)
+            # fzx_scn_gap_at[k & 7] (a harness with the gap dump): scene << 16 | phase << 8 | fields of the k-th gap
+            for k in range(max(1, n - 7), n + 1):
+                v = int(kv.get('_fzx_scn_gap_at%d' % (k & 7), 0))
+                if v and k not in where:
+                    where[k] = '#%d by %s: scene %d phase %d, %d fields' % (k, m, v >> 16, (v >> 8) & 0xFF, v & 0xFF)
+        detail = 'fzx_scn_ctl[7], [6] at every mark'
+        if where:
+            detail += '; gaps (fzx_scn_gap_at): ' + '; '.join(where[k] for k in sorted(where))
         self.add('menus', name, over == 0 and worst <= self.lim['menu_worst_fields'],
-                 'menu frames over two %d, worst gap %d fields' % (over, worst), 'fzx_scn_ctl[7], [6] at every mark', sink=sink)
+                 'menu frames over two %d, worst gap %d fields' % (over, worst), detail, sink=sink)
 
     def score_scenes(self, run, run_dir, build_dir, host, sink=None, host_label=''):
         lines = read_result(run_dir)

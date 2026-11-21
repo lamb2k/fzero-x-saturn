@@ -1,0 +1,4 @@
+%include <yaul.specs>
+
+*link:
+-T engine_low.x

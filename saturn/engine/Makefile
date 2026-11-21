@@ -378,6 +378,11 @@ endif
 ifeq ($(ENG_SCENES),1)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)-$(ENG_TITLE_ART)
 endif
+# Cold code and data in low work RAM (scenes image; the switch is described at the linker flags below).
+ENG_LOW_COLD ?= $(ENG_SCENES)
+ifeq ($(ENG_SCENES):$(ENG_LOW_COLD),1:0)
+SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)-low0
+endif
 SH_BUILD_DIR := $(SH_OUTPUT_DIR)/yaul
 IMAGE_DIRECTORY := $(SH_OUTPUT_DIR)/cd
 IMAGE_1ST_READ_BIN := A.BIN
@@ -623,6 +628,21 @@ endif
 SH_LDFLAGS += -Wl,--defsym=_sat_stub_data_end=0x0028C000 -Wl,--defsym=_fzx_input_log=0x0028D000
 # Unused functions and data are dropped at link time (SH2ZAM sections-1).
 SH_LDFLAGS += -Wl,--gc-sections
+# ENG_LOW_COLD (memory lane, 2026-11-21; default 1 on the scenes image, which needs ENG_SCENES=1): functions,
+# read-only data and buffers that never run or are read during a race are linked into low work RAM at 0x00240000
+# (engine_low.x, a copy of Yaul's yaul.x with two sections added). The scenes image loads only the path pack's
+# header (about 2 KB) at 0x00200000, so the rest of the pack's reservation is free there. The function list
+# engine_low_text.ld is made by tools/engine_low_cold.py from an executed-PC census of the scenes loop and all six
+# courses; engine_low_rodata.ld and engine_low_bss.ld list read-only data and buffers checked by hand (each with
+# its reason). engine_low_init() copies .low in at the start of main. 0 is the image as before (Yaul's script).
+ifneq ($(ENG_LOW_COLD),0)
+ifneq ($(ENG_SCENES),1)
+$(error ENG_LOW_COLD=1 needs ENG_SCENES=1: the block is the scenes image's unused path-pack space)
+endif
+SH_SPECS := engine_low.specs yaul-main.specs
+SH_CFLAGS += -DENG_LOW_COLD=1
+$(SH_BUILD_PATH)/$(SH_PROGRAM).elf: engine_low.x engine_low_text.ld engine_low_rodata.ld engine_low_bss.ld engine_low.specs
+endif
 
 IP_VERSION := V0.001
 IP_RELEASE_DATE := 20261119

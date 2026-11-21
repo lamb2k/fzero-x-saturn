@@ -58,6 +58,10 @@ static sh2z_vd_body_t body;
 static FzxPadState pad_state;
 static uint16_t prev_n64;
 static uint32_t ticks;
+#if ENG_LOW_COLD
+/* Read once by fzx_phys_load at LOAD (which copies what the race uses into `course`): low work RAM (engine_low.x). */
+__attribute__((section(".bss.lowcold.drive_pack_buf")))
+#endif
 static uint32_t pack_buf[(CMAX(FZX_COURSE_MAX_PHYS_BYTES,FZX_PHYSICS_PACK_BYTES) + 3u) / 4u + 2u] __attribute__((aligned(8)));
 
 /* ---- physics ---------------------------------------------------------------- */

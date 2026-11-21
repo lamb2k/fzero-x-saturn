@@ -46,6 +46,10 @@ static void road_list_guards(void){
     for(unsigned i=0;i<8u;++i){g[i]=FZX_SIMPIPE_GUARD;h[i]=FZX_SIMPIPE_GUARD;}
 }
 #else
+#if ENG_LOW_COLD
+/* Engine scenes image: read only by the road pack load (low work RAM, saturn/engine/engine_low.x). */
+__attribute__((section(".bss.lowcold.road_entries")))
+#endif
 static cdfs_filelist_entry_t entries[ROOT_ENTRIES];
 #endif
 void fzx_road_note_tick(void) {

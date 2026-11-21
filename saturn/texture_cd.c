@@ -43,6 +43,10 @@ static uint32_t hash_bytes(uint32_t hash,const volatile uint8_t *data,uint32_t b
     return hash;
 }
 #if FZX_CD_STREAM
+#if ENG_LOW_COLD
+/* Engine scenes image: read only by loads, never during a race frame (low work RAM, saturn/engine/engine_low.x). */
+__attribute__((section(".bss.lowcold.texture_cd_kept")))
+#endif
 static cdfs_filelist_entry_t kept[ROOT_ENTRIES];
 static uint32_t kept_count;
 static bool kept_ok;

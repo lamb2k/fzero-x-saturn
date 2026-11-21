@@ -9,7 +9,8 @@
 #   stage.sh build STAGE OUT LABEL VARS...   build saturn/engine with VARS; copy BIN/ISO/CUE/SYM/MAP to OUT/LABEL
 #   stage.sh legacy STAGE OUT LABEL KIND     KIND recipe (4b4cacb2) or off (bb5f0fc5): build and copy the BIN
 #   stage.sh host STAGE OUT KEY SLUG [DRIVER] HOST checkpoints (fzx-phys --checkpoints 256, tubes build, built once
-#                                            per KEY = tree id) for SLUG's R01 race
+#                                            per KEY = tree id) for SLUG's R01 race; DRIVER atk1: the R01 race with the
+#                                            field and attacks (fzx-atk), for images built with ENG_ATTACKS
 # OUT is a /mnt/c path. Generated assets are ROM-derived: they stay in the stage and never leave this machine.
 set -euo pipefail
 set -u
@@ -138,6 +139,24 @@ host)
   out=${3:?}; key=${4:?}; slug=${5:?}; driver=${6:-0.004,2.5}
   cd "$S/w"; pin=$(cat saturn/engine/sh2zam.pin)
   hb=$S/host-$key; mkdir -p "$hb"
+  if [ "$driver" = atk1 ]; then
+    # Images with ENG_ATTACKS: the R01 race with the field and attacks on (fzx-atk, the image's engine sources on
+    # HOST, built per course: its rivals headers are compiled in). Its "body" checkpoints, final state and finish are
+    # the image's fzx_e1_checkpoints and fzx_e1_report words; the raw output is kept as SLUG-atk1.raw.txt.
+    g=$(python3 -c "import sys;sys.path.insert(0,'tools');import course_catalog as c;print(c.gen_root('$slug'))")
+    ab=$hb/fzx-atk-$slug
+    if [ ! -x "$ab" ]; then
+      SH2ZAM_ROOT=$S/lib-$pin GEN=$g TUBES=1 TAG=-gate-$slug bash tools/attacks_host/build.sh gcc -O2 -I"$S/w/generated/attacks" > "$hb/build-atk-$slug.log" 2>&1 || { tail -20 "$hb/build-atk-$slug.log"; exit 1; }
+      cp tools/attacks_host/build/gcc-O2-gate-$slug-tubes/fzx-atk "$ab"
+    fi
+    mkdir -p "$out"
+    f=$out/$slug-$driver.txt
+    "$ab" --phys "$g/physics/PHYS.PAK" --rivals "$g/rivals/RIVALS.PAK" --driver 1 > "$out/$slug-$driver.raw.txt" 2>&1
+    awk '$1 == "body" { print "chk " $2 " " $3 } $1 == "final" { print "ticks " $2 " final " $3 " hash -" } $1 == "finish_ms"' "$out/$slug-$driver.raw.txt" > "$f"
+    echo "HOST $slug $driver $(grep -E '^(ticks|finish_ms)' "$f" | tr '
+' ' ')"
+    exit 0
+  fi
   if [ ! -x "$hb/fzx-phys" ]; then
     SH2ZAM_ROOT=$S/lib-$pin TUBES=1 bash tools/physics_host/build.sh gcc -O2 > "$hb/build.log" 2>&1 || { tail -20 "$hb/build.log"; exit 1; }
     cp tools/physics_host/build/gcc-O2-tubes/fzx-phys "$hb/fzx-phys"

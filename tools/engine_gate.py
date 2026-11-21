@@ -661,7 +661,7 @@ class Gate:
                 continue
             rd = self.ev / 'runs' / r['name']
             bd = builds[r['image']]['dir']
-            host = hosts.get(r.get('course')) if r.get('course') else None
+            host = self.host_for(hosts, r.get('course'), bd)
             if r['kind'] == 'race':
                 self.score_race(r, rd, bd, host)
             else:
@@ -693,6 +693,18 @@ class Gate:
     def host(self, hdir, slug, driver):
         rc, out = self.stage_cmd('host', self.stage, wslpath(hdir), self.head['sha'][:12], slug, driver)
         return host_ref(hdir / ('%s-%s.txt' % (slug, driver)))
+
+    def host_for(self, hosts, slug, build_dir):
+        """The R01 HOST reference for SLUG that an image is judged against: fzx-phys (the player alone), or for an
+        image built with ENG_ATTACKS (its symbols hold fzx_atk_chk) fzx-atk, the race with the field and attacks
+        (stage.sh host ... atk1), since the rivals' contacts move the player. Cached per course and kind."""
+        if not slug:
+            return None
+        atk = ' _fzx_atk_chk' in (Path(build_dir) / 'fzs-engine.sym').read_text()
+        key = (slug, 'atk1') if atk else slug
+        if key not in hosts:
+            hosts[key] = self.host(self.ev / 'host', slug, 'atk1' if atk else '0.004,2.5')
+        return hosts[key]
 
     def base_bins(self, base_sha, ident, head):
         """BIN hashes of the base's identity images: from the shared receipt cache, else built in this stage."""
@@ -818,13 +830,11 @@ class Gate:
                 rd = self.ev / 'runs' / name
                 bd = self.ctl_builds[name]['dir'] if c.get('vars') else builds[c['image']]['dir']
                 if c['kind'] == 'race':
-                    host = hosts.get(c.get('course')) if c.get('course') else None
+                    host = self.host_for(hosts, c.get('course'), bd)
                     self.score_race(dict(name=name), rd, bd, host, sink=sink)
                 else:
                     hslug = c.get('host_course', c.get('course'))
-                    host = hosts.get(hslug) if hslug else None
-                    if hslug and host is None:
-                        host = hosts[hslug] = self.host(self.ev / 'host', hslug, '0.004,2.5')
+                    host = self.host_for(hosts, hslug, bd)
                     self.score_scenes(dict(name=name, kind=c['kind']), rd, bd, host, sink=sink, host_label=hslug or '')
             target = [r for r in sink if r['check'] == chk]
             # A control whose run or script dies before its check is scored has still failed; the table says which.

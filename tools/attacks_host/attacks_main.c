@@ -8,8 +8,9 @@
  *
  * --driver 1 is the R01 closed-loop driver (the image's E1_DRIVER=1), 2 the scripted hunter.
  * Prints "chk N HASH" every 256 field ticks (fzx_atk_chk, the image keeps the same words) and
- * "body N HASH" every 256 steps (fzx_e1_checkpoints). --mutate plants one rule change for the
- * class controls (see attacks_host.h). The packs are ROM-derived: local only.
+ * "body N HASH" every 256 steps (fzx_e1_checkpoints), then "final N HASH" (the player's state at the end,
+ * fzx_e1_report 6 and 7) and "finish_ms MS retire_tick T" as fzx-phys gives them. --mutate plants one rule
+ * change for the class controls (see attacks_host.h). The packs are ROM-derived: local only.
  *
  * --order saturn steps as the image does with ENG_ATK_DEFER (lane claude/attacks-5), N ticks a frame (default 2):
  * contacts that fzx_atk_player_clear clears wait behind the queued field tick, the queue runs at the frame's
@@ -154,6 +155,7 @@ int main(int argc, char **argv) {
     int ahead_ok = 0;
     uint32_t deferred = 0, aheads = 0, clear0 = 0, clear1 = 0, viol0 = 0, viol1 = 0;
     int pred0 = 0, pred1 = 0;
+    long fin_ms = -1, retire_t = -1;   /* the player's finish (flags bit 25) and retirement (bits 14, 19, 27), as fzx-phys */
     for (; t < (uint32_t)ticks_max; ++t) {
         uint16_t button = t >= RACE_START_TICK ? 0x8000u : 0u;
         signed char sx = 0;
@@ -191,6 +193,8 @@ int main(int argc, char **argv) {
         }
         const uint64_t a1 = ns_now();
         sh2z_vd_step_contact(&body, &course.track, &course.vehicle, &fzx_phys_rules, &in, &contact);
+        if (retire_t < 0 && (body.flags & ((1u << 14) | (1u << 19) | (1u << 27)))) retire_t = (long)t;
+        if (fin_ms < 0 && (body.flags & (1u << 25))) fin_ms = (long)body.race_time;
         const uint64_t a2 = ns_now();
         if (saturn) {
             if (q_n >= 8u) q_run();
@@ -241,6 +245,10 @@ int main(int argc, char **argv) {
            fzx_atk_dmg_src[2][1] / 256.0);
     fprintf(stderr, "HOST ns per tick: contact %.0f, player step %.0f, field tick (attacks move/after inside) %.0f\n", (double)t_contact / t, (double)t_step / t, (double)t_field / t);
     for (unsigned i = 0; i < FZX_ATK_CHECKPOINTS; ++i) if (fzx_atk_chk[i]) printf("chk %u %08x\n", (i + 1u) * 256u, fzx_atk_chk[i]);
+    /* The player's final state (the image's fzx_e1_report 5..7) and finish, in fzx-phys's words for the engine gate. */
+    printf("final %u %016llx\n", t, (unsigned long long)fnv64_body(&body));
+    if (fin_ms >= 0) printf("finish_ms %ld", fin_ms); else printf("finish_ms -");
+    if (retire_t >= 0) printf(" retire_tick %ld\n", retire_t); else printf(" retire_tick -\n");
     printf("ticks %u race_ms %d finished %u kos %u ko_hook %u spun %u retired_by_damage %u field_retired %u contacts %u cpu_side %u cpu_spin %u hits %u player_hits %u held_off_screen %u player_damage %u hash %08x\n",
            t, body.race_time, (unsigned)fzx_field_report[11], fzx_atk_report[3], ko_hook_calls, fzx_atk_report[4], fzx_atk_report[5],
            (unsigned)fzx_field_report[12], fzx_atk_report[0], fzx_atk_report[6], fzx_atk_report[7], fzx_atk_report[8], fzx_atk_report[12],

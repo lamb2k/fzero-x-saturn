@@ -281,8 +281,9 @@ endif
 # tube roll, lateral inertia, air and falls with a knock-out credit, the near-focus knock-out gate and the free CPU
 # boost (boost_energy 0), and drops and launches on the drop nodes (generated/.../rivals/drops.txt from tools/rivals_drops.py;
 # the one-disc image takes tools/course_drops_bundle.py), with the values HOST checked them with (ref/rivals_gp_main.c --behave 1). Fall, retirement
-# and KO-credit events go to fzx_field_events (engine_field.h). Default 0: line-field-4's field step for step.
-ENG_RIVAL_BEHAVE ?= 0
+# and KO-credit events go to fzx_field_events (engine_field.h). Default 1 (the shipping arm); 0 is line-field-4's field
+# step for step (the switch-off identity build).
+ENG_RIVAL_BEHAVE ?= 1
 ifeq ($(filter 0 1,$(ENG_RIVAL_BEHAVE)),)
 $(error ENG_RIVAL_BEHAVE must be 0 or 1)
 endif

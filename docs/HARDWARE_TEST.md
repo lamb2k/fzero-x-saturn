@@ -1,4 +1,38 @@
-# Console test
+# Full-loop Saturn disc test
+
+**P0 status: awaiting a physical run.** Use the P0 full-loop disc with six Jack courses, menus, music, effects and the cadence overlay. Use its matching CUE and all referenced tracks. Keep the E0 soak disc as a separate test.
+
+**Run identity** — Date ______ Console model/region ______ Video mode 60 Hz ______ Loader/firmware ______ 4 MB expansion ______ Controller ______ Build commit ______ SHA256SUMS manifest ______ Display/capture ______
+
+## Full-loop route
+
+1. Cold boot with sound on. Record time to title. Press Start, browse the six course names, choose Mute City and confirm a machine. Record time from confirmation to a playable grid. Check music during loading and the transition into the race.
+2. Drive to results. Note steering, grip, boost response, picture and sound. Photograph the race counter during play and both counter blocks at results. Enter a name for a qualifying time. Retry once; verify the same course and machine, music restart and responsive input.
+3. Return to title. Run Sand Ocean or Big Blue and record the same observations on a tube section. Pause and resume, then try pause/retry after music has played. Test the remaining courses in the table; distinguish a completed race, a retirement and a course only booted.
+4. Cancel a load near the start, middle and end with A+B+C+Start. Release the chord after each return to title. Start another race and check disc reads, music and input. Exercise soft reset from title, select, race, results and records. Record the scene and what happened if the return or next load fails.
+5. Reboot after the save indicator has settled. Open records and verify the saved time/name under its original course. If this disc exposes Jack GP, check the next-round load with music active and record the two courses. Mark GP unavailable if gated.
+6. On a guest-enabled disc, select Dr. Robotnik and Metal Sonic in turn. Check each portrait on SELECT, the Eggmobile or Metal Sonic model on the grid and during turns, and the machine name on RESULTS. For a saved finish, check the same name and time in RECORDS after reboot.
+
+| Course | Outcome / time | Race WORST / OVER2 | Menu WORST / OVER2 | Music, picture, pad or fault |
+|---|---|---|---|---|
+| Mute City | | | | |
+| Silence | | | | |
+| Sand Ocean (pipes) | | | | |
+| Devil's Forest | | | | |
+| Big Blue (cylinders) | | | | |
+| Port Town | | | | |
+
+**Reading the overlay.** RACE FPS covers the latest race second. MEAN and the race/menu GAPS counts accumulate across measured intervals since power-on. GAPS lists 1, 2, 3 and 4-or-more fields. Record both blocks before and after each route, including the race number and elapsed time. For the locked loop, new frames should arrive every two fields. Record any rise in OVER2 and its location even if MEAN still reads 30. If a counter is absent or does not advance, record the observation and leave cadence unverified.
+
+**E0 soak.** Boot the separate E0 disc, let the flythrough loop for ten minutes, and photograph the counters at start and finish. Record visual corruption, lockups, blank frames, or a rising OVER2 count. Keep E0 evidence separate from the full-loop run.
+
+**Owner verdict** — Pad/handling ______ Course and vehicle appearance ______ Cadence ______ Save/reboot ______ Sound and transitions ______ First reproducible issue (disc, course, action, timestamp) ______
+
+The same disc run in Mednafen or Ymir gets a separate emulator row with its own hashes and settings. Hardware acceptance uses the physical console observations above.
+
+---
+
+## Archived prototype sheet
 
 An emulator run is not hardware timing. Yaba Sanshiro does not model the SH-2
 cache or work-RAM wait states accurately, so every figure from it is MODELLED.

@@ -2,7 +2,12 @@
  * MIT; see ../LICENSE. Host headers only; the game code is behind ref.h and rivals_bake.c.
  *
  *   fzx-rivals --course RECORD --rom ROM --cpu-line LINE --inputs-hex WORDS --pace BASE,STEP
- *              --header OUT.h --report OUT.json [--rivals N]
+ *              --header OUT.h --report OUT.json [--rivals N] [--zones OUT.txt]
+ *
+ * --zones writes the course's surface zones in line space for the native field (SH2ZAM line-field-4),
+ * after everything else, so the pack, header and report are as without it: one row per zone,
+ * "start end lat_lo lat_hi kind" (Q8 distance and lateral, positive right; kind 1 plate, 2 low grip,
+ * 3 rough, 4 recharge), sorted by start, a zone over the line's start split in two.
  *
  * RECORD, ROM and LINE come from the owner's ROM at asset-build time (tools/rivals_assets.py) and are
  * never committed. The player is replayed through the original race code; rivals run the native
@@ -23,6 +28,8 @@ int rb_segment_count(void);
 void rb_segment(int index, float out[5]);
 void rb_sample(int index, float t, float out[13]);
 void rb_player(float out[3]);
+void rb_gp_zones(void);
+int rb_zones(float out[][11], int max);
 
 #define MAX_NODES 4096
 #define MAX_TICKS 16384
@@ -117,6 +124,82 @@ static void bake(double speed_k) {
     }
 }
 
+/* Surface zones in line space (--zones). The source tests a zone by t range on its segment, then by
+ * side offset (left of the road middle, shifted by half the radius difference) or by two edge
+ * vectors (the displacement between them about the road forward). The lateral range here is the
+ * band of on-road laterals that pass, taken at the zone's middle t. */
+#define MAX_ZONES 256
+typedef struct { int32_t start, end, lo, hi; int kind; } LineZone;
+static int zone_cmp(const void* a, const void* b) {
+    const LineZone *x = a, *y = b;
+    return x->start < y->start ? -1 : x->start > y->start ? 1 : 0;
+}
+static void write_zones(const char* path, int32_t len_q8) {
+    static float z[MAX_ZONES][11];
+    static LineZone out[2 * MAX_ZONES];
+    static const int kind_map[5] = { 0, 4, 3, 1, 2 };   /* source pit, dirt, dash, ice -> field recharge, rough, plate, low grip */
+    rb_gp_zones();
+    const int n = rb_zones(z, MAX_ZONES);
+    if (n > MAX_ZONES) die("too many zones");
+    int m = 0;
+    for (int k = 0; k < n; ++k) {
+        const int seg = (int)z[k][0], type = (int)z[k][1];
+        if (type < 1 || type > 4) continue;   /* lava and magnets: not in the field */
+        float s5[5], p0[13], p1[13], pm[13];
+        rb_segment(seg, s5);
+        rb_sample(seg, z[k][2], p0); rb_sample(seg, z[k][3], p1); rb_sample(seg, 0.5f * (z[k][2] + z[k][3]), pm);
+        double lo = 1e9, hi = -1e9;
+        if (z[k][10] != 0.0f) {
+            const double shift = 0.5 * (s5[3] - s5[2]);   /* (right - left) / 2 */
+            lo = shift - z[k][7]; hi = shift - z[k][4];
+        } else {
+            const double fl = sqrt(pm[3]*pm[3]+pm[4]*pm[4]+pm[5]*pm[5]), ll = sqrt(pm[9]*pm[9]+pm[10]*pm[10]+pm[11]*pm[11]);
+            const double f[3] = { pm[3] / fl, pm[4] / fl, pm[5] / fl }, l[3] = { pm[9] / ll, pm[10] / ll, pm[11] / ll };
+            const double lv[3] = { z[k][4], z[k][5], z[k][6] }, hv[3] = { z[k][7], z[k][8], z[k][9] };
+            const double reach = fmax(s5[2], s5[3]);
+            for (double lat = -reach; lat <= reach; lat += 0.25) {
+                const double d[3] = { -lat * l[0], -lat * l[1], -lat * l[2] };
+                const double c1[3] = { d[1]*lv[2]-d[2]*lv[1], d[2]*lv[0]-d[0]*lv[2], d[0]*lv[1]-d[1]*lv[0] };
+                const double c2[3] = { hv[1]*d[2]-hv[2]*d[1], hv[2]*d[0]-hv[0]*d[2], hv[0]*d[1]-hv[1]*d[0] };
+                if (c1[0]*f[0]+c1[1]*f[1]+c1[2]*f[2] < 0 || c2[0]*f[0]+c2[1]*f[1]+c2[2]*f[2] < 0) continue;
+                if (lat < lo) lo = lat;
+                if (lat > hi) hi = lat;
+            }
+            if (lo > hi) continue;   /* no on-road lateral inside */
+        }
+        int32_t a0 = (int32_t)lround(p0[12] * 256.0), a1 = (int32_t)lround(p1[12] * 256.0);
+        while (a0 >= len_q8) a0 -= len_q8;
+        while (a0 < 0) a0 += len_q8;
+        while (a1 >= len_q8) a1 -= len_q8;
+        while (a1 < 0) a1 += len_q8;
+        const LineZone base = { 0, 0, (int32_t)lround(lo * 256.0), (int32_t)lround(hi * 256.0), kind_map[type] };
+        if (a1 > a0) { out[m] = base; out[m].start = a0; out[m].end = a1; ++m; }
+        else if (a1 < a0) {
+            out[m] = base; out[m].start = a0; out[m].end = len_q8; ++m;
+            if (a1 > 0) { out[m] = base; out[m].start = 0; out[m].end = a1; ++m; }
+        }
+    }
+    qsort(out, (size_t)m, sizeof out[0], zone_cmp);
+    FILE* o = fopen(path, "w");
+    if (!o) die("cannot write zones");
+    for (int k = 0; k < m; ++k) fprintf(o, "%ld %ld %ld %ld %d\n", (long)out[k].start, (long)out[k].end, (long)out[k].lo, (long)out[k].hi, out[k].kind);
+    fclose(o);
+    printf("zones %d (of %d source effects)\n", m, n);
+    /* The final dash (cpu.c: on the last lap, past segment index (2 x count) / 3, the CPU racers stop
+     * pacing): the Q8 line distance where that stretch starts, written beside the zones as PATH.dash. */
+    {
+        float q[13];
+        const int first = (2 * rb_segment_count()) / 3 + 1;
+        char dp[4096];
+        snprintf(dp, sizeof dp, "%s.dash", path);
+        FILE* d = fopen(dp, "w");
+        if (!d) die("cannot write the dash distance");
+        if (first < rb_segment_count()) { rb_sample(first, 0.0f, q); fprintf(d, "%ld\n", (long)lround(q[12] * 256.0)); }
+        else fprintf(d, "0\n");
+        fclose(d);
+    }
+}
+
 static void put32(FILE* f, uint32_t v) { fputc((int)(v >> 24), f); fputc((int)(v >> 16) & 255, f); fputc((int)(v >> 8) & 255, f); fputc((int)v & 255, f); }
 static void put16(FILE* f, uint16_t v) { fputc(v >> 8, f); fputc(v & 255, f); }
 
@@ -164,7 +247,7 @@ static void write_pack(const char* header_path, int32_t len_q8, const int32_t* l
 }
 
 int main(int argc, char** argv) {
-    const char *course = 0, *rom = 0, *line = 0, *hex = 0, *header = 0, *report = 0, *pace = "33000,300";
+    const char *course = 0, *rom = 0, *line = 0, *hex = 0, *header = 0, *report = 0, *pace = "33000,300", *zones = 0;
     int nriv = MAX_RIVALS;
     for (int i = 1; i + 1 < argc; i += 2) {
         if (!strcmp(argv[i], "--course")) course = argv[i + 1];
@@ -175,6 +258,7 @@ int main(int argc, char** argv) {
         else if (!strcmp(argv[i], "--report")) report = argv[i + 1];
         else if (!strcmp(argv[i], "--pace")) pace = argv[i + 1];
         else if (!strcmp(argv[i], "--rivals")) nriv = atoi(argv[i + 1]);
+        else if (!strcmp(argv[i], "--zones")) zones = argv[i + 1];
         else die("unknown argument");
     }
     if (!course || !rom || !line || !hex || !header || !report || nriv < 1 || nriv > MAX_RIVALS) die("usage: see rivals_main.c");
@@ -295,6 +379,7 @@ int main(int argc, char** argv) {
     fprintf(o, " ]\n}\n");
     fclose(o);
     write_pack(header, len_q8, lap_ticks, MAX_RIVALS, pace);
+    if (zones) write_zones(zones, len_q8);
     printf("nodes %d length %.1f k %.6f host %.1f ns/tick\n", node_count, length, speed_k, host_ns / (ticks - start_tick));
     return 0;
 }

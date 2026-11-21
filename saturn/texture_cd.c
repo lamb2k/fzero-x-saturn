@@ -47,8 +47,27 @@ static cdfs_filelist_entry_t kept[ROOT_ENTRIES];
 static uint32_t kept_count;
 static bool kept_ok;
 void fzx_texture_cd_reset(void){kept_ok=false;fzx_road_stream_invalidate();}
+static bool load_once(const char *name,uint32_t bytes,uint32_t expected,
+                      void *vram,void *scratch,uint32_t scratch_bytes);
+/* A whole-file load whose bytes arrive wrong (copy check 7, FNV 8) is read again from a new
+ * stream, up to twice: every byte is still checked, so wrong data is never accepted, and a
+ * pack that is wrong on the disc is still refused. [0] retries, [1] loads that needed one,
+ * [2] the last retried file's first status. (claude/jack-gp: Ymir, GP NEXT loads, SKYL1's
+ * fourth sector arrived as other data with the stream open; see COURSES.md section 10.) */
+volatile uint32_t fzx_texture_cd_retries[3];
 bool fzx_texture_cd_load(const char *name,uint32_t bytes,uint32_t expected,
                          void *vram,void *scratch,uint32_t scratch_bytes) {
+    bool ok=load_once(name,bytes,expected,vram,scratch,scratch_bytes);
+    for(unsigned k=0;!ok && k<2u && (fzx_texture_cd_status.status==7u || fzx_texture_cd_status.status==8u);++k) {
+        if(!k){++fzx_texture_cd_retries[1];fzx_texture_cd_retries[2]=fzx_texture_cd_status.status;}
+        ++fzx_texture_cd_retries[0];
+        fzx_road_stream_invalidate();
+        ok=load_once(name,bytes,expected,vram,scratch,scratch_bytes);
+    }
+    return ok;
+}
+static bool load_once(const char *name,uint32_t bytes,uint32_t expected,
+                      void *vram,void *scratch,uint32_t scratch_bytes) {
     fzx_texture_cd_status=(fzx_texture_cd_status_t){0};
     if(!name || !*name || !bytes || (bytes&3u) || !vram || ((uintptr_t)vram&7u) ||
        !scratch || ((uintptr_t)scratch&31u) || scratch_bytes<sizeof(scratch_t))return fail(2);

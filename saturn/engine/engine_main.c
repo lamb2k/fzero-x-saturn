@@ -229,6 +229,10 @@ static vdp1_vram_partitions_t partitions;
 static void *skyline_vram, *planes_vram, *road_pixels, *road_shades[2];
 static volatile uint32_t video_fields;
 static volatile uint16_t vblank_frt, field_frt;
+#if FZX_E1_DRIVE && ENG_SCENES
+static volatile uint8_t smpc_hold; /* engine_smpc_quiet: vblank_out issues no INTBACK while set */
+volatile uint32_t fzx_smpc_quiet[2]; /* engine_smpc_quiet: [0] sections begun, [1] ended (one open = inside) */
+#endif
 
 /* ---- frame table: one row per presented frame, in low work RAM ----------- */
 typedef struct {
@@ -497,7 +501,9 @@ static void vblank_out(void *work) {
     field_frt = (uint16_t)(now - vblank_frt);
     vblank_frt = now;
     ++video_fields;
-#if FZX_E1_DRIVE
+#if FZX_E1_DRIVE && ENG_SCENES
+    if (!smpc_hold) smpc_peripheral_intback_issue();
+#elif FZX_E1_DRIVE
     smpc_peripheral_intback_issue();
 #endif
 #if ENG_SCENES
@@ -505,6 +511,35 @@ static void vblank_out(void *work) {
 #endif
     MAC_RESTORE();
 }
+
+#if FZX_E1_DRIVE && ENG_SCENES
+/* A quiet SMPC for a command from this thread (the backup library's RESDISA/RESENAB, engine_records.c).
+ * vblank_out issues INTBACK every field and does not wait for it to end (Yaul's smpc_smc_intback_call: "does not
+ * wait until the SMPC INTBACK command ends"; "Yaul uses this function to [get] SMPC status and fetch peripheral
+ * data"). smpc_smc_call's SF wait (smpc/smc.h smpc_smc_wait) is not atomic with the handler's, and a command
+ * written while an INTBACK is still in flight never ends: SF stays set and smpc_smc_wait spins for good (memory
+ * lane part 4: the sound-off loop hung in the reboot's records save, boot_enter -> fzx_records_load ->
+ * write_table -> bup_write's RESDISA). Yaul has no lock for this, so the engine keeps the two apart, as user_init
+ * does for the sound commands (before smpc_peripheral_init): begin holds the next issue and waits for one
+ * vblank-out to pass without one, so the last INTBACK (issued a field or more earlier) has ended; end lets the
+ * next field issue again. The pads miss one or two fields of input per quiet section. The wait is bounded in case
+ * vertical blank is not running (then nothing issues INTBACK either). ENG_SMPC_OVERLAP_CONTROL=1 is the control:
+ * no hold, and the command starts right after the handler's issue, so it meets the INTBACK. */
+void engine_smpc_quiet(bool on) {
+    ++fzx_smpc_quiet[on ? 0 : 1];
+#if ENG_SMPC_OVERLAP_CONTROL
+    if (on) {
+        const uint32_t f = video_fields;
+        for (uint32_t spin = 0; video_fields == f && spin < (1u << 22); ++spin) { }
+    }
+#else
+    if (!on) { smpc_hold = 0u; return; }
+    smpc_hold = 1u;
+    const uint32_t f = video_fields;
+    for (uint32_t spin = 0; video_fields == f && spin < (1u << 22); ++spin) { }
+#endif
+}
+#endif
 
 void user_init(void) {
     const unsigned command_reserve = (CMD_CAPACITY + 31u) & ~31u;

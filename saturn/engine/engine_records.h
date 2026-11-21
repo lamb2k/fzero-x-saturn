@@ -72,4 +72,7 @@ extern volatile uint32_t fzx_rec_report[16];
 /* Captures: 1 = the next write stores a wrong CRC; 2 = the next write stores the file
  * cut in half (both stand for a write interrupted by a power cut). */
 extern volatile uint32_t fzx_rec_fault;
+/* engine_main.c: true holds the vertical blank's INTBACK and waits until none is in flight; false releases it.
+ * Around every SMPC command issued from this thread (ENG_SMPC_OVERLAP_CONTROL=1: the control, no hold). */
+void engine_smpc_quiet(bool on);
 #endif

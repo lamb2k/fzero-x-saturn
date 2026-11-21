@@ -115,7 +115,7 @@ int main(int argc, char** argv) {
     P.steer_gain = 9830;           /* 0.15 */
     P.margin = U(6);
     P.avoid_long = U(92); P.avoid_lat = U(69); P.avoid_offset = U(92);   /* the source's 92 / 69 / 92 */
-    P.avoid_ticks = 40;
+    P.avoid_ticks = 0;             /* the source's flat trigger: distanceToRacerAhead < 92, no closing look-ahead (cpu.c) */
     P.pass_hold = 60;
     P.contact_long = U(46); P.contact_lat = U(40);
     P.bump_keep = 16384;

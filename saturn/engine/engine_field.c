@@ -438,7 +438,9 @@ bool fzx_field_load(const sh2z_vd_track_t *track, const sh2z_vd_body_t *player) 
     memset(&params, 0, sizeof(params));
     params.pace_gain = 3277; params.pace_max = 81920; params.chase_gain = 655; params.steer_gain = 9830;
     params.margin = U(6); params.avoid_long = U(92); params.avoid_lat = U(69); params.avoid_offset = U(92);
-    params.avoid_ticks = 40; params.pass_hold = 60; params.contact_long = U(46); params.contact_lat = U(40);
+    /* avoid_ticks 0: the source avoids only while the vehicle ahead is within 92 (cpu.c, distanceToRacerAhead < 92),
+     * with no look-ahead for closing speed (field contact frequency, C-108). */
+    params.avoid_ticks = 0; params.pass_hold = 60; params.contact_long = U(46); params.contact_lat = U(40);
     params.bump_keep = 16384; params.hit_energy = 32768; params.side_energy = U(2); params.attack_energy = U(10);
     params.wall_energy = U(3); params.wall_keep = 62259; params.attack_long = U(184); params.attack_lat = U(92);
     params.boost_speed = U(6); params.boost_energy = U(10); params.boost_min_share = 19661; params.boost_min_cap = 0;

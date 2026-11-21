@@ -11,8 +11,8 @@ to the remaining content. Source attribution remains F-Zero X.
 | Product/documentation/workbench name | F Zero S | Local naming updated; no hosting deployment |
 | Cover | F ZERO S logo, original F-Zero identity plus both guests | Private 1800x2400 illustrated cover and uppercase lettering candidate prepared for owner review |
 | Main title | F ZERO S and both guests, readable at native resolution | Guest title integrated in the P3 scenes image; uppercase lettering candidate verified at HOST, pending look call |
-| Falcon title variant | Consistent F ZERO S branding and guest presence | Pending |
-| Comic title variant | Consistent F ZERO S branding and guest presence | Pending |
+| Falcon title variant | F ZERO S and both guests | Receipt-verified HOST stills ready for the owner |
+| Comic title variant | F ZERO S and both guests | Receipt-verified HOST stills ready for the owner |
 | Title input/warnings | Preserve pad behavior and readable prompts | Original prompt, credits and warning slots preserved in the uppercase candidate; connected, pre-prompt and disconnected HOST stills prepared |
 | Selection/HUD/results | Both guests use consistent portraits/name cards | Private guest UI masters prepared; both playable identities persisted through reboot in P3 emulator checks. Final look remains open. |
 
@@ -45,4 +45,22 @@ only the wordmark slot and keeps the atlas size fixed. Its private generator,
 receipt-bound pack and input lineage sit beside the review sheet. The emulator
 pad entry in C-113 covered the current title. The uppercase candidate still
 needs stage integration, emulator checks and hardware review after selection.
-Falcon and comic variants remain open.
+## Falcon and comic look call
+
+The private sheet at `$FZX_EVIDENCE/host/codex-c124-brand/owner-title-variants.png`
+shows the main, Falcon and comic titles at 320x224 before the prompt, with
+PUSH START, and with the controller warning. Each variant uses its original
+320x240 background, the uppercase wordmark candidate and both guest masters.
+The original layout places the comic logo lower and gives the two variants
+different warning heights. The HOST frames use those placements and the
+existing native static warning.
+
+The owner can judge all three together. On Falcon, check whether the guest
+portraits leave the machine prominent. On comic, check whether both guests
+read against the lower panels. Check warning readability in all three rows.
+Lettering and both variant compositions await owner approval.
+
+Each variant pack adds 7,680 bytes over the main pack and fits separately in the
+192 KiB title allocation. The private build script, per-variant receipts and
+individual stills sit alongside the sheet. Runtime selection, transitions,
+controller input and hardware appearance await integration and a granted run.

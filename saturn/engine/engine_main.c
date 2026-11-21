@@ -537,7 +537,7 @@ void engine_smpc_quiet(bool on) {
 #if ENG_SMPC_OVERLAP_CONTROL
     /* Control and test arm: the race's window held open. Begin issues a RESENAB (the state each backup call
      * leaves) the way smpc_smc_call does, with SF set across one vblank-out before the COMREG write. 1 (the
-     * control, no hold): the handler meets SF set and the boot stops in its first section. 2 (test arm): the same
+     * control, no hold): the handler meets SF set and the boot stops in its records load. 2 (test arm): the same
      * after the hold above (the fix from its worst starting point). */
     if (on) {
         volatile uint8_t *const sf = (volatile uint8_t *)SMPC(SF);

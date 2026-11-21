@@ -368,7 +368,7 @@
   {
    "name": "ctl-smpc",
    "check": "loop",
-   "how": "image built with ENG_SMPC_OVERLAP_CONTROL=1: the backup library's SMPC commands without the quiet SMPC, each opened by a RESENAB whose SF stays set across a vertical blank before its command is written (the race's window held open); the vertical blank's INTBACK issue waits on that SF and the boot's records load hangs inside the first section (fzx_smpc_quiet: one section open) before TITLE",
+   "how": "image built with ENG_SMPC_OVERLAP_CONTROL=1: the backup library's SMPC commands without the quiet SMPC, each opened by a RESENAB whose SF stays set across a vertical blank before its command is written (the race's window held open); the vertical blank's INTBACK issue waits on that SF and the boot's records load hangs inside one of its sections (fzx_smpc_quiet: one section open) before TITLE",
    "image": "scenes-drv-snd0",
    "kind": "loop",
    "script": "loop.txt",

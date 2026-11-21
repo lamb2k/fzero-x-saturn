@@ -45,6 +45,7 @@ only the wordmark slot and keeps the atlas size fixed. Its private generator,
 receipt-bound pack and input lineage sit beside the review sheet. The emulator
 pad entry in C-113 covered the current title. The uppercase candidate still
 needs stage integration, emulator checks and hardware review after selection.
+
 ## Falcon and comic look call
 
 The private sheet at `$FZX_EVIDENCE/host/codex-c124-brand/owner-title-variants.png`

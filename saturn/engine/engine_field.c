@@ -442,7 +442,9 @@ bool fzx_field_load(const sh2z_vd_track_t *track, const sh2z_vd_body_t *player) 
      * with no look-ahead for closing speed (field contact frequency, C-108). */
     params.avoid_ticks = 0; params.pass_hold = 60; params.contact_long = U(46); params.contact_lat = U(40);
     params.bump_keep = 16384; params.hit_energy = 32768; params.side_energy = U(2); params.attack_energy = U(10);
-    params.wall_energy = U(3); params.wall_keep = 62259; params.attack_long = U(184); params.attack_lat = U(92);
+    /* wall_keep 0.998 a tick on the edge: the source wall routine (racer.c ~2880-2936) scales velocity by 0.998 a tick
+     * of contact and charges only the impact, not 5% a tick. */
+    params.wall_energy = U(3); params.wall_keep = 65405; params.attack_long = U(184); params.attack_lat = U(92);
     params.boost_speed = U(6); params.boost_energy = U(10); params.boost_min_share = 19661; params.boost_min_cap = 0;
     params.boost_behind = U(150); params.cruise = U(40); params.rank_lead = U(8);
     params.lod_near[0] = U(3000); params.lod_near[1] = U(8000); params.lod_near[2] = U(16000);

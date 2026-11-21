@@ -120,7 +120,7 @@ int main(int argc, char** argv) {
     P.contact_long = U(46); P.contact_lat = U(40);
     P.bump_keep = 16384;
     P.hit_energy = 32768; P.side_energy = U(2); P.attack_energy = U(10);
-    P.wall_energy = U(3); P.wall_keep = 62259;                           /* keep 95% */
+    P.wall_energy = U(3); P.wall_keep = 65405;   /* keep 0.998 a tick on the edge (the source wall routine scales velocity by 0.998) */
     P.attack_long = U(184); P.attack_lat = U(92);                        /* the source's 184 / 92 */
     P.boost_speed = U(6); P.boost_energy = U(10); P.boost_min_share = 19661; P.boost_min_cap = 0; P.boost_behind = U(150);
     P.cruise = U(40);

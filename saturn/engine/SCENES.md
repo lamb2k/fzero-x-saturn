@@ -111,13 +111,37 @@ typedef struct {
   | 35..255 | reserved |
 
   - Each guest is gated on its own: `FZX_GUEST_MASK` has bit 33 for Robotnik and bit 34 for Metal Sonic (bit n =
-    identity n; default 0).
+    identity n). The P3 guest build enables both bits.
     - An enabled guest is selectable through select, race, results and records. A disabled guest is hidden in all
       four.
     - Owner lineup choice (C-066): Robotnik (33) is one of the three selectable racers in the C8 machine-select
       lineup. Metal Sonic (34) is tracked separately and has its own bit.
   - A build with a guest's bit clear keeps that guest's rows in a save, showing a generic machine name and preview.
     Its identity is never dropped or renumbered.
+  - P3 SELECT includes the 30 stock machines and the enabled guests. Up/down changes machine,
+    L/R adjusts balance in steps of 1/128, X chooses minimum and Z chooses maximum.
+    The two initial guest handling presets are Black Bull for Dr. Robotnik's Eggmobile and
+    Sonic Phantom for Metal Sonic. Both keep their guest IDs through LOAD, RESULTS and RECORDS.
+  - RECORDS opens from TITLE with B. Left/right wraps across the six Jack courses,
+    C switches between Time Attack and Death Race, and B or Start returns to TITLE.
+    Empty entries display dashes. Browsing never writes a record.
+
+  To reproduce the P3 scenes disc, stage the 30 player meshes in `generated/mach3d`.
+  Run these from the repository root on the host with the private source assets available:
+
+  ```sh
+  python3 tools/machine_tuning.py --rom "$FZX_TEST_ROM"
+  python3 tools/guest_machine_packs.py "$GUEST_KIT/player-3d"
+  python3 tools/engine_select_art.py "$PLAYER_SPRITE_SETS" generated/select_art --guest-ui "$GUEST_KIT/ui"
+  python3 tools/engine_load_cards.py generated/course_menu generated/c8_cards/engine_load_cards.h
+  ```
+
+  `GUEST_KIT` is the private hybrid-guests directory. `PLAYER_SPRITE_SETS` contains the
+  checked player-profile folders `c00s1` through `c29s1`. The loading-card generator
+  also reads the sibling `generated/course_menu_preview` pack. Stage the contents of
+  `$GUEST_KIT/title-cover/native-title` in `generated/title_guest`. The build reads the
+  pack and its identity header from that same directory. Use `ENG_TITLE_ART=title` for the
+  original title or `ENG_P3_UI=0` for the pre-P3 scenes build.
   - Our side is plumbing only: the identity, the gate, save stability, and loading the art pack the session names.
     The artwork itself is Codex's lane.
 

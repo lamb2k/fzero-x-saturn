@@ -22,6 +22,9 @@ typedef struct {
     uint8_t skin, players, difficulty, cup, player_render, confirmed;
     uint32_t slider_bits;
 } fzx_session_t;
+#ifndef FZX_P3_BASELINE
+extern fzx_session_t fzx_session;
+#endif
 
 /* Immutable finish snapshot (SCENES.md section 4). */
 #define FZX_LAPS_MAX 8u
@@ -44,6 +47,9 @@ void fzx_scn_stamp(unsigned i);
 /* Called from the VBlank-out interrupt (inside the multiply-register wrapper). */
 extern void (*volatile fzx_scn_vblank_hook)(void);
 
+#ifndef FZX_P3_BASELINE
+uintptr_t fzx_title_cart_limit(void);
+#endif
 void fzx_scn_main(void) __attribute__((noreturn));
 
 /* ---- Menu scene hooks (SCENES.md sections 2 and 8; C-070) ----------------------------

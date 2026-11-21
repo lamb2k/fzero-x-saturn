@@ -18,6 +18,8 @@ bool fzx_texture_cd_load(const char *name,uint32_t bytes,uint32_t hash,
                          void *vram,void *scratch,uint32_t scratch_bytes);
 uint32_t fzx_texture_cd_scratch_bytes(void);
 #if FZX_CD_STREAM
+/* Scenes image: whole-file loads read again on a wrong arrival (texture_cd.c). */
+extern volatile uint32_t fzx_texture_cd_retries[3];
 /* Scenes image: forget the kept root list; the next load initialises the CD block. */
 void fzx_texture_cd_reset(void);
 /* Bytes [offset, offset + bytes) of a file, FNV-1a checked; see texture_cd.c. */

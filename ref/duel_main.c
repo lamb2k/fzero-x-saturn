@@ -26,7 +26,9 @@
  * (a reference-only perturbation; repeatable up to 8 times). --replay-pads FILE drives both racers
  * from a recorded --pads file instead of the scripted drivers (as the native windows are driven).
  * --bake-range A:B --bake-dir DIR writes both racers' sources after every tick A..B
- * (DIR/p<k>-<tick>.src): the matched-state one-tick scan (tools/attacks_onestep.py). */
+ * (DIR/p<k>-<tick>.src): the matched-state one-tick scan (tools/attacks_onestep.py).
+ * --set-age T:K:A sets racer K's age since the last human contact (unk_288) to A just before tick T, and
+ * --set-toucher T:K:W its toucher (W -1 none): reference-only settings for the falls card's boundary tests. */
 #include <math.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -48,6 +50,8 @@ int duel_log_count(void);
 void duel_log_get(int i, int* kind, int* tick, int* a, int* b, float f[10]);
 void duel_pair(float* trail, int* colliding);
 void duel_perturb(int k, int field, int axis, float delta);
+void duel_set_age(int k, int age);
+void duel_set_toucher(int k, int who);
 
 static void die(const char* m) { fprintf(stderr, "fzx-duel: %s\n", m); exit(2); }
 static unsigned char* read_file(const char* path, size_t* n) {
@@ -92,6 +96,7 @@ int main(int argc, char** argv) {
     const char *length_out = 0, *pairlog = 0, *replay = 0, *bake_dir = 0;
     int bake_from = -1, bake_to = -1;
     int force_tick = -1, force_value = -1, npert = 0, pert_t[8], pert_k[8], pert_f[8], pert_a[8];
+    int age_t = -1, age_k = 0, age_v = 0, tch_t = -1, tch_k = 0, tch_v = -1;
     float pert_d[8];
     float e0 = 0.0f, e1 = 0.0f;
     for (int i = 1; i + 1 < argc; i += 2) {
@@ -113,6 +118,8 @@ int main(int argc, char** argv) {
                 die("--perturb T:K:F:A:D");
             npert++;
         }
+        else if (!strcmp(argv[i], "--set-age")) { if (sscanf(argv[i + 1], "%d:%d:%d", &age_t, &age_k, &age_v) != 3) die("--set-age T:K:A"); }
+        else if (!strcmp(argv[i], "--set-toucher")) { if (sscanf(argv[i + 1], "%d:%d:%d", &tch_t, &tch_k, &tch_v) != 3) die("--set-toucher T:K:W"); }
         else if (!strcmp(argv[i], "--bake0")) bake0 = argv[i + 1];
         else if (!strcmp(argv[i], "--bake1")) bake1 = argv[i + 1];
         else if (!strcmp(argv[i], "--bake-range")) { if (sscanf(argv[i + 1], "%d:%d", &bake_from, &bake_to) != 2) die("--bake-range A:B"); }
@@ -195,6 +202,8 @@ int main(int argc, char** argv) {
         if (replay) { b[0] = rb[0][t]; x[0] = rx[0][t]; b[1] = rb[1][t]; x[1] = rx[1][t]; }
         for (int q = 0; q < npert; ++q)
             if (pert_t[q] == t) duel_perturb(pert_k[q], pert_f[q], pert_a[q], pert_d[q]);
+        if (age_t == t) duel_set_age(age_k, age_v);
+        if (tch_t == t) duel_set_toucher(tch_k, tch_v);
         if (lf) {
             float trail; int colliding;
             duel_pair(&trail, &colliding);

@@ -92,6 +92,9 @@ void fzx_atk_contact(const sh2z_vd_body_t *player, sh2z_vd_contact_t *out);
 void fzx_atk_hold_hooks(bool on);
 void fzx_atk_release_hooks(void);
 bool fzx_atk_player_clear(const sh2z_vd_body_t *player, int32_t player_dist, int32_t player_lateral, bool field_pending);
+/* Right after the player's step (FLAGS_BEFORE: its flags before the step): the player's retirement as
+ * Racer_RetireRacer does it, energy 0 on the tick the machine crashes unless it had finished. */
+void fzx_atk_player_stepped(sh2z_vd_body_t *player, uint32_t flags_before);
 /* After the player's step, before the field step: player spin-out bookkeeping, rivals driven here. */
 void fzx_atk_move(const sh2z_vd_body_t *player);
 /* After the field step: retirements, CPU attack decisions, the state hash. */

@@ -16,7 +16,7 @@
  * --pairlog FILE (C-092): per tick, the pair test as the body-contact rule decided it, from the
  * inputs it read (logging only; d2 and closing repeat sh2z_bc_pair's integer terms):
  *   N t along_ok d2_q32 closing_q32 touch first push hit0 hit1 damage0 damage1 (damage Q16 raw)
- *   K t victim attacker      a KO credited at the victim's spin-out start
+ *   K t victim attacker      a KO credited at the victim's spin-out start, or at its fall start (C-096 item 5)
  *
  * Racer 1 is stepped as the reference's racer 1 is: an id at or above gNumPlayers, whose spline
  * search runs with the computer racers' bounds (3 iterations, squared tolerance 5) where the human
@@ -135,6 +135,8 @@ int main(int argc, char **argv) {
     else if (!strcmp(mutate, "heavy5")) br.heavy_gain = Q16(5.0);
     else if (!strcmp(mutate, "opp-player")) opp_cpu = 0;
     else if (!strcmp(mutate, "no-destroy")) { }   /* the control: a crashed machine is never destroyed */   /* the control for the opponent's search */
+    else if (!strcmp(mutate, "fall-keep-energy") || !strcmp(mutate, "fall-age119") || !strcmp(mutate, "fall-wrong") ||
+             !strcmp(mutate, "fall-twice")) { }   /* the falls card's controls (C-096 item 5), below */
     else if (*mutate) die("unknown mutation");
     sh2z_vd_body_t b[2] = { course[0].start, course[1].start };
     /* --nudge N: racer 0 starts N Q16 LSB to the side (the sensitivity probe: native against itself). */
@@ -228,6 +230,28 @@ int main(int argc, char **argv) {
                 if (alt.spin_steer != 0 && ((alt.spin_steer > 0) == (want > 0))) {
                     alt.race_ticks = b[k].race_ticks; alt.race_time = b[k].race_time;
                     b[k] = alt;
+                }
+            }
+            /* Retirement (Racer_RetireRacer, racer.c 963-973): energy 0.0 on the tick the machine crashes (a fall
+             * below the floor, a spin-out's end), unless it had crashed or finished before. */
+            const int retired_now = (b[k].flags & SH2Z_VD_CRASHED) && !(pre.flags & (SH2Z_VD_CRASHED | SH2Z_VD_FINISHED));
+            if (retired_now && strcmp(mutate, "fall-keep-energy") != 0) b[k].energy = 0;
+            /* KO at a fall start (func_80090AFC -> func_8008DBB8(racer, 120), racer.c 3884-3887, 2727-2768): the
+             * opponent leaving the course, not crashed or spinning out before, with the player as its toucher and
+             * an age of at most 120. The original's age has counted this tick when the race clock ran (racer.c
+             * 5217-5223, before the edge test; the runner's since is the age before the tick), not when the spline
+             * locate failed. The player must be able to score, as at a spin-out start. */
+            const int fell_now = (b[k].flags & SH2Z_VD_FALLING) && !(pre.flags & (SH2Z_VD_CRASHED | SH2Z_VD_SPINNING | SH2Z_VD_FALLING));
+            if (k == 1 && fell_now && bc[1].toucher == 0 && bc[1].since != UINT32_MAX &&
+                !(b[0].flags & (SH2Z_VD_FINISHED | SH2Z_VD_CRASHED | SH2Z_VD_SPINNING))) {
+                const uint32_t age = bc[1].since + (b[1].race_ticks != pre.race_ticks ? 1u : 0u);
+                if (age <= (!strcmp(mutate, "fall-age119") ? 119u : 120u)) {
+                    const int wrong = !strcmp(mutate, "fall-wrong");
+                    for (int n = !strcmp(mutate, "fall-twice") ? 2 : 1; n > 0; --n) {   /* fall-twice: a duplicate credit */
+                        ++kos;
+                        if (!wrong) regain += course[0].vehicle.max_energy / 8;
+                        if (lf) fprintf(lf, "K %d 1 %d\n", t, wrong ? 1 : 0);
+                    }
                 }
             }
         }

@@ -158,6 +158,11 @@ void duel_pair(float* trail, int* colliding) {
     *colliding = p->areColliding ? 1 : 0;
 }
 
+/* Reference-only settings before a tick (the falls card's boundary tests, C-096 item 5): racer k's age since the
+ * last human contact (unk_288), and its toucher (unk_28C: -1 none, else that racer). */
+void duel_set_age(int k, int age) { gRacers[k].unk_288 = age; }
+void duel_set_toucher(int k, int who) { gRacers[k].unk_28C = who < 0 ? NULL : &gRacers[who]; }
+
 /* Reference-only perturbation before a tick: racer k's position (field 0) or velocity (field 1), one axis. */
 void duel_perturb(int k, int field, int axis, float delta) {
     Racer* r = &gRacers[k];

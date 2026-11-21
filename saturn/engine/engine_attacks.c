@@ -653,6 +653,14 @@ static void think(const sh2z_vd_body_t *p, uint32_t i) {
 #undef WIDE
 }
 
+/* Racer_RetireRacer (racer.c 963-973): RETIRED and energy = 0.0f on the tick the machine crashes (a fall below
+ * the floor, 5088-5098; a spin-out's end, 5732-5738), unless it had finished or retired before. The player's
+ * body carries the crash (SH2ZAM vehicle dynamics); the energy is the engine's to clear. No fall credit is due
+ * here: a computer racer is never a toucher in the original (6263-6271), and the field's rivals do not fall. */
+void fzx_atk_player_stepped(sh2z_vd_body_t *p, uint32_t flags_before) {
+    if ((p->flags & SH2Z_VD_CRASHED) && !(flags_before & (SH2Z_VD_CRASHED | SH2Z_VD_FINISHED))) p->energy = 0;
+}
+
 static uint32_t mix(uint32_t h, uint32_t x) { return (h ^ x) * 16777619u; }
 
 void fzx_atk_after(const sh2z_vd_body_t *p) {

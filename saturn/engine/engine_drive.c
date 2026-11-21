@@ -256,7 +256,9 @@ static void step_once(sh2z_vd_input_t *in) {
     if (!queued) fzx_fx_tick(&body); /* race effects: read only (engine_fx.c); a queued contact's run after it */
 #endif
     APROF_T(ps);
+    const uint32_t flags_before = body.flags;
     phys_step_contact(&course, &body, &fzx_phys_rules, in, &contact);
+    fzx_atk_player_stepped(&body, flags_before);   /* the retirement's energy (Racer_RetireRacer) */
     APROF(5, ps);
 #if ENG_FX
     const bool accel = (in->pressed & SH2Z_VD_BTN_ACCEL) != 0u;

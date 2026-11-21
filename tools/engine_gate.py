@@ -844,9 +844,19 @@ class Gate:
             target = [r for r in sink if r['check'] == chk]
             # A control whose run or script dies before its check is scored has still failed; the table says which.
             failed = [r for r in sink if r['check'] in (chk, 'run', 'script') and r['status'] == 'FAIL']
-            self.controls.append(dict(control=name, check=chk, how=c['how'], status='PASS' if failed else 'FAIL',
-                                      shown=('; '.join('%s: %s' % (r['subject'], r['value']) for r in (failed or target))
-                                             + ''.join('; %s' % r['value'] for r in sink if r['check'] == 'audio' and chk == 'disc'))[:400]))
+            shown = ('; '.join('%s: %s' % (r['subject'], r['value']) for r in (failed or target))
+                     + ''.join('; %s' % r['value'] for r in sink if r['check'] == 'audio' and chk == 'disc'))
+            if c.get('expect_error'):
+                # The control counts only when its run failed at the intended place (an earlier boot, disc or scene
+                # failure must not satisfy it): the harness error is expect_error (RECORD_MS filled as for the run)
+                # and the run passed expect_mark.
+                bd = self.ctl_builds[name]['dir'] if c.get('vars') else builds[c['image']]['dir']
+                want = c['expect_error'].replace('RECORD_MS', str(self.record_ms(hosts, bd, c.get('record_offset', 0))))
+                got, seen = error_text(self.ev / 'runs' / name), marks(read_result(self.ev / 'runs' / name))
+                at = got == want and c.get('expect_mark', '') in seen and not c.get('expect_mark_not', '') in seen
+                failed = failed if at else []
+                shown = 'error "%s" (want "%s"); marks reached %s' % (got, want, ','.join(seen) or '-')
+            self.controls.append(dict(control=name, check=chk, how=c['how'], status='PASS' if failed else 'FAIL', shown=shown[:400]))
 
     def selected_controls(self):
         want = set(self.a.control_names.split(',')) if self.a.control_names else None

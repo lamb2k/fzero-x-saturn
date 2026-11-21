@@ -360,7 +360,10 @@
    "kind": "loop",
    "script": "loop.txt",
    "course": "mute-city-1",
-   "record_offset": 1
+   "record_offset": 1,
+   "expect_error": "untilword timed out: untilword _table 6 RECORD_MS 10",
+   "expect_mark": "results1",
+   "expect_mark_not": "saved1"
   },
   {
    "name": "ctl-reset",

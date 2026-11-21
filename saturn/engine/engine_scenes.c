@@ -38,49 +38,10 @@
 #endif
 #if ENG_ROSTER
 #include "engine_roster.h"
-#include "rosterz_identity.h"
-#include "roster_identity.h"
-#ifndef FZX_STOCK_RIVAL_SKIN
-#define FZX_STOCK_RIVAL_SKIN '1' /* earlier generated roster headers */
-#endif
 /* The roster LOAD phase's field: the stock families of a full grid (time attack has no
  * rivals; this measures the E2 field's load). [0] fields, [1] raw FNV of the inflated
  * check set (family 0 near), [2] its expected FNV, [3] check result (1 equal). */
 volatile uint32_t fzx_scn_roster[8];
-static uint8_t roster_check[60u * 1024u] __attribute__((aligned(4)));
-static void nibble_mirror(uint8_t *row, uint32_t bytes) {
-    for (uint32_t i = 0, j = bytes - 1u; i < j; ++i, --j) {
-        const uint8_t a = row[i], b = row[j];
-        row[i] = (uint8_t)((b << 4) | (b >> 4)); row[j] = (uint8_t)((a << 4) | (a >> 4));
-    }
-    if (bytes & 1u) row[bytes / 2u] = (uint8_t)((row[bytes / 2u] << 4) | (row[bytes / 2u] >> 4));
-}
-/* Inflates every cell of a loaded set back into the RSP1 1.1 layout and returns its FNV. */
-static uint32_t roster_inflate_fnv(uint32_t family, unsigned prof) {
-    const sh2z_rspr_set_t *set = fzx_roster_set(family, prof);
-    if (!set || set->bytes > sizeof(roster_check)) return 0;
-    const uint8_t *src = (const uint8_t *)set;
-    uint32_t header = 0;
-    {   /* The header region (header, cell table, CLUTs) as stored; the rest zero, then the cells. */
-        static const char names[2][4] = { { 'n', 'e', 'a', 'r' }, { 'f', 'a', 'r', 0 } };
-        const char key[8] = { 'c', (char)('0' + family / 10u), (char)('0' + family % 10u), 's', FZX_STOCK_RIVAL_SKIN, 0, 0, 0 };
-        for (unsigned i = 0; i < FZX_RZ_SETS; ++i)
-            if (!memcmp(fzx_rz_sets[i].key, key, 8) && !memcmp(fzx_rz_sets[i].prof, names[prof & 1u], 4)) header = fzx_rz_sets[i].header_bytes;
-    }
-    for (uint32_t i = 0; i < set->bytes; ++i) roster_check[i] = i < header ? src[i] : 0u;
-    const uint32_t cells = (uint32_t)set->yaw_count * set->pitch_count;
-    const sh2z_rspr_cell_t *ct = sh2z_rspr_cells(set);
-    for (uint32_t c = 0; c < cells; ++c) {
-        uint32_t from; bool flip;
-        if (!fzx_roster_cell_source(family, prof, c, &from, &flip)) return 0;
-        uint8_t *dst = roster_check + ct[c].pixel_offset;
-        if (!fzx_roster_cell_decode(family, prof, from, (volatile uint16_t *)(void *)dst)) return 0;
-        if (flip) for (uint32_t y = 0; y < ct[c].height; ++y) nibble_mirror(dst + y * (ct[c].width / 2u), ct[c].width / 2u);
-    }
-    uint32_t h = 2166136261u;
-    for (uint32_t i = 0; i < set->bytes; ++i) h = (h ^ roster_check[i]) * 16777619u;
-    return h;
-}
 #endif
 #include "engine_drive.h"
 #include "sh2zam/scene_experimental.h"
@@ -159,6 +120,9 @@ fzx_session_t fzx_session;
 fzx_run_result_t fzx_scn_result;
 
 /* ---- arenas ---------------------------------------------------------------- */
+#if ENG_ROSTER && ENG_LOW_COLD
+__attribute__((section(".bss.lowcold.roster_menu_heap")))
+#endif
 static uint8_t menu_heap[8192] __attribute__((aligned(16)));
 static uint8_t race_heap[1024] __attribute__((aligned(16)));
 static sh2z_arena_t menu_arena, race_arena;
@@ -1297,12 +1261,9 @@ static void load_tick(void *u, uint32_t s) {
              * loaded family's near set, inflated back to RSP1 1.1, against its raw FNV. */
             uint32_t fam = 0;
             while (fam < 30u && !fzx_roster_set(fam, FZX_ROSTER_NEAR)) ++fam;
-            const char key[5] = { 'c', (char)('0' + fam / 10u), (char)('0' + fam % 10u), 's', FZX_STOCK_RIVAL_SKIN };
-            fzx_scn_roster[1] = fam < 30u ? roster_inflate_fnv(fam, FZX_ROSTER_NEAR) : 0u;
-            fzx_scn_roster[2] = 0;
-            for (unsigned i = 0; i < FZX_RZ_SETS; ++i)
-                if (!memcmp(fzx_rz_sets[i].key, key, 5) && !memcmp(fzx_rz_sets[i].prof, "near", 4))
-                    fzx_scn_roster[2] = fzx_rz_sets[i].raw_fnv;
+            uint32_t expected = 0;
+            fzx_scn_roster[1] = fzx_roster_check_fnv(fam, FZX_ROSTER_NEAR, &expected);
+            fzx_scn_roster[2] = expected;
             fzx_scn_roster[3] = fzx_scn_roster[1] && fzx_scn_roster[1] == fzx_scn_roster[2];
             fzx_scn_roster[4] = fam;
             fzx_scn_stamp(7);

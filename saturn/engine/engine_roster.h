@@ -35,6 +35,9 @@ bool fzx_roster_select_load(const uint8_t *families, unsigned n, uintptr_t cart_
 extern volatile uint32_t fzx_roster_report[16];
 /* The set's header (cell table, CLUTs) in the cartridge, NULL if not loaded. */
 const sh2z_rspr_set_t *fzx_roster_set(uint32_t family, unsigned prof);
+/* LOAD verification of a resident set against its raw pack checksum. */
+uint32_t fzx_roster_check_fnv(uint32_t family, unsigned prof, uint32_t *expected);
+
 /* The cell whose stream to decode for `cell`, and whether it is drawn flipped. */
 bool fzx_roster_cell_source(uint32_t family, unsigned prof, uint32_t cell, uint32_t *src_cell, bool *flip);
 /* Slot fill: cell `cell` of a loaded set (alias cells mirrored from their source) into dst. */

@@ -494,6 +494,29 @@ static unsigned strip_plan(const sh2z_view_guard_vertex_t *o,int n,unsigned heig
     }
     return q;
 }
+/* A strip quad that cannot reach the view's clip rectangle (grown by RS_UNSEEN_PAD pixels for
+ * VDP1's line ends): all its corners lie past one side of the rectangle, or the whole rectangle
+ * lies outside one of its edges. A strip quad is convex (two chords of the convex clipped
+ * polygon), so this separating-axis test is exact. VDP1 walks every pixel of a distorted sprite,
+ * clipped or not, and the band's fans below the screen cost up to 15 ms a draw and show nothing.
+ * sign: the quad's area sum (its winding). */
+#define RS_UNSEEN_PAD 2
+static bool strip_unseen(const vref_t f[4],int32_t sign,const int16_t clip[4]){
+    const int32_t x0=clip[0]-RS_UNSEEN_PAD,y0=clip[1]-RS_UNSEEN_PAD,x1=clip[2]+RS_UNSEEN_PAD,y1=clip[3]+RS_UNSEEN_PAD;
+    unsigned l=0,r=0,t=0,b=0;
+    for(unsigned i=0;i<4;++i){l+=f[i]->sx<x0;r+=f[i]->sx>x1;t+=f[i]->sy<y0;b+=f[i]->sy>y1;}
+    if(l==4u||r==4u||t==4u||b==4u)return true;
+    for(unsigned i=0;i<4;++i){
+        const vref_t a=f[i],c=f[(i+1u)&3u];
+        int32_t ex=c->sx-a->sx,ey=c->sy-a->sy;
+        if(!ex&&!ey)continue;
+        if(sign<0){ex=-ex;ey=-ey;}
+        /* The rectangle corner furthest to the inner side of edge a->c: outside it too, the edge separates. */
+        const int32_t px=ey>0?x0:x1,py=ex>0?y1:y0;
+        if(ex*(py-a->sy)-ey*(px-a->sx)<0)return true;
+    }
+    return false;
+}
 #if FZX_ROAD_STREAM_LEAN_CLIP
 /* lean_clip with the row and side attributes (row clip mode 2): the near plane in 3D (the
  * vertices of sh2z_view_clip_near_center_divu, the attributes interpolated in its walk order
@@ -695,7 +718,8 @@ static bool piece(draw_t *d,const vref_t v[4],unsigned quad,unsigned piece_id,
             for(unsigned k=0;k<strip_n;++k){
                 const strip_t *s=&strip[k];
                 const vref_t fan[4]={corners[s->c[0]],corners[s->c[1]],corners[s->c[2]],corners[s->c[3]]};
-                if(!area(fan,4))continue;
+                const int32_t sign=area(fan,4);
+                if(!sign||strip_unseen(fan,sign,d->view.view.clip))continue;
                 const uint32_t at=d->stats->commands;
 #if FZX_ROAD_STREAM_BUDGET
                 FZX_RS_KEEP()

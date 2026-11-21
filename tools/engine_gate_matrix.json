@@ -321,11 +321,11 @@
   {
    "name": "ctl-host-atk",
    "check": "host",
-   "how": "the field race with the rivals' attack difficulty poked from 1 to 3 at tick 600 (_fzx_atk_difficulty), judged against the fzx-atk HOST reference at difficulty 1",
+   "how": "the field race with the rivals' attack visibility gate poked off (_fzx_atk_vis_gate 1 to 0) at tick 600: the player's checkpoints stay equal, the attack + field words must not",
    "image": "field",
    "kind": "race",
    "course": "mute-city-1",
-   "pokes": "_fzx_atk_difficulty=3@600"
+   "pokes": "_fzx_atk_vis_gate=0@600"
   },
   {
    "name": "ctl-determinism",

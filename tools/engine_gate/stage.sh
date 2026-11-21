@@ -142,7 +142,8 @@ host)
   if [ "$driver" = atk1 ]; then
     # Images with ENG_ATTACKS: the R01 race with the field and attacks on (fzx-atk, the image's engine sources on
     # HOST, built per course: its rivals headers are compiled in). Its "body" checkpoints, final state and finish are
-    # the image's fzx_e1_checkpoints and fzx_e1_report words; the raw output is kept as SLUG-atk1.raw.txt.
+    # the image's fzx_e1_checkpoints and fzx_e1_report words, and its "chk" lines (written as "atk") the image's
+    # fzx_atk_chk words; the raw output is kept as SLUG-atk1.raw.txt.
     g=$(python3 -c "import sys;sys.path.insert(0,'tools');import course_catalog as c;print(c.gen_root('$slug'))")
     ab=$hb/fzx-atk-$slug
     if [ ! -x "$ab" ]; then
@@ -152,7 +153,7 @@ host)
     mkdir -p "$out"
     f=$out/$slug-$driver.txt
     "$ab" --phys "$g/physics/PHYS.PAK" --rivals "$g/rivals/RIVALS.PAK" --driver 1 > "$out/$slug-$driver.raw.txt" 2>&1
-    awk '$1 == "body" { print "chk " $2 " " $3 } $1 == "final" { print "ticks " $2 " final " $3 " hash -" } $1 == "finish_ms"' "$out/$slug-$driver.raw.txt" > "$f"
+    awk '$1 == "body" { print "chk " $2 " " $3 } $1 == "chk" { print "atk " $2 " " $3 } $1 == "final" { print "ticks " $2 " final " $3 " hash -" } $1 == "finish_ms"' "$out/$slug-$driver.raw.txt" > "$f"
     echo "HOST $slug $driver $(grep -E '^(ticks|finish_ms)' "$f" | tr '
 ' ' ')"
     exit 0

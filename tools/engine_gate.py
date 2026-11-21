@@ -188,17 +188,19 @@ def error_text(run_dir):
 
 
 def host_ref(path):
-    chk, final, finish, retire = [], None, None, None
+    chk, final, finish, retire, atk = [], None, None, None, []
     for line in Path(path).read_text().splitlines():
         p = line.split()
         if p and p[0] == 'chk':
             chk.append((int(p[1]), p[2]))
+        elif p and p[0] == 'atk':   # fzx-atk references: the attack + field words (fzx_atk_chk) every 256 field ticks
+            atk.append((int(p[1]), p[2]))
         elif p and p[0] == 'ticks':
             final = p[3]
         elif p and p[0] == 'finish_ms':
             finish = None if p[1] == '-' else int(p[1])
             retire = None if p[3] == '-' else int(p[3])
-    return dict(chk=chk, final=final, finish_ms=finish, retire_tick=retire)
+    return dict(chk=chk, final=final, finish_ms=finish, retire_tick=retire, atk=atk)
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -363,7 +365,10 @@ class Gate:
         fr = frame_rows(mem, self.lim['race_window_tick'])
         self.cadence_checks(name, fr, sink)
         if host is not None:
-            self.host_check(name, kv, chk, host, full_final=True, sink=sink)
+            atk = None
+            if host.get('atk') and '_fzx_atk_chk' in sym:   # an attacks image: its attack + field words too
+                atk = [((i + 1) * 256, '%08x' % w) for i, w in enumerate(mem.words('fzx_atk_chk', 64)) if w]
+            self.host_check(name, kv, chk, host, full_final=True, sink=sink, atk=atk)
         self.memory_checks(name, mem, kv, sink)
         return fr
 
@@ -379,9 +384,10 @@ class Gate:
                      'critical p99 %.2f ms (limit %.1f = 33.3 / 1.36)' % (fr['critical'][1], self.lim['critical_p99_ms']),
                      'ENGINE_PLAN 5 gate 9; MODELLED', sink=sink)
 
-    def host_check(self, name, kv, chk, host, full_final, sink=None, prefix='', against=''):
+    def host_check(self, name, kv, chk, host, full_final, sink=None, prefix='', against='', atk=None):
         """SH-2 against HOST: every checkpoint the image wrote equals HOST's, the finish (or retirement) matches, and
-        for a race run to the reference's end, the final state hash too."""
+        for a race run to the reference's end, the final state hash too. ATK (an attacks image against fzx-atk): the
+        image's attack + field words, which must equal the reference's every 256 field ticks, all of them."""
         e1 = lambda i: kv.get('%s_fzx_e1_report%d' % (prefix, i), kv.get('e1_report%d' % i))
         n = len(chk)
         hostc = dict(host['chk'])
@@ -400,6 +406,11 @@ class Gate:
         else:
             ok = ok and not finished
             notes.append('retires as HOST (tick %s)' % host['retire_tick'] if not finished else 'finished; HOST retires')
+        if atk is not None:
+            hosta = dict(host['atk'])
+            asame = sum(1 for t, h in atk if hosta.get(t) == h)
+            ok = ok and asame == len(atk) == len(host['atk'])
+            notes.append('attack words %d/%d equal (HOST %d)' % (asame, len(atk), len(host['atk'])))
         self.add('host', name, ok, 'checkpoints %d/%d equal%s' % (same, n, (' (HOST %s)' % against) if against else ''),
                  '; '.join(notes), sink=sink)
 

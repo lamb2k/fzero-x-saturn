@@ -118,5 +118,7 @@ SECTIONS
 }
 
 ASSERT (___lowbss_end <= ___low_limit, "engine_low.x: the low work RAM block overruns 0x0028BFE0")
+/* The listed data really moved (engine_low_rodata.ld names generated sections). */
+ASSERT (_fzx_course_ids >= ___low_start && _fzx_course_ids < ___low_end, "engine_low.x: fzx_course_ids is not in .low")
 /* Before main the master stack (0x06100000 down) holds only Yaul's start-up frames. */
 ASSERT (___low_load_end <= 0x060FC000, "engine_low.x: the .low load image reaches the start-up stack")

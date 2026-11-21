@@ -330,10 +330,22 @@ class Gate:
             len(modes), iso_sectors, audio_sectors, (iso_sectors + audio_sectors) / 4500, sha256(out / files[0])[:12])
         return (None if bad else out / 'fzs-engine.cue'), ('; '.join(bad) if bad else detail)
 
-    def script_for(self, name, course_index=None):
+    def record_ms(self, hosts, build_dir, offset=0):
+        """The Mute City record a loop script waits for (RECORD_MS): the image's own R01 HOST finish (host_for: fzx-phys,
+        or fzx-atk for an image built with ENG_ATTACKS), plus OFFSET for the control that must time out."""
+        ref = self.host_for(hosts, 'mute-city-1', build_dir)
+        if not ref or ref['finish_ms'] is None:
+            raise SystemExit('no Mute City HOST finish for RECORD_MS (%s)' % build_dir)
+        return ref['finish_ms'] + offset
+
+    def script_for(self, name, course_index=None, record_ms=None):
         text = (GATE / 'scripts' / name).read_text()
         if course_index is not None:
             text = text.replace('COURSE', '%02x' % course_index)
+        if 'RECORD_MS' in text:
+            if record_ms is None:
+                raise SystemExit('%s waits for RECORD_MS: no record given' % name)
+            text = text.replace('RECORD_MS', str(record_ms))
         if not self.a.clips:
             text = '\n'.join(l for l in text.splitlines() if not l.startswith('clip ')) + '\n'
         p = self.ev / 'scripts' / ('%s-%s' % (course_index if course_index is not None else 'x', name))
@@ -644,9 +656,10 @@ class Gate:
                 if r.get('determinism'):
                     jobs.append((dict(r, name=r['name'] + '.2', repeat=True), 'race', '-'))
             else:
-                jobs.append((r, 'script', self.script_for(r['script'])))
+                rec = self.record_ms(hosts, builds[r['image']]['dir']) if r['kind'] == 'loop' else None
+                jobs.append((r, 'script', self.script_for(r['script'], record_ms=rec)))
                 if r.get('determinism_full') and mode == 'full':
-                    jobs.append((dict(r, name=r['name'] + '.2', repeat=True), 'script', self.script_for(r['script'])))
+                    jobs.append((dict(r, name=r['name'] + '.2', repeat=True), 'script', self.script_for(r['script'], record_ms=rec)))
         ctl_jobs = self.control_jobs(builds, hosts) if a.controls else []
         results = self.execute(jobs + ctl_jobs)
         self.times['runs'] = round(time.time() - t0)
@@ -793,7 +806,9 @@ class Gate:
                 jobs.append((r, 'race', '-'))
             else:
                 idx = next((x['index'] for x in self.m['courses'] if x['slug'] == c.get('course')), None) if c['kind'] == 'course' else None
-                jobs.append((r, 'script', self.script_for(c['script'], idx)))
+                bd = self.ctl_builds[c['name']]['dir'] if c.get('vars') else builds[c['image']]['dir']
+                rec = self.record_ms(hosts, bd, c.get('record_offset', 0)) if c['kind'] == 'loop' else None
+                jobs.append((r, 'script', self.script_for(c['script'], idx, rec)))
         return jobs
 
     def score_controls(self, builds, hosts):

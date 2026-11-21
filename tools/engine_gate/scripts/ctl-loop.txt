@@ -41,7 +41,7 @@ pad 0400 5
 wait 5
 untilword _fzx_rec_report 10 1 20
 untilword _table 9 0x41414200 10
-untilword _table 6 104040 10
+untilword _table 6 RECORD_MS 10
 wait 4
 mark saved1
 pad 0400 2

@@ -3,15 +3,20 @@
  *
  *   fzx-rivals-gp --pack RIVALS.PAK --length Q8 --config FIELD.txt --seed N --report OUT.json
  *                 [--player-trace TRACE.bin --start-tick T] [--ticks MAX] [--lod 0|1] [--hash-every N]
- *                 [--control none|no-avoid|no-contact|stuck]
+ *                 [--control none|no-avoid|no-contact|stuck] [--zones ZONES.txt] [--wrap MASK:VALUE]
  *
  * FIELD.txt has one line per vehicle: id grid(1..) target_lap_ms chase(255 none) max_energy aggression
  * [finish_ms [first_lap_cap]]: line-field-2's finish target from the second lap on and line-field-3's
  * first-lap chase cap, Q8 per tick (0 or absent = none).
  * Vehicle 0 is the player. With --player-trace it is external (float32 dist, lateral, speed per tick
  * from a reference run); without it, vehicle 0 is one more agent.
- * The report has the same shape as fzx-gp-ref's, so one script computes the bands for both. */
+ * The report has the same shape as fzx-gp-ref's, so one script computes the bands for both.
+ * line-field-4: --zones takes fzx-rivals' zone table (start end lat_lo lat_hi kind, Q8); --wrap makes nodes whose
+ * flags match MASK:VALUE tubes (the course's pipes and cylinders: 0x180:0x80). Tuning names plate_ticks,
+ * slip_steer, rough_keep and recharge set the surface; --dash Q8 sets the final dash (fzx-rivals writes
+ * ZONES.txt.dash). None of them: line-field-3 step for step. */
 #include <stdint.h>
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -23,15 +28,18 @@
 #define MAXN 4096
 static void die(const char* m) { fprintf(stderr, "fzx-rivals-gp: %s\n", m); exit(2); }
 static sh2z_line_node_t nodes[MAXN];
+static sh2z_field_zone_t zones[256];
+static sh2z_field_surface_t surface;
 static uint32_t be32(const unsigned char* p) { return ((uint32_t)p[0] << 24) | ((uint32_t)p[1] << 16) | ((uint32_t)p[2] << 8) | p[3]; }
 static uint16_t be16(const unsigned char* p) { return (uint16_t)((p[0] << 8) | p[1]); }
 
 #define U(x) ((int32_t)((x) * 256))   /* whole units to Q8 */
 
 int main(int argc, char** argv) {
-    const char *pack = 0, *config = 0, *report = 0, *trace = 0, *control = "none", *tune = 0;
+    const char *pack = 0, *config = 0, *report = 0, *trace = 0, *control = "none", *tune = 0, *zone_file = 0, *wrap = 0;
+    int tube_angles = 0; long tube_ticks = 0, tube_bin[4] = {0, 0, 0, 0};
     int32_t tune_accel = 40, tune_grip = U(6), tune_lane = 30;
-    long length = 0; unsigned seed = 1; int max_ticks = 14000, start_tick = 420, lod = 1, hash_every = 0;
+    long length = 0, dash = 0; unsigned seed = 1; int max_ticks = 14000, start_tick = 420, lod = 1, hash_every = 0;
     for (int i = 1; i + 1 < argc; i += 2) {
         if (!strcmp(argv[i], "--pack")) pack = argv[i + 1];
         else if (!strcmp(argv[i], "--length")) length = atol(argv[i + 1]);
@@ -45,6 +53,10 @@ int main(int argc, char** argv) {
         else if (!strcmp(argv[i], "--hash-every")) hash_every = atoi(argv[i + 1]);
         else if (!strcmp(argv[i], "--control")) control = argv[i + 1];
         else if (!strcmp(argv[i], "--tune")) tune = argv[i + 1];
+        else if (!strcmp(argv[i], "--zones")) zone_file = argv[i + 1];
+        else if (!strcmp(argv[i], "--wrap")) wrap = argv[i + 1];
+        else if (!strcmp(argv[i], "--dash")) dash = atol(argv[i + 1]);
+        else if (!strcmp(argv[i], "--tube-angles")) tube_angles = atoi(argv[i + 1]);   /* 1: tube_angles over pipe and cylinder nodes */
         else die("unknown argument");
     }
     if (!pack || !config || !report || length <= 0) die("usage: see rivals_gp_main.c");
@@ -83,6 +95,26 @@ int main(int argc, char** argv) {
     P.rank_lead = U(8);
     P.lod_near[0] = lod ? U(3000) : INT32_MAX; P.lod_near[1] = lod ? U(8000) : INT32_MAX; P.lod_near[2] = lod ? U(16000) : INT32_MAX;
     P.boost_ticks = 90; P.laps = 3; P.boost_from_lap = 1;
+    /* line-field-4 surface (zones, tubes); the values are the engine's (engine_field.c). */
+    surface.plate_ticks = 60; surface.slip_steer = 16384; surface.rough_keep = 58982; surface.recharge = 512;
+    if (zone_file) {
+        FILE* zf = fopen(zone_file, "r");
+        if (!zf) die("cannot open zones");
+        long a, b, lo, hi; int k;
+        while (surface.zone_count < 256 && fscanf(zf, "%ld %ld %ld %ld %d", &a, &b, &lo, &hi, &k) == 5) {
+            sh2z_field_zone_t* z = &zones[surface.zone_count++];
+            z->start = (int32_t)a; z->end = (int32_t)b; z->lat_lo = (int32_t)lo; z->lat_hi = (int32_t)hi; z->kind = (uint32_t)k;
+        }
+        fclose(zf);
+        surface.zones = zones;
+    }
+    if (wrap) {
+        unsigned m = 0, v = 0;
+        if (sscanf(wrap, "%i:%i", &m, &v) != 2) die("--wrap MASK:VALUE");
+        surface.wrap_mask = (uint16_t)m; surface.wrap_value = (uint16_t)v;
+    }
+    if (zone_file || wrap) P.surface = &surface;
+    P.dash_from = (int32_t)dash; P.dash_pace = 72090;   /* 1.10 */
     /* Tuning overrides for HOST experiments only: --tune "name=value,..." (integers, the field's own units). */
     if (tune) {
         char tb[1024]; strncpy(tb, tune, sizeof tb - 1); tb[sizeof tb - 1] = 0;
@@ -93,6 +125,11 @@ int main(int argc, char** argv) {
             T(bump_keep) T(hit_energy) T(side_energy) T(attack_energy) T(wall_energy) T(wall_keep) T(boost_speed) T(boost_energy) T(boost_behind) T(cruise) T(rank_lead)
             #undef T
             if (!strcmp(tok, "boost_ticks")) { P.boost_ticks = (int16_t)val; continue; }
+            if (!strcmp(tok, "plate_ticks")) { surface.plate_ticks = val; continue; }
+            if (!strcmp(tok, "slip_steer")) { surface.slip_steer = val; continue; }
+            if (!strcmp(tok, "rough_keep")) { surface.rough_keep = val; continue; }
+            if (!strcmp(tok, "recharge")) { surface.recharge = val; continue; }
+            if (!strcmp(tok, "dash_pace")) { P.dash_pace = val; continue; }
             if (!strcmp(tok, "accel")) { tune_accel = val; continue; }
             if (!strcmp(tok, "grip")) { tune_grip = val; continue; }
             if (!strcmp(tok, "lane")) { tune_lane = val; continue; }
@@ -175,6 +212,9 @@ int main(int argc, char** argv) {
             veh[0].t.dist = (int32_t)d; veh[0].t.lap = lap; veh[0].t.lateral = (int32_t)(tr[k][1] * 256.0f);
             veh[0].t.speed = k > 0 && t < trace_ticks ? (int32_t)(((double)tr[k][0] - (double)tr[k - 1][0]) * 256.0) : 0;
             if (veh[0].t.speed < 0) veh[0].t.speed = 0;
+            /* The reference's race distance can jump in one tick (over a jump, with the zones and jumps set
+             * up): no vehicle covers more than 80 units a tick, so a jump is not a closing speed. */
+            if (veh[0].t.speed > U(80)) veh[0].t.speed = U(80);
             veh[0].t.node = sh2z_line_locate(&L, veh[0].t.dist, veh[0].t.node);
             veh[0].kick_lat = veh[0].kick_speed = 0;
             veh[0].energy = veh[0].max_energy;   /* the trace carries its own outcome */
@@ -192,7 +232,16 @@ int main(int argc, char** argv) {
             const sh2z_vehicle_t* v = &veh[i];
             sh2z_line_sample_t at;
             sh2z_line_sample(&L, v->t.node, v->t.dist, &at);
-            if (!(v->flags & SH2Z_VEH_EXTERNAL) && (v->t.lateral > at.half_width || v->t.lateral < -at.half_width)) ++offtrack;
+            const int32_t room = (P.surface && surface.wrap_mask && (at.flags & surface.wrap_mask) == surface.wrap_value)
+                               ? (int32_t)(((int64_t)at.half_width * 411775) >> 17) + 1 : at.half_width;   /* a tube: half its round */
+            if (!(v->flags & SH2Z_VEH_EXTERNAL) && (v->t.lateral > room || v->t.lateral < -room)) ++offtrack;
+            if (tube_angles && !(v->flags & (SH2Z_VEH_EXTERNAL | SH2Z_VEH_FINISHED | SH2Z_VEH_RETIRED)) &&
+                ((at.flags & 0x01c0u) == 0x0080u || (at.flags & 0x01c0u) == 0x00c0u) && at.half_width) {
+                /* the lateral is an arc of radius half_width round the line (the engine's tube pose) */
+                double a = fabs((double)v->t.lateral) / at.half_width * 57.29578;   /* both Q8 */
+                while (a > 180.0) a = fabs(a - 360.0);
+                ++tube_bin[a < 30 ? 0 : a < 60 ? 1 : a < 90 ? 2 : 3]; ++tube_ticks;
+            }
             if (v->rank != prev_rank[i]) { changed = 1; ++rank_swaps; }
             prev_rank[i] = v->rank;
             if (!(v->flags & (SH2Z_VEH_FINISHED | SH2Z_VEH_RETIRED))) {
@@ -231,7 +280,9 @@ int main(int argc, char** argv) {
             offtrack, stuck, through, (unsigned)F.steps, race_ticks > 0 ? ns / race_ticks : 0.0, (unsigned)sh2z_field_hash(&F));
     fprintf(o, " \"spread_every_600_ticks\": [");
     for (int i = 0; i < marks; ++i) fprintf(o, "%s%.0f", i ? "," : "", spread_at[i]);
-    fprintf(o, "],\n \"racers\": [\n");
+    fprintf(o, "],\n");
+    if (tube_angles) fprintf(o, " \"tube_ticks\": %ld, \"tube_angle_bins\": [%ld,%ld,%ld,%ld],\n", tube_ticks, tube_bin[0], tube_bin[1], tube_bin[2], tube_bin[3]);
+    fprintf(o, " \"racers\": [\n");
     for (int i = 0; i < count; ++i) {
         const sh2z_field_brain_t* b = &brain[i];
         fprintf(o, "  {\"id\": %d, \"grid\": %d, \"target_lap_ms\": %d, \"chase\": %d, \"lap_end_ticks\": [%d,%d,%d], \"finish_tick\": %d, \"final_pos\": %d,"

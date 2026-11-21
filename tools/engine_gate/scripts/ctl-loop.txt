@@ -1,10 +1,16 @@
 # CONTROL for the loop check: the retry race is forced to retire after tick 2000, so race 2 cannot equal race 1.
+# P3 (codex/p3-frontend): the new TITLE takes Start after its intro (wait 220); X at SELECT sets the engine
+# balance to 0.0, the setting of the HOST references.
 # C8 integration TA loop (sound on): title, select, cold race to the finish, name entry AAB saved, retry race, name entry, title, cold race 3, soft reset, reboot (the saved name survives).
 until 1 1 3000
 wait 4
 mark title
+wait 220
 pad 0800 2
 until 2 1 600
+wait 4
+pad 0040 3
+wait 6
 wait 6
 mark select
 pad 0400 2

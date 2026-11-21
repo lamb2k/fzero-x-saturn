@@ -12,8 +12,16 @@
  * mach3d_identity.h is indexed by family, pack_bytes 0 = no pack). Work RAM and the VDP1
  * region take the largest pack the image may load; the loaded pack's sizes are in `loaded`. */
 #include "mach3d_identity.h"
+#ifndef FZX_P3_BASELINE
+#if FZX_GUEST_MASK
+#include "guest_machine_identity.h"
+#endif
+#define PACK_MAX 48128u
+#define TEXEL_SRC 23264u
+#else
 #define PACK_MAX 40960u
 #define TEXEL_SRC 20480u
+#endif
 #define SHADE_SRC 2048u
 #define PALETTE_NOW loaded.palette_bytes
 #define GOURAUD_NOW loaded.gouraud_bytes
@@ -152,14 +160,31 @@ static uint32_t load_pack(const pack_id_t *id, const vdp1_vram_partitions_t *par
     fzx_ab_report[0] = 1;
     return floor;
 }
+#ifndef FZX_P3_BASELINE
+static const fzx_mach3d_identity_t *family_pack(uint32_t family) {
+#if FZX_GUEST_MASK
+    if ((family == 33u || family == 34u) && ((FZX_GUEST_MASK >> family) & 1ull))
+        return &guest_machine[family - 33u];
+#endif
+    return family < FZX_MACH3D_FAMILIES ? &fzx_mach3d_identity[family] : NULL;
+}
+bool fzx_closeup_has_family(uint32_t family) {
+    const fzx_mach3d_identity_t *pack = family_pack(family);
+    return pack && pack->present && pack->pack_bytes;
+#else
 bool fzx_closeup_has_family(uint32_t family) {
     return family < FZX_MACH3D_FAMILIES && fzx_mach3d_identity[family].present && fzx_mach3d_identity[family].pack_bytes;
+#endif
 }
 uint32_t fzx_closeup_load_family(const vdp1_vram_partitions_t *parts, uint32_t ceiling, void *scratch, uint32_t scratch_bytes,
                                  uint32_t family) {
     static char file[13] = "MACH3D00.PAK";
     if (!fzx_closeup_has_family(family)) { fzx_ab_report[0] = 6; return 0; } /* no pack for this family */
+#ifndef FZX_P3_BASELINE
+    const fzx_mach3d_identity_t *e = family_pack(family);
+#else
     const fzx_mach3d_identity_t *e = &fzx_mach3d_identity[family];
+#endif
     file[6] = (char)('0' + family / 10u); file[7] = (char)('0' + family % 10u);
     const pack_id_t id = { file, e->pack_bytes, e->pack_fnv, e->metadata_bytes, e->metadata_fnv, e->texel_bytes,
                            e->palette_bytes, e->gouraud_bytes, { e->body[0], e->body[1], e->body[2] } };

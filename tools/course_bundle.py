@@ -51,11 +51,12 @@ def row(slug):
               'skyline/skyline_identity.h', 'skyline/skyline_ring.h', 'planes_cloud/planes_identity.h',
               'floor_rbg/floor_rbg_identity.h', 'engine_path/engine_path_identity.h',
               'engine_path_ranges/engine_path_ranges.h', 'physics/physics_identity.h', 'rivals/rivals_course.h',
-              'rivals/rivals_field.h'):
+              'rivals/rivals_field.h', 'rivals/rivals_zones.h'):
         d.update(defines(g / h))
     sky = array(g / 'sky/sky_colors.h', 'fzx_sky_colors')
     breaks = array(g / 'sky/sky_colors.h', 'fzx_sky_breaks')
     field = array(g / 'rivals/rivals_field.h', 'fzx_rivals_field')
+    zones = array(g / 'rivals/rivals_zones.h', 'fzx_rivals_zones')[:5 * num(d['FZX_RIVALS_ZONE_COUNT'])]
     cols = 8 if '[8]' in (g / 'rivals/rivals_field.h').read_text() else 7
     rec = (g / 'race/course.bin' if slug != course_catalog.DEFAULT else g / 'road/course.bin').read_bytes()
     if len(rec) != 0x7E0:
@@ -63,7 +64,8 @@ def row(slug):
     files = []
     for key, sub, stem in PACKS:
         files.append((g / sub, '%s%d.%s' % (stem, c['index'], sub.rsplit('.', 1)[1])))
-    return dict(c=c, d=d, sky=sky, breaks=breaks, field=field, cols=cols, rec=rec, files=files,
+    return dict(c=c, d=d, sky=sky, breaks=breaks, field=field, cols=cols, rec=rec, files=files, zones=zones,
+                dash=int(d['FZX_RIVALS_DASH_FROM']),
                 fog=[int(v) for v in re.findall(r'\d+', d['FZX_ROAD_COURSE_FOG'])],
                 plane_fog=array(g / 'planes_cloud/planes_identity.h', 'fzx_plane_fog'),
                 plane_mean=array(g / 'planes_cloud/planes_identity.h', 'fzx_plane_mean'),
@@ -91,6 +93,7 @@ U32 = [('path_bytes', 'FZX_ENGINE_PATH_BYTES'), ('path_hash', 'FZX_ENGINE_PATH_H
        ('rivals_bytes', 'FZX_RIVALS_PACK_BYTES'), ('rivals_hash', 'FZX_RIVALS_PACK_HASH'),
        ('rivals_nodes', 'FZX_RIVALS_NODE_COUNT'), ('rivals_length', 'FZX_RIVALS_LINE_LENGTH'),
        ('field_seed', 'FZX_RIVALS_FIELD_SEED')]
+ZONE_MAX = 32  # = FZX_RIVALS_ZONE_MAX
 MAXES = ('path_bytes', 'road_bytes', 'lod_bytes', 'lod_tex_bytes', 'prep_bytes', 'phys_bytes', 'rivals_bytes',
          'prep_npos_count', 'prep_strips')
 
@@ -118,7 +121,9 @@ def main():
     h += ['    fzx_course_table_t prep[6];      /* NUNIT, NPOS, NQUADS, NSPANS, NCHUNKS, IMAGES */',
           '    int32_t ring[6][2];', '    uint8_t ring_ids[6], tint[3], road_fog[3];',
           '    uint16_t plane_fog[3], plane_mean[3], sky_colors[64];', '    uint8_t sky_breaks[FZX_COURSE_MAX_SKY_BREAKS];',
-          '    int32_t field[30][8];', '    uint8_t record[0x7e0];', '} fzx_course_id_t;',
+          '    int32_t field[30][8];',
+          '    int32_t zone_count, dash_from;   /* line-field-4: the rival surface (tools/rivals_zones_header.py) */',
+          '    int32_t zones[%d][5];' % ZONE_MAX, '    uint8_t record[0x7e0];', '} fzx_course_id_t;',
           'enum { %s };' % ', '.join('FZX_CF_%s' % k.upper() for k, _, _ in PACKS),
           'extern const fzx_course_id_t fzx_course_ids[FZX_COURSE_IDS_COUNT];', '#endif', '']
     (OUT / 'course_ids.h').write_bytes('\n'.join(h).encode())
@@ -145,6 +150,9 @@ def main():
         c.append('    .sky_breaks = { %s },' % ', '.join(map(str, r['breaks'])))
         c.append('    .field = { %s },' % ', '.join('{ %s }' % ', '.join(map(str, r['field'][8 * i:8 * i + 8]))
                                                       for i in range(30)))
+        c.append('    .zone_count = %d, .dash_from = %d,' % (len(r['zones']) // 5, r['dash']))
+        c.append('    .zones = { %s },' % (', '.join('{ %s }' % ', '.join(map(str, r['zones'][5 * i:5 * i + 5]))
+                                                      for i in range(len(r['zones']) // 5)) or '{ 0 }'))
         c.append('    .record = { %s } },' % ', '.join('%d' % b for b in r['rec']))
     c += ['};', '']
     (OUT / 'course_ids.c').write_bytes('\n'.join(c).encode())

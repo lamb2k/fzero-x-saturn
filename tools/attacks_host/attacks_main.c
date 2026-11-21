@@ -249,7 +249,8 @@ int main(int argc, char **argv) {
            fzx_atk_dmg_src[0][1] / 256.0, fzx_atk_dmg_src[1][0], fzx_atk_dmg_src[1][1] / 256.0, fzx_atk_dmg_src[2][0],
            fzx_atk_dmg_src[2][1] / 256.0);
     fprintf(stderr, "HOST ns per tick: contact %.0f, player step %.0f, field tick (attacks move/after inside) %.0f\n", (double)t_contact / t, (double)t_step / t, (double)t_field / t);
-    for (unsigned i = 0; i < FZX_ATK_CHECKPOINTS; ++i) if (fzx_atk_chk[i]) printf("chk %u %08x\n", (i + 1u) * 256u, fzx_atk_chk[i]);
+    /* Every recorded slot (one per 256 field ticks up to the last tick), zeros included (engine gate, C-114). */
+    for (unsigned i = 0; i < FZX_ATK_CHECKPOINTS && (i + 1u) * 256u <= t; ++i) printf("chk %u %08x\n", (i + 1u) * 256u, fzx_atk_chk[i]);
     /* The player's final state (the image's fzx_e1_report 5..7) and finish, in fzx-phys's words for the engine gate. */
     printf("final %u %016llx\n", t, (unsigned long long)fnv64_body(&body));
     if (fin_ms >= 0) printf("finish_ms %ld", fin_ms); else printf("finish_ms -");

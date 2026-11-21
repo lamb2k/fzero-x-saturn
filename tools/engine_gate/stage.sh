@@ -95,13 +95,15 @@ export PATH="\$YAUL_INSTALL_ROOT/bin:\$PATH"
 cd /$stage/w
 make -C saturn/engine SH2ZAM_ROOT=/$stage/lib-$pin "\$@" -B > /tmp/gate-build-$stage.log 2>&1 || { grep -E "error|\\*\\*\\*" /tmp/gate-build-$stage.log | head -20; exit 1; }
 make -C saturn/engine SH2ZAM_ROOT=/$stage/lib-$pin "\$@" -pn 2>/dev/null | sed -n 's/^SH_OUTPUT_DIR := //p' | tail -1 > /tmp/gate-outdir-$stage
+# The feature switches as this make resolved them: the HOST check takes the expected attack stream from them (C-114).
+printf 'gate-config:\n\t@echo ENG_ATTACKS=\$(ENG_ATTACKS) ENG_FX=\$(ENG_FX)\n' | make -s -C saturn/engine SH2ZAM_ROOT=/$stage/lib-$pin "\$@" -f Makefile -f - gate-config > /tmp/gate-config-$stage
 IN
   chroot_run /$stage/gate-build.sh "$@"
   od=$S/w/saturn/engine/$(cat $R/tmp/gate-outdir-$stage)
   d=$out/$label; rm -rf "$d"; mkdir -p "$d"
   cp "$od/fzs-engine.cue" "$od/fzs-engine.iso" "$od/yaul/fzs-engine.sym" "$od/yaul/fzs-engine.map" "$d/"
   cp "$od/cd/A.BIN" "$d/fzs-engine.bin"
-  echo "$*" > "$d/vars.txt"; basename "$od" > "$d/outdir.txt"
+  echo "$*" > "$d/vars.txt"; basename "$od" > "$d/outdir.txt"; cp "$R/tmp/gate-config-$stage" "$d/config.txt"
   rm -rf "$od"
   echo "BIN $label $(sha256sum "$d/fzs-engine.bin" | cut -d' ' -f1)"
   ;;

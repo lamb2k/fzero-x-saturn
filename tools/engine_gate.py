@@ -188,7 +188,7 @@ def error_text(run_dir):
 
 
 def host_ref(path):
-    chk, final, finish, retire, atk = [], None, None, None, []
+    chk, final, finish, retire, atk, final_tick = [], None, None, None, [], None
     for line in Path(path).read_text().splitlines():
         p = line.split()
         if p and p[0] == 'chk':
@@ -196,11 +196,23 @@ def host_ref(path):
         elif p and p[0] == 'atk':   # fzx-atk references: the attack + field words (fzx_atk_chk) every 256 field ticks
             atk.append((int(p[1]), p[2]))
         elif p and p[0] == 'ticks':
-            final = p[3]
+            final, final_tick = p[3], int(p[1])
         elif p and p[0] == 'finish_ms':
             finish = None if p[1] == '-' else int(p[1])
             retire = None if p[3] == '-' else int(p[3])
-    return dict(chk=chk, final=final, finish_ms=finish, retire_tick=retire, atk=atk)
+    return dict(chk=chk, final=final, finish_ms=finish, retire_tick=retire, atk=atk, final_tick=final_tick)
+
+
+ATK_SLOTS, ATK_EVERY = 64, 256   # fzx_atk_chk (engine_attacks.h FZX_ATK_CHECKPOINTS): one word every 256 field ticks
+
+
+def build_config(build_dir):
+    """The feature switches the build's own make resolved (stage.sh build writes config.txt: ENG_ATTACKS=.. ENG_FX=..),
+    or None when the build has no such record."""
+    f = Path(build_dir) / 'config.txt'
+    if not f.exists():
+        return None
+    return dict(w.split('=', 1) for w in f.read_text().split() if '=' in w)
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -350,8 +362,9 @@ class Gate:
         (self.checks if sink is None else sink).append(row)
         return row
 
-    def score_race(self, run, run_dir, build_dir, host, sink=None):
-        """A race image run to its end (race harness)."""
+    def score_race(self, run, run_dir, build_dir, host, sink=None, strip=None):
+        """A race image run to its end (race harness). STRIP (controls only): 'symbol' drops _fzx_atk_chk from the image's
+        symbols, 'stream' drops the reference's attack stream; either must fail the HOST check (C-114 item 1)."""
         lines = read_result(run_dir)
         kv, chk = result_kv(lines)
         name = run['name']
@@ -365,10 +378,11 @@ class Gate:
         fr = frame_rows(mem, self.lim['race_window_tick'])
         self.cadence_checks(name, fr, sink)
         if host is not None:
-            atk = None
-            if host.get('atk') and '_fzx_atk_chk' in sym:   # an attacks image: its attack + field words too
-                atk = [((i + 1) * 256, '%08x' % w) for i, w in enumerate(mem.words('fzx_atk_chk', 64)) if w]
-            self.host_check(name, kv, chk, host, full_final=True, sink=sink, atk=atk)
+            if strip == 'symbol':
+                mem = Mem(run_dir, 'final', {k: v for k, v in sym.items() if k != '_fzx_atk_chk'})
+            elif strip == 'stream':
+                host = dict(host, atk=[])
+            self.host_check(name, kv, chk, host, full_final=True, sink=sink, atk=self.attack_stream(host, mem))
         self.memory_checks(name, mem, kv, sink)
         return fr
 
@@ -384,10 +398,39 @@ class Gate:
                      'critical p99 %.2f ms (limit %.1f = 33.3 / 1.36)' % (fr['critical'][1], self.lim['critical_p99_ms']),
                      'ENGINE_PLAN 5 gate 9; MODELLED', sink=sink)
 
+    def attack_stream(self, host, mem):
+        """C-114 item 1: what an image run to the race's end owes the attack comparison. The feature the build's make
+        resolved (config.txt) decides; the image's _fzx_atk_chk symbol must agree with it. An attacks image needs the
+        symbol and a reference whose attack stream holds exactly the recorded slots (one per 256 field ticks up to its
+        final tick, 64 at most). Every slot is compared, zeros included, and the unrecorded slots must stay zero. Any
+        gap is a named problem, which fails the check whatever the player's match."""
+        exp, probs = host.get('expect_atk'), list(host.get('problems', []))
+        has_sym = mem.has('fzx_atk_chk')
+        if not exp:
+            if has_sym and exp is not None:
+                probs.append('ENG_ATTACKS=0 image carries _fzx_atk_chk')
+            return dict(problems=probs, words=None)
+        if not has_sym:
+            probs.append('ENG_ATTACKS=1 image has no _fzx_atk_chk symbol')
+        ft = host.get('final_tick')
+        nrec = min(ATK_SLOTS, ft // ATK_EVERY) if ft else 0
+        want = [(i + 1) * ATK_EVERY for i in range(nrec)]
+        got = [t for t, _ in host.get('atk', [])]
+        if not got:
+            probs.append('the reference has no attack stream')
+        elif got != want:
+            probs.append('reference attack ticks %d (%s..%s), expected %d (256..%d)' % (
+                len(got), got[0], got[-1], nrec, nrec * ATK_EVERY))
+        if not nrec:
+            probs.append('the reference has no final tick')
+        words = list(mem.words('fzx_atk_chk', ATK_SLOTS)) if has_sym else None
+        return dict(problems=probs, words=words, nrec=nrec)
+
     def host_check(self, name, kv, chk, host, full_final, sink=None, prefix='', against='', atk=None):
         """SH-2 against HOST: every checkpoint the image wrote equals HOST's, the finish (or retirement) matches, and
-        for a race run to the reference's end, the final state hash too. ATK (an attacks image against fzx-atk): the
-        image's attack + field words, which must equal the reference's every 256 field ticks, all of them."""
+        for a race run to the reference's end, the final state hash too. ATK (attack_stream): its problems fail the
+        check; an attacks image's fzx_atk_chk words must equal the reference's in every recorded slot, zeros included,
+        and be zero in the rest. Without ATK (partial scene checks) the build-configuration problems still fail it."""
         e1 = lambda i: kv.get('%s_fzx_e1_report%d' % (prefix, i), kv.get('e1_report%d' % i))
         n = len(chk)
         hostc = dict(host['chk'])
@@ -406,12 +449,18 @@ class Gate:
         else:
             ok = ok and not finished
             notes.append('retires as HOST (tick %s)' % host['retire_tick'] if not finished else 'finished; HOST retires')
-        if atk is not None:
-            hosta = dict(host['atk'])
-            asame = sum(1 for t, h in atk if hosta.get(t) == h)
-            ok = ok and asame == len(atk) == len(host['atk'])
-            notes.append('attack words %d/%d equal (HOST %d)' % (asame, len(atk), len(host['atk'])))
-        self.add('host', name, ok, 'checkpoints %d/%d equal%s' % (same, n, (' (HOST %s)' % against) if against else ''),
+        probs = atk['problems'] if atk is not None else list(host.get('problems', []))
+        if atk is not None and atk.get('words') is not None:
+            hosta = dict(host.get('atk', []))
+            nrec = atk['nrec']
+            asame = sum(1 for i in range(nrec) if hosta.get((i + 1) * ATK_EVERY) == '%08x' % atk['words'][i])
+            stray = sum(1 for w in atk['words'][nrec:] if w)
+            ok = ok and asame == nrec and not stray
+            notes.append('attack words %d/%d equal (HOST %d)%s' % (asame, nrec, len(host.get('atk', [])),
+                                                                  ', %d written past the race' % stray if stray else ''))
+        ok = ok and not probs
+        self.add('host', name, ok, '%scheckpoints %d/%d equal%s' % ('INCOMPLETE (%s); ' % '; '.join(probs) if probs else '',
+                                                                same, n, (' (HOST %s)' % against) if against else ''),
                  '; '.join(notes), sink=sink)
 
     def memory_checks(self, name, mem, kv, sink=None, prefix=''):
@@ -711,11 +760,19 @@ class Gate:
         (stage.sh host ... atk1), since the rivals' contacts move the player. Cached per course and kind."""
         if not slug:
             return None
-        atk = ' _fzx_atk_chk' in (Path(build_dir) / 'fzs-engine.sym').read_text()
+        has_sym = ' _fzx_atk_chk' in (Path(build_dir) / 'fzs-engine.sym').read_text()
+        cfg = build_config(build_dir)
+        exp = None if cfg is None or 'ENG_ATTACKS' not in cfg else cfg['ENG_ATTACKS'] == '1'
+        probs = []
+        if exp is None:
+            probs.append('no build configuration (config.txt ENG_ATTACKS)')
+        elif exp != has_sym:
+            probs.append('build ENG_ATTACKS=%d but the symbols %s _fzx_atk_chk' % (exp, 'hold' if has_sym else 'lack'))
+        atk = exp if exp is not None else has_sym   # the reference kind follows the configuration
         key = (slug, 'atk1') if atk else slug
         if key not in hosts:
             hosts[key] = self.host(self.ev / 'host', slug, 'atk1' if atk else '0.004,2.5')
-        return hosts[key]
+        return dict(hosts[key], expect_atk=exp, problems=probs)
 
     def base_bins(self, base_sha, ident, head):
         """BIN hashes of the base's identity images: from the shared receipt cache, else built in this stage."""
@@ -822,6 +879,10 @@ class Gate:
                     got = re.search(r'LEGACY off ([0-9a-f]{64})', out)
                     off = got.group(1) if got else ''
                 self.add('legacy', name, off.startswith(self.m['legacy']['recipe']), '%s vs recipe %s' % (off[:16], self.m['legacy']['recipe'][:16]), sink=sink)
+            elif chk == 'host' and c.get('strip'):
+                bd = builds[c['image']]['dir']
+                self.score_race(dict(name=name), self.ev / 'runs' / c['reuse'], bd, self.host_for(hosts, c.get('course'), bd),
+                                sink=sink, strip=c['strip'])
             elif chk == 'host' and c.get('reuse'):
                 rd = self.ev / 'runs' / c['reuse']
                 kv, chkl = result_kv(read_result(rd))

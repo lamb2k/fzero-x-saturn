@@ -328,6 +328,24 @@
    "pokes": "_fzx_atk_vis_gate=0@600"
   },
   {
+   "name": "ctl-host-atk-stream",
+   "check": "host",
+   "how": "the field race (attacks on) scored against its fzx-atk reference with the attack stream removed: the player matches, the check must fail as incomplete (C-114)",
+   "image": "field",
+   "course": "mute-city-1",
+   "reuse": "race-field",
+   "strip": "stream"
+  },
+  {
+   "name": "ctl-host-atk-sym",
+   "check": "host",
+   "how": "the field race (attacks on) scored with _fzx_atk_chk removed from the image's symbols: the player matches, the check must fail as incomplete (C-114)",
+   "image": "field",
+   "course": "mute-city-1",
+   "reuse": "race-field",
+   "strip": "symbol"
+  },
+  {
    "name": "ctl-determinism",
    "check": "determinism",
    "how": "the field race against the balance-off control race (one switch apart)",

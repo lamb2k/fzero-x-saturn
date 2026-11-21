@@ -46,7 +46,7 @@ with the base's receipt.
 | `cadence` | 0 intervals over two fields, from tick 420 (every row on E0) | field race; loop races | every race image, loops, six courses |
 | `timing` | INFO: master, slave (with the slave's cloud share) and critical path mean / p99 / max; VDP1 p99 | same | same |
 | `margin` | critical-path p99 at most 24.5 ms (ENGINE_PLAN 5 gate 9) | field race | race images, six courses |
-| `host` | SH-2 checkpoints equal HOST's (`fzx-phys --checkpoints 256`, tubes build, the stage's packs); the finish ms equal, or a retirement where HOST retires; a whole race also matches HOST's final state hash | field race; loop's cold race | plus drive, roster, and each course |
+| `host` | SH-2 checkpoints equal HOST's (`fzx-phys --checkpoints 256`, tubes build, the stage's packs); the finish ms equal, or a retirement where HOST retires; a whole race also matches HOST's final state hash. An image whose make resolved `ENG_ATTACKS=1` (the build's `config.txt`) is judged against `fzx-atk` and must also hold `_fzx_atk_chk` and equal every recorded attack + field word, zeros included, at the reference's expected ticks; a missing configuration, symbol or stream fails the check (C-114) | field race; loop's cold race | plus drive, roster, and each course |
 | `determinism` | two runs give the same per-field ticks and pixel hashes, work RAM, VRAM and stills | field race | field race; loop |
 | `loop` | cold and retry races give equal finish ms, checkpoints and tick-2000 stills | sound on | sound on and off |
 | `reboot` | the saved name survives a reboot (the loop script waits for it) | yes | yes |
@@ -82,6 +82,9 @@ table says so.
 | ctl-cadence | cadence | field with `ENG_PACE_LEAD=2` |
 | ctl-margin | margin | field with the balance off |
 | ctl-host | host | the field race against HOST driven at heading gain 2.6 |
+| ctl-host-atk | host | the field race with the rivals' attack visibility gate poked off at tick 600 |
+| ctl-host-atk-stream | host | the field race scored against its fzx-atk reference without the attack stream |
+| ctl-host-atk-sym | host | the field race scored with `_fzx_atk_chk` removed from the image's symbols |
 | ctl-determinism | determinism | the field race against the balance-off race |
 | ctl-stack | memory | a word written into the painted master stack 4 KB above its floor at tick 600 |
 | ctl-guard | memory | the slave stack's first guard word cleared at tick 600 |

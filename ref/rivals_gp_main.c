@@ -11,6 +11,16 @@
  * Vehicle 0 is the player. With --player-trace it is external (float32 dist, lateral, speed per tick
  * from a reference run); without it, vehicle 0 is one more agent.
  * The report has the same shape as fzx-gp-ref's, so one script computes the bands for both.
+ * C-118: --player-phys PHYS.bin (fzx-gp-ref --trace-phys) drives vehicle 0 physically after its finish. Through the
+ * contact pass on the reference finish tick (the first PHYS record with the finished flag) the replay is the one
+ * above, unchanged. From the next tick, vehicle 0's line state comes from the reference's continuing pose: its
+ * distance is the finish distance plus the segment walk's lapDistance moved since (wrapped once round the lap),
+ * its lateral the pose's (in a pipe or cylinder the arc round the line, from lateral and up, as the engine's tube
+ * pose), its speed the distance moved since the previous tick. Neighbour choice, avoidance and contact all read that
+ * one state. Its official finish (tick, place, lap times) stays as recorded at the finish. A missing pose (the
+ * PHYS file ends, the segment walk has no segment, the car retired) or an ambiguous one (a step of more than a
+ * quarter lap, a tube pose on the line's axis) keeps the last pose and makes the run unscorable (report
+ * "player_phys"). --p0-dump FILE writes vehicle 0's input each tick (int32 tick, dist, lap, lateral, speed).
  * line-field-4: --zones takes fzx-rivals' zone table (start end lat_lo lat_hi kind, Q8); --wrap makes nodes whose
  * flags match MASK:VALUE tubes (the course's pipes and cylinders: 0x180:0x80). Tuning names plate_ticks,
  * slip_steer, rough_keep and recharge set the surface; --dash Q8 sets the final dash (fzx-rivals writes
@@ -47,6 +57,7 @@ static uint16_t be16(const unsigned char* p) { return (uint16_t)((p[0] << 8) | p
 
 int main(int argc, char** argv) {
     const char *pack = 0, *config = 0, *report = 0, *trace = 0, *control = "none", *tune = 0, *zone_file = 0, *wrap = 0;
+    const char *phys_file = 0, *p0_dump = 0;   /* C-118 */
     int tube_angles = 0; long tube_ticks = 0, tube_bin[4] = {0, 0, 0, 0};
     /* line-field-5: --sources 1 adds rivals' energy losses by source (contact, wall, boost, other), wall incidents
      * and the near-edge share, as tools judge the reference's (fzx-gp-ref --diag). */
@@ -63,6 +74,8 @@ int main(int argc, char** argv) {
         else if (!strcmp(argv[i], "--seed")) seed = (unsigned)atoi(argv[i + 1]);
         else if (!strcmp(argv[i], "--report")) report = argv[i + 1];
         else if (!strcmp(argv[i], "--player-trace")) trace = argv[i + 1];
+        else if (!strcmp(argv[i], "--player-phys")) phys_file = argv[i + 1];
+        else if (!strcmp(argv[i], "--p0-dump")) p0_dump = argv[i + 1];
         else if (!strcmp(argv[i], "--start-tick")) start_tick = atoi(argv[i + 1]);
         else if (!strcmp(argv[i], "--ticks")) max_ticks = atoi(argv[i + 1]);
         else if (!strcmp(argv[i], "--lod")) lod = atoi(argv[i + 1]);
@@ -247,6 +260,40 @@ int main(int argc, char** argv) {
         fclose(f);
         veh[0].flags |= SH2Z_VEH_EXTERNAL;
     }
+    /* C-118: the reference's physical pose after the finish (see the header). */
+    enum { PHYS_MAX = 24000 };
+    static double ph_total[PHYS_MAX]; static float ph_lat[PHYS_MAX], ph_up[PHYS_MAX]; static unsigned char ph_bad[PHYS_MAX];
+    int ph_n = 0, ph_switch = -1, ph_ticks = 0, ph_tube = 0, ph_missing = 0, ph_ambiguous = 0, ph_on = 0;
+    int32_t ph_lap_tick[4] = {0, 0, 0, 0}, ph_finish_tick = 0; uint8_t ph_finish_seq = 0;
+    if (phys_file) {
+        if (!trace) die("--player-phys needs --player-trace");
+        f = fopen(phys_file, "rb");
+        if (!f) die("cannot open player-phys");
+        static float ph_ld[PHYS_MAX]; static int32_t ph_seg[PHYS_MAX], ph_flags[PHYS_MAX];
+        unsigned char rec[48];
+        while (ph_n < PHYS_MAX && fread(rec, sizeof rec, 1, f) == 1) {
+            int32_t ri[4]; float rf[8];
+            memcpy(ri, rec, sizeof ri); memcpy(rf, rec + 16, sizeof rf);
+            if (ri[0] != ph_n) die("player-phys ticks are not consecutive from 0");
+            ph_seg[ph_n] = ri[1]; ph_flags[ph_n] = ri[2]; ph_ld[ph_n] = rf[0]; ph_lat[ph_n] = rf[1]; ph_up[ph_n] = rf[2];
+            ++ph_n;
+        }
+        fclose(f);
+        for (int k = 0; k < ph_n && k < trace_ticks; ++k) if (ph_flags[k] & (1 << 25)) { ph_switch = k; break; }
+        if (ph_switch >= 0) {
+            const double lap_len = (double)length / 256.0;
+            ph_total[ph_switch] = tr[ph_switch][0];
+            for (int k = ph_switch + 1; k < ph_n; ++k) {
+                double d = (double)ph_ld[k] - (double)ph_ld[k - 1];
+                if (d < -lap_len / 2) d += lap_len;
+                else if (d > lap_len / 2) d -= lap_len;
+                ph_bad[k] = (unsigned char)((fabs(d) > lap_len / 4) ? 2 : (ph_seg[k] < 0 || (ph_flags[k] & (1 << 18))) ? 1 : 0);
+                ph_total[k] = ph_total[k - 1] + d;
+            }
+        }
+    }
+    FILE* p0f = p0_dump ? fopen(p0_dump, "wb") : NULL;
+    if (p0_dump && !p0f) die("cannot write p0-dump");
     sh2z_field_t F;
     sh2z_field_init(&F, &L, &P, veh, brain, order, slot, rank_order, (uint32_t)count, seed);
     F.focus = 0;
@@ -296,6 +343,47 @@ int main(int argc, char** argv) {
             veh[0].t.node = sh2z_line_locate(&L, veh[0].t.dist, veh[0].t.node);
             veh[0].kick_lat = veh[0].kick_speed = 0;
             veh[0].energy = veh[0].max_energy;   /* the trace carries its own outcome */
+            /* C-118: from the contact pass after the reference finish tick, the physical pose. */
+            if (ph_switch >= 0 && t > ph_switch) {
+                if (!ph_on) {
+                    ph_on = 1;
+                    for (int k = 0; k < 4; ++k) ph_lap_tick[k] = brain[0].lap_tick[k];
+                    ph_finish_tick = brain[0].finish_tick; ph_finish_seq = brain[0].finish_seq;
+                }
+                static sh2z_track_state_t ph_last; static int ph_have;
+                ++ph_ticks;
+                int bad = t >= ph_n ? 1 : ph_bad[t];
+                sh2z_track_state_t s0 = veh[0].t;
+                if (!bad) {
+                    const int64_t pt = (int64_t)(ph_total[t] * 256.0);
+                    int32_t plap = 0; int64_t pd = pt;
+                    while (pd < 0) { pd += length; --plap; }
+                    while (pd >= length) { pd -= length; ++plap; }
+                    s0.dist = (int32_t)pd; s0.lap = plap;
+                    s0.node = sh2z_line_locate(&L, s0.dist, ph_have ? ph_last.node : veh[0].t.node);
+                    sh2z_line_sample_t at;
+                    sh2z_line_sample(&L, s0.node, s0.dist, &at);
+                    const double lat = ph_lat[t], up = ph_up[t];
+                    if (surface.wrap_mask && (at.flags & surface.wrap_mask) == surface.wrap_value && at.half_width > 0) {
+                        const int cyl = (at.flags & 0x01c0u) == 0x00c0u;
+                        if (lat * lat + up * up < 1e-6) bad = 2;
+                        else {
+                            const double a = atan2(fabs(lat), cyl ? up : -up);
+                            s0.lateral = (int32_t)((lat < 0 ? -a : a) * at.half_width);
+                            ++ph_tube;
+                        }
+                    } else s0.lateral = (int32_t)(lat * 256.0);
+                    const double dv = (ph_total[t] - ph_total[t - 1]) * 256.0;
+                    s0.speed = dv < 0 ? 0 : dv > U(80) ? U(80) : (int32_t)dv;
+                }
+                if (bad) {
+                    if (bad == 2) ++ph_ambiguous; else ++ph_missing;
+                    s0 = ph_have ? ph_last : veh[0].t;
+                    s0.speed = 0;
+                }
+                veh[0].t = s0; ph_last = s0; ph_have = 1;
+            }
+            if (p0f) { const int32_t pr[5] = { t, veh[0].t.dist, veh[0].t.lap, veh[0].t.lateral, veh[0].t.speed }; fwrite(pr, sizeof pr, 1, p0f); }
         }
         static int32_t e_before[MAXV]; static uint16_t f_before[MAXV];
         for (int i = 0; i < count; ++i) { e_before[i] = veh[i].energy; f_before[i] = veh[i].flags; pre_node[i] = veh[i].t.node; pre_dist[i] = veh[i].t.dist; pre_flags_drop[i] = (nodes[veh[i].t.node].flags & 0x0200u) != 0; }
@@ -303,6 +391,10 @@ int main(int argc, char** argv) {
         clock_gettime(CLOCK_MONOTONIC, &t0);
         sh2z_field_step(&F);
         clock_gettime(CLOCK_MONOTONIC, &t1);
+        if (ph_on) {   /* C-118: vehicle 0's official record stays the one made at its finish */
+            for (int k = 0; k < 4; ++k) brain[0].lap_tick[k] = ph_lap_tick[k];
+            brain[0].finish_tick = ph_finish_tick; brain[0].finish_seq = ph_finish_seq;
+        }
         if (F.started) ns += (t1.tv_sec - t0.tv_sec) * 1e9 + (t1.tv_nsec - t0.tv_nsec);
         ticks = t + 1;
         if (hf && F.started && (t - start_tick) % hash_every == 0) fprintf(hf, "%d %08x\n", t - start_tick, (unsigned)sh2z_field_hash(&F));
@@ -329,7 +421,30 @@ int main(int argc, char** argv) {
                     if (!(veh[i].flags & SH2Z_VEH_FALLING) || (fix_agent >= 0 && fix_agent != i)) continue;
                     fix_agent = i; veh[i].flags = (uint16_t)((veh[i].flags & ~SH2Z_VEH_FALLING) | SH2Z_VEH_AIR); brain[i].fall_tick = -1; ++fix_ticks;
                 }
-            } else if (strcmp(fixture, "relabel") && strcmp(fixture, "stuck") && strcmp(fixture, "suppress")) die("--fixture relabel|stuck|suppress");
+            } else if (!strcmp(fixture, "wedge")) {
+                /* C-118 control: a CPU-CPU wedge held after the player's finish. At the first tick vehicle 0 is driven
+                 * physically, the leading CPU still racing (A) and the next one by distance (B) are set 20 apart on one
+                 * lateral, and from then on both are held at speed 0 (top speed 0). The stuck check must still count them. */
+                static int wedge_b = -1;
+                if (ph_on && fix_agent < 0) {
+                    int32_t best = INT32_MIN, second = INT32_MIN;
+                    for (int i = 1; i < count; ++i) {
+                        if (veh[i].flags & (SH2Z_VEH_FINISHED | SH2Z_VEH_RETIRED | SH2Z_VEH_FALLING | SH2Z_VEH_STOPPED)) continue;
+                        const int32_t tot = sh2z_track_total(&L, &veh[i].t);
+                        if (tot > best) { second = best; wedge_b = fix_agent; best = tot; fix_agent = i; }
+                        else if (tot > second) { second = tot; wedge_b = i; }
+                    }
+                    if (fix_agent > 0 && wedge_b > 0) {
+                        sh2z_vehicle_t *a = &veh[fix_agent], *b = &veh[wedge_b];
+                        b->t = a->t; b->t.dist -= U(20);
+                        if (b->t.dist < 0) { b->t.dist += (int32_t)length; --b->t.lap; }
+                        b->t.node = sh2z_line_locate(&L, b->t.dist, a->t.node);
+                    } else fix_agent = 0;
+                }
+                if (fix_agent > 0 && wedge_b > 0) {
+                    veh[fix_agent].top_speed = veh[wedge_b].top_speed = 0; veh[fix_agent].t.speed = veh[wedge_b].t.speed = 0; ++fix_ticks;
+                }
+            } else if (strcmp(fixture, "relabel") && strcmp(fixture, "stuck") && strcmp(fixture, "suppress")) die("--fixture relabel|stuck|suppress|wedge");
         }
         if (sources) for (int i = 1; i < count; ++i) {
             const sh2z_vehicle_t* v = &veh[i];
@@ -424,6 +539,7 @@ int main(int argc, char** argv) {
         if (trace && t >= trace_ticks + 3000) break;
     }
     if (hf) fclose(hf);
+    if (p0f) fclose(p0f);
     for (int i = 0; i < count; ++i) if (veh[i].flags & SH2Z_VEH_FALLING) ++fall_open;
     FILE* o = fopen(report, "w");
     if (!o) die("cannot write report");
@@ -451,6 +567,8 @@ int main(int argc, char** argv) {
                          src_n[0], src_amount[0], src_n[1], src_amount[1], src_n[2], src_amount[2], src_n[3], src_amount[3], wall_inc,
                          road_ticks ? (double)edge_ticks / road_ticks : 0.0);
     if (tube_angles) fprintf(o, " \"tube_ticks\": %ld, \"tube_angle_bins\": [%ld,%ld,%ld,%ld],\n", tube_ticks, tube_bin[0], tube_bin[1], tube_bin[2], tube_bin[3]);
+    if (phys_file) fprintf(o, " \"player_phys\": {\"switch_race_tick\": %d, \"ticks\": %d, \"tube_ticks\": %d, \"missing\": %d, \"ambiguous\": %d, \"scorable\": %d},\n",
+                           ph_switch >= 0 ? ph_switch - start_tick : -1, ph_ticks, ph_tube, ph_missing, ph_ambiguous, ph_missing + ph_ambiguous == 0);
     fprintf(o, " \"racers\": [\n");
     for (int i = 0; i < count; ++i) {
         const sh2z_field_brain_t* b = &brain[i];

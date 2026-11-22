@@ -127,7 +127,26 @@ static bool cap_stable(const fzx_engine_pick_t *pv, uint32_t runs, RefRoadPlan *
 }
 #endif
 
+#if FZX_ROAD_STREAM_PHASES==2
+/* Profile builds: on the slave's first jobs, its cache control register and the time of a 3-instruction loop
+ * (4096 passes) from this code's own memory, in FRT units (fzx_e0_probe: CCR, loop ticks first call, min, calls). */
+volatile uint32_t fzx_e0_probe[4];
+static void probe_slave(void) {
+    uint32_t acc = 0;
+    const uint16_t a = cpu_frt_count_get();
+    for (uint32_t i = 0; i < 4096u; ++i) { acc += i * 3u; __asm__ volatile("" : "+r"(acc)); }
+    const uint16_t t = (uint16_t)(cpu_frt_count_get() - a);
+    if (!fzx_e0_probe[3]) fzx_e0_probe[1] = t;
+    if (!fzx_e0_probe[3] || t < fzx_e0_probe[2]) fzx_e0_probe[2] = t;
+    fzx_e0_probe[0] = *(volatile uint8_t *)0xfffffe92u;
+    if (fzx_e0_probe[3] < 50u) ++fzx_e0_probe[3];
+    (void)acc;
+}
+#endif
 bool fzx_engine_slave_pick(void) {
+#if FZX_ROAD_STREAM_PHASES==2
+    if (fzx_e0_probe[3] < 50u) probe_slave();
+#endif
     RefRoadPlan *out = &fzx_source_road_plan;
     const fzx_engine_consts_t *k = &path.consts;
     const uint16_t t0 = cpu_frt_count_get();

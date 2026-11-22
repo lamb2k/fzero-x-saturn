@@ -158,8 +158,9 @@ def build(chunks, effects, textures, fog):
                 uv = [(r0['s'] * k, tr0 * k), (l0['s'] * k, tl0 * k), (l1['s'] * k, l1['t'] * k), (r1['s'] * k, r1['t'] * k)]
                 quads.append(dict(chunk=r0['chunk'], order=(e['index'], p), kind=kind,
                                   pos=[r0['pos'], l0['pos'], l1['pos'], r1['pos']], uv=uv, flags=0))
-    # The road draws a quad only when its projected corners wind negative (area < 0 in fzx_road_stream_draw.c); the quads above
-    # wind positive under the engine's view, so corners B and D swap (the bitmap is then baked in the swapped order).
+    # Corners B and D swap (the bitmap is then baked in the swapped order), so the quads wind the way the road's quads do on a flat
+    # stretch. The engine draws decals two-sided anyway (the original clears G_CULL_BACK for its gadgets and hides them with its
+    # depth buffer): the order only fixes which way the bitmap maps, and each vertex keeps the original's texture coordinate.
     for q in quads:
         q['pos'] = [q['pos'][i] for i in (0, 3, 2, 1)]
         q['uv'] = [q['uv'][i] for i in (0, 3, 2, 1)]

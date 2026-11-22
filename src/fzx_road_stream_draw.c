@@ -758,6 +758,9 @@ typedef struct {uint32_t first,last;int32_t offset;
 #endif
 } run_t;
 #if FZX_ROAD_GADGETS
+#ifndef FZX_ROAD_GADGET_MIN_AREA
+#define FZX_ROAD_GADGET_MIN_AREA 0   /* decal quads whose screen area (x2, pixels) is at most this are left out; 0 leaves out only the empty ones */
+#endif
 /* The decals of one run's chunks: one more projected batch, after the run's road positions. A run that does not fit
  * leaves its decals out (counted), never the road. */
 static bool gadget_run(draw_t *d,run_t *r){
@@ -779,7 +782,11 @@ static bool decal_quad(draw_t *d,const sh2z_view_vertex_t *base,unsigned q){
     const vref_t v[4]={base,base+1,base+2,base+3};bool safe;
     ++d->stats->decals;
     if(classify(v,&safe)){++d->stats->culled;return true;}
-    if(safe&&area(v,4)>=0){++d->stats->culled;return true;}
+    /* The original draws these gadgets two-sided (aSetupCourseEffectTextureDL clears G_CULL_BACK) and lets its depth buffer hide them,
+     * so there is no winding test: a decal seen from its back face draws, its bitmap mapped by the corners' own texture coordinates
+     * exactly as the original's per-vertex coordinates would show it. A quad under the size floor (twice its screen area in pixels) is left out. */
+    if(safe){int32_t a=area(v,4);if(a<0)a=-a;
+        if(a<=(int32_t)FZX_ROAD_GADGET_MIN_AREA){++d->stats->culled;++d->stats->decal_small;return true;}}
     const unsigned image=w->pack->count[FZX_RLD_IMAGES]+w->gquad[q*2u];
     return piece(d,v,q,0,image,image,0,w->images[image].variant[0].height,0,false);
 }

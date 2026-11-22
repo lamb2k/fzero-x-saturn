@@ -45,7 +45,7 @@ typedef struct {
     uint32_t commands,positions,quads,chunks,culled,clipped,tiers[4];
     uint32_t unaligned,fog_updates,fog_error,fault,error_quad;
 #if FZX_ROAD_GADGETS
-    uint32_t decals,decal_corners,decal_dropped;   /* decal quads fetched, corners projected, quads dropped for room */
+    uint32_t decals,decal_corners,decal_dropped,decal_small;   /* decal quads fetched, corners projected, quads dropped for room, quads under the size floor */
 #endif
 } fzx_road_stream_draw_stats_t;
 

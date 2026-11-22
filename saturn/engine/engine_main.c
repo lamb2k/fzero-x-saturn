@@ -698,8 +698,11 @@ volatile uint32_t fzx_bal_report[8];
 #if ENG_BAL_SPLIT
 /* ENG_BAL_SPLIT: [0] second halves run by the slave, [1] by the master, [2] master claims of the second half that
  * waited for the slave's decision, [3] slave waits for the setup that spun, [4] slave part-B ticks sum (master FRT
- * units), [5] max, [6] slave claims of the second half lost to the master, [7] frames with a split job. */
-volatile uint32_t fzx_bal_split[8];
+ * units), [5] max, [6] slave claims of the second half lost to the master, [7] frames with a split job, [8] master
+ * setup ticks sum, [9] master first-half ticks sum, [10] master second-half ticks sum (when it ran it), [11] frames
+ * the master ran the setup and the first half (the divisor of [8] and [9]). Ticks are master FRT units
+ * (field_frt per field). */
+volatile uint32_t fzx_bal_split[12];
 #endif
 /* Per frame row: slave cloud ticks in master FRT units, bit 15 set when the slave ran them. */
 enum { BAL_ROWS = 6144u };
@@ -1054,13 +1057,17 @@ static void build(row_t *row, const fzx_engine_cam_t *cam, uint32_t tick, uint16
         /* Setup and the first half here; the second half goes to whichever SH-2 claims it (the slave, once its
          * track and fills are done and the setup is out, or this one when it gets there first). */
         ++fzx_bal_split[7];
+        const uint16_t sp0 = cpu_frt_count_get();
         if (!fzx_clouds_split_setup(&commands[CMD_FIRST], FZX_SLAVE_ROAD_RESERVE - 1u, &fzx_native_view, &fzx_source_backdrop))
             fail(23, "CLOUDS", fzx_clouds_rbg.fault);
         BAL_BARRIER(); /* the setup's record is stored before it is announced */
         bal.adone = bf;
+        const uint16_t sp1 = cpu_frt_count_get();
         if (!fzx_clouds_split_half0(&fzx_native_view, &fzx_source_backdrop))
             fail(23, "CLOUDS", fzx_clouds_rbg.fault);
         first = fzx_clouds_split_count();
+        const uint16_t sp2 = cpu_frt_count_get();
+        fzx_bal_split[8] += (uint16_t)(sp1 - sp0); fzx_bal_split[9] += (uint16_t)(sp2 - sp1); ++fzx_bal_split[11];
 #if ENG_BAL_SPLIT == 2
         /* Control: the slave always runs the second half. */
 #else
@@ -1068,6 +1075,7 @@ static void build(row_t *row, const fzx_engine_cam_t *cam, uint32_t tick, uint16
         bal_b_mine = sh2z_claim_a(&bal_claim2, bf);
         if (bal_b_mine) {
             fzx_clouds_split_b(&fzx_native_view, &fzx_source_backdrop);
+            fzx_bal_split[10] += (uint16_t)(cpu_frt_count_get() - sp2);
             ++fzx_bal_split[1];
         }
 #endif

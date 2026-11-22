@@ -214,6 +214,17 @@ static void session_defaults(void) {
 /* The catalog bit a session's mode needs (SCENES.md 11.1): GP 0, otherwise Time Attack. */
 #if ENG_MODES
 static uint8_t mode_avail(unsigned mode) { const fzx_mode_rules_t *r = fzx_mode_rules(mode); return r ? r->avail : 0u; }
+/* SELECT offers a class where the mode lets it and the rows exist: Grand Prix classes wait for the class rows (ENG_RIVAL_CLASS,
+ * or the diagnostic catalog); Practice has its own rows. */
+#if defined(ENG_RIVAL_CLASS) && ENG_RIVAL_CLASS
+#define GP_CLASS_ROWS 1
+#else
+#define GP_CLASS_ROWS FZX_CUP_DIAG_CATALOG
+#endif
+static bool mode_picks_class(unsigned mode) {
+    const fzx_mode_rules_t *r = fzx_mode_rules(mode);
+    return r && r->class_pick && (mode != FZX_MODE_GP || GP_CLASS_ROWS);
+}
 #else
 static uint8_t mode_avail(unsigned mode) { return mode == 0u ? FZX_AVAIL_GP : FZX_AVAIL_TA; }
 #endif
@@ -230,7 +241,7 @@ static bool session_edit(uint32_t machine_id, uint32_t course) {
 #endif
     fzx_session.menu_mode = select_mode;
 #if ENG_MODES
-    fzx_session.difficulty = (uint8_t)fzx_mode_class(select_mode, select_difficulty);
+    fzx_session.difficulty = (uint8_t)fzx_mode_class(select_mode, mode_picks_class(select_mode) || select_mode == FZX_MODE_DEATH ? select_difficulty : 1u);
 #else
     fzx_session.difficulty = select_difficulty;
 #endif
@@ -600,7 +611,6 @@ static bool jack_ready(void) {
 }
 
 #if ENG_MODES
-static bool mode_picks_class(unsigned mode) { const fzx_mode_rules_t *r = fzx_mode_rules(mode); return r && r->class_pick; }
 static const char *mode_name(unsigned mode) {
     switch (mode) { case FZX_MODE_GP: return "GRAND PRIX"; case FZX_MODE_TA: return "TIME ATTACK";
                     case FZX_MODE_DEATH: return "DEATH RACE"; case FZX_MODE_PRACTICE: return "PRACTICE"; default: return "?"; }
@@ -617,7 +627,7 @@ static bool select_enter(void *u, uint32_t s) {
     for (unsigned i = 0; i < MACHINE_COUNT; ++i) if (machines[i].id == fzx_session.machine_id) cursor = i;
 #endif
     select_mode = jack_ready() ? fzx_session.menu_mode : 1u;
-    select_difficulty = fzx_session.difficulty;
+    select_difficulty = !select_mode && !FZX_CUP_DIAG_CATALOG ? 1u : fzx_session.difficulty;
     course_cursor = course_ok(fzx_session.course, select_mode) ? fzx_session.course : fzx_course_step(fzx_session.course, 1, mode_avail(select_mode));
     text_dirty = true;
     return true;
@@ -671,6 +681,7 @@ static void select_tick(void *u, uint32_t s) {
         unsigned at = 0;
         for (unsigned i = 0; i < 4u; ++i) if (walk[i] == select_mode) at = i;
         select_mode = walk[(at + 1u) % 4u];
+        if (!mode_picks_class(select_mode) && select_mode != FZX_MODE_DEATH) select_difficulty = 1u; /* Standard */
         course_cursor = fzx_mode_rules(select_mode)->cup ? fzx_cup_def(FZX_CUP_JACK)->course[0]
                                                          : fzx_course_step(FZX_COURSE_NONE, 1, mode_avail(select_mode));
         text_dirty = true;
@@ -686,11 +697,12 @@ static void select_tick(void *u, uint32_t s) {
 #else
     if ((input.edges & PAD_C) && jack_ready()) {
         select_mode ^= 1u;
+        if (!select_mode && !FZX_CUP_DIAG_CATALOG) select_difficulty = 1u; /* Standard */
         course_cursor = select_mode ? fzx_course_step(FZX_COURSE_NONE, 1, FZX_AVAIL_TA)
                                               : fzx_cup_def(FZX_CUP_JACK)->course[0];
         text_dirty = true;
     }
-    if (!select_mode && (input.repeat & (PAD_LEFT | PAD_RIGHT))) {
+    if (FZX_CUP_DIAG_CATALOG && !select_mode && (input.repeat & (PAD_LEFT | PAD_RIGHT))) {
         select_difficulty = (select_difficulty + ((input.repeat & PAD_LEFT) ? 3u : 1u)) % 4u;
         text_dirty = true;
     }
@@ -748,13 +760,20 @@ static void select_draw(void) {
         dbgio_printf("   %s   JACK CUP\n", mode_name(select_mode));
     if (mode_picks_class(select_mode))
         dbgio_printf("   CLASS   < %s >%s\n", levels[select_difficulty], fzx_mode_rules(select_mode)->cup ? "" : "  START");
+    else if (select_mode == FZX_MODE_GP)
+        dbgio_printf("   CLASS   %s\n", levels[1]);
     else if (select_mode == FZX_MODE_DEATH)
         dbgio_printf("   CLASS     MASTER\n");
 #else
     if (select_mode)
         dbgio_printf("   TIME ATTACK\n   COURSE  < %s >\n", course_name(course_cursor));
     else
-        dbgio_printf("   GRAND PRIX   JACK CUP\n   CLASS   < %s >\n", levels[select_difficulty]);
+        dbgio_printf(FZX_CUP_DIAG_CATALOG ? "   GRAND PRIX   JACK CUP
+   CLASS   < %s >
+"
+                                       : "   GRAND PRIX   JACK CUP
+   CLASS   %s
+", levels[select_difficulty]);
 #endif
     if (jack_ready()) dbgio_printf("   C: CHANGE MODE\n");
 #ifndef FZX_P3_BASELINE

@@ -539,7 +539,7 @@ def main():
                 # C-136: band + the added bound term for an eligible coast (tiers R and S), published separately; the band for the rest
                 for k in (0, 1):
                     if not ep[k]['eligible']:
-                        ep[k].update(c136=None, speed_ok_c136R=ep[k]['speed_ok'], speed_ok_c136S=ep[k]['speed_ok'])
+                        ep[k].update(c136=None, speed_ok_c136R=ep[k]['speed_err'] <= ep[k]['speed_tol'], speed_ok_c136S=ep[k]['speed_err'] <= ep[k]['speed_tol'])
                         continue
                     bs = window_bases(a, base, script, mref, d, t, end, ticks)
                     bb = coast_bounds(rows, bs, k, t, end)

@@ -54,8 +54,8 @@ no-destroy and coast-bias map to no metric and show no change from the clean nat
 
 Native, first scoring (native hashes fzx-duel-native 82c98514c06560bd): FAIL, 60 of 308 cell-metrics. KO 16 cells, time to KO 15, wall-KO 6,
 attacker pre-contact energy 1; hit, retire and damage pass in all 36 cells. The failures were one-sided and concentrated in the bump cells:
-native KO share 2 to 7 points under the original, time to KO 4 to 25 ticks early; side and spin cells missed by a hair. Cause: in 4 of 4 episodes
-examined (bump, open, interior and wall) the original credits the KO on the tick the victim and the attacker both spin out (both are at
+native KO share 2 to 7 points under the original, time to KO 4 to 25 ticks early; side and spin cells missed by a hair. Cause: in 3 of 4 episodes
+examined (bump, open; the fourth diverged before any spin-out) the original credits the KO on the tick the victim and the attacker both spin out (both are at
 a few percent energy); the native tested the attacker's state after its own step that tick and refused the credit. Paired KO counts, bump:
 original-only 506 / native-only 28 (open interior); side and spin were balanced (about 500 each way, chaos). Evidence `out/score-native-first.txt`.
 

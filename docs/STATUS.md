@@ -1,8 +1,6 @@
 # Status
-Limit: 80 lines. History lives in git. Plan: [POC_PLAN.md](POC_PLAN.md).
-Active goal: [first-course boot, selection and race completion](FIRST_COURSE_GOAL.md).
-Current C0-C8 decisions and dependencies: [render programme](RENDER_PLAN_CURRENT.md).
-Current local functional build: [VDP2 clouds with NATIVE + pose-1 release recipe](FUNCTIONAL_RECIPE.md).
+Legacy plan: [POC_PLAN.md](POC_PLAN.md). Active goal: [first-course boot, selection and race completion](FIRST_COURSE_GOAL.md).
+C0-C8: [render programme](RENDER_PLAN_CURRENT.md). Current local functional build: [VDP2 clouds with NATIVE + pose-1 release recipe](FUNCTIONAL_RECIPE.md).
 ## Owner direction
 Preserve F-Zero X with original assets prebaked for Saturn; placeholders/missing features are not completion.
 Saturn-native rendering: source packet/hash/arithmetic and C4 stat identity gates lifted; tags optional.
@@ -10,16 +8,14 @@ Judge pixels, colour and visible defects against the original image; no numeric 
 Keep 16 KiB stack, guards, no crashes, road420/vehicle70, legacy default, hygiene/ROM rules and evidence tiers.
 
 ## Playable extent
-
 Original Time Attack code runs Mute City 1 on the master SH-2 with binary32 soft float.
 Original pad-driven title/main/course/machine/settings screens now reach the race.
-Selected skin 1 / engine 0.5078125 survives the handoff. A separate 7,059-input
-native diagnostic replay completes three laps at source time 110,639 ms.
-The original camera, Blue Falcon, road, sky/skyline/floor/cloud and partial HUD render
-behind explicit local flags, including finish/results and records/name entry. Retry,
-audio/effects, ordinary pad-only completion, soak, final look and HARDWARE remain open. No 30 or 60 fps acceptance.
+Selected skin 1 / engine 0.5078125 survives the handoff. A separate 7,059-input native diagnostic replay completes three laps at source time 110,639 ms.
+The original camera, Blue Falcon, road, sky/skyline/floor/cloud and partial HUD render behind explicit local flags, including finish/results and records/name entry. Retry, audio/effects, ordinary pad-only completion, soak, final look and HARDWARE remain open. No 30 or 60 fps acceptance.
 
 ## Gates and evidence
+
+Engine guest promotion on 35fc7a3 is held. Metal Sonic on Sand Ocean reached 24.6645 ms critical p99 twice (MODELLED), with 13 samples over the margin and zero intervals over two fields. Unblock when all matched guest rows pass unrounded p99 * 1.36 <= 33.3 ms. Evidence: host/codex-o169.
 
 | Area | Current evidence / remaining work |
 | --- | --- |

@@ -46,3 +46,24 @@ Frozen 2026-11-22 by attacks-5 before any native run. Tier: HOST. ENG_ATTACKS st
 | wall-KO | 18 | 0.0005 | 0.0025 | 0.005 |
 Per cell values: evidence `out/bars-C-T.txt` and `.json`. Coverage (info only): every cell has well over 1,000 damaging contact episodes per racer
 (see `out/coverage-C.txt`).
+
+## Result of the one scoring round (attacks-5, 2026-11-22, HOST)
+Controls (run on the frozen native, before scoring): all 8 mapped mutants fail on their mapped metrics (credit-off KO 36 cells, share-swap
+damage 2 cells (marginal), push2.5 wall-KO 10, reach45 hit 15, spin140 time to KO 16, opp-player wall-KO 16, heavy5 60, impact1.2 23).
+no-destroy and coast-bias map to no metric and show no change from the clean native here (run only). Evidence `out/controls.txt`.
+
+Native, first scoring (native hashes fzx-duel-native 82c98514c06560bd): FAIL, 60 of 308 cell-metrics. KO 16 cells, time to KO 15, wall-KO 6,
+attacker pre-contact energy 1; hit, retire and damage pass in all 36 cells. The failures were one-sided and concentrated in the bump cells:
+native KO share 2 to 7 points under the original, time to KO 4 to 25 ticks early; side and spin cells missed by a hair. Cause: in 4 of 4 episodes
+examined (bump, open, interior and wall) the original credits the KO on the tick the victim and the attacker both spin out (both are at
+a few percent energy); the native tested the attacker's state after its own step that tick and refused the credit. Paired KO counts, bump:
+original-only 506 / native-only 28 (open interior); side and spin were balanced (about 500 each way, chaos). Evidence `out/score-native-first.txt`.
+
+One fix (commit 964381e): the native KO credit reads the player's flags from before the tick's steps (spin-out start and fall start).
+Rescore (native hashes fzx-duel-native 8151596e143554fd, tubes 0802b975c7938bba, duel_native.c 352a208b5b0cb494): still FAIL, 11 of 308:
+KO 3 cells (side/open/interior heavy -0.88 pp vs 0.83 allowed, side/open/interior middle +1.08 vs 0.63, spin/open/interior light +0.75 vs 0.71),
+time to KO 7 cells (largest over the allowance: bump/tube/interior/light +8.5 ticks vs 5.7 allowed; others 0.2 to 2.9 ticks over),
+attacker pre-contact energy 1 (spin/open/interior/light -0.0073 vs 0.0073, a rounding miss). hit, retire, damage, victim pre-contact energy
+and wall-KO pass in all cells; KO passes 33 of 36 cells, time to KO 29 of 36. The remaining misses are small and two-sided (side/spin chaos in
+a closed loop). Per C-168 the owner now judges the feel from the clip. Controls were not rerun after the fix.
+Evidence: `out/score-native.txt` and `.json` (rescore), `out/score-native-first.txt`.

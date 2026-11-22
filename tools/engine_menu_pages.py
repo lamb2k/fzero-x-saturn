@@ -12,6 +12,48 @@ from menu_assets import BASE, rgb_words, sign_variant
 from road_pack import fnv
 
 
+GUEST_LINES = (
+    ("Nobody beats the Eggman!", "Ho ho! Too slow, too slow!"),
+    ("I am the real Sonic.", "Target eliminated."),
+)
+
+# (stock ending row, top scanline, first column, exclusive last column).
+# All samples share a nine-pixel cap height and three descender scanlines.
+CAPTION_GLYPHS = {
+    "N": (24,10,8,15), "o": (14,4,101,107), "b": (3,4,48,54),
+    "d": (14,4,19,25), "y": (1,4,16,22), "e": (3,4,55,61),
+    "a": (27,4,32,38), "t": (3,4,69,73), "s": (3,4,62,68),
+    "h": (10,9,14,20), "E": (20,10,14,21), "g": (1,4,59,65),
+    "m": (3,4,12,22), "n": (3,4,79,85), "!": (20,10,101,103),
+    "H": (20,10,33,41), "T": (10,9,6,13), "l": (1,4,86,88),
+    "w": (20,10,76,85), ",": (14,4,85,87), "I": (20,10,70,72),
+    "r": (1,4,34,38), "S": (28,10,56,63), "i": (10,9,21,23),
+    "c": (17,10,43,50), ".": (27,4,107,109),
+}
+
+
+def guest_caption(text, stock):
+    box = bytearray(stock[20])
+    for y in range(2, 30):
+        start = y * 400
+        box[start+4:start+388] = box[start+380:start+382] * 192
+    pen = 6
+    for ch in text:
+        if ch == " ":
+            pen += 4
+            continue
+        page, top, x0, x1 = CAPTION_GLYPHS[ch]
+        width = x1 - x0
+        if pen + width > 190:
+            raise ValueError("Guest caption exceeds stock line width")
+        for dy in range(12):
+            src = 2*((top+dy)*200+x0)
+            dst = 2*((10+dy)*200+pen)
+            box[dst:dst+2*width] = stock[page][src:src+2*width]
+        pen += width + 1
+    return box
+
+
 def guest_page(master, portrait, caption):
     """Use the stock bevel, ink and caption glyphs around a crop of the guest master."""
     from PIL import Image
@@ -27,13 +69,7 @@ def guest_page(master, portrait, caption):
             r, g, b = pixels.getpixel((x, y))
             struct.pack_into(">H", page, ((y+2)*168+x+2)*2,
                              0x8000 | (r>>3) | ((g>>3)<<5) | ((b>>3)<<10))
-    # Keep Tanaka's actual boxed "I won!" lettering, moved to the source left margin.
-    box = bytearray(caption)
-    for y in range(2, 30):
-        start = y * 400
-        box[start+4:start+388] = caption[start+380:start+382] * 192
-        box[start+12:start+84] = caption[start+136:start+208]
-    return page + box
+    return page + caption
 
 
 def bake(rom, decomp, dest, guest_ui=None):
@@ -87,6 +123,7 @@ def bake(rom, decomp, dest, guest_ui=None):
     maximum = 0
     header = ["/* Generated from stock art. */",
               "static const struct { unsigned at, size, hash, caption; } ending_pages[] = {"]
+    stock_captions = []
     for portrait, caption in pairs:
         w,h,page = sprite(portrait)
         if (w,h) != (168,99):
@@ -98,15 +135,16 @@ def bake(rom, decomp, dest, guest_ui=None):
                 raise ValueError(caption)
             caption_offset = len(page)
             page.extend(pixels)
+        stock_captions.append(page[caption_offset:] if caption_offset else None)
         header.append("    {%du,%du,%du,%du},"%(len(pages),len(page),fnv(page),caption_offset))
         pages.extend(page)
         maximum = max(maximum, len(page))
     guest_inputs = []
     if guest_ui:
-        for name in ("robotnik", "metal_sonic"):
+        for name, lines in zip(("robotnik", "metal_sonic"), GUEST_LINES):
             master = guest_ui / "masters" / (name + ".png")
             guest_inputs.append(master)
-            page = guest_page(master, sprite(pairs[0][0])[2], sprite(pairs[20][1])[2])
+            page = guest_page(master, sprite(pairs[0][0])[2], guest_caption(lines[0], stock_captions))
             header.append("    {%du,%du,%du,33264u}," % (len(pages), len(page), fnv(page)))
             pages.extend(page)
     header.append("};")

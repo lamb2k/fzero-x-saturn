@@ -98,6 +98,15 @@ extern volatile uint32_t fzx_field_grid_src;
 void fzx_field_tick(const sh2z_vd_body_t *player);
 /* This frame's cars (player first) with the K/D selection applied; returns the count. */
 unsigned fzx_field_cars(fzx_field_car_t *out, const sh2z_vd_body_t *player);
+#if defined(ENG_FX) && ENG_FX
+/* Race effects (engine_fx.c), read only: a rival's line vehicle, its rendered machine id, the boost
+ * length in ticks, and its pose (Q16 position, Q1.14 rows forward, up, left). */
+#include "sh2zam/line_field_experimental.h"
+const sh2z_vehicle_t *fzx_field_vehicle(unsigned i);
+uint32_t fzx_field_machine(unsigned i);
+int32_t fzx_field_boost_ticks(void);
+void fzx_field_pose_of(unsigned i, int32_t pos[3], int16_t rows[3][3]);
+#endif
 #if defined(ENG_SCENES) && ENG_SCENES
 /* SCENES.md 11.2 / 11.3: the cup entrants (the player, then the field's rivals) and each car's
  * state at the classification trigger (fills key frame, course length and laps). */

@@ -71,6 +71,14 @@ static fzx_vehicle_work_t work __attribute__((aligned(32)));
  * engine_low_init() has copied the image down and zeroed it, first thing in main. */
 __attribute__((section(".bss.lowhost.closeup_tables")))
 #endif
+#if defined(ENG_FX) && ENG_FX
+/* Race effects: the body colour changes every frame while the player flashes or flickers. Its
+ * palettes go to the player's own table only (both banks, as each is next built); the rivals'
+ * tables keep the load's palettes. gen 1 = the load's palettes (base_pal), 0 = not yet written. */
+static uint16_t base_pal[FZX_VEHICLE_PALETTES][16];
+static uint32_t pal_gen, table_gen[2][FZX_CLOSEUP_CARS];
+static bool draw_player;
+#endif
 static fzx_vehicle_native_tables_t tables[2][FZX_CLOSEUP_CARS] __attribute__((aligned(32))); /* per bank, per slot */
 static uint8_t *pixels, *shades[2][FZX_CLOSEUP_CARS];
 static uint16_t texture_ctrl, texture_pmod, solid_ctrl, solid_pmod;
@@ -137,6 +145,9 @@ static uint32_t load_pack(const pack_id_t *id, const vdp1_vram_partitions_t *par
     memset(shades[0][0], 0, 2u * FZX_CLOSEUP_CARS * SHADE_BYTES);
     memset(&work, 0, sizeof(work));
     memset(tables, 0, sizeof(tables));
+#if defined(ENG_FX) && ENG_FX
+    pal_gen = 0; memset(table_gen, 0, sizeof(table_gen));
+#endif
     {
         vdp1_cmdt_t t, s;
         memset(&t, 0, sizeof(t)); memset(&s, 0, sizeof(s));
@@ -201,6 +212,9 @@ void fzx_closeup_reset(void) {
     memset(shades[0][0], 0, 2u * FZX_CLOSEUP_CARS * SHADE_BYTES);
     memset(&work, 0, sizeof(work));
     memset(tables, 0, sizeof(tables));
+#if defined(ENG_FX) && ENG_FX
+    pal_gen = 0; memset(table_gen, 0, sizeof(table_gen));
+#endif
     PREWARM();
     for (unsigned i = 1; i < 16u; ++i) if (i < 9u || i > 12u) fzx_ab_report[i] = 0;
 }
@@ -229,6 +243,9 @@ uint32_t fzx_closeup_load(const vdp1_vram_partitions_t *parts, uint32_t ceiling,
     memset(shades[0][0], 0, 2u * FZX_CLOSEUP_CARS * SHADE_BYTES);
     memset(&work, 0, sizeof(work));
     memset(tables, 0, sizeof(tables));
+#if defined(ENG_FX) && ENG_FX
+    pal_gen = 0; memset(table_gen, 0, sizeof(table_gen));
+#endif
     {
         vdp1_cmdt_t t, s;
         memset(&t, 0, sizeof(t)); memset(&s, 0, sizeof(s));
@@ -280,6 +297,24 @@ static unsigned draw_state(vdp1_cmdt_t *commands, unsigned capacity, const fzx_v
     uint32_t drawn = 0;
     const bool ok = fzx_vehicle_draw_native(&pack, view, &camera, &state, &work, &target, &drawn, &fzx_ab_vehicle_stats);
     if (!ok) { ++fzx_ab_report[5]; fzx_ab_report[6] = fzx_ab_vehicle_stats.fault; drawn = 0; }
+#if defined(ENG_FX) && ENG_FX
+    {
+        bool dirty = false;
+        for (unsigned i = 0; i < pack.palettes; ++i) dirty |= work.palette_dirty[i] != 0;
+        if (dirty) {
+            ++fzx_ab_report[15];
+            if (!pal_gen) memcpy(base_pal, work.palette, sizeof(base_pal[0]) * pack.palettes); /* the load's */
+            ++pal_gen;
+        }
+        /* The commands use this table from the next draw of the bank: refresh it now if stale. */
+        const uint32_t want = draw_player ? pal_gen : 1u;
+        if (bank < 2u && slot < FZX_CLOSEUP_CARS && table_gen[bank][slot] != want) {
+            const uint16_t (*src)[16] = draw_player ? (const uint16_t (*)[16])work.palette : (const uint16_t (*)[16])base_pal;
+            for (unsigned i = 0; i < pack.palettes; ++i) memcpy(shades[bank][slot] + i * 32u, src[i], 32u);
+            table_gen[bank][slot] = want;
+        }
+    }
+#else
     /* Palettes change only with the body colour (once here): every table gets them. */
     for (unsigned i = 0; i < pack.palettes; ++i)
         if (work.palette_dirty[i]) {
@@ -287,6 +322,7 @@ static unsigned draw_state(vdp1_cmdt_t *commands, unsigned capacity, const fzx_v
                 for (unsigned s = 0; s < FZX_CLOSEUP_CARS; ++s) memcpy(shades[b][s] + i * 32u, work.palette[i], 32u);
             ++fzx_ab_report[15];
         }
+#endif
     fzx_ab_report[1] = drawn;
     if (drawn > fzx_ab_report[2]) fzx_ab_report[2] = drawn;
     fzx_ab_report[3] += drawn;
@@ -308,8 +344,22 @@ unsigned fzx_closeup_draw(vdp1_cmdt_t *commands, unsigned capacity, const fzx_vi
         state.model_pos[i] = fixed_to_float(b->pos[i], 16);
         for (unsigned j = 0; j < 3u; ++j) state.model_basis[i][j] = fixed_to_float(b->body[i][j], 30);
     }
+#if defined(ENG_FX) && ENG_FX
+    draw_player = true;
+    const unsigned n = draw_state(commands, capacity, view, cam, bank, 0, t0);
+    draw_player = false;
+    return n;
+#else
     return draw_state(commands, capacity, view, cam, bank, 0, t0);
+#endif
 }
+
+#if defined(ENG_FX) && ENG_FX
+/* Race effects (engine_fx.c): the body colour the next draw shades with (the white flash and the
+ * low-energy flicker); the palettes follow it as on a change of machine. */
+void fzx_closeup_body_get(uint8_t rgb[3]) { rgb[0] = state.body[0]; rgb[1] = state.body[1]; rgb[2] = state.body[2]; }
+void fzx_closeup_body_set(const uint8_t rgb[3]) { state.body[0] = rgb[0]; state.body[1] = rgb[1]; state.body[2] = rgb[2]; }
+#endif
 
 unsigned fzx_closeup_draw_pose(vdp1_cmdt_t *commands, unsigned capacity, const fzx_view_t *view,
                                const fzx_engine_cam_t *cam, uint32_t bank, uint32_t slot,

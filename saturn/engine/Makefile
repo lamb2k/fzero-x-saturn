@@ -147,6 +147,21 @@ E2_LOD_NEAR ?= 1000,3000,8000
 E2_EARLY ?= $(if $(filter 1:1,$(E1_CLOSEUP):$(E1_CLOSEUP_EARLY)),1,0)
 # Diagnostic: per-frame master phase times (fzx_e2_prof); changes timing slightly, never a floor measurement.
 E2_PROF ?= 0
+# ENG_FX (lane claude/fx-boost): the race effects the source draws without its attack code, from the source art:
+#   every racer's boost flame (idle, boost, dash plate, tail), the wall sparks, the player's white flash and
+#   low-energy flicker, as at most FZX_FX_SLOTS (96, nearest kept) VDP1 commands after the cars (engine_fx.c,
+#   SH2ZAM effect-pool-1; the emit on either SH-2 by dual-claim-1). Render only: the race is unchanged. On in
+#   the field images (E1_FIELD with E2_PACK and E2_EARLY); ENG_FX=0 is the identity control, not a product arm.
+#   Needs the effect art (tools/fx_assets.py, local) and an SH2ZAM checkout with effect-pool-1.
+ENG_FX ?= $(if $(and $(filter-out 0,$(E1_FIELD)),$(filter 1,$(E2_PACK)),$(filter 1,$(E2_EARLY))),1,0)
+ifeq ($(filter 0 1,$(ENG_FX)),)
+$(error ENG_FX must be 0 or 1)
+endif
+ifeq ($(ENG_FX),1)
+ifneq ($(if $(filter-out 0,$(E1_FIELD)),1,0):$(E2_PACK):$(E2_EARLY),1:1:1)
+$(error ENG_FX=1 needs E1_FIELD with E2_PACK=1 E2_EARLY=1)
+endif
+endif
 # E2_FASTSPRITE (needs E2_CULL): rival sprite poses reuse the cull's camera-space terms; one division for the up vector.
 E2_FASTSPRITE ?= 0
 # E2_ROSTER (needs E2_PACK, E2_CULL, E2_FASTSPRITE, E2_EARLY): each rival drawn from its own machine's
@@ -357,7 +372,7 @@ endif
 # The racer sprite set the player is drawn from.
 E1_SPRITES := $(if $(filter 2,$(E1_CLOSEUP)),racer_sprites_hq,racer_sprites)
 comma := ,
-SH_OUTPUT_DIR := build-$(if $(filter-out 1,$(ENG_DSP_BANDS)),dspb$(ENG_DSP_BANDS)$(if $(filter 1,$(ENG_DSP_BANDS_CHECK)),c,)$(if $(filter 1,$(ENG_DSP_BANDS_CORRUPT)),x,)-,)$(if $(filter-out 4,$(ENG_PACE)),pace$(ENG_PACE)$(if $(filter 3,$(ENG_PACE)),i$(ENG_VDP1_INTERVAL),)-,$(if $(filter-out 1,$(ENG_PACE_LEAD)),pace4w$(ENG_PACE_LEAD)-,)$(if $(filter 1,$(ENG_PACE_EARLY_CONTROL)),pace4early-,)$(if $(filter 1,$(ENG_PACE_HUD_LEAD)),pace4hudlead-,))$(if $(filter 1,$(FZX_E1_DRIVE)),e1-d$(E1_DRIVER)$(if $(filter-out 0,$(E1_DRIVER_BOOST)),-b$(E1_DRIVER_BOOST),)$(if $(filter-out 0,$(E1_CLOSEUP)),-ab$(E1_CLOSEUP)$(if $(filter 1,$(E1_CLOSEUP_EARLY)),e,)$(if $(filter-out 0,$(E1_FIELD)),-f$(E1_FIELD)$(if $(filter 1,$(E2_PACK)),p,)$(if $(filter 1,$(E2_FASTPOSE)),q,)$(if $(filter 1,$(E2_CULL)),c,)$(if $(filter 1,$(E2_LOD)),l$(subst $(comma),_,$(E2_LOD_NEAR)),)$(if $(filter 1,$(E2_EARLY)),e,)$(if $(filter 1,$(E2_FASTSPRITE)),f,)$(if $(filter 1,$(E2_ROSTER)),r,)$(if $(filter 1,$(E2_PROF)),P,),)$(if $(filter 1,$(ENG_SCENES)),-scn$(if $(filter 1,$(FZX_CUP_DIAG_CATALOG)),-gpdiag,)$(if $(filter-out 0,$(FZX_GUEST_MASK)),-gm$(FZX_GUEST_MASK),)$(if $(filter 1,$(ENG_ROSTER)),-ro,),)$(if $(filter 0,$(E1_FIELD)),$(if $(filter 1,$(E2_EARLY)),E,),),)-,e0-)bank$(FZX_VDP1_DBANK)$(if $(filter 1,$(FZX_VDP1_DBANK_STALE)),-stale,)-g$(E0_GUARD_MARGIN)-c$(E0_FAST_CULL)-l$(E0_LOD_SHIFT)-f$(E0_FAN_FIX)-r$(E0_RBG_LEAN)-k$(E0_CLUSTERS)-w$(E0_WORK_HIGH)$(if $(filter-out 0,$(E0_CHUNK_CAP)),-cap$(E0_CHUNK_CAP),)-n$(E0_LEAN_CLIP)-e$(E0_FOG_EARLY)$(if $(filter 1,$(E0_HW_COUNTER)),-hw,)$(if $(filter 1,$(E0_VDP2_MAP)),-map,)$(if $(filter 1,$(E0_SENTINEL_CONTROL)),-sentinel,)$(if $(filter 1,$(E0_POP_LOG)),-pop,)$(if $(filter 1,$(E0_CAP_STABLE)),-stable,)$(if $(filter 1,$(E0_CLUSTER_AUDIT)),-audit,)$(if $(filter 0,$(E0_ISR_MAC_SAVE)),-nomac,)$(if $(filter 1,$(E0_MAC_PROBE)),-macprobe,)$(if $(filter 0,$(E0_QUEUE_ATOMIC)),-qrace,)$(if $(filter 1,$(E0_QUEUE_STRESS)),-qstress,)$(if $(filter-out 0,$(E0_QUEUE_WIDEN)),-qw$(E0_QUEUE_WIDEN),)$(if $(filter 1,$(E0_PHASES)),-phases,)$(if $(filter 0,$(E0_PRELUDE_SHARE)),-ps0,)$(if $(filter 0,$(E0_PRELUDE_WINDOW)),-pw0,)$(if $(filter 0,$(E0_PRELUDE_DIV)),-pd0,)$(if $(filter 1,$(ENG_CDDA)),-cdda$(ENG_CDDA_MUSIC)$(if $(filter-out 0,$(ENG_CDDA_LOOPTEST)),-lt$(ENG_CDDA_LOOPTEST),),)$(if $(filter 1,$(ENG_SND)),-snd$(ENG_SND_MUSIC)$(if $(filter-out 0,$(ENG_SND_FADETEST)),-ft$(ENG_SND_FADETEST),),)
+SH_OUTPUT_DIR := build-$(if $(filter-out 1,$(ENG_DSP_BANDS)),dspb$(ENG_DSP_BANDS)$(if $(filter 1,$(ENG_DSP_BANDS_CHECK)),c,)$(if $(filter 1,$(ENG_DSP_BANDS_CORRUPT)),x,)-,)$(if $(filter-out 4,$(ENG_PACE)),pace$(ENG_PACE)$(if $(filter 3,$(ENG_PACE)),i$(ENG_VDP1_INTERVAL),)-,$(if $(filter-out 1,$(ENG_PACE_LEAD)),pace4w$(ENG_PACE_LEAD)-,)$(if $(filter 1,$(ENG_PACE_EARLY_CONTROL)),pace4early-,)$(if $(filter 1,$(ENG_PACE_HUD_LEAD)),pace4hudlead-,))$(if $(filter 1,$(FZX_E1_DRIVE)),e1-d$(E1_DRIVER)$(if $(filter-out 0,$(E1_DRIVER_BOOST)),-b$(E1_DRIVER_BOOST),)$(if $(filter-out 0,$(E1_CLOSEUP)),-ab$(E1_CLOSEUP)$(if $(filter 1,$(E1_CLOSEUP_EARLY)),e,)$(if $(filter-out 0,$(E1_FIELD)),-f$(E1_FIELD)$(if $(filter 1,$(E2_PACK)),p,)$(if $(filter 1,$(E2_FASTPOSE)),q,)$(if $(filter 1,$(E2_CULL)),c,)$(if $(filter 1,$(E2_LOD)),l$(subst $(comma),_,$(E2_LOD_NEAR)),)$(if $(filter 1,$(E2_EARLY)),e,)$(if $(filter 1,$(E2_FASTSPRITE)),f,)$(if $(filter 1,$(E2_ROSTER)),r,)$(if $(filter 1,$(E2_PROF)),P,)$(if $(filter 1,$(ENG_FX)),-fx,),)$(if $(filter 1,$(ENG_SCENES)),-scn$(if $(filter 1,$(FZX_CUP_DIAG_CATALOG)),-gpdiag,)$(if $(filter-out 0,$(FZX_GUEST_MASK)),-gm$(FZX_GUEST_MASK),)$(if $(filter 1,$(ENG_ROSTER)),-ro,),)$(if $(filter 0,$(E1_FIELD)),$(if $(filter 1,$(E2_EARLY)),E,),),)-,e0-)bank$(FZX_VDP1_DBANK)$(if $(filter 1,$(FZX_VDP1_DBANK_STALE)),-stale,)-g$(E0_GUARD_MARGIN)-c$(E0_FAST_CULL)-l$(E0_LOD_SHIFT)-f$(E0_FAN_FIX)-r$(E0_RBG_LEAN)-k$(E0_CLUSTERS)-w$(E0_WORK_HIGH)$(if $(filter-out 0,$(E0_CHUNK_CAP)),-cap$(E0_CHUNK_CAP),)-n$(E0_LEAN_CLIP)-e$(E0_FOG_EARLY)$(if $(filter 1,$(E0_HW_COUNTER)),-hw,)$(if $(filter 1,$(E0_VDP2_MAP)),-map,)$(if $(filter 1,$(E0_SENTINEL_CONTROL)),-sentinel,)$(if $(filter 1,$(E0_POP_LOG)),-pop,)$(if $(filter 1,$(E0_CAP_STABLE)),-stable,)$(if $(filter 1,$(E0_CLUSTER_AUDIT)),-audit,)$(if $(filter 0,$(E0_ISR_MAC_SAVE)),-nomac,)$(if $(filter 1,$(E0_MAC_PROBE)),-macprobe,)$(if $(filter 0,$(E0_QUEUE_ATOMIC)),-qrace,)$(if $(filter 1,$(E0_QUEUE_STRESS)),-qstress,)$(if $(filter-out 0,$(E0_QUEUE_WIDEN)),-qw$(E0_QUEUE_WIDEN),)$(if $(filter 1,$(E0_PHASES)),-phases,)$(if $(filter 0,$(E0_PRELUDE_SHARE)),-ps0,)$(if $(filter 0,$(E0_PRELUDE_WINDOW)),-pw0,)$(if $(filter 0,$(E0_PRELUDE_DIV)),-pd0,)$(if $(filter 1,$(ENG_CDDA)),-cdda$(ENG_CDDA_MUSIC)$(if $(filter-out 0,$(ENG_CDDA_LOOPTEST)),-lt$(ENG_CDDA_LOOPTEST),),)$(if $(filter 1,$(ENG_SND)),-snd$(ENG_SND_MUSIC)$(if $(filter-out 0,$(ENG_SND_FADETEST)),-ft$(ENG_SND_FADETEST),),)
 # Master/slave balance (claude/balance); each 0 = the frame split as it was.
 # ENG_BAL_CLOUDS: the cloud prepare on either SH-2 (drive images, banks, ENG_PACE=4): 1 always on the
 #   slave after its track; 2 the slave takes it when its track ends before the master reaches it
@@ -464,7 +479,8 @@ SH2ZAM_UNITS := sh2zam.c sh2zam_angles.c sh2zam_batch_sh2.c sh2zam_box2.c sh2zam
     $(if $(filter-out 0,$(E1_FIELD)),$(if $(filter 1,$(E2_EMIT_CMD) $(E2_EMIT_POSE) $(E2_EMIT_YAW)),sh2zam_rotation_sprite3.c,),) \
     $(if $(filter 1,$(E1_CLOSEUP)),sh2zam_vehicle.c sh2zam_view_indexed.c sh2zam_pose.c,) \
     $(if $(filter-out 0,$(E1_FIELD)),sh2zam_line_follower.c sh2zam_line_field.c $(if $(filter 1,$(E2_PACK)),$(if $(filter 1,$(ENG_RIVAL_SURFACE)),sh2zam_trig12.c,),),) \
-    $(if $(filter 1,$(ENG_SCENES)),sh2zam_scene.c,)     $(if $(filter 2,$(ENG_BAL_CLOUDS)),sh2zam_dual_claim.c,)
+    $(if $(filter 1,$(ENG_SCENES)),sh2zam_scene.c,)     $(if $(filter 2,$(ENG_BAL_CLOUDS)),sh2zam_dual_claim.c,) \
+    $(if $(filter 1,$(ENG_FX)),sh2zam_effect_pool.c $(if $(filter 2,$(ENG_BAL_CLOUDS)),,sh2zam_dual_claim.c),)
 
 SH_SRCS := engine_main.c engine_scene.c engine_path.c \
     ../sky_native.c ../skyline_native.c ../planes_native.c ../floor_rbg_native.c ../clouds_vdp2_native.c \
@@ -475,7 +491,7 @@ SH_SRCS := engine_main.c engine_scene.c engine_path.c \
     $(GC)/course_record.c \
     $(if $(filter 1,$(FZX_E1_DRIVE)),engine_drive.c ../physics_native.c,) \
     $(if $(filter 1,$(E1_CLOSEUP)),engine_closeup.c ../../src/fzx_vehicle.c ../../src/fzx_vehicle_draw.c,) \
-    $(if $(filter-out 0,$(E1_FIELD)),engine_field.c,) \
+    $(if $(filter-out 0,$(E1_FIELD)),engine_field.c,) $(if $(filter 1,$(ENG_FX)),engine_fx.c,) \
     $(if $(filter 1,$(ENG_SCENES)),engine_scenes.c engine_records.c engine_load_fast.c engine_cup.c,) $(if $(filter 1,$(ENG_ROSTER)),engine_roster.c,) \
     $(addprefix $(SH2ZAM_ROOT)/saturn/src/,$(sort $(SH2ZAM_UNITS)))
 ifneq ($(ENG_DSP_BANDS),0)
@@ -555,6 +571,16 @@ $(error E2_EMIT_POSE needs E2_CULL=1)
 endif
 ifeq ($(E2_PACK),1)
 SH_CFLAGS += -I$(GC)/rivals
+ifeq ($(ENG_FX),1)
+ifeq ($(wildcard $(SH2ZAM_ROOT)/saturn/include/sh2zam/effect_pool_experimental.h),)
+$(error ENG_FX=1 needs an SH2ZAM checkout with effect-pool-1)
+endif
+FX_RECEIPT_CHECK := $(shell sh ../../tools/check_receipt.sh $(G)/fx/fx.receipt >/dev/null 2>&1 || echo fx)
+ifneq ($(strip $(FX_RECEIPT_CHECK)),)
+$(error Missing or stale effect art; run tools/fx_assets.py (FZX_TEST_ROM set))
+endif
+SH_CFLAGS += -DENG_FX=1 -I$(G)/fx
+endif
 endif
 ifeq ($(E2_ROSTER),1)
 ifneq ($(E2_PACK):$(E2_CULL):$(E2_FASTSPRITE):$(E2_EARLY),1:1:1:1)
@@ -712,6 +738,7 @@ else ifeq ($(E1_CLOSEUP),1)
 endif
 ifeq ($(E2_PACK),1)
 	cp $(GC)/rivals/RIVALS.PAK "$(IMAGE_DIRECTORY)/"
+	$(if $(filter 1,$(ENG_FX)),cp $(G)/fx/FX.PAK "$(IMAGE_DIRECTORY)/",rm -f "$(IMAGE_DIRECTORY)/FX.PAK")
 endif
 ifeq ($(ENG_COURSE_SELECT),1)
 	while read -r src name; do cp "$(G)/$$src" "$(IMAGE_DIRECTORY)/$$name"; done < $(G)/courses/select/files.txt

@@ -273,7 +273,12 @@ static volatile uint32_t pending_row; /* index + 1 of the frame VDP1 is drawing 
 
 /* VDP1's end-of-draw interrupt: stamp the free-running timer, then run Yaul's
  * own handler with the interrupt frame untouched (the jump reads r0 before
- * its delay slot restores it). */
+ * its delay slot restores it).
+ * The timer is read as two bytes (Yaul's cpu_frt_count_get reads FRCH, then FRCL). A byte read of FRCH loads the
+ * low byte into the chip's one TEMP register and FRCL returns TEMP, so this handler, running between the two reads
+ * of the code it interrupts, would hand that code its own low byte (a 16-bit timestamp wrong by up to +-255 ticks, a
+ * frame-row interval of about 65,500 ticks: one false 93 ms frame in a Sand Ocean race). The handler therefore saves
+ * TEMP (an FRCL read does not change it) and loads it back with a write to FRCH. */
 volatile uint32_t fzx_e0_draw_end_frt __attribute__((used));
 void (*volatile fzx_e0_draw_end_next)(void) __attribute__((used));
 void fzx_e0_draw_end(void);
@@ -285,17 +290,22 @@ __asm__(
     "    mov.l r0,@-r15\n"
     "    mov.l r1,@-r15\n"
     "    mov.l r2,@-r15\n"
+    "    mov.l r3,@-r15\n"
     "    mov.l 1f,r1\n"
+    "    mov.b @(1,r1),r0\n"       /* FRCL returns TEMP: the low byte an interrupted FRCH read left pending */
+    "    extu.b r0,r3\n"
     "    mov.b @r1,r0\n"
     "    extu.b r0,r2\n"
     "    shll8 r2\n"
     "    mov.b @(1,r1),r0\n"
     "    extu.b r0,r0\n"
     "    or r2,r0\n"
+    "    mov.b r3,@r1\n"           /* a write to FRCH only loads TEMP: hand the interrupted reader its low byte back */
     "    mov.l 2f,r1\n"
     "    mov.l r0,@r1\n"
     "    mov.l 3f,r0\n"
     "    mov.l @r0,r0\n"
+    "    mov.l @r15+,r3\n"
     "    mov.l @r15+,r2\n"
     "    mov.l @r15+,r1\n"
     "    jmp @r0\n"

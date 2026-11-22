@@ -41,7 +41,12 @@
 #define E1_DRIVER_BOOST 0
 #endif
 /* The fixtures' race script: 460 ticks of nothing, then A held for 9,000. */
-enum { RACE_START_TICK = 460u, RACE_END_TICK = 460u + 9000u, CHECKPOINT_EVERY = 256u, CHECKPOINTS = 64u };
+/* The race runs 9,000 ticks after the start by default (the HOST references' length); a course whose finish is later
+ * (Rainbow Road, 10,520 ticks) builds with E1_RACE_TICKS above it, and its HOST reference runs the same count. */
+#ifndef E1_RACE_TICKS
+#define E1_RACE_TICKS 9000u
+#endif
+enum { RACE_START_TICK = 460u, RACE_END_TICK = 460u + E1_RACE_TICKS, CHECKPOINT_EVERY = 256u, CHECKPOINTS = 64u };
 #define N64_A 0x8000u
 #define N64_B 0x4000u
 

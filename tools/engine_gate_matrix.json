@@ -152,6 +152,17 @@
    "note": "scenes, R01-t driver kh 3.5 target -90 (Port Town 2); sound on",
    "sound": true
   },
+  "scenes-drv-rr": {
+   "vars": [
+    "FZX_E1_DRIVE=1",
+    "ENG_SCENES=1",
+    "E1_DRIVER=1",
+    "E1_RACE_TICKS=12000"
+   ],
+   "kind": "scenes",
+   "note": "scenes, driver, race run to 12,000 ticks after the start (Rainbow Road finishes at 10,520); sound on",
+   "sound": true
+  },
   "scenes-drv-snd0": {
    "vars": [
     "FZX_E1_DRIVE=1",
@@ -293,6 +304,7 @@
    "slug": "rainbow-road",
    "index": 18,
    "tubes": false,
+   "image": "scenes-drv-rr",
    "host_ticks": 12000
   },
   {

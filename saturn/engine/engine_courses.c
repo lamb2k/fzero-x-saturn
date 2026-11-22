@@ -26,6 +26,9 @@ const fzx_course_info_t *fzx_course_info_row(uint32_t id) {
 /* The bundled courses' pack identities (tools/course_bundle.py) and the one LOAD selected. */
 #include "course_select.h"
 const fzx_course_id_t *fzx_cid = &fzx_course_ids[0];
+/* The selected row's position in fzx_course_ids, set with fzx_cid. The per-course tables (course_class.h, course_drops.h)
+ * are indexed by it. With ENG_LOW_COLD fzx_cid points at a copy (cid_row), so fzx_cid - fzx_course_ids is not an index. */
+uint32_t fzx_cid_index = 0u;
 
 const fzx_course_id_t *fzx_course_bundled(uint32_t id) {
     for (uint32_t i = 0; i < FZX_COURSE_IDS_COUNT; ++i)
@@ -39,13 +42,16 @@ const fzx_course_id_t *fzx_course_bundled(uint32_t id) {
 static fzx_course_id_t cid_row;
 #endif
 bool fzx_course_use(uint32_t id) {
-    const fzx_course_id_t *c = fzx_course_bundled(id);
-    if (!c) return false;
+    uint32_t row = 0u;
+    while (row < FZX_COURSE_IDS_COUNT && fzx_course_ids[row].id != id) ++row;
+    if (row >= FZX_COURSE_IDS_COUNT) return false;
+    const fzx_course_id_t *c = &fzx_course_ids[row];
 #if ENG_LOW_COLD
     cid_row = *c;
     c = &cid_row;
 #endif
     fzx_cid = c;
+    fzx_cid_index = row;
     return true;
 }
 #endif

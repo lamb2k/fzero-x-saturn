@@ -5,6 +5,8 @@ import json
 import struct
 from pathlib import Path
 
+from road_pack import fnv
+
 
 def bake(source, destination):
     receipt = (source / "course_menu.receipt").read_text().splitlines()
@@ -53,10 +55,14 @@ def bake(source, destination):
             bank.extend(pixels(f"aCupSelect{name}Tex", (64, 96), state))
     destination.mkdir(parents=True, exist_ok=True)
     (destination / "CUPUI.PAK").write_bytes(bank)
+    header = (f"#pragma once\n#define CUP_UI_BYTES {len(bank)}u\n"
+              f"#define CUP_UI_HASH {fnv(bank)}u\n").encode()
+    (destination / "cup_ui.h").write_bytes(header)
     lines = ["# fzx generation receipt v1",
              f"generator {hashlib.sha256(Path(__file__).read_bytes()).hexdigest()} engine_cup_art.py"]
     lines.extend(f"input {hashlib.sha256(data).hexdigest()} {name}" for name, data in inputs.items())
     lines.append(f"output {hashlib.sha256(bank).hexdigest()} CUPUI.PAK")
+    lines.append(f"output {hashlib.sha256(header).hexdigest()} cup_ui.h")
     (destination / "cup_ui.receipt").write_bytes(("\n".join(lines) + "\n").encode())
 
 

@@ -640,11 +640,11 @@ ifeq ($(E1_CLOSEUP),1)
 # assembly reads a file-static table, so both stay out of LTO.
 ifeq ($(ENG_SCENES),1)
 ifeq ($(ENG_P3_UI),1)
-C8_ART_CHECK := $(foreach R,$(ENG_TITLE_ART)/title.receipt c8_cards/cards.receipt menu_pages/menu_pages.receipt select_art/select_art.receipt,$(shell sh ../../tools/check_receipt.sh $(G)/$(R) >/dev/null 2>&1 || echo $(R)))
+C8_ART_CHECK := $(foreach R,$(ENG_TITLE_ART)/title.receipt c8_cards/cards.receipt menu_pages/menu_pages.receipt cup_ui/cup_ui.receipt select_art/select_art.receipt,$(shell sh ../../tools/check_receipt.sh $(G)/$(R) >/dev/null 2>&1 || echo $(R)))
 ifneq ($(strip $(C8_ART_CHECK)),)
 $(error Missing or stale C8 title/course art: $(C8_ART_CHECK))
 endif
-SH_CFLAGS += -I$(G)/$(ENG_TITLE_ART) -I$(G)/c8_cards -I$(G)/menu_pages -I$(G)/guest_mach3d
+SH_CFLAGS += -I$(G)/$(ENG_TITLE_ART) -I$(G)/c8_cards -I$(G)/menu_pages -I$(G)/cup_ui -I$(G)/guest_mach3d
 SH_SRCS += machine_tuning.c
 SH_CFLAGS += -DENG_SCENES=1 -DFZX_CUP_DIAG_CATALOG=$(FZX_CUP_DIAG_CATALOG) -DFZX_GUEST_MASK=$(FZX_GUEST_MASK)ull -I$(G)/mach3d -I$(G)/machine_tuning -I$(G)/select_art -DFZX_CD_STREAM=1 -DFZX_LOAD_VERIFIED=1 -DENG_ROSTER=$(ENG_ROSTER) -DENG_SCN_STALL_CONTROL=$(ENG_SCN_STALL_CONTROL) -I$(G)/roster -DFZX_ROAD_PREP_BAKED=1 -I$(GC)/road_prep -I$(GC)/engine_path_ranges
 else
@@ -743,8 +743,8 @@ include $(YAUL_INSTALL_ROOT)/share/build.post.iso-cue.mk
 $(SH_OUTPUT_PATH)/$(SH_PROGRAM).iso: $(GC)/engine_path/ENGPATH.PAK
 ifeq ($(ENG_P3_UI),1)
 ifeq ($(ENG_SCENES),1)
-$(filter %engine_scenes.o,$(SH_OBJS_UNIQ)): $(G)/c8_cards/cards.h $(G)/menu_pages/menu_pages.h $(G)/select_art/select_art.h
-$(SH_OUTPUT_PATH)/$(SH_PROGRAM).iso: $(G)/$(ENG_TITLE_ART)/TITLE.PAK $(G)/select_art/SELECT.PAK $(G)/c8_cards/CARDS.PAK $(G)/menu_pages/PAGESUI.PAK $(G)/menu_pages/ENDINGS.PAK
+$(filter %engine_scenes.o,$(SH_OBJS_UNIQ)): $(G)/c8_cards/cards.h $(G)/menu_pages/menu_pages.h $(G)/cup_ui/cup_ui.h $(G)/select_art/select_art.h
+$(SH_OUTPUT_PATH)/$(SH_PROGRAM).iso: $(G)/$(ENG_TITLE_ART)/TITLE.PAK $(G)/select_art/SELECT.PAK $(G)/c8_cards/CARDS.PAK $(G)/menu_pages/PAGESUI.PAK $(G)/menu_pages/ENDINGS.PAK $(G)/cup_ui/CUPUI.PAK
 $(SH_OUTPUT_PATH)/$(SH_PROGRAM).iso: $(GUEST_PLAYER_PACKS)
 endif
 endif
@@ -762,7 +762,7 @@ ifeq ($(FZX_E1_DRIVE),1)
 endif
 ifeq ($(ENG_SCENES),1)
 ifeq ($(ENG_P3_UI),1)
-	cp $(G)/$(ENG_TITLE_ART)/TITLE.PAK $(G)/select_art/SELECT.PAK $(G)/c8_cards/CARDS.PAK $(G)/menu_pages/PAGESUI.PAK $(G)/menu_pages/ENDINGS.PAK "$(IMAGE_DIRECTORY)/"
+	cp $(G)/$(ENG_TITLE_ART)/TITLE.PAK $(G)/select_art/SELECT.PAK $(G)/c8_cards/CARDS.PAK $(G)/menu_pages/PAGESUI.PAK $(G)/menu_pages/ENDINGS.PAK $(G)/cup_ui/CUPUI.PAK "$(IMAGE_DIRECTORY)/"
 	rm -f "$(IMAGE_DIRECTORY)"/MACH3D*.PAK
 	cp $(foreach F,$(ENG_ENTRANT_PACKS),$(G)/mach3d/MACH3D$(F).PAK) "$(IMAGE_DIRECTORY)/"
 	$(if $(GUEST_PLAYER_PACKS),cp $(GUEST_PLAYER_PACKS) "$(IMAGE_DIRECTORY)/",)

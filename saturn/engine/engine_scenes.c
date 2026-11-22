@@ -19,6 +19,7 @@
 #include "title_identity.h"
 #include "cards.h"
 #include "menu_pages.h"
+#include "cup_ui.h"
 #ifndef ENG_SND
 #define ENG_SND 0
 #endif
@@ -603,7 +604,20 @@ static bool jack_ready(void) {
 
 #ifndef FZX_P3_BASELINE
 static uint8_t mode_cursor, ending_slot, ending_place;
-static bool ending_page_ready;
+static bool ending_page_ready, cup_bank_loaded, browsing_courses;
+static uint8_t cup_cursor, round_cursor;
+_Static_assert(CUP_UI_BYTES <= PAGES_UI_BYTES, "cup board must fit the menu cache");
+
+static void menu_bank(bool cups) {
+    if (cup_bank_loaded == cups) return;
+    uintptr_t scratch = ((uintptr_t)sat_stub_data_end + 31u) & ~(uintptr_t)31u;
+    if (!fzx_texture_cd_load(cups ? "CUPUI.PAK" : "PAGESUI.PAK",
+                             cups ? CUP_UI_BYTES : PAGES_UI_BYTES,
+                             cups ? CUP_UI_HASH : PAGES_UI_HASH,
+                             (void *)pages_base(), (void *)scratch, 4096u))
+        fault(63, "MENU BANK");
+    cup_bank_loaded = cups;
+}
 
 static void sprite(vdp1_cmdt_t *cmd, unsigned at, unsigned w, unsigned h, int x, int y) {
     const vdp1_cmdt_draw_mode_t mode = { .end_code_disable = 1, .color_mode = VDP1_CMDT_CM_RGB_32768 };
@@ -618,7 +632,7 @@ static void sprite(vdp1_cmdt_t *cmd, unsigned at, unsigned w, unsigned h, int x,
 static void ui_sprite(vdp1_cmdt_t *cmd, unsigned id, int x, int y) {
     sprite(cmd, menu_sprites[id].at, menu_sprites[id].w, menu_sprites[id].h, x, y);
 }
-static bool pages_preload(uint32_t budget) { return art_preload(budget, pages_base(), PAGES_UI_BYTES); }
+static bool pages_preload(uint32_t budget) { menu_bank(false); return art_preload(budget, pages_base(), PAGES_UI_BYTES); }
 static unsigned modes_span(vdp1_cmdt_t *span, unsigned capacity) {
     static const uint8_t signs[] = {UI_aMenuSignGpRaceTex, UI_aMenuSignTimeAttackTex,
         UI_aMenuSignDeathRaceTex, UI_aMenuSignVsBattleTex, UI_aMenuSignPracticeTex, UI_aMenuSignOptionsTex};
@@ -661,9 +675,63 @@ static void modes_tick(void *u, uint32_t scene) {
     if (!(input.edges & (PAD_A | PAD_START))) return;
     if (mode_cursor == 5u) (void)request(FZX_SCN_OPTIONS, RANK_GOTO);
     else if (mode_cursor == 1u || (mode_cursor == 0u && jack_ready())) {
+        if (request(FZX_SCN_CUPS, RANK_GOTO)) {
+            cup_cursor = fzx_session.course < 24u ? fzx_session.course / 6u : 0u;
+            round_cursor = fzx_session.course < 24u ? fzx_session.course % 6u : 0u;
+            browsing_courses = false;
+        }
+    }
+}
+static unsigned cup_course(void) { return cup_cursor * 6u + round_cursor; }
+static bool cups_preload(uint32_t budget) {
+    menu_bank(true);
+    return art_preload(budget, pages_base(), CUP_UI_BYTES);
+}
+static unsigned cups_span(vdp1_cmdt_t *span, unsigned capacity) {
+    if (capacity < 5u) return 0;
+    sprite(span, 0, 320, 224, 0, 0);
+    for (unsigned i = 0; i < 4u; ++i) {
+        const unsigned sign = i * 2u + (i == cup_cursor);
+        sprite(span + 1u + i, 320u*224u*2u + sign*64u*96u*2u, 64, 96,
+               23 + 70*(int)i, browsing_courses ? 29 : 77);
+    }
+    return 5;
+}
+static void cups_tick(void *u, uint32_t scene) {
+    (void)u; (void)scene;
+    if (input.edges & PAD_B) {
+        if (!browsing_courses) (void)request(FZX_SCN_MODES, RANK_GOTO);
+        browsing_courses = false;
+        text_dirty = true;
+        return;
+    }
+    if (input.repeat & (PAD_LEFT | PAD_RIGHT)) {
+        uint8_t *position = browsing_courses ? &round_cursor : &cup_cursor;
+        unsigned count = browsing_courses ? 6u : 4u;
+        *position = (*position + ((input.repeat & PAD_LEFT) ? count - 1u : 1u)) % count;
+        text_dirty = true;
+    }
+    if (!(input.edges & (PAD_A | PAD_START))) return;
+    if (mode_cursor && !browsing_courses) {
+        browsing_courses = true;
+        round_cursor = 0;
+        text_dirty = true;
+        return;
+    }
+    if ((mode_cursor && course_ok(cup_course(), mode_cursor)) ||
+        (!mode_cursor && !cup_cursor && jack_ready())) {
         if (request(FZX_SCN_SELECT, RANK_GOTO)) picked_mode = true;
     }
 }
+static void cups_draw(void) {
+    if (!text_dirty) return;
+    text_dirty = false;
+    dbgio_printf("\x1b[H\x1b[2J");
+    if (browsing_courses) {
+        if (!course_ok(cup_course(), mode_cursor)) dbgio_printf("\x1b[27;15HUNAVAILABLE");
+    } else if (!mode_cursor && cup_cursor) dbgio_printf("\x1b[27;15HUNAVAILABLE");
+}
+static const fzx_scn_menu_hooks_t cups_hooks = {cups_preload, title_cancel, cups_span};
 static void options_tick(void *u, uint32_t scene) {
     (void)u; (void)scene;
     if (input.edges & (PAD_A | PAD_B | PAD_START)) (void)request(FZX_SCN_MODES, RANK_GOTO);
@@ -699,11 +767,17 @@ static bool select_enter(void *u, uint32_t s) {
 #ifndef FZX_P3_BASELINE
     if (picked_mode) {
         select_mode = mode_cursor;
-        picked_mode = false;
+
     }
 #endif
     select_difficulty = !select_mode && !FZX_CUP_DIAG_CATALOG ? 1u : fzx_session.difficulty;
     course_cursor = course_ok(fzx_session.course, select_mode) ? fzx_session.course : fzx_course_step(fzx_session.course, 1, mode_avail(select_mode));
+#ifndef FZX_P3_BASELINE
+    if (picked_mode) {
+        course_cursor = select_mode ? cup_course() : fzx_cup_def(FZX_CUP_JACK)->course[0];
+        picked_mode = false;
+    }
+#endif
     text_dirty = true;
     return true;
 }
@@ -1000,6 +1074,7 @@ static void ending_cache(void) {
 static bool ending_preload(uint32_t budget) {
     if (ending_place == 1u && ending_page_ready)
         return art_preload(budget, fzx_title_cart_limit(), ending_pages[ending_slot].size);
+    menu_bank(false);
     return art_preload(budget, pages_base()+menu_sprites[UI_aCongratulationsTex].at, 264u*31u*2u);
 }
 static unsigned ending_span(vdp1_cmdt_t *span, unsigned capacity) {
@@ -1773,6 +1848,7 @@ static bool boot_enter(void *u, uint32_t s) {
     if (!title_cache()) fault(62, "TITLE PACK");
     fzx_scn_menu_hooks_set(FZX_SCN_TITLE, &title_hooks);
     fzx_scn_menu_hooks_set(FZX_SCN_SELECT, &select_hooks);
+    fzx_scn_menu_hooks_set(FZX_SCN_CUPS, &cups_hooks);
     fzx_scn_menu_hooks_set(FZX_SCN_MODES, &modes_hooks);
     fzx_scn_menu_hooks_set(FZX_SCN_OPTIONS, &options_hooks);
     fzx_scn_menu_hooks_set(FZX_SCN_ENDING, &ending_hooks);
@@ -1842,6 +1918,7 @@ static void title_release(void *u, uint32_t s) {
 
 static const sh2z_scene_t table[FZX_SCN_COUNT] = {
 #ifndef FZX_P3_BASELINE
+    [FZX_SCN_CUPS] = {menu_preload, panel_enter, cups_tick, common_leave, select_release, menu_arenas, 1},
     [FZX_SCN_MODES] = {menu_preload, panel_enter, modes_tick, common_leave, common_release, menu_arenas, 1},
     [FZX_SCN_OPTIONS] = {menu_preload, panel_enter, options_tick, common_leave, common_release, menu_arenas, 1},
     [FZX_SCN_ENDING] = {menu_preload, panel_enter, ending_tick, common_leave, common_release, menu_arenas, 1},
@@ -1860,6 +1937,7 @@ static void draw_current(void) {
     case FZX_SCN_TITLE: title_draw(); break;
     case FZX_SCN_SELECT: select_draw(); break;
 #ifndef FZX_P3_BASELINE
+    case FZX_SCN_CUPS: cups_draw(); break;
     case FZX_SCN_MODES: modes_draw(); break;
     case FZX_SCN_OPTIONS: options_draw(); break;
     case FZX_SCN_ENDING: ending_draw(); break;
@@ -1994,6 +2072,10 @@ void fzx_scn_main(void) {
                 draw_current();
                 text_frame(printed);
 #ifndef FZX_P3_BASELINE
+                if (seq.current == FZX_SCN_CUPS && printed) {
+                    if (browsing_courses) card_track(course_card(cup_course()), 16);
+                    else card_release();
+                }
                 if (seq.current == FZX_SCN_SELECT && printed && course_cursor < sizeof(fzx_cards)/sizeof(fzx_cards[0]))
                     card_track(course_card(course_cursor), 16);
 #endif

@@ -1560,7 +1560,7 @@ static void race_tick(void *u, uint32_t s) {
 #if ENG_MODES && E1_FIELD
         /* Death Race: every rival retired is the win (racer.c ~979); the player's time at that tick is the record. */
         else if (fzx_mode_rules(fzx_session.menu_mode) && fzx_mode_rules(fzx_session.menu_mode)->win_all_retired &&
-                 fzx_field_report[0] == 1u && fzx_field_report[12] >= FZX_FIELD_CARS - 1u) { end_reason = FZX_END_FINISH; end_wait = 120u; }
+                 fzx_field_retired_now() >= FZX_FIELD_CARS - 1u) { end_reason = FZX_END_FINISH; end_wait = 120u; }
 #endif
         else if (b->flags & (SH2Z_VD_SPINNING | SH2Z_VD_CRASHED | SH2Z_VD_FALLING)) { end_reason = FZX_END_RETIRE; end_wait = 120u; }
         if (end_reason != FZX_END_NONE) race_snapshot(end_reason);

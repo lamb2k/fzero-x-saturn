@@ -751,6 +751,15 @@ unsigned fzx_field_cars(fzx_field_car_t *out, const sh2z_vd_body_t *player) {
 }
 
 #if defined(ENG_SCENES) && ENG_SCENES
+#if ENG_MODES
+/* Rivals retired right now (Death Race's win rule counts them from the vehicles, not from a tick's report). */
+unsigned fzx_field_retired_now(void) {
+    unsigned n = 0;
+    if (fzx_field_report[0] == 1u && !field_solo)
+        for (uint32_t i = 1; i < FZX_FIELD_CARS; ++i) n += (veh[i].flags & SH2Z_VEH_RETIRED) != 0u;
+    return n;
+}
+#endif
 /* SCENES.md 11.3: each car's state at the trigger, in the original's terms. Times use the race
  * clock (ticks x 50 / 3 ms, physics_native.c) for everyone; distances are Q8 line units as
  * floats (the projection's units cancel). The field keeps no rank at retirement: a retired

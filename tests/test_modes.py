@@ -95,6 +95,19 @@ class Modes(unittest.TestCase):
         self.assertEqual(rows[dr]['record'], 1)
         self.assertEqual(rows[gp]['cup'], 1)
 
+
+    def test_records_v1(self):
+        """A version 1 save (before cup progress) loads with ENG_MODES=1, keeps its times, and the next write is version 2; a corrupt
+        version 1 file is refused (the control). The backup library is a stub (tests/records_v1_stub)."""
+        out = self.tmp / 'rv1'
+        subprocess.run(['gcc', '-std=gnu11', '-Wall', '-Wextra', '-DENG_MODES=1', '-I', str(ROOT / 'tests/records_v1_stub'), '-I', str(ENG),
+                        str(ROOT / 'tests/records_v1_driver.c'), str(ENG / 'engine_records.c'), str(ENG / 'engine_modes.c'), '-o', str(out)],
+                       check=True)
+        r = subprocess.run([str(out)], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertEqual(r.stdout.count('PASS'), 8, r.stdout)
+        self.assertNotIn('FAIL', r.stdout)
+
     def test_table(self):
         self.check(self.run_table())
 

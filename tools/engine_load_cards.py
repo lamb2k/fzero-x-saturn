@@ -167,6 +167,8 @@ def bake_catalog(source, dest, upstream):
            f"#define FZX_CARDS_BYTES {len(blob)}u", f"#define FZX_CARDS_HASH {fnv(blob)}u",
            "static const struct { unsigned int at, size, hash; } fzx_cards[] = {"]
     hdr += ["    {%du,%du,%du}," % (r["offset"],r["size"],r["fnv"]) for r in rows]
+    hdr += ["};", "static const char *const card_names[] = {"]
+    hdr += ["    " + json.dumps(name) + "," for name in names]
     (dest / "cards.h").write_text("\n".join(hdr + ["};", ""]), newline="\n")
     receipt = ["# fzx generation receipt v1; regenerate, never edit",
                f"generator {digest(Path(__file__))} engine_load_cards.py"]

@@ -582,11 +582,16 @@ static void title_draw(void) {
 }
 
 static const char *course_name(uint8_t course) {
+#ifndef FZX_P3_BASELINE
+    const fzx_course_row_t *row = fzx_course_find(course);
+    return row && row->display_key < sizeof(card_names)/sizeof(card_names[0]) ? card_names[row->display_key] : "UNKNOWN";
+#else
     static const char *const names[] = {
         "MUTE CITY", "SILENCE", "SAND OCEAN", "DEVIL'S FOREST", "BIG BLUE", "PORT TOWN"
     };
     const fzx_course_row_t *row = fzx_course_find(course);
     return row && row->display_key < sizeof(names) / sizeof(names[0]) ? names[row->display_key] : "UNKNOWN";
+#endif
 }
 
 static bool jack_ready(void) {
@@ -1008,8 +1013,31 @@ static void ending_tick(void *u, uint32_t scene) {
 static void ending_draw(void) {
     if (!text_dirty) return;
     text_dirty = false;
-    dbgio_printf("\x1b[H\x1b[2J\n   JACK CUP    FINAL CLASSIFICATION\n"
-                 "\x1b[23;3HPLACE %u    %ld PTS\n\n   A: TITLE", ending_place, (long)fzx_cup()->total[0]);
+    const fzx_cup_t *cup = fzx_cup();
+    dbgio_printf("\x1b[H\x1b[2J\n   JACK CUP    FINAL CLASSIFICATION\n");
+    if (ending_place != 1u || !ending_page_ready) {
+        unsigned podium[3] = {FZX_ENTRANTS_MAX, FZX_ENTRANTS_MAX, FZX_ENTRANTS_MAX};
+        for (unsigned i = 0; i < cup->last.count; ++i) {
+            unsigned id = cup->last.row[i].entrant;
+            for (unsigned place = 0; place < 3u; ++place) {
+                if (podium[place] == FZX_ENTRANTS_MAX || gp_ahead(cup, id, podium[place])) {
+                    for (unsigned j = 2; j > place; --j) podium[j] = podium[j-1];
+                    podium[place] = id;
+                    break;
+                }
+            }
+        }
+        dbgio_printf("\x1b[14;3HPODIUM\n");
+        for (unsigned p = 0; p < 3u && podium[p] < FZX_ENTRANTS_MAX; ++p) {
+            for (unsigned i = 0; i < cup->entrants.count; ++i) {
+                if (cup->entrants.e[i].entrant != podium[p]) continue;
+                dbgio_printf("  %u  %-16s %3ld\n", p+1u,
+                             machine_name(cup->entrants.e[i].machine_id), (long)cup->total[podium[p]]);
+                break;
+            }
+        }
+    }
+    dbgio_printf("\x1b[23;3HPLACE %u    %ld PTS\n\n   A: TITLE", ending_place, (long)cup->total[0]);
 }
 #endif
 
@@ -1788,12 +1816,14 @@ static void common_release(void *u, uint32_t s) {
     dbgio_printf("\x1b[H\x1b[2J");
     dbgio_flush();
 }
-static void select_release(void *u, uint32_t s) {
 #ifndef FZX_P3_BASELINE
+static void select_release(void *u, uint32_t s) {
     card_release();
-#endif
     common_release(u, s);
 }
+#else
+#define select_release common_release
+#endif
 static void title_release(void *u, uint32_t s) {
     /* TITLE releases the resident race set (SCENES.md section 7). */
     common_release(u, s);

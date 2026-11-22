@@ -11,6 +11,7 @@
 #if ENG_COURSE_SELECT
 #include "course_ids.h"
 extern const fzx_course_id_t *fzx_cid;
+extern uint32_t fzx_cid_index; /* fzx_cid's row number in fzx_course_ids: index per-course tables with this, never with fzx_cid - fzx_course_ids */
 #define CSEL(field, macro) (fzx_cid->field)
 #define CNAME(file, name) ((const char *)fzx_cid->files[file])
 #define CMAX(max, macro) (max)

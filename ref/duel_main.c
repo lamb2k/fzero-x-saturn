@@ -52,6 +52,7 @@ void duel_pair(float* trail, int* colliding);
 void duel_perturb(int k, int field, int axis, float delta);
 void duel_set_age(int k, int age);
 void duel_set_toucher(int k, int who);
+int duel_load(int k, const char* key, const float* v, int n);
 
 static void die(const char* m) { fprintf(stderr, "fzx-duel: %s\n", m); exit(2); }
 static unsigned char* read_file(const char* path, size_t* n) {
@@ -77,6 +78,30 @@ static void bake(int k, const char* path, int tick) {
     fclose(bake_out);
 }
 
+/* --load-state T:SRC0:SRC1 (attacks-3): just before tick T, both racers' baked state fields are replaced by the values of the two
+ * state sources (the bake format; the matched-start diagnostic gives it the native entry state converted back to floats). */
+static void load_state(int k, const char* path) {
+    char line[4096];
+    FILE* f = fopen(path, "r");
+    if (!f) die("cannot open a load-state source");
+    while (fgets(line, sizeof line, f)) {
+        char key[64], *p = line;
+        float v[32];
+        int n = 0, a, b, used;
+        if (line[0] == '#' || sscanf(p, "%63s %d %d%n", key, &a, &b, &used) != 3) continue;
+        p += used;
+        for (;;) {
+            char* e;
+            double d = strtod(p, &e);
+            if (e == p || n >= 32) break;
+            v[n++] = (float)d;
+            p = e;
+        }
+        duel_load(k, key, v, n);
+    }
+    fclose(f);
+}
+
 #define N64_A 0x8000u
 #define N64_Z 0x2000u
 #define N64_R 0x0010u
@@ -96,7 +121,8 @@ int main(int argc, char** argv) {
     const char *length_out = 0, *pairlog = 0, *replay = 0, *bake_dir = 0;
     int bake_from = -1, bake_to = -1;
     int force_tick = -1, force_value = -1, npert = 0, pert_t[8], pert_k[8], pert_f[8], pert_a[8];
-    int age_t = -1, age_k = 0, age_v = 0, tch_t = -1, tch_k = 0, tch_v = -1;
+    int age_t = -1, age_k = 0, age_v = 0, tch_t = -1, tch_k = 0, tch_v = -1, load_t = -1;
+    const char *load0 = 0, *load1 = 0;
     float pert_d[8];
     float e0 = 0.0f, e1 = 0.0f;
     for (int i = 1; i + 1 < argc; i += 2) {
@@ -117,6 +143,12 @@ int main(int argc, char** argv) {
                                      &pert_d[npert]) != 5 || pert_k[npert] < 0 || pert_k[npert] > 1 || pert_a[npert] < 0 || pert_a[npert] > 2)
                 die("--perturb T:K:F:A:D");
             npert++;
+        }
+        else if (!strcmp(argv[i], "--load-state")) {
+            if (sscanf(argv[i + 1], "%d:", &load_t) != 1) die("--load-state T:SRC0:SRC1");
+            char* c1 = strchr(argv[i + 1], ':'); char* c2 = c1 ? strchr(c1 + 1, ':') : 0;
+            if (!c2) die("--load-state T:SRC0:SRC1");
+            *c2 = 0; load0 = c1 + 1; load1 = c2 + 1;
         }
         else if (!strcmp(argv[i], "--set-age")) { if (sscanf(argv[i + 1], "%d:%d:%d", &age_t, &age_k, &age_v) != 3) die("--set-age T:K:A"); }
         else if (!strcmp(argv[i], "--set-toucher")) { if (sscanf(argv[i + 1], "%d:%d:%d", &tch_t, &tch_k, &tch_v) != 3) die("--set-toucher T:K:W"); }
@@ -202,6 +234,7 @@ int main(int argc, char** argv) {
         if (replay) { b[0] = rb[0][t]; x[0] = rx[0][t]; b[1] = rb[1][t]; x[1] = rx[1][t]; }
         for (int q = 0; q < npert; ++q)
             if (pert_t[q] == t) duel_perturb(pert_k[q], pert_f[q], pert_a[q], pert_d[q]);
+        if (load_t == t) { load_state(0, load0); load_state(1, load1); }
         if (age_t == t) duel_set_age(age_k, age_v);
         if (tch_t == t) duel_set_toucher(tch_k, tch_v);
         if (lf) {

@@ -7,9 +7,8 @@ outputs:
     generated/courses/select/course_gadgets.c
     generated/courses/select/gadget_files.txt   "<generated path> <disc name>" for the disc staging (RGAD<n>.PAK)
     generated/courses/select/course_gadgets.receipt
-The course rows follow the existing course_ids.c (checked) and carry the course id; the image looks its row up by id (it
-copies the selected course_ids row to high work RAM, so a pointer difference is no index). course_bundle.py and its
-outputs are untouched.
+The course rows follow the existing course_ids.c (checked) and carry the course id; the image indexes the table with
+fzx_cid_index (the selected course's row number) and checks the row's id. course_bundle.py and its outputs are untouched.
 Everything here is derived from the owner's ROM: generated/ only, never committed.
 
     tools/course_gadget_bundle.py mute-city-1 silence-1 sand-ocean-1 devils-forest-1 big-blue-1 port-town-1

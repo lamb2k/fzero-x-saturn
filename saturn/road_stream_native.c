@@ -119,9 +119,11 @@ static gad_t gad;
 /* The selected course's pack: its row of the bundle, or the one course's identity. */
 static void gad_select(void){
 #if ENG_COURSE_SELECT
+    /* The bundle's rows follow course_ids.c (tools/course_gadget_bundle.py checks it), so the selected course's row number
+     * (fzx_cid_index, set by fzx_course_use) is this table's index too; the row's id is checked against the course's. */
     gad=(gad_t){0};
-    for(unsigned k=0;k<FZX_COURSE_IDS_COUNT;++k){const fzx_course_gadgets_t *r=fzx_course_gadgets+k;
-        if(r->id!=fzx_cid->id)continue;
+    const unsigned k=fzx_cid_index;
+    if(k<FZX_COURSE_IDS_COUNT&&fzx_course_gadgets[k].id==fzx_cid->id){const fzx_course_gadgets_t *r=fzx_course_gadgets+k;
         gad=(gad_t){r->file,r->bytes,r->hash,r->chunks,r->quads,r->images,r->tex_bytes,{0},{0},{0}};
         for(unsigned i=0;i<5u;++i){gad.at[i]=r->table[i].at;gad.len[i]=r->table[i].bytes;gad.table_hash[i]=r->table[i].hash;}}
 #else

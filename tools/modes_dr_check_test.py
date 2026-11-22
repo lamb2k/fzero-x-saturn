@@ -64,6 +64,8 @@ def case(name, want, sets, **kw):
 
 
 case('matching set passes', 0, good())
+case('--ref-seed: one reference of seed 1 against native seeds 31..36', 0, [(sd, (make(1), make(sd, 5, True))) for sd in SEEDS], extra=['--ref-seed', '1'])
+case('--ref-seed: a reference of another seed than the one named', 2, [(sd, (make(2), make(sd, 5, True))) for sd in SEEDS], extra=['--ref-seed', '1'])
 case('empty candidate set (Codex control 1)', 2, [])
 case('one expected id replaced by 9001 in the native roster (Codex control 2)', 2, mutated(set_native(7, id=9001)))
 case('one expected id replaced by 9001 in the reference roster', 2, mutated(lambda r, n: [x.update(id=9001) for x in r['racers'] if x['id'] == 7]))
@@ -82,7 +84,8 @@ case('reference roster has 28 opponents', 2, mutated(lambda r, n: r['racers'].po
 case('native retire tick before the race start', 2, mutated(set_native(4, retire_tick=10)))
 case('native retire tick after the window', 2, mutated(set_native(4, retire_tick=5000)))
 case('native retire tick not an integer', 2, mutated(set_native(4, retire_tick=800.5)))
-case('player retires in the native report', 2, mutated(set_native(0, retire_tick=800)))
+case('the player (id 0) is not scored: it may retire in the native report', 0, mutated(set_native(0, retire_tick=800)))
+case('the player (id 0) is not scored: it may finish in the native report', 0, mutated(set_native(0, retire_tick=-1, finish_tick=1473)))
 case('reference opponent never retired', 2, mutated(lambda r, n: [x.update(retire_tick=-1) for x in r['racers'] if x['id'] == 9]))
 case('one opponent never retires (28 of 29)', 1, mutated(set_native(12, retire_tick=-1)))
 case('no opponent retires (rule off)', 1, mutated(lambda r, n: [x.update(retire_tick=-1) for x in n['racers'] if x['id']]))

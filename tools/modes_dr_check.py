@@ -3,6 +3,7 @@
 
     modes_dr_check.py --seeds 31,32,33,34,35,36 --pairs "31=ref31.json,nat31.json" ... [--min-seeds 6]
     modes_dr_check.py --seeds 31,32 --manifest pairs.json        ({"31": {"ref": "...", "native": "..."}, ...})
+    --ref-seed N   every reference is the seed-N run (one shipped field, native seeds that differ from it)
 
 Band (inclusive, fixed before the first native run, plan C-166): every one of the 29 opponents retires; the sorted retire ticks agree
 within SORTED_BAND ticks rank by rank; per rival (by id) the retire tick is within ID_BAND ticks for at least ID_MIN of the 29.
@@ -15,7 +16,7 @@ Structure is checked before the band, and a structural failure is exit 2, never 
   - the reference and native opponent id sets are identical and each racer's grid slot matches (the native field was configured
     from this reference);
   - one valid in-window retirement per opponent: an integer retire tick in [race_start_tick, ticks], reference and native; the
-    player never retires in the native report.
+    player (id 0, an agent in the HOST harness and the real player in the engine) is in the roster but not in the score.
 Exit 0 all seeds pass; 1 a band failure (structure sound); 2 a structural failure or bad usage."""
 import argparse, json, sys
 
@@ -68,12 +69,13 @@ def retire_ticks(d, rost, what, window_end, allow_none=False):
     return out
 
 
-def score_seed(seed, ref_path, nat_path):
+def score_seed(seed, ref_path, nat_path, ref_seed=None):
     ref, nat = load(ref_path, 'reference'), load(nat_path, 'native')
     tag = 'seed %d' % seed
     for what, d in (('reference', ref), ('native', nat)):
-        if d.get('seed') != seed:
-            raise Structure('%s: %s report is seed %r' % (tag, what, d.get('seed')))
+        want_seed = ref_seed if (what == 'reference' and ref_seed is not None) else seed
+        if d.get('seed') != want_seed:
+            raise Structure('%s: %s report is seed %r, want %r' % (tag, what, d.get('seed'), want_seed))
         if d.get('tier') != 'HOST':
             raise Structure('%s: %s report tier is %r, not HOST' % (tag, what, d.get('tier')))
     cl_r, cl_n = ref.get('course_length'), nat.get('course_length')
@@ -87,8 +89,6 @@ def score_seed(seed, ref_path, nat_path):
             raise Structure('%s: racer %d grid differs (reference %r, native %r): the native field was not configured from this reference' % (tag, i, rr[i].get('grid'), nr[i].get('grid')))
     rt = retire_ticks(ref, rr, tag + ' reference', ref['ticks'])
     nt = retire_ticks(nat, nr, tag + ' native', nat['ticks'], allow_none=True)
-    if nr[0]['retire_tick'] != -1:
-        raise Structure('%s: the player retired in the native report' % tag)
     rs = sorted(rt.values())
     n_ret = sum(1 for v in nt.values() if v >= 0)
     if n_ret < N_OPP:
@@ -109,6 +109,7 @@ def main():
     ap.add_argument('--pairs', nargs='*', default=[], help='SEED=REF.json,NATIVE.json (repeat)')
     ap.add_argument('--manifest', help='json {"SEED": {"ref": path, "native": path}}')
     ap.add_argument('--min-seeds', type=int, default=6)
+    ap.add_argument('--ref-seed', type=int, default=None, help='every reference report is this seed (the shipped field): the native seeds then differ from it')
     a = ap.parse_args()
     try:
         try:
@@ -140,7 +141,7 @@ def main():
             raise Structure('seed manifest mismatch: missing %s, unexpected %s' % (sorted(set(expect) - set(got)), sorted(set(got) - set(expect))))
         bad, lens = 0, set()
         for s, ref, nat in sorted(pairs):
-            ok, cl = score_seed(s, ref, nat)
+            ok, cl = score_seed(s, ref, nat, a.ref_seed)
             lens.add(round(cl, 2))
             bad += 0 if ok else 1
         if len(lens) != 1:

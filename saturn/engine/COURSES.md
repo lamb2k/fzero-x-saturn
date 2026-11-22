@@ -532,3 +532,45 @@ are stale. Per course slug, one course at a time (parallel runs race for the `ro
 (`ref/rivals_build.sh` changed: `-lm`) and `course_class.receipt` as stale; the engine build does not read them. Then, for the 12 slugs in catalog order: `course_bundle.py`,
 `course_drops_bundle.py`, `course_class_bundle.py`, `engine_load_cards.py`. Jack outputs come out byte-identical (only
 `road_bake.json` differs: it records the pack limit).
+
+## 12. The King and Joker Cups and Death Race (lane `claude/courses-kj`, 2026-11-22)
+
+Courses 12..23 (ROM record order: Fire Field, Silence 2, Sector Beta, Red Canyon 2, White Land 2, Mute City 3, Rainbow Road,
+Devil's Forest 3, Space Plant, Sand Ocean 2, Port Town 2, Big Hand) bake through section 2's pipeline
+(`tools/course_catalog.py`; slugs `fire-field` ... `big-hand`) and are selectable on the 24-course select image. Death Race
+(course index 54, ROM record 24 `aCourseBattle`, slug `death-race`) bakes (78 chunks) but is not on the disc yet (see Open).
+Tiers: HOST (`fzx-phys`, `fzx-ref`), EMULATOR (Ymir, timing MODELLED); HARDWARE not run.
+
+**Bake measurements (HOST).** Chunks / triangles / ROADLTX (VDP1) / ROADLOD (cartridge) / ROAD.PAK / ROADPREP, bytes:
+Silence 2 378 / 6,048 / 201,976 / 178,896 / 175,552 / 77,852; Sector Beta 343 / 5,654; Red Canyon 2 305 / 5,158;
+White Land 2 310 / 4,960; Mute City 3 274 / 4,384; Rainbow Road 419 / 6,704; Devil's Forest 3 269 / 4,698;
+Space Plant 381 / 7,006 / 243,848 (the largest) / 205,512 / 195,240 / 89,336; Sand Ocean 2 394 / 6,826; Port Town 2 319 / 5,100;
+Big Hand 422 / 6,752 (the largest chunk count; `FZX_EPATH_MAX_CHUNKS` 512). Every course fits VDP1 (headroom 72,920 B against
+316,768 at Space Plant), the path region and the cartridge. Space Plant needs `--texture-limit 262144`.
+
+**Engine changes the courses needed.**
+- `engine_cup.c` catalog rows 12..23 (the select listed 12 courses); CD root list 192 -> 320 entries; `engine_courses.c` rows.
+- The road work arena in high work RAM, `FZX_ROAD_STREAM_HIGH_BYTES` (default 98,304; the select image 131,072): Silence 2 filled
+  the 98,304 B (`fzx_road_stream_high_used` 98,000 at the failure, "TRACK LOAD" 35 with status 2). Master stack unused is 57.6 KB
+  with it, against 110.7 KB before.
+- `E1_RACE_TICKS` (default 9,000 ticks after the start): Rainbow Road's finish is at 10,520 ticks; the image `scenes-drv-rr` runs
+  12,000 and its HOST reference the same (`host_ticks`).
+- `E1_DRIVER_KL` and `E1_DRIVER_TARGET` (HOST and test driver only): the R01-t driver `kl,kh,0,460,target` of the courses the
+  nominal driver retires on (Fire Field 0.004/2.5/90, Red Canyon 2 0.008/3.5/-30, Space Plant 0.004/3.5/30, Port Town 2
+  0.004/3.5/-90). Mute City 3 runs under R03 (look 0.1) like White Land 1. Big Hand: no R01 or R03 arm finishes it (it leaves
+  the borderless road at segment 9); the gate checks that the engine retires at the HOST's tick, 1,460. The original's
+  attract demo (`game.c` `sTitleDemoCourses`) never plays Big Hand; the demo is the CPU AI driving the player.
+- Tunnel spans take the road plan's outer bit the pipe does (`fzx_drive_outer`): `TRACK_FLAG_INSIDE` is on the pipe and tunnel
+  presets only, so the half-pipe stays 1. Look not checked (no still pair).
+- SH2ZAM `vehicle-dynamics-5` (PR 78): `sh2z_vd_step2` models the half-pipe (White Land 2's trough). R01 native finish against the
+  original code was +5.885% without it and is +0.023% with it.
+- Gate: `host_ticks` per course, matrix images `scenes-drv-ff`, `-rc2`, `-sp`, `-pt2`, `-rr`, rows for courses 12..23.
+
+**Death Race (card D).** `cpu.c` gives course indexes of 30 and up the default CPU line (speed 69, lateral 0 at every half
+segment) and no pace tables; the steering AI is the GP one. `rivals_assets.py` writes that flat line and the default pace
+(`RIVALS.PAK` 18,672 B), and HOST physics finishes at 36,275 ms equal to the original. Open: `fzx-gp-ref` only runs the GP mode
+and tuning courses 0..23, so no reference field exists for the field header (grid, chase targets); Death Race is its own game
+mode (all CPUs hostile). The select disc cannot hold it either: `FZX_COURSE_BUNDLE_MASK` is a 32-bit mask and the id is 54.
+
+| Course | HOST finish | Driver / image | Checkpoints | Intervals | Critical mean / p99 / max | Master p99 | Slave p99 | VDP1 p99 | Cold LOAD |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |

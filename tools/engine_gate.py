@@ -219,9 +219,25 @@ def build_config(build_dir):
 # The gate
 # ---------------------------------------------------------------------------------------------------------------------
 
+def check_controls(matrix):
+    """Matrix rules for controls that count only at an intended stop (C-124): a control with expect_open also names its
+    harness error and expect_mark_not; ctl-smpc stops before title and is paired with a test arm that reaches title
+    with its sections balanced (expect_pass)."""
+    by = {c['name']: c for c in matrix.get('controls', [])}
+    for c in by.values():
+        if c.get('expect_open') and not (c.get('expect_error') and c.get('expect_mark_not')):
+            raise SystemExit('matrix: control %s has expect_open without expect_error and expect_mark_not' % c['name'])
+        if c.get('pair') and not by.get(c['pair'], {}).get('expect_pass'):
+            raise SystemExit('matrix: control %s pairs with %s, which is not an expect_pass arm' % (c['name'], c['pair']))
+    s = by.get('ctl-smpc')
+    if s and not (s.get('expect_open') and s.get('expect_mark_not') == 'title' and s.get('expect_error') and s.get('pair')):
+        raise SystemExit('matrix: ctl-smpc must keep expect_error, expect_open, expect_mark_not=title and its pair')
+
+
 class Gate:
     def __init__(self, args, matrix):
         self.a, self.m = args, matrix
+        check_controls(matrix)
         self.lim = matrix['limits']
         self.ev = Path(args.evidence) / args.label
         self.stage = args.stage
@@ -344,13 +360,32 @@ class Gate:
             len(modes), iso_sectors, audio_sectors, (iso_sectors + audio_sectors) / 4500, sha256(out / files[0])[:12])
         return (None if bad else out / 'fzs-engine.cue'), ('; '.join(bad) if bad else detail)
 
-    def script_for(self, name, course_index=None):
+    def record_ms(self, hosts, build_dir, offset=0):
+        """The Mute City record a loop script waits for (RECORD_MS): the image's own R01 HOST finish (fzx-phys, the
+        player alone), plus OFFSET for the control that must time out. This line has no attack HOST (fzx-atk): an
+        image whose symbols hold fzx_atk_chk stops the gate rather than wait for the wrong record."""
+        if ' _fzx_atk_chk' in (Path(build_dir) / 'fzs-engine.sym').read_text():
+            raise SystemExit('RECORD_MS: %s is built with ENG_ATTACKS and this gate has no fzx-atk reference' % build_dir)
+        if 'mute-city-1' not in hosts:
+            hosts['mute-city-1'] = self.host(self.ev / 'host', 'mute-city-1', '0.004,2.5')
+        ref = hosts['mute-city-1']
+        if not ref or ref['finish_ms'] is None:
+            raise SystemExit('no Mute City HOST finish for RECORD_MS (%s)' % build_dir)
+        return ref['finish_ms'] + offset
+
+    def script_for(self, name, course_index=None, record_ms=None):
         text = (GATE / 'scripts' / name).read_text()
         if course_index is not None:
             text = text.replace('COURSE', '%02x' % course_index)
+        if 'RECORD_MS' in text:
+            if record_ms is None:
+                raise SystemExit('%s waits for RECORD_MS: no record given' % name)
+            text = text.replace('RECORD_MS', str(record_ms))
         if not self.a.clips:
             text = '\n'.join(l for l in text.splitlines() if not l.startswith('clip ')) + '\n'
-        p = self.ev / 'scripts' / ('%s-%s' % (course_index if course_index is not None else 'x', name))
+        # The record is in the file name: ctl-record's loop.txt (RECORD_MS + 1) must not overwrite the loop's.
+        p = self.ev / 'scripts' / ('%s-%s%s' % (course_index if course_index is not None else 'x',
+                                                'r%d-' % record_ms if record_ms is not None else '', name))
         p.parent.mkdir(exist_ok=True)
         p.write_text(text)
         return p
@@ -671,7 +706,8 @@ class Gate:
             for img in ident:
                 hb, bb = id_builds[img].get('bin'), base_bins.get(img)
                 self.add('identity', img, hb is not None and hb == bb, '%s vs base %s' % ((hb or '-')[:16], (bb or '-')[:16]),
-                         'base %s%s' % (base_sha[:12], (' with ' + a.identity_vars) if a.identity_vars else ''))
+                         'base %s%s%s' % (base_sha[:12], (' with ' + a.identity_vars) if a.identity_vars else '',
+                                          ('; base with ' + a.base_vars) if a.base_vars else ''))
         if a.expect:
             for spec in a.expect.split(','):
                 img, pre = spec.split('=')
@@ -704,9 +740,10 @@ class Gate:
                 if r.get('determinism'):
                     jobs.append((dict(r, name=r['name'] + '.2', repeat=True), 'race', '-'))
             else:
-                jobs.append((r, 'script', self.script_for(r['script'])))
+                rec = self.record_ms(hosts, builds[r['image']]['dir']) if r['kind'] == 'loop' else None
+                jobs.append((r, 'script', self.script_for(r['script'], record_ms=rec)))
                 if r.get('determinism_full') and mode == 'full':
-                    jobs.append((dict(r, name=r['name'] + '.2', repeat=True), 'script', self.script_for(r['script'])))
+                    jobs.append((dict(r, name=r['name'] + '.2', repeat=True), 'script', self.script_for(r['script'], record_ms=rec)))
         ctl_jobs = self.control_jobs(builds, hosts) if a.controls else []
         results = self.execute(jobs + ctl_jobs)
         self.times['runs'] = round(time.time() - t0)
@@ -777,8 +814,22 @@ class Gate:
     def base_bins(self, base_sha, ident, head):
         """BIN hashes of the base's identity images: from the shared receipt cache, else built in this stage."""
         cache = Path(self.a.receipts) / ('%s.bins.json' % base_sha)
-        have = json.loads(cache.read_text()) if cache.exists() else {}
         vars_key = lambda img: ' '.join(self.m['images'][img]['vars'])
+        if self.a.base_vars:
+            # The base with extra vars: always built here, kept out of the shared cache (its entries mean default vars);
+            # the cache is not read on this path, so a bad or unrelated cache file cannot stop it.
+            if base_sha != head['sha']:
+                self.prepare_tree(base_sha)
+            got = {}
+            for img in ident:
+                b = self.build(self.ev / 'base-builds', img, self.m['images'][img]['vars'] + self.a.base_vars.split())
+                if b['ok']:
+                    got[img] = b['bin']
+                log('base %-16s %s (with %s)' % (img, b.get('bin', 'FAILED')[:16], self.a.base_vars))
+            if base_sha != head['sha']:
+                self.prepare_tree(head['sha'])
+            return got
+        have = json.loads(cache.read_text()) if cache.exists() else {}
         missing = [img for img in ident if have.get(img, {}).get('vars') != vars_key(img)] if not self.a.rebuild_base else list(ident)
         if missing and base_sha == head['sha'] and not self.a.identity_vars:
             for img in missing:  # the head is the base: its own builds are the base's
@@ -814,8 +865,11 @@ class Gate:
             cue = None
             if sound and r.get('disc') != 'data':
                 cue = self.discs.get(r.get('image_build') or r['image'])
-            return r['name'], self.harness(bd, self.ev / 'runs' / r['name'], kind, pokes if kind == 'race' else str(arg), cap,
-                                           audio=sound, cue=cue)
+            out = self.harness(bd, self.ev / 'runs' / r['name'], kind, pokes if kind == 'race' else str(arg), cap,
+                               audio=sound, cue=cue)
+            # The run-to-image mapping, explicit in the receipt (census tools read it; they never guess from names).
+            out.update(image=r['image'], kind=r.get('kind', ''), build=str(bd), control_build=r.get('image_build') or '')
+            return r['name'], out
 
         log('running %d harness jobs, %d at a time' % (len(jobs), self.a.jobs))
         with cf.ThreadPoolExecutor(max_workers=self.a.jobs) as ex:
@@ -861,7 +915,9 @@ class Gate:
                 jobs.append((r, 'race', '-'))
             else:
                 idx = next((x['index'] for x in self.m['courses'] if x['slug'] == c.get('course')), None) if c['kind'] == 'course' else None
-                jobs.append((r, 'script', self.script_for(c['script'], idx)))
+                bd = self.ctl_builds[c['name']]['dir'] if c.get('vars') else builds[c['image']]['dir']
+                rec = self.record_ms(hosts, bd, c.get('record_offset', 0)) if c['kind'] == 'loop' else None
+                jobs.append((r, 'script', self.script_for(c['script'], idx, rec)))
         return jobs
 
     def score_controls(self, builds, hosts):
@@ -911,9 +967,52 @@ class Gate:
             target = [r for r in sink if r['check'] == chk]
             # A control whose run or script dies before its check is scored has still failed; the table says which.
             failed = [r for r in sink if r['check'] in (chk, 'run', 'script') and r['status'] == 'FAIL']
-            self.controls.append(dict(control=name, check=chk, how=c['how'], status='PASS' if failed else 'FAIL',
-                                      shown=('; '.join('%s: %s' % (r['subject'], r['value']) for r in (failed or target))
-                                             + ''.join('; %s' % r['value'] for r in sink if r['check'] == 'audio' and chk == 'disc'))[:400]))
+            shown = ('; '.join('%s: %s' % (r['subject'], r['value']) for r in (failed or target))
+                     + ''.join('; %s' % r['value'] for r in sink if r['check'] == 'audio' and chk == 'disc'))
+            if c.get('expect_error'):
+                # The control counts only when its run failed at the intended place (an earlier boot, disc or scene
+                # failure must not satisfy it): the harness error is expect_error (RECORD_MS filled as for the run)
+                # and the run passed expect_mark.
+                bd = self.ctl_builds[name]['dir'] if c.get('vars') else builds[c['image']]['dir']
+                want = c['expect_error'].replace('RECORD_MS', str(self.record_ms(hosts, bd, c.get('record_offset', 0))))
+                got, seen = error_text(self.ev / 'runs' / name), marks(read_result(self.ev / 'runs' / name))
+                at = (got == want and (not c.get('expect_mark') or c['expect_mark'] in seen)
+                      and not (c.get('expect_mark_not') and c['expect_mark_not'] in seen))
+                shown = 'error "%s" (want "%s"); marks reached %s' % (got, want, ','.join(seen) or '-')
+                if c.get('expect_open'):
+                    # Two words [begun, ended] in the error dump: the run must have stopped inside one section.
+                    try:
+                        mem = Mem(self.ev / 'runs' / name, 'error', load_syms(Path(bd) / 'fzs-engine.sym'))
+                        w = mem.words(c['expect_open'], 2)
+                    except (OSError, KeyError, struct.error):
+                        w = None
+                    at = at and w is not None and w[0] == w[1] + 1
+                    shown += '; %s %s' % (c['expect_open'], '%d begun, %d ended' % w if w else 'not read')
+                failed = failed if at else []
+            if c.get('expect_pass'):
+                # A test arm, not a control: it counts when its run passed, reached expect_mark, and the expect_pass
+                # counter pair [begun, ended] is balanced (and non-zero) in that mark's own dump.
+                rd = self.ev / 'runs' / name
+                bd = self.ctl_builds[name]['dir'] if c.get('vars') else builds[c['image']]['dir']
+                seen = marks(read_result(rd))
+                try:
+                    w = Mem(rd, c['expect_mark'], load_syms(Path(bd) / 'fzs-engine.sym')).words(c['expect_pass'], 2)
+                except (OSError, KeyError, struct.error):
+                    w = None
+                ok = (not failed and bool(target) and c['expect_mark'] in seen and w is not None and w[0] == w[1] and w[0] > 0)
+                shown = '%s; mark %s %s; %s %s' % (shown, c['expect_mark'], 'reached' if c['expect_mark'] in seen else 'NOT reached',
+                                                   c['expect_pass'], '%d begun, %d ended' % w if w else 'not read')
+                self.controls.append(dict(control=name, check=chk, how=c['how'], status='PASS' if ok else 'FAIL', shown=shown[:400]))
+                continue
+            self.controls.append(dict(control=name, check=chk, how=c['how'], status='PASS' if failed else 'FAIL', shown=shown[:400]))
+        # A paired control counts only when its arm counted (C-124: the forced overlap with the aligned quiet arm).
+        st = {r['control']: r for r in self.controls}
+        for c in self.selected_controls():
+            if c.get('pair') and c['name'] in st:
+                arm = st.get(c['pair'])
+                if not arm or arm['status'] != 'PASS':
+                    st[c['name']]['status'] = 'FAIL'
+                    st[c['name']]['shown'] = (st[c['name']]['shown'] + '; pair %s %s' % (c['pair'], 'not run' if not arm else 'failed'))[:400]
 
     def selected_controls(self):
         want = set(self.a.control_names.split(',')) if self.a.control_names else None
@@ -1007,6 +1106,9 @@ def main():
     ap.add_argument('--base', default='origin/engine', help='identity base (default origin/engine); "" skips identity')
     ap.add_argument('--rebuild-base', action='store_true', help="build the base's images here even if the receipt cache has them")
     ap.add_argument('--identity-vars', default='', help='make vars for the identity builds (a lane\'s switches off)')
+    ap.add_argument('--base-vars', default='', help='make vars added to the base\'s identity builds too (built in this '
+                    'stage, never read from or written to the shared receipt cache): for a switch that already exists '
+                    'on the base, compare both with it off')
     ap.add_argument('--expect', default='', help='image=binprefix,... : BINs already reported for this code')
     ap.add_argument('--only', default='', help='run names or kinds to run (comma list)')
     ap.add_argument('--courses', default='', help='course slugs for course runs (comma list)')

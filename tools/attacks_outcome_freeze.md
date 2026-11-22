@@ -1,47 +1,48 @@
-# Attacks outcome judge (C-161): freeze record, DRAFT (not frozen; nothing native has been scored)
+# Attacks outcome judge (C-168, O-175): freeze record
 
-Status 2026-11-22: tooling built and exercised on the PILOT namespace with reference arms only. Not frozen: Codex has to confirm
-the readings of C-161 (O-170) first. ENG_ATTACKS stays 0. After confirmation this file gets the final hashes and the dev and sealed
-manifest commitments, and only then do native runs start. Hashes below are of the files as committed with this draft.
+Frozen 2026-11-22 by attacks-5 before any native run. Tier: HOST. ENG_ATTACKS stays 0. One scoring round: freeze, controls, native once.
 
-## What exists
-- `tools/attacks_outcome.py`: generator (namespace, cell, index give every parameter), episode runner, per-episode outcome metrics.
-  Arms: G original reference (closed-loop drivers, records pads, bakes the start), R converted-start reference replaying G's pads,
-  S = R plus seeded 1 q start-velocity perturbation applied one tick after the load, C / T = R / S with the closed-loop drivers
-  (no recorded pads), N native pair, `--mutate` for the control mutants.
-- `tools/attacks_outcome_stats.py`: per-cell metrics, coverage, exact structural checks, paired cell-stratified max-t bootstrap
-  (50,000 draws, seed 161161, 95 percent, one family over every applicable cell and metric), statuses pass / fail / inconclusive.
-- `tools/attacks_outcome_stats_test.py`: 13 synthetic self-checks, each with an input that makes it fail.
-- `tools/attacks_outcome_config.json`: every reading of C-161 as a named parameter (retire per episode, contact unit, damage racers,
-  wall-KO window, applicability, zero-variance bound, bands, coverage, controls, fixtures).
-- Reference driver extensions (`ref/duel_main.c`, `duel_probe.c`): episode parameters; defaults unchanged, and the default-path
-  trace and pair log are byte-identical to the previous binary on 8 scenario and course pairs.
+## What is scored
+- One closed-loop run of 2,400 paired starts per cell, 36 cells (maneuver side/spin/bump, environment open = Mute City / tube = Sand Ocean,
+  placement wall/interior, attacker weight tertile) = 86,400 episodes, namespace `fzx-attacks-outcome/c168/v1`, manifest sha256
+  `4dd79d46d5936eb52fa2c0f3219797b6996b816530cd89b4d6e3fdbd736026af`.
+- Both arms use the same driver policy from identical converted starts. G (the original from tick 0) only bakes the start and the drivers' memory
+  at T0 = 600. C = the original code from the converted start (reference arm). T = C plus the seeded 1 q start-velocity nudge one tick after the
+  load. N = the native pair (SH2ZAM vehicle-dynamics-3 and body-contact-1) from the same packs, with the reference's scripted drivers ported line for
+  line into `tools/attacks_host/duel_native.c --drive` (floats as in the original driver).
+- Rule per cell and metric: pass when |N - C| <= |T - C| + tolerance. No intervals, no bands. Tolerances: 0.5 pp for hit, KO and wall-KO
+  probabilities; 0.005 of max energy for damage and pre-contact energy; 2 ticks for time to KO; 0.02 retirements per episode.
 
-## Hashes (sha256, first 16 hex)
-    attacks_outcome.py 9e69990ac401a8dd   attacks_outcome_stats.py bff96bcacd49cd45   attacks_outcome_config.json 410c84218371af2d
-    attacks_outcome_stats_test.py 4d570a662ef5e3bd   ref/duel_main.c 9ffbba4bcb00b4a7   ref/duel_probe.c 89103567640c0cf0
-    tools/attacks_host/duel_native.c e2c9fae5939917f4 (unchanged from claude/attacks-matched)
-Provisional manifest commitments (change if the config changes): dev 3a32b261f8e24b7f..., sealed 15813bb83878835d...
+## Readings taken (simplest reading, C-168 left them open)
+1. Closed loop, so no pad replay; the reference arm is C. Native runs the ported driver on its own state.
+2. Damage and pre-contact energy are already fractions of the machine's max energy, as a ratio of sums over damaging-contact episodes per cell.
+3. Time to KO = mean ticks from T0 to the first credited KO over the episodes that have a KO in that arm (the KO share is its own metric).
+4. Wall-KO = credited KO with non-contact (wall) damage on the victim in the 60 ticks up to the KO tick. Cells, retire counting, contact unit,
+   applicability (config) are as in the draft readings; all are named parameters in the config.
+5. Changes to the reference driver since the draft: the converted state is loaded before the driver's first decision (so C and N decide tick T0+1
+   from the same state); `--drv-out` records the driver's tap memory at T0. Default (no load) runs are unchanged.
+6. Controls: a mutant passes when, in some cell where its mechanism is exercised, one of its mapped metrics fails the rule against C (same T).
+   `no-destroy` and `coast-bias` map to no metric (their fixture and C-116 floor belonged to the dropped judge); they run and are reported only.
 
-## Readings submitted to Codex (O-170), each a config parameter
-1 retire count per field = per 2-racer episode; 2 cells (tube = Sand Ocean, open = Mute City; weight band = tertiles by kg; attacker =
-racer 0, the credited human); 3 damage and pre-contact energy for both racers, per contact episode = first contact event, first
-energy drop >= 0.01 on a touching tick; 4 wall-KO = credited KO with victim non-contact damage >= 0.01 within 60 ticks before the
-KO tick (the credit window); 5 coast-bias fails on the C-116 floor; 6 native spin-out side from its own draw; 7 pads recorded from
-the original and replayed open-loop (see the noise-floor result: a closed-loop option is built); 8 driver/CPU attribution reported
-as credited KOs against uncredited spin-outs. Added by the pilot: applicability of KO and wall-KO (all maneuvers, wall placement
-for wall-KO), bump-maneuver victims start at 0.5 to 3 percent energy so bumps can KO, and the finite-sample bound for zero-variance
-binary metrics (Bonferroni binomial; without it every probability that is 1.0 in both arms is inconclusive).
+## Hashes (sha256, first 16 hex), repo commit e36fbbf
+    tools/attacks_outcome.py 52f9cd3f54c4c4ee   tools/attacks_outcome_stats.py 1915cb82ee137589   tools/attacks_outcome_config.json 84fea586dd098142
+    tools/attacks_outcome_stats_test.py 2bc0b7c4a3250ae9 (15 self-checks, each with an input that fails)
+    ref/duel_main.c 772f1aa20dc62a3a   ref/duel_probe.c 89103567640c0cf0   tools/attacks_host/duel_native.c d5a8d1e6daf1684b
+    tools/attacks_host/duel_build.sh e5d8415d05df312a
+    binaries (WSL stage): fzx-ref 21b866a26200ec29, fzx-duel-native 82c98514c06560bd, fzx-duel-native-tubes 03220a11f934679c
+    reference episodes (C and T arms, 86,400): episodes-score-CT.jsonl sha256 5675e702b83d38a7 (local, ROM-derived)
 
-## Pilot results (reference arms only, PILOT namespace, 1,024 episodes per cell, 36,864 episodes)
-- Coverage (R arm): every cell has >= 100 contact episodes with damage per racer and >= 50 KO events; wall-KO >= 50 in every
-  wall-exposed cell (tube wall cells 5.7 to 8.7 percent).
-- Structural checks exact in G, R, S arms after fixing two wrong checks (a KO may credit a contact from before the episode; victim energy
-  can rise in a pit strip, about 3 episodes in 36,864: counted, not a check).
-- Noise floor, R against S (1 q perturbation, open-loop pads), 306 intervals, critical value 4.0: damage, pre-contact energy, retire pass
-  in all cells; hit passes through the zero-variance bound; KO: 13 pass, 1 fail, 22 inconclusive (mean difference -1.4 points, paired
-  disagreement 3.4 percent, se 0.6 points); KO time 27 of 36; wall-KO 15 of 18.
-- Same against closed-loop drivers (C against T): bias gone (KO mean -0.2 points, KO time +0.4 ticks) but KO still 13 pass, 23
-  inconclusive (disagreement 3.5 percent, se 0.6 points): 4.0 x 0.6 = 2.4 points exceeds the 2 point band at 1,024 episodes.
-  About 2,000 to 2,500 episodes per cell would be needed for the KO interval to fit at this noise level.
-- G against R shifts KO by -2 to -6 points in side and spin cells (open-loop replay of pads timed for G): R, not G, is the reference arm.
+## The reference's own variation, measured (C against T, 2,400 per cell, no native run)
+| metric | cells | mean abs(T - C) | max abs(T - C) | tolerance |
+| --- | --- | --- | --- | --- |
+| hit | 36 | 0.0001 | 0.0012 | 0.005 |
+| KO | 36 | 0.0020 | 0.0075 | 0.005 |
+| time to KO (ticks) | 36 | 1.10 | 5.94 | 2.0 |
+| retire per episode | 36 | 0.0024 | 0.0108 | 0.02 |
+| damage, victim | 36 | 0.0004 | 0.0019 | 0.005 |
+| damage, attacker | 36 | 0.0001 | 0.0005 | 0.005 |
+| pre-contact energy, victim | 36 | 0.0010 | 0.0038 | 0.005 |
+| pre-contact energy, attacker | 36 | 0.0019 | 0.0076 | 0.005 |
+| wall-KO | 18 | 0.0005 | 0.0025 | 0.005 |
+Per cell values: evidence `out/bars-C-T.txt` and `.json`. Coverage (info only): every cell has well over 1,000 damaging contact episodes per racer
+(see `out/coverage-C.txt`).

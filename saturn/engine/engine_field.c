@@ -13,6 +13,7 @@
 #include "engine_scenes.h"
 extern fzx_session_t fzx_session;
 static const fzx_mode_rules_t *mode_now;
+#define FZX_ENDLESS_LAPS 99u
 static bool field_solo;
 #endif
 
@@ -553,6 +554,13 @@ bool fzx_field_load(const sh2z_vd_track_t *track, const sh2z_vd_body_t *player) 
             b->chase_lead = (int16_t)chase_lead;
             b->aggression = (uint8_t)aggr;
             b->finish_ticks = cf[6] > 0 ? cf[6] * 60 / 1000 : 0; /* line-field-2: finish target from lap 2 (0 none) */
+#if ENG_MODES
+            /* Endless modes run 99 laps in the field. The lap-2 retarget covers (laps - 1) lap lengths by the finish target, so a
+             * 3-lap target is stretched to the same pace over 98: target' = lap 1 + 49 x (target - lap 1), lap 1 as the row's pace
+             * expects it. (Without this Master's lap 2 ran at the pace clamp.) */
+            if (mode_now && mode_now->endless && b->finish_ticks > lap_ticks)
+                b->finish_ticks += ((int32_t)(FZX_ENDLESS_LAPS - 1u) / 2 - 1) * (b->finish_ticks - lap_ticks);
+#endif
             b->first_lap_cap = cf[7] > 0 ? cf[7] : 0;            /* line-field-3: a chaser's first-lap cap (0 none) */
         }
 #undef RND
@@ -607,7 +615,7 @@ bool fzx_field_load(const sh2z_vd_track_t *track, const sh2z_vd_body_t *player) 
 #endif
 #if ENG_MODES
     if (mode_now) {
-        if (mode_now->endless) params.laps = 99;
+        if (mode_now->endless) params.laps = FZX_ENDLESS_LAPS;
         if (mode_now->rival_energy_q8 != 256u)
             for (uint32_t i = 1; i < FZX_FIELD_CARS; ++i)
                 veh[i].max_energy = veh[i].energy = (int32_t)(((int64_t)veh[i].max_energy * mode_now->rival_energy_q8) >> 8);

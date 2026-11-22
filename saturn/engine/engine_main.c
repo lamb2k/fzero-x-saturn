@@ -96,19 +96,19 @@ volatile uint32_t fzx_scp_road[FZX_RSP_PHASES], fzx_scp_road_calls;
 volatile uint32_t fzx_scp_ticks[FZX_SCP_LAYERS][FZX_SCP_PHASES], fzx_scp_calls[FZX_SCP_LAYERS];
 /* and the track build's per-frame counters, summed (quad clips, piece clips, pieces, ...). */
 volatile uint32_t fzx_e0_rsp_counts[FZX_RSPC_COUNTERS];
-/* and the road-slave profile (docs: claude-road): the slave's 17 used phases (slave timer
+/* and the road-slave profile (docs: claude-road): the slave's 19 used phases (slave timer
  * units, DIV_128) and 12 counters, summed over every built frame (fzx_e0_psum), and one
  * record per frame whose slave work reached E0_PROW_MIN timer units (fzx_e0_prow:
- * frame row index, 17 phases, 12 counters; fzx_e0_pinfo: frames seen, rows kept,
+ * frame row index, 19 phases, 12 counters; fzx_e0_pinfo: frames seen, rows kept,
  * rows dropped for want of room). Diagnostic builds only. */
 #ifndef E0_PROW_MIN
 #define E0_PROW_MIN 4000u
 #endif
-enum { E0_PROW_ROWS = 1200u, E0_PROW_PH = 17u, E0_PROW_CT = 12u, E0_PROW_WORDS = 1u + E0_PROW_PH + E0_PROW_CT };
+enum { E0_PROW_ROWS = 1200u, E0_PROW_PH = 19u, E0_PROW_CT = 12u, E0_PROW_WORDS = 1u + E0_PROW_PH + E0_PROW_CT };
 static const uint8_t prow_phase[E0_PROW_PH] = {
     FZX_RSP_PICK, FZX_RSP_EYE, FZX_RSP_FPREP, FZX_RSP_BATCH, FZX_RSP_QFETCH, FZX_RSP_QCULL, FZX_RSP_CLIP, FZX_RSP_QUAD,
     FZX_RSP_EDGE, FZX_RSP_MERGE, FZX_RSP_QPIECE, FZX_RSP_PCLIP, FZX_RSP_STRIP, FZX_RSP_FOG, FZX_RSP_UNSEEN, FZX_RSP_BUILD,
-    FZX_RSP_REPORT };
+    FZX_RSP_REPORT, FZX_RSP_PNEAR, FZX_RSP_PSIDE };
 uint16_t fzx_e0_prow[E0_PROW_ROWS][E0_PROW_WORDS];
 uint32_t fzx_e0_psum[E0_PROW_PH + E0_PROW_CT + 1u];
 uint32_t fzx_e0_pinfo[4];

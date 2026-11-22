@@ -25,7 +25,9 @@ enum {
     /* Version 4 (road-slave profile, FZX_ROAD_STREAM_PHASES=2): the slave's pick
      * (before the road build), a piece's guard clip, the row-clip strip plan,
      * the unseen-strip-quad test and the per-frame fog preparation. */
-    FZX_RSP_PICK,FZX_RSP_PCLIP,FZX_RSP_STRIP,FZX_RSP_UNSEEN,FZX_RSP_FPREP,FZX_RSP_PHASES
+    FZX_RSP_PICK,FZX_RSP_PCLIP,FZX_RSP_STRIP,FZX_RSP_UNSEEN,FZX_RSP_FPREP,
+    /* the near-plane clip and the 2D side clips inside lean_clip / lean_clip_ts */
+    FZX_RSP_PNEAR,FZX_RSP_PSIDE,FZX_RSP_PHASES
 };
 enum {
     FZX_RSPC_BOUNDARIES,FZX_RSPC_STEPPED,FZX_RSPC_QUAD_CLIPS,FZX_RSPC_PIECE_CLIPS,

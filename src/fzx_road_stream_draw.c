@@ -410,7 +410,7 @@ static unsigned lean_side(const sh2z_view_vertex_t *in,unsigned n,sh2z_view_vert
 static int lean_clip(draw_t *d,const vref_t v[4],const int16_t guard[4]){
     sh2z_view_vertex_t buf[2][12];unsigned n=4;bool near=false;
     for(unsigned i=0;i<4;++i){buf[0][i]=*v[i];if(v[i]->outcode&SH2Z_OUT_NEAR)near=true;}
-    if(near){n=sh2z_view_clip_near_center_divu(buf[0],&d->view,buf[0]);if(n<3)return 0;}
+    if(near){FZX_RSP(PNEAR);n=sh2z_view_clip_near_center_divu(buf[0],&d->view,buf[0]);FZX_RSP(PCLIP);if(n<3)return 0;}
     /* Phases builds count fallbacks to the exact clip as STEPPED. */
     for(unsigned i=0;i<n;++i)if(buf[0][i].sx<= -32767||buf[0][i].sx>=32767||buf[0][i].sy<= -32767||buf[0][i].sy>=32767){FZX_RSP_COUNT(STEPPED,1);return -1;}
     /* Only the sides the corners' bounding box crosses are clipped. */
@@ -421,11 +421,12 @@ static int lean_clip(draw_t *d,const vref_t v[4],const int16_t guard[4]){
         if(y<y0)y0=y;
         if(y>y1)y1=y;}
     if(x1<guard[0]||x0>guard[2]||y1<guard[1]||y0>guard[3])return 0;
-    unsigned cur=0;
+    unsigned cur=0;FZX_RSP(PSIDE);
     if(x0<guard[0]){n=lean_side(buf[cur],n,buf[cur^1u],0,guard[0],true);cur^=1u;}
     if(x1>guard[2]){n=lean_side(buf[cur],n,buf[cur^1u],0,guard[2],false);cur^=1u;}
     if(y0<guard[1]){n=lean_side(buf[cur],n,buf[cur^1u],1,guard[1],true);cur^=1u;}
     if(y1>guard[3]){n=lean_side(buf[cur],n,buf[cur^1u],1,guard[3],false);cur^=1u;}
+    FZX_RSP(PCLIP);
     if(n<3)return 0;
     if(n>SH2Z_VIEW_GUARD_MAX_OUT)return -1;
     for(unsigned i=0;i<n;++i)d->hot->clip_out[i].v=buf[cur][i];
@@ -552,6 +553,7 @@ static int lean_clip_ts(draw_t *d,const vref_t v[4],const int16_t guard[4]){
     lean_ts_t buf[2][12];unsigned n=4;bool near=false;
     for(unsigned i=0;i<4;++i){buf[0][i].v=*v[i];buf[0][i].t=T[i];buf[0][i].s=S[i];if(v[i]->outcode&SH2Z_OUT_NEAR)near=true;}
     if(near){
+        FZX_RSP(PNEAR);
         sh2z_view_vertex_t q[6];
         for(unsigned i=0;i<4;++i)q[i]=*v[i];
         n=sh2z_view_clip_near_center_divu(q,&d->view,q);
@@ -569,6 +571,7 @@ static int lean_clip_ts(draw_t *d,const vref_t v[4],const int16_t guard[4]){
         }
         if(k!=n)return -1;
         for(unsigned i=0;i<n;++i){buf[0][i].v=q[i];buf[0][i].t=buf[1][i].t;buf[0][i].s=buf[1][i].s;}
+        FZX_RSP(PCLIP);
     }
     for(unsigned i=0;i<n;++i)if(buf[0][i].v.sx<= -32767||buf[0][i].v.sx>=32767||buf[0][i].v.sy<= -32767||buf[0][i].v.sy>=32767)return -1;
     int32_t x0=buf[0][0].v.sx,x1=x0,y0=buf[0][0].v.sy,y1=y0;
@@ -578,11 +581,12 @@ static int lean_clip_ts(draw_t *d,const vref_t v[4],const int16_t guard[4]){
         if(y<y0)y0=y;
         if(y>y1)y1=y;}
     if(x1<guard[0]||x0>guard[2]||y1<guard[1]||y0>guard[3])return 0;
-    unsigned cur=0;
+    unsigned cur=0;FZX_RSP(PSIDE);
     if(x0<guard[0]){n=lean_side_ts(buf[cur],n,buf[cur^1u],0,guard[0],true);cur^=1u;}
     if(x1>guard[2]){n=lean_side_ts(buf[cur],n,buf[cur^1u],0,guard[2],false);cur^=1u;}
     if(y0<guard[1]){n=lean_side_ts(buf[cur],n,buf[cur^1u],1,guard[1],true);cur^=1u;}
     if(y1>guard[3]){n=lean_side_ts(buf[cur],n,buf[cur^1u],1,guard[3],false);cur^=1u;}
+    FZX_RSP(PCLIP);
     if(n<3)return 0;
     if(n>SH2Z_VIEW_GUARD_MAX_OUT)return -1;
     for(unsigned i=0;i<n;++i){d->hot->clip_out[i].v=buf[cur][i].v;d->hot->clip_out[i].attr[0]=buf[cur][i].t;d->hot->clip_out[i].attr[1]=buf[cur][i].s;}

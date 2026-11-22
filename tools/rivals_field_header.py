@@ -2,6 +2,8 @@
 """Field config header for the Saturn rival field (E2 field lane), from a reference GP report.
 Usage: rivals_field_header.py REFERENCE.json OUT.h [--course SLUG] [--speed-k K]
        rivals_field_header.py --classes NOVICE.json STANDARD.json EXPERT.json MASTER.json OUT_CLASS.h [--course SLUG] [--speed-k K]
+--practice (with --classes; reports from fzx-gp-ref --mode practice): the finish column is the lap-2 pace of the reference itself, as a
+3-lap-equivalent target: (target lap + 2 x the rival's reference lap 2) ms. The engine stretches it over its endless field (engine_field.c).
 The second form (ENG_RIVAL_CLASS, line-field-5 (d)) writes the four class row sets fzx_rivals_field_class[4][30][8]
 (class = the source's gDifficulty, cpu.c's course * 4 + difficulty tables): one reference report per class, the same
 seed and machines (the grid column may differ: Master's tier grid moves places), difficulties 0..3 in order. rivals_field.h is untouched.
@@ -22,7 +24,14 @@ if '--speed-k' in sys.argv: args.remove(sys.argv[sys.argv.index('--speed-k') + 1
 
 
 def field_rows(d):
-    finish = rivals_finish.targets(d, slug)
+    if '--practice' in sys.argv:
+        finish = {}
+        for r in d['racers']:
+            e = r['lap_end_ticks']
+            lap2 = e[1] - e[0] if e[0] > 0 and e[1] > 0 else 0
+            finish[r['id']] = int(round((r['target_lap_ms'] * 60 / 1000.0 + 2 * lap2) * 1000 / 60)) if (lap2 and r['id'] and r['chase'] == 255) else 0
+    else:
+        finish = rivals_finish.targets(d, slug)
     caps = rivals_finish.chase_caps(d, slug, speed_k) if speed_k else {i: 0 for i in finish}
     rows = []
     for r in sorted(d['racers'], key=lambda r: r['id']):

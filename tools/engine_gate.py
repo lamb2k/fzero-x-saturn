@@ -532,6 +532,8 @@ class Gate:
             good = good and raced
             self.add('cancel', name, good, '%d of 3 loads cancelled to TITLE; next cold load races: %s' % (
                 sum(1 for n in notes if n.endswith('scene 1 load 3')), 'yes' if raced else 'no'), '; '.join(notes) or error_text(run_dir), sink=sink)
+        elif kind == 'practice':
+            self.score_practice(run, run_dir, build_dir, lines, mk, sym, host, host_label, sink)
         elif kind == 'course':
             if 'results' in mk:
                 mkv, mchk = result_kv(lines, 'results')
@@ -545,6 +547,96 @@ class Gate:
             else:
                 self.add('host', name, False, 'no RESULTS mark', error_text(run_dir), sink=sink)
         self.menus_check(name, lines, sink)
+
+    # -- Practice course rows (claude/modes; C-166 item 1) ----------------------------------------------------------------
+    def practice_rows(self):
+        """fzx_course_field_practice [course row][class][vehicle][8] from the stage's generated bundle (the rows the image links)."""
+        if getattr(self, '_pr_rows', None) is None:
+            rc, out = self.stage_cmd('cat', self.stage, 'generated/courses/select/course_practice.c', check=False)
+            vals = [int(x) for x in re.findall(r'-?\d+', out.split('= {', 1)[1])] if rc == 0 and '= {' in out else []
+            self._pr_rows = vals if len(vals) == 6 * 4 * 30 * 8 else []
+        return self._pr_rows
+
+    def practice_fixture(self, name, run_dir, build_dir, lines, mk, sym, want, mutate=None, sink=None):
+        """The Practice fixture at RACE entry: the mode, class, course and pack identity, the player's machine and skin, the slider
+        bits, the loaded field, its start grid and the 29 distinct opponents (the machines of the rows the image links).
+        want: slug, index, mode, cls. mutate: a control's edit of the parsed rows (a missing opponent)."""
+        why = []
+        if 'race_start' not in mk:
+            self.add('fixture', name, False, 'no race_start mark', error_text(run_dir), sink=sink)
+            return False
+        mem = Mem(run_dir, 'race_start', sym)
+        ses = struct.unpack('>HBBHBBBBBBI', mem.raw(sym['_fzx_session'], 16))
+        version, mode, course, machine, skin, players, diff, cup, pr, conf, slider = ses
+        if mode != want['mode']:
+            why.append('mode %d, want %d' % (mode, want['mode']))
+        if diff != want['cls']:
+            why.append('class %d, want %d' % (diff, want['cls']))
+        if course != want['index']:
+            why.append('course %d, want %d (%s)' % (course, want['index'], want['slug']))
+        if mem.words('fzx_cid_index', 1)[0] != want['row']:
+            why.append('course row %d, want %d' % (mem.words('fzx_cid_index', 1)[0], want['row']))
+        if machine != 0 or skin != 1 or slider != 0:
+            why.append('player machine %d skin %d slider bits %x, want 0 / 1 / 0' % (machine, skin, slider))
+        rep = mem.words('fzx_field_report', 16)
+        if rep[0] != 1:
+            why.append('field not loaded (report %d: solo or failed)' % rep[0])
+        grid = list(mem.raw(sym['_fzx_field_grid'], 30))
+        src = mem.words('fzx_field_grid_src', 1)[0]
+        if sorted(grid) != list(range(1, 31)):
+            why.append('start grid is not places 1..30')
+        rows = self.practice_rows()
+        opp = None
+        if not rows:
+            why.append('no practice bundle in the stage')
+        else:
+            if mutate:
+                rows = mutate(list(rows))
+            base = (want['row'] * 4 + want['cls']) * 240
+            vr = [rows[base + 8 * i:base + 8 * i + 8] for i in range(30)]
+            opp = [v[5] for v in vr[1:]]
+            if len(set(opp)) != 29 or vr[0][5] in opp or any(v[3] <= 0 for v in vr):
+                why.append('the 29 opponents are not 29 distinct machines with energy (%d distinct)' % len(set(opp)))
+            if src == 1 and grid != [v[0] for v in vr]:
+                why.append('start grid differs from the rows')
+        ok = not why
+        self.add('fixture', name, ok, 'Practice %s class %d: course %d, row %d, machine %d skin %d, field loaded, grid places 1..30%s, 29 distinct opponents' % (
+            want['slug'], diff, course, mem.words('fzx_cid_index', 1)[0], machine, skin, ' (rows)' if src == 1 else ''), '; '.join(why) or
+            'opponent machines %s' % ' '.join(map(str, sorted(opp or []))), sink=sink)
+        return ok
+
+    def score_practice(self, run, run_dir, build_dir, lines, mk, sym, host, host_label, sink):
+        """Practice course row: the fixture at RACE entry, then the cadence, margin and memory of the tick-420 window up to the explicit
+        end-of-window mark (Practice has no finish), the SH-2 checkpoints against HOST (no finish asked), and the normal exit with
+        zero race-record writes."""
+        name = run['name']
+        slug = run.get('course')
+        c = next((x for x in self.m['courses'] if x['slug'] == slug), None)
+        want = dict(slug=slug, index=c['index'] if c else -1, row=c['index'] if c else -1, mode=5, cls=1)
+        self.practice_fixture(name, run_dir, build_dir, lines, mk, sym, want, sink=sink)
+        if 'results' in mk:
+            mkv, mchk = result_kv(lines, 'results')
+            if host is not None:
+                hostc = dict(host['chk'])
+                same = sum(1 for t, h in mchk if hostc.get(t) == h)
+                self.add('host', name, bool(mchk) and same == len(mchk), 'checkpoints %d/%d equal (HOST %s; no finish in Practice)' % (same, len(mchk), host_label or slug), sink=sink)
+            mem = Mem(run_dir, 'results', sym)
+            self.cadence_checks(name, frame_rows(mem, self.lim['race_window_tick']), sink)
+            self.memory_checks(name, mem, mkv, sink)
+            load = result_kv(lines, 'race_start')[0].get('_fzx_scn_report10')
+            self.add('load', name, True, 'cold LOAD %s fields' % load, info=True, sink=sink)
+        else:
+            self.add('host', name, False, 'no end-of-window mark (results)', error_text(run_dir), sink=sink)
+        if 'quit' in mk and 'race_start' in mk:
+            a, b = Mem(run_dir, 'race_start', sym), Mem(run_dir, 'quit', sym)
+            gens = (a.words('file_gen', 2), b.words('file_gen', 2)) if a.has('file_gen') else (None, None)
+            kq = result_kv(lines, 'quit')[0]
+            quit_ok = kq.get('_fzx_scn_report1') == '5' and b.words('fzx_scn_pause', 8)[4] == 1
+            self.add('exit', name, quit_ok and gens[0] is not None and gens[0] == gens[1],
+                     'QUIT from the pause menu reaches RESULTS (scene %s); record file generations %s before and %s after' % (
+                         kq.get('_fzx_scn_report1'), gens[0], gens[1]), 'zero race-record writes', sink=sink)
+        else:
+            self.add('exit', name, False, 'no quit mark', error_text(run_dir), sink=sink)
 
     def determinism(self, name, dir_a, dir_b, dumps, sink=None, build_dir=None):
         """Two runs: per-field ticks and pixel hashes, work RAM, VRAM and stills identical. The matrix's
@@ -670,7 +762,7 @@ class Gate:
         hosts = {}
         hdir = self.ev / 'host'
         slugs = set(r['course'] for r in runs if r.get('course'))
-        if any(r['kind'] == 'course' for r in runs):
+        if any(r['kind'] in ('course', 'practice') for r in runs):
             slugs |= set(c['slug'] for c in courses)
         if a.controls:
             slugs |= {'mute-city-1'}
@@ -683,7 +775,7 @@ class Gate:
         for r in runs:
             if not builds[r['image']]['ok']:
                 continue
-            if r['kind'] == 'course':
+            if r['kind'] in ('course', 'practice'):
                 for c in courses:
                     rr = dict(r, name='course-%s' % c['slug'], course=c['slug'])
                     jobs.append((rr, 'script', self.script_for(r['script'], c['index'])))
@@ -846,7 +938,7 @@ class Gate:
             if c['kind'] == 'race':
                 jobs.append((r, 'race', '-'))
             else:
-                idx = next((x['index'] for x in self.m['courses'] if x['slug'] == c.get('course')), None) if c['kind'] == 'course' else None
+                idx = next((x['index'] for x in self.m['courses'] if x['slug'] == c.get('course')), None) if c['kind'] in ('course', 'practice') else None
                 bd = self.ctl_builds[c['name']]['dir'] if c.get('vars') else builds[c['image']]['dir']
                 rec = self.record_ms(hosts, bd, c.get('record_offset', 0)) if c['kind'] == 'loop' else None
                 jobs.append((r, 'script', self.script_for(c['script'], idx, rec)))
@@ -867,6 +959,14 @@ class Gate:
                     got = re.search(r'LEGACY off ([0-9a-f]{64})', out)
                     off = got.group(1) if got else ''
                 self.add('legacy', name, off.startswith(self.m['legacy']['recipe']), '%s vs recipe %s' % (off[:16], self.m['legacy']['recipe'][:16]), sink=sink)
+            elif chk == 'fixture' and c.get('reuse'):
+                rd = self.ev / 'runs' / c['reuse']
+                lines = read_result(rd)
+                cc = next(x for x in self.m['courses'] if x['slug'] == c['course'])
+                bd = builds[c['image']]['dir']
+                sym = load_syms(Path(bd) / 'fzs-engine.sym')
+                mut = {'roster': lambda rows: [x if not (j % 240 == 5 + 8 * 2) else rows[j - 8] for j, x in enumerate(rows)]}[c['mutate']]
+                self.practice_fixture(name, rd, bd, lines, marks(lines), sym, dict(slug=cc['slug'], index=cc['index'], row=cc['index'], mode=5, cls=1), mutate=mut, sink=sink)
             elif chk == 'host' and c.get('reuse'):
                 rd = self.ev / 'runs' / c['reuse']
                 kv, chkl = result_kv(read_result(rd))
@@ -893,7 +993,7 @@ class Gate:
                     host = hosts.get(hslug) if hslug else None
                     if hslug and host is None:
                         host = hosts[hslug] = self.host(self.ev / 'host', hslug, '0.004,2.5')
-                    self.score_scenes(dict(name=name, kind=c['kind']), rd, bd, host, sink=sink, host_label=hslug or '')
+                    self.score_scenes(dict(name=name, kind=c['kind'], course=c.get('course')), rd, bd, host, sink=sink, host_label=hslug or '')
             target = [r for r in sink if r['check'] == chk]
             # A control whose run or script dies before its check is scored has still failed; the table says which.
             failed = [r for r in sink if r['check'] in (chk, 'run', 'script') and r['status'] == 'FAIL']

@@ -8,6 +8,7 @@
 #   stage.sh receipts STAGE                  print STALE lines for generated receipts that do not match w/
 #   stage.sh build STAGE OUT LABEL VARS...   build saturn/engine with VARS; copy BIN/ISO/CUE/SYM/MAP to OUT/LABEL
 #   stage.sh legacy STAGE OUT LABEL KIND     KIND recipe (4b4cacb2) or off (bb5f0fc5): build and copy the BIN
+#   stage.sh cat STAGE RELPATH               print the stage's generated/courses/select/course_practice.c (the gate's Practice fixture)
 #   stage.sh host STAGE OUT KEY SLUG [DRIVER] HOST checkpoints (fzx-phys --checkpoints 256, tubes build, built once
 #                                            per KEY = tree id) for SLUG's R01 race
 # OUT is a /mnt/c path. Generated assets are ROM-derived: they stay in the stage and never leave this machine.
@@ -161,6 +162,10 @@ print('finish_ms %s retire_tick %s' % (fin or '-', ret or '-'))
 PY
   rm -f /tmp/gate-r01-$stage.tsv
   echo "HOST $slug $driver $(grep -E '^(ticks|finish_ms)' "$f" | tr '\n' ' ')"
+  ;;
+cat)   # cat STAGE RELPATH: one generated file of the stage's work tree (the Practice bundle the gate's fixture reads), nothing else
+  f=${3:?}
+  case "$f" in generated/courses/select/course_practice.c) cat "$S/w/$f";; *) echo "cat: path not allowed" >&2; exit 9;; esac
   ;;
 *) echo "unknown command $cmd" >&2; exit 2;;
 esac

@@ -264,8 +264,8 @@
   {
    "name": "course-*",
    "image": "scenes-drv",
-   "kind": "course",
-   "script": "course.txt",
+   "kind": "practice",
+   "script": "course_pr.txt",
    "courses": "all",
    "modes": [
     "full"
@@ -445,6 +445,34 @@
    "script": "cancel.txt",
    "disc": "data",
    "against": "cancel"
+  },
+  {
+   "name": "ctl-pr-course",
+   "check": "fixture",
+   "how": "the Practice row asked for Mute City, the race entered Silence: the course identity fails even though the run times are normal",
+   "image": "scenes-drv",
+   "kind": "practice",
+   "course": "mute-city-1",
+   "script": "course_pr_wrong.txt"
+  },
+  {
+   "name": "ctl-pr-solo",
+   "check": "fixture",
+   "how": "the Practice row asked for, the race entered as Time Attack (solo, lighter): the mode identity fails whatever its timings",
+   "image": "scenes-drv",
+   "kind": "practice",
+   "course": "mute-city-1",
+   "script": "course_pr_ta.txt"
+  },
+  {
+   "name": "ctl-pr-roster",
+   "check": "fixture",
+   "how": "the Practice rows with one opponent replaced by another machine (28 distinct opponents): the roster fails",
+   "image": "scenes-drv",
+   "kind": "practice",
+   "course": "mute-city-1",
+   "reuse": "course-mute-city-1",
+   "mutate": "roster"
   }
  ],
  "regenerate": [

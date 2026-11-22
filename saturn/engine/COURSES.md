@@ -551,8 +551,15 @@ Big Hand 422 / 6,752 (the largest chunk count; `FZX_EPATH_MAX_CHUNKS` 512). Ever
 **Engine changes the courses needed.**
 - `engine_cup.c` catalog rows 12..23 (the select listed 12 courses); CD root list 192 -> 320 entries; `engine_courses.c` rows.
 - The road work arena in high work RAM, `FZX_ROAD_STREAM_HIGH_BYTES` (default 98,304; the select image 131,072): Silence 2 filled
-  the 98,304 B (`fzx_road_stream_high_used` 98,000 at the failure, "TRACK LOAD" 35 with status 2). Master stack unused is 57.6 KB
-  with it, against 110.7 KB before.
+  the 98,304 B (`fzx_road_stream_high_used` 98,000 at the failure, "TRACK LOAD" 35 with status 2). The extra 32,768 B come out of
+  the free gap between the end of `.bss` and the top of the master stack in high work RAM (the whole image is in high work RAM):
+  that gap is 59,264 B on the select image at the engine pin `cc18a63` (63,456 B at `8d7773e`; the pin bump grew the image by 4,192 B,
+  text and data 4,064, bss 128), and was 92,032 B with the 98,304 B arena. Measured at the end of 24 runs the master stack's
+  untouched part is 53,444..53,464 B (52,184 at Mute City 3 and White Land 1), 33 KB above its 20,480 B floor. The arena peak,
+  `fzx_road_stream_high_used`, is in the table (largest: Big Hand 109,072, Space Plant 108,584, Rainbow Road 108,408, Sand Ocean 2
+  108,208, Silence 2 101,008): 22,000 B of headroom inside the 131,072 B arena at the worst course. The gadget lane's decals share
+  the arena: Mute City needs +3.9 KB on 87,360 B and Devil's Forest more on 88,560 B; both fit, as the arena has 43,712 B and
+  42,512 B free there. Growing the arena past about 33 KB more reaches the master stack floor.
 - `E1_RACE_TICKS` (default 9,000 ticks after the start): Rainbow Road's finish is at 10,520 ticks; the image `scenes-drv-rr` runs
   12,000 and its HOST reference the same (`host_ticks`).
 - `E1_DRIVER_KL` and `E1_DRIVER_TARGET` (HOST and test driver only): the R01-t driver `kl,kh,0,460,target` of the courses the
@@ -566,11 +573,48 @@ Big Hand 422 / 6,752 (the largest chunk count; `FZX_EPATH_MAX_CHUNKS` 512). Ever
   original code was +5.885% without it and is +0.023% with it.
 - Gate: `host_ticks` per course, matrix images `scenes-drv-ff`, `-rc2`, `-sp`, `-pt2`, `-rr`, rows for courses 12..23.
 
-**Death Race (card D).** `cpu.c` gives course indexes of 30 and up the default CPU line (speed 69, lateral 0 at every half
-segment) and no pace tables; the steering AI is the GP one. `rivals_assets.py` writes that flat line and the default pace
-(`RIVALS.PAK` 18,672 B), and HOST physics finishes at 36,275 ms equal to the original. Open: `fzx-gp-ref` only runs the GP mode
-and tuning courses 0..23, so no reference field exists for the field header (grid, chase targets); Death Race is its own game
-mode (all CPUs hostile). The select disc cannot hold it either: `FZX_COURSE_BUNDLE_MASK` is a 32-bit mask and the id is 54.
+**Death Race (card D).** The original has no field header for the mode: `Racer_Init` runs the same `Cpu_InitRacer` per racer
+as the Grand Prix (30 racers; `racer.c` 2173-2236, `cpu.c` 474-540). Differences it makes: course 54 is past `COURSE_EDIT_1`, so
+the CPU line is the default (speed 69, lateral 0 at every half segment) and there are no pace tables; every rival's energy and
+maximum energy are halved (`racer.c` 2230); the rival speed ratio `unk_1A8` is random 0..0.2 (`cpu.c` 1097). `fzx-gp-ref --mode death`
+(`ref/rivals_bake.c`: `GAMEMODE_DEATH_RACE`, `gCourseIndex` 54, the original's tables read at the course's own index) builds the
+reference field from the original code: grid 1..30, no lap target, no chase, max energy halved (player 178, rivals 71 to 89),
+30 vehicles. In the HOST run all 29 rivals retire between ticks 738 and 835 after the start and the race ends with the player
+alive (`racer.c` 979: all CPUs retired). `rivals_finish.py` gives no second-lap target for course indexes of 30 and up. HOST
+physics finishes at 36,275 ms equal to the original. Open: the energy drain and retirement of the rivals is a mode (a card),
+not field data, and the native field does not have it; the select disc cannot hold Death Race either:
+`FZX_COURSE_BUNDLE_MASK` is a 32-bit mask and the id is 54.
 
-| Course | HOST finish | Driver / image | Checkpoints | Intervals | Critical mean / p99 / max | Master p99 | Slave p99 | VDP1 p99 | Cold LOAD |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+**Result (EMULATOR, Ymir; timing MODELLED), gate `g24new` at engine pin `cc18a63`, head `0a1e312`.** All 24 courses: HOST finish
+equal to the millisecond and every checkpoint equal (24 of 24; Big Hand and Port Town 1 retire at the HOST's tick), 0 intervals
+over two fields at 23 courses. Fire Field: cadence FAIL, 6 intervals of 3F+ (worst 4F, critical max 68.59 ms), card open in the
+SH2ZAM locate-hint lane (the airborne locate search), not fixed here. The margin check (critical p99 x 1.36 against 33.3 ms)
+fails at 17 of 24 courses and passes at 7 (reported, not tuned); the Jack and Queen six are in that count. White Land 2 on the
+real pin: 82,335 ms equal to HOST (+5.885% before the half-pipe).
+
+| Course | Host: finish vs HOST (checkpoints) | Intervals 1F/2F/3F+ | Critical mean / p99 / max ms | Master p99 | Slave p99 | VDP1 p99 | Cold LOAD fields | p99 x 1.36 ms (limit 33.3) | Stack unused B | Road arena peak B |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| fire-field | finish 100521 ms, HOST 100521 (checkpoints 26/26 equal) | 0/3142/6 FAIL | 20.11 / 25.19 / 68.59 | 24.5 | 21.52 | 14.61 | 314 | 34.2579 FAIL | 53,444 | 82,560 |
+| silence-2 | finish 117586 ms, HOST 117586 (checkpoints 30/30 equal) | 0/3664/0 | 20.82 / 25.53 / 26.79 | 25.07 | 22.69 | 13.07 | 349 | 34.7256 FAIL | 53,464 | 101,008 |
+| sector-beta | finish 125856 ms, HOST 125856 (checkpoints 32/32 equal) | 0/3912/0 | 20.77 / 26.17 / 28.53 | 24.56 | 24.06 | 8.91 | 352 | 35.5880 FAIL | 53,464 | 95,000 |
+| red-canyon-2 | finish 117720 ms, HOST 117720 (checkpoints 30/30 equal) | 0/3668/0 | 20.6 / 25.11 / 26.94 | 24.7 | 22.67 | 10.29 | 341 | 34.1508 FAIL | 53,464 | 88,712 |
+| white-land-2 | finish 82335 ms, HOST 82335 (checkpoints 22/22 equal) | 0/2607/0 | 21.14 / 25.11 / 27.24 | 24.49 | 22.69 | 9.62 | 321 | 34.1508 FAIL | 53,444 | 87,536 |
+| mute-city-3 | finish 133428 ms, HOST 133428 (checkpoints 33/33 equal) | 0/4139/0 | 21.04 / 24.49 / 26.66 | 23.99 | 20.84 | 12.53 | 316 | 33.3038 FAIL | 52,184 | 81,456 |
+| rainbow-road | finish 167651 ms, HOST 167651 (checkpoints 42/42 equal) | 0/5166/0 | 20.81 / 23.97 / 25.42 | 23.56 | 21.08 | 8.57 | 355 | 32.5969 PASS | 53,464 | 108,408 |
+| devils-forest-3 | finish 97137 ms, HOST 97137 (checkpoints 25/25 equal) | 0/3051/0 | 20.1 / 25.31 / 28.36 | 24.17 | 22.67 | 10.21 | 324 | 34.4229 FAIL | 53,444 | 83,720 |
+| space-plant | finish 144276 ms, HOST 144276 (checkpoints 36/36 equal) | 0/4465/0 | 20.47 / 24.7 / 27.2 | 24.02 | 22.2 | 9.1 | 379 | 33.5953 FAIL | 53,444 | 108,584 |
+| sand-ocean-2 | finish 120334 ms, HOST 120334 (checkpoints 30/30 equal) | 0/3747/0 | 20.38 / 25.26 / 27.28 | 24.63 | 22.43 | 12.7 | 360 | 34.3497 FAIL | 53,464 | 108,208 |
+| port-town-2 | finish 131043 ms, HOST 131043 (checkpoints 33/33 equal) | 0/4068/0 | 20.25 / 23.88 / 24.84 | 23.59 | 21.48 | 10.08 | 315 | 32.4752 PASS | 53,464 | 89,336 |
+| big-hand | retires as HOST (tick 1460) (checkpoints 6/6 equal) | 0/657/0 | 20.01 / 24.08 / 24.7 | 23.19 | 21.37 | 8.92 | 359 | 32.7531 PASS | 53,464 | 109,072 |
+| mute-city-1 | finish 104040 ms, HOST 104040 (checkpoints 27/27 equal) | 0/3258/0 | 21.33 / 25.03 / 27.26 | 24.58 | 22.49 | 12.21 | 322 | 34.0389 FAIL | 53,464 | 87,360 |
+| silence-1 | finish 90563 ms, HOST 90563 (checkpoints 23/23 equal) | 0/2853/0 | 20.42 / 24.93 / 25.74 | 24.81 | 21.87 | 8.79 | 323 | 33.9060 FAIL | 53,464 | 73,472 |
+| sand-ocean-1 | finish 92553 ms, HOST 92553 (checkpoints 24/24 equal) | 0/2913/0 | 21.46 / 26.57 / 27.97 | 25.57 | 24.56 | 10.95 | 330 | 36.1345 FAIL | 53,464 | 82,184 |
+| devils-forest-1 | finish 108038 ms, HOST 108038 (checkpoints 28/28 equal) | 0/3378/0 | 20.77 / 24.35 / 25.41 | 23.9 | 21.72 | 15.13 | 317 | 33.1186 PASS | 53,464 | 88,560 |
+| big-blue-1 | finish 126928 ms, HOST 126928 (checkpoints 32/32 equal) | 0/3944/0 | 20.13 / 23.48 / 25.08 | 23.09 | 20.91 | 8.66 | 325 | 31.9351 PASS | 53,464 | 82,712 |
+| port-town-1 | retires as HOST (tick 6328) (checkpoints 25/25 equal) | 0/3091/0 | 20.09 / 23.52 / 25.28 | 23.08 | 21.2 | 13.53 | 334 | 31.9867 PASS | 53,464 | 91,600 |
+| sector-alpha | finish 98843 ms, HOST 98843 (checkpoints 25/25 equal) | 0/3102/0 | 19.78 / 24.92 / 26.52 | 24.68 | 22.2 | 10.76 | 334 | 33.8980 FAIL | 53,444 | 92,848 |
+| red-canyon-1 | finish 97580 ms, HOST 97580 (checkpoints 25/25 equal) | 0/3064/0 | 19.41 / 22.78 / 26.98 | 22.28 | 20.19 | 9.35 | 272 | 30.9777 PASS | 53,464 | 65,808 |
+| devils-forest-2 | finish 109503 ms, HOST 109503 (checkpoints 28/28 equal) | 0/3422/0 | 21.29 / 24.69 / 25.92 | 23.97 | 22.32 | 11.04 | 327 | 33.5799 FAIL | 53,464 | 88,824 |
+| mute-city-2 | finish 97479 ms, HOST 97479 (checkpoints 25/25 equal) | 0/3061/0 | 21.7 / 29.53 / 31.38 | 24.79 | 27.44 | 11.79 | 328 | 40.1600 FAIL | 53,464 | 86,720 |
+| big-blue-2 | finish 80008 ms, HOST 80008 (checkpoints 21/21 equal) | 0/2537/0 | 21.8 / 28.24 / 31.36 | 25.52 | 26.19 | 10.57 | 324 | 38.4060 FAIL | 53,464 | 86,992 |
+| white-land-1 | finish 111775 ms, HOST 111775 (checkpoints 28/28 equal) | 0/3490/0 | 21.65 / 28.44 / 29.87 | 27.37 | 24.9 | 9.82 | 322 | 38.6814 FAIL | 52,184 | 86,952 |

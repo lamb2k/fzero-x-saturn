@@ -68,8 +68,13 @@ def check_report_rows(slug, reports, v):
     for k, r in enumerate(reports):
         for i, x in enumerate(sorted(r['racers'], key=lambda x: x['id'])):
             row = v[(k * 30 + i) * 8:(k * 30 + i) * 8 + 8]
-            if row[0] != x['grid'] or row[5] != x['character'] or row[3] != int(round(x['max_energy'] * 256)):
-                raise Bad('%s: class %d racer %d: the header does not match its report' % (slug, k, i))
+            chase = x['chase']
+            lap_ms = x['target_lap_ms']
+            if x['id'] and chase == 255 and x['lap_end_ticks'][0] > 0:   # tools/rivals_field_header.py --practice: the reference's own lap 1
+                lap_ms = int(round(x['lap_end_ticks'][0] * 1000 / 60.0))
+            want = (x['grid'], lap_ms, chase, int(round(x['max_energy'] * 256)), 38 if chase not in (0, 255) else 0, x['character'])
+            if tuple(row[:6]) != want:
+                raise Bad('%s: class %d racer %d: the header does not match its report (pace, chase, grid, energy or machine)' % (slug, k, i))
 
 
 def main():

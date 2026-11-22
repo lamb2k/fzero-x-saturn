@@ -11,7 +11,7 @@ import course_practice_bundle as b  # noqa: E402
 
 
 def report(d, length=79027.953, mut=None):
-    racers = [{'id': i, 'grid': 30 - i, 'character': i, 'max_energy': 160.0 + i, 'lap_end_ticks': [100, 200, -1]} for i in range(30)]
+    racers = [{'id': i, 'grid': 30 - i, 'character': i, 'max_energy': 160.0 + i, 'lap_end_ticks': [100 + i + int(length) % 7, 200, -1], 'chase': 255, 'target_lap_ms': 39000} for i in range(30)]
     r = {'tier': 'HOST', 'difficulty': d, 'seed': 1, 'course_length': length, 'racers': racers}
     if mut:
         mut(r)
@@ -22,7 +22,8 @@ def rows(reps):
     v = []
     for r in reps:
         for x in sorted(r['racers'], key=lambda x: x['id']):
-            v += [x['grid'], 39000, 255, int(round(x['max_energy'] * 256)), 0, x['character'], 0, 0]
+            lap = int(round(x['lap_end_ticks'][0] * 1000 / 60.0)) if x['id'] else 39000
+            v += [x['grid'], lap, 255, int(round(x['max_energy'] * 256)), 0, x['character'], 0, 0]
     return v
 
 
@@ -63,7 +64,9 @@ v = rows(GOOD); v[3] = 0
 expect('corrupted rows (a vehicle without energy)', False, lambda: b.check_rows('c', v))
 reps = copy.deepcopy(GOOD); reps[2] = report(2, length=61000.0)
 expect('mixed-course reports (one class of another course)', False, lambda: b.check_reports('c', reps))
-expect('mixed-course rows (the header of another course)', False, lambda: b.check_report_rows('c', GOOD, rows([report(d, mut=lambda r: r['racers'][3].update(grid=7)) for d in range(4)])))
+other = [report(d, length=62484.97) for d in range(4)]
+expect('mixed-course rows (the header of another course, the same field and other paces)', False, lambda: b.check_report_rows('c', GOOD, rows(other)))
+expect('the other course against its own reports', True, lambda: b.check_report_rows('c', other, rows(other)))
 expect('a class report of the wrong class', False, lambda: b.check_reports('c', [GOOD[0], GOOD[0], GOOD[2], GOOD[3]]))
 expect('three reports only (a missing run)', False, lambda: b.check_reports('c', GOOD[:3]))
 expect('a report with 29 racers', False, lambda: b.check_reports('c', with_(lambda r: r['racers'].pop())))

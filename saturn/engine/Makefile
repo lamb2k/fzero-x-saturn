@@ -364,7 +364,64 @@ endif
 # The racer sprite set the player is drawn from.
 E1_SPRITES := $(if $(filter 2,$(E1_CLOSEUP)),racer_sprites_hq,racer_sprites)
 comma := ,
-SH_OUTPUT_DIR := build-$(if $(filter-out 1,$(ENG_DSP_BANDS)),dspb$(ENG_DSP_BANDS)$(if $(filter 1,$(ENG_DSP_BANDS_CHECK)),c,)$(if $(filter 1,$(ENG_DSP_BANDS_CORRUPT)),x,)-,)$(if $(filter-out 4,$(ENG_PACE)),pace$(ENG_PACE)$(if $(filter 3,$(ENG_PACE)),i$(ENG_VDP1_INTERVAL),)-,$(if $(filter-out 1,$(ENG_PACE_LEAD)),pace4w$(ENG_PACE_LEAD)-,)$(if $(filter 1,$(ENG_PACE_EARLY_CONTROL)),pace4early-,)$(if $(filter 1,$(ENG_PACE_HUD_LEAD)),pace4hudlead-,))$(if $(filter 1,$(FZX_E1_DRIVE)),e1-d$(E1_DRIVER)$(if $(filter-out 0,$(E1_DRIVER_BOOST)),-b$(E1_DRIVER_BOOST),)$(if $(filter-out 0,$(E1_CLOSEUP)),-ab$(E1_CLOSEUP)$(if $(filter 1,$(E1_CLOSEUP_EARLY)),e,)$(if $(filter-out 0,$(E1_FIELD)),-f$(E1_FIELD)$(if $(filter 1,$(E2_PACK)),p,)$(if $(filter 1,$(E2_FASTPOSE)),q,)$(if $(filter 1,$(E2_CULL)),c,)$(if $(filter 1,$(E2_LOD)),l$(subst $(comma),_,$(E2_LOD_NEAR)),)$(if $(filter 1,$(E2_EARLY)),e,)$(if $(filter 1,$(E2_FASTSPRITE)),f,)$(if $(filter 1,$(E2_ROSTER)),r,)$(if $(filter 1,$(E2_PROF)),P,),)$(if $(filter 1,$(ENG_SCENES)),-scn$(if $(filter 1,$(FZX_CUP_DIAG_CATALOG)),-gpdiag,)$(if $(filter-out 0,$(FZX_GUEST_MASK)),-gm$(FZX_GUEST_MASK),)$(if $(filter 1,$(ENG_ROSTER)),-ro,),)$(if $(filter 0,$(E1_FIELD)),$(if $(filter 1,$(E2_EARLY)),E,),),)-,e0-)bank$(FZX_VDP1_DBANK)$(if $(filter 1,$(FZX_VDP1_DBANK_STALE)),-stale,)-g$(E0_GUARD_MARGIN)-c$(E0_FAST_CULL)-l$(E0_LOD_SHIFT)-f$(E0_FAN_FIX)-r$(E0_RBG_LEAN)-k$(E0_CLUSTERS)-w$(E0_WORK_HIGH)$(if $(filter-out 0,$(E0_CHUNK_CAP)),-cap$(E0_CHUNK_CAP),)-n$(E0_LEAN_CLIP)-e$(E0_FOG_EARLY)$(if $(filter 1,$(E0_HW_COUNTER)),-hw,)$(if $(filter 1,$(E0_VDP2_MAP)),-map,)$(if $(filter 1,$(E0_SENTINEL_CONTROL)),-sentinel,)$(if $(filter 1,$(E0_POP_LOG)),-pop,)$(if $(filter 1,$(E0_CAP_STABLE)),-stable,)$(if $(filter 1,$(E0_CLUSTER_AUDIT)),-audit,)$(if $(filter 0,$(E0_ISR_MAC_SAVE)),-nomac,)$(if $(filter 1,$(E0_MAC_PROBE)),-macprobe,)$(if $(filter 0,$(E0_QUEUE_ATOMIC)),-qrace,)$(if $(filter 1,$(E0_QUEUE_STRESS)),-qstress,)$(if $(filter-out 0,$(E0_QUEUE_WIDEN)),-qw$(E0_QUEUE_WIDEN),)$(if $(filter 1,$(E0_PHASES)),-phases,)$(if $(filter 0,$(E0_FASTTEST)),-noft,)$(if $(filter 0,$(E0_EMIT32)),-noe32,)$(if $(filter 1,$(E0_ROAD_HASH)),-rh,)$(if $(filter 0,$(E0_PRELUDE_SHARE)),-ps0,)$(if $(filter 0,$(E0_PRELUDE_WINDOW)),-pw0,)$(if $(filter 0,$(E0_PRELUDE_DIV)),-pd0,)$(if $(filter 1,$(ENG_CDDA)),-cdda$(ENG_CDDA_MUSIC)$(if $(filter-out 0,$(ENG_CDDA_LOOPTEST)),-lt$(ENG_CDDA_LOOPTEST),),)$(if $(filter 1,$(ENG_SND)),-snd$(ENG_SND_MUSIC)$(if $(filter-out 0,$(ENG_SND_FADETEST)),-ft$(ENG_SND_FADETEST),),)
+# Output directory name: one component per line, appended in this fixed order. A lane that adds a build variable adds its
+# own line here (never edits another line), so concurrent additions merge. Do not reorder: directory names are compared by the gate.
+SH_OUTPUT_DIR := build-
+SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter-out 1,$(ENG_DSP_BANDS)),dspb$(ENG_DSP_BANDS)$(if $(filter 1,$(ENG_DSP_BANDS_CHECK)),c,)$(if $(filter 1,$(ENG_DSP_BANDS_CORRUPT)),x,)-,)
+SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter-out 4,$(ENG_PACE)),pace$(ENG_PACE)$(if $(filter 3,$(ENG_PACE)),i$(ENG_VDP1_INTERVAL),)-,$(if $(filter-out 1,$(ENG_PACE_LEAD)),pace4w$(ENG_PACE_LEAD)-,)$(if $(filter 1,$(ENG_PACE_EARLY_CONTROL)),pace4early-,)$(if $(filter 1,$(ENG_PACE_HUD_LEAD)),pace4hudlead-,))
+OUTDIR_E1FIELD := -f$(E1_FIELD)
+OUTDIR_E1FIELD := $(OUTDIR_E1FIELD)$(if $(filter 1,$(E2_PACK)),p,)
+OUTDIR_E1FIELD := $(OUTDIR_E1FIELD)$(if $(filter 1,$(E2_FASTPOSE)),q,)
+OUTDIR_E1FIELD := $(OUTDIR_E1FIELD)$(if $(filter 1,$(E2_CULL)),c,)
+OUTDIR_E1FIELD := $(OUTDIR_E1FIELD)$(if $(filter 1,$(E2_LOD)),l$(subst $(comma),_,$(E2_LOD_NEAR)),)
+OUTDIR_E1FIELD := $(OUTDIR_E1FIELD)$(if $(filter 1,$(E2_EARLY)),e,)
+OUTDIR_E1FIELD := $(OUTDIR_E1FIELD)$(if $(filter 1,$(E2_FASTSPRITE)),f,)
+OUTDIR_E1FIELD := $(OUTDIR_E1FIELD)$(if $(filter 1,$(E2_ROSTER)),r,)
+OUTDIR_E1FIELD := $(OUTDIR_E1FIELD)$(if $(filter 1,$(E2_PROF)),P,)
+OUTDIR_E1SCN := -scn$(if $(filter 1,$(FZX_CUP_DIAG_CATALOG)),-gpdiag,)
+OUTDIR_E1SCN := $(OUTDIR_E1SCN)$(if $(filter-out 0,$(FZX_GUEST_MASK)),-gm$(FZX_GUEST_MASK),)
+OUTDIR_E1SCN := $(OUTDIR_E1SCN)$(if $(filter 1,$(ENG_ROSTER)),-ro,)
+OUTDIR_E1CLOSE := -ab$(E1_CLOSEUP)
+OUTDIR_E1CLOSE := $(OUTDIR_E1CLOSE)$(if $(filter 1,$(E1_CLOSEUP_EARLY)),e,)
+OUTDIR_E1CLOSE := $(OUTDIR_E1CLOSE)$(if $(filter-out 0,$(E1_FIELD)),$(OUTDIR_E1FIELD),)
+OUTDIR_E1CLOSE := $(OUTDIR_E1CLOSE)$(if $(filter 1,$(ENG_SCENES)),$(OUTDIR_E1SCN),)
+OUTDIR_E1CLOSE := $(OUTDIR_E1CLOSE)$(if $(filter 0,$(E1_FIELD)),$(if $(filter 1,$(E2_EARLY)),E,),)
+OUTDIR_E1 := e1-d$(E1_DRIVER)
+OUTDIR_E1 := $(OUTDIR_E1)$(if $(filter-out 0,$(E1_DRIVER_BOOST)),-b$(E1_DRIVER_BOOST),)
+OUTDIR_E1 := $(OUTDIR_E1)$(if $(filter-out 0,$(E1_CLOSEUP)),$(OUTDIR_E1CLOSE),)
+SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter 1,$(FZX_E1_DRIVE)),$(OUTDIR_E1)-,e0-)
+SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)bank$(FZX_VDP1_DBANK)
+SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter 1,$(FZX_VDP1_DBANK_STALE)),-stale,)
+SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)-g$(E0_GUARD_MARGIN)
+SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)-c$(E0_FAST_CULL)
+SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)-l$(E0_LOD_SHIFT)
+SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)-f$(E0_FAN_FIX)
+SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)-r$(E0_RBG_LEAN)
+SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)-k$(E0_CLUSTERS)
+SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)-w$(E0_WORK_HIGH)
+SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter-out 0,$(E0_CHUNK_CAP)),-cap$(E0_CHUNK_CAP),)
+SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)-n$(E0_LEAN_CLIP)
+SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)-e$(E0_FOG_EARLY)
+SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter 1,$(E0_HW_COUNTER)),-hw,)
+SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter 1,$(E0_VDP2_MAP)),-map,)
+SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter 1,$(E0_SENTINEL_CONTROL)),-sentinel,)
+SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter 1,$(E0_POP_LOG)),-pop,)
+SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter 1,$(E0_CAP_STABLE)),-stable,)
+SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter 1,$(E0_CLUSTER_AUDIT)),-audit,)
+SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter 0,$(E0_ISR_MAC_SAVE)),-nomac,)
+SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter 1,$(E0_MAC_PROBE)),-macprobe,)
+SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter 0,$(E0_QUEUE_ATOMIC)),-qrace,)
+SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter 1,$(E0_QUEUE_STRESS)),-qstress,)
+SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter-out 0,$(E0_QUEUE_WIDEN)),-qw$(E0_QUEUE_WIDEN),)
+SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter 1,$(E0_PHASES)),-phases,)
+SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter 0,$(E0_FASTTEST)),-noft,)
+SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter 0,$(E0_EMIT32)),-noe32,)
+SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter 1,$(E0_ROAD_HASH)),-rh,)
+SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter 0,$(E0_PRELUDE_SHARE)),-ps0,)
+SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter 0,$(E0_PRELUDE_WINDOW)),-pw0,)
+SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter 0,$(E0_PRELUDE_DIV)),-pd0,)
+SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter 1,$(ENG_CDDA)),-cdda$(ENG_CDDA_MUSIC)$(if $(filter-out 0,$(ENG_CDDA_LOOPTEST)),-lt$(ENG_CDDA_LOOPTEST),),)
+SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter 1,$(ENG_SND)),-snd$(ENG_SND_MUSIC)$(if $(filter-out 0,$(ENG_SND_FADETEST)),-ft$(ENG_SND_FADETEST),),)
 # Master/slave balance (claude/balance); each 0 = the frame split as it was.
 # ENG_BAL_CLOUDS: the cloud prepare on either SH-2 (drive images, banks, ENG_PACE=4): 1 always on the
 #   slave after its track; 2 the slave takes it when its track ends before the master reaches it
@@ -402,7 +459,18 @@ EMIT_SWITCHES := $(E2_EMIT_PROF)$(E2_EMIT_HINT)$(E2_EMIT_CMD)$(E2_EMIT_SHADOW)$(
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter-out 0,$(subst 0,,$(EMIT_SWITCHES))),-em$(EMIT_SWITCHES),)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter-out 00000,$(BAL_SWITCHES)),-bal$(BAL_SWITCHES),)$(if $(filter-out 0,$(ENG_BAL_SPLIT)),s$(ENG_BAL_SPLIT),)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter 0,$(E0_FLOOR_NEAR0)),-fn0,)
-SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter-out mute-city-1,$(ENG_COURSE)),-$(ENG_COURSE),)$(if $(E1_DRIVER_KH),-kh$(E1_DRIVER_KH),)$(if $(filter 1,$(ENG_COURSE_SELECT)),-sel,)$(if $(filter 1,$(ENG_TUBES)),-tubes,)$(if $(filter 0,$(ENG_RIVAL_SURFACE)),-rs0,)$(if $(filter 1,$(ENG_RIVAL_BEHAVE)),-beh,)$(if $(filter 1,$(ENG_RIVAL_CLASS)),-cls,)$(if $(filter 1,$(ENG_SCN_STALL_CONTROL)),-stallctl,)$(if $(filter-out 0,$(ENG_SMPC_OVERLAP_CONTROL)),-smpcctl$(ENG_SMPC_OVERLAP_CONTROL),)$(if $(filter 1,$(ENG_LOW_HOT_CONTROL)),-hotctl,)$(if $(filter-out 0,$(FZX_CD_TRACE)),-cdtrace$(FZX_CD_TRACE),)$(if $(filter 1,$(FZX_CD_STALE_CONTROL)),-stalectl,)
+SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter-out mute-city-1,$(ENG_COURSE)),-$(ENG_COURSE),)
+SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(E1_DRIVER_KH),-kh$(E1_DRIVER_KH),)
+SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter 1,$(ENG_COURSE_SELECT)),-sel,)
+SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter 1,$(ENG_TUBES)),-tubes,)
+SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter 0,$(ENG_RIVAL_SURFACE)),-rs0,)
+SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter 1,$(ENG_RIVAL_BEHAVE)),-beh,)
+SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter 1,$(ENG_RIVAL_CLASS)),-cls,)
+SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter 1,$(ENG_SCN_STALL_CONTROL)),-stallctl,)
+SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter-out 0,$(ENG_SMPC_OVERLAP_CONTROL)),-smpcctl$(ENG_SMPC_OVERLAP_CONTROL),)
+SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter 1,$(ENG_LOW_HOT_CONTROL)),-hotctl,)
+SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter-out 0,$(FZX_CD_TRACE)),-cdtrace$(FZX_CD_TRACE),)
+SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter 1,$(FZX_CD_STALE_CONTROL)),-stalectl,)
 ifeq ($(ENG_SCENES)$(ENG_P3_UI),10)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)-p3off
 endif
@@ -595,11 +663,11 @@ ifeq ($(E1_CLOSEUP),1)
 # assembly reads a file-static table, so both stay out of LTO.
 ifeq ($(ENG_SCENES),1)
 ifeq ($(ENG_P3_UI),1)
-C8_ART_CHECK := $(foreach R,$(ENG_TITLE_ART)/title.receipt course_menu/course_menu.receipt select_art/select_art.receipt,$(shell sh ../../tools/check_receipt.sh $(G)/$(R) >/dev/null 2>&1 || echo $(R)))
+C8_ART_CHECK := $(foreach R,$(ENG_TITLE_ART)/title.receipt c8_cards/cards.receipt menu_pages/menu_pages.receipt select_art/select_art.receipt,$(shell sh ../../tools/check_receipt.sh $(G)/$(R) >/dev/null 2>&1 || echo $(R)))
 ifneq ($(strip $(C8_ART_CHECK)),)
 $(error Missing or stale C8 title/course art: $(C8_ART_CHECK))
 endif
-SH_CFLAGS += -I$(G)/$(ENG_TITLE_ART) -I$(G)/c8_cards -I$(G)/guest_mach3d
+SH_CFLAGS += -I$(G)/$(ENG_TITLE_ART) -I$(G)/c8_cards -I$(G)/menu_pages -I$(G)/guest_mach3d
 SH_SRCS += machine_tuning.c
 SH_CFLAGS += -DENG_SCENES=1 -DFZX_CUP_DIAG_CATALOG=$(FZX_CUP_DIAG_CATALOG) -DFZX_GUEST_MASK=$(FZX_GUEST_MASK)ull -I$(G)/mach3d -I$(G)/machine_tuning -I$(G)/select_art -DFZX_CD_STREAM=1 -DFZX_LOAD_VERIFIED=1 -DENG_ROSTER=$(ENG_ROSTER) -DENG_SCN_STALL_CONTROL=$(ENG_SCN_STALL_CONTROL) -I$(G)/roster -DFZX_ROAD_PREP_BAKED=1 -I$(GC)/road_prep -I$(GC)/engine_path_ranges
 else
@@ -698,8 +766,8 @@ include $(YAUL_INSTALL_ROOT)/share/build.post.iso-cue.mk
 $(SH_OUTPUT_PATH)/$(SH_PROGRAM).iso: $(GC)/engine_path/ENGPATH.PAK
 ifeq ($(ENG_P3_UI),1)
 ifeq ($(ENG_SCENES),1)
-$(filter %engine_scenes.o,$(SH_OBJS_UNIQ)): $(G)/c8_cards/engine_load_cards.h $(G)/select_art/select_art.h
-$(SH_OUTPUT_PATH)/$(SH_PROGRAM).iso: $(G)/$(ENG_TITLE_ART)/TITLE.PAK $(G)/select_art/SELECT.PAK
+$(filter %engine_scenes.o,$(SH_OBJS_UNIQ)): $(G)/c8_cards/cards.h $(G)/menu_pages/menu_pages.h $(G)/select_art/select_art.h
+$(SH_OUTPUT_PATH)/$(SH_PROGRAM).iso: $(G)/$(ENG_TITLE_ART)/TITLE.PAK $(G)/select_art/SELECT.PAK $(G)/c8_cards/CARDS.PAK $(G)/menu_pages/PAGESUI.PAK $(G)/menu_pages/ENDINGS.PAK
 $(SH_OUTPUT_PATH)/$(SH_PROGRAM).iso: $(GUEST_PLAYER_PACKS)
 endif
 endif
@@ -717,7 +785,7 @@ ifeq ($(FZX_E1_DRIVE),1)
 endif
 ifeq ($(ENG_SCENES),1)
 ifeq ($(ENG_P3_UI),1)
-	cp $(G)/$(ENG_TITLE_ART)/TITLE.PAK $(G)/select_art/SELECT.PAK "$(IMAGE_DIRECTORY)/"
+	cp $(G)/$(ENG_TITLE_ART)/TITLE.PAK $(G)/select_art/SELECT.PAK $(G)/c8_cards/CARDS.PAK $(G)/menu_pages/PAGESUI.PAK $(G)/menu_pages/ENDINGS.PAK "$(IMAGE_DIRECTORY)/"
 	rm -f "$(IMAGE_DIRECTORY)"/MACH3D*.PAK
 	cp $(foreach F,$(ENG_ENTRANT_PACKS),$(G)/mach3d/MACH3D$(F).PAK) "$(IMAGE_DIRECTORY)/"
 	$(if $(GUEST_PLAYER_PACKS),cp $(GUEST_PLAYER_PACKS) "$(IMAGE_DIRECTORY)/",)

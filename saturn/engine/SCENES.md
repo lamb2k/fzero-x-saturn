@@ -92,7 +92,7 @@ typedef struct {
   A soft reset clears it to defaults; going from RESULTS to TITLE keeps it.
 - **Who writes it:** only SELECT, through `fzx_session_edit()`, which sets `confirmed`.
   - LOAD applies it once: it translates `menu_mode` to the runtime GameMode (`fzx_mode_runtime()`, explicit table;
-    for example Time Attack 1 → 0x0e) and recomputes the machine constants from `machine_id` and `slider_bits` on
+    for example Time Attack 1 â†’ 0x0e) and recomputes the machine constants from `machine_id` and `slider_bits` on
     every confirmed selection.
   - Later edits never reach a running race.
 - **First loop:** SELECT advertises Time Attack on the one supported course. Every other mode and course launch
@@ -134,7 +134,7 @@ typedef struct {
   python3 tools/guest_machine_packs.py "$GUEST_KIT/player-3d"
   python3 tools/engine_select_art.py "$PLAYER_SPRITE_SETS" generated/select_art --guest-ui "$GUEST_KIT/ui"
   python3 tools/engine_load_cards.py generated/course_menu generated/c8_cards --catalog-upstream upstream/G-Diffuser
-  python3 tools/engine_menu_pages.py upstream/G-Diffuser/decomp generated/menu_pages
+  python3 tools/engine_menu_pages.py upstream/G-Diffuser/decomp generated/menu_pages --guest-ui "$GUEST_KIT/ui"
   ```
 
   `GUEST_KIT` is the private hybrid-guests directory. `PLAYER_SPRITE_SETS` contains the
@@ -185,7 +185,7 @@ typedef struct {
 ```
 
 - **Name:** `char name[4]`, ASCII with NUL padding, up to 3 visible characters.
-  - The alphabet is A–Z, apostrophe, `!`, period, comma, 0–9, hyphen and a literal space (`records_entry.c`).
+  - The alphabet is Aâ€“Z, apostrophe, `!`, period, comma, 0â€“9, hyphen and a literal space (`records_entry.c`).
   - A shorter or blank name is valid. Blank is `{0,0,0,0}`; a space is 0x20 and is stored as such.
 - **Empty defaults** (`Save_InitCourseRecord`, `save.c`):
   - times and best lap are `MAX_TIMER` = 3,599,999 ms;
@@ -288,7 +288,7 @@ typedef struct {
 **The manager owns, always:**
 - the VDP1 command banks (vdp1-banks-1);
 - VDP2 colour offset A and its enable bits (every fade; unused by the E0 map in `VDP2_MAP.md`);
-- NBG3 and its font palette, CRAM 1008–1023;
+- NBG3 and its font palette, CRAM 1008â€“1023;
 - the back-screen colour.
 
 A scene that needs a plain background asks `fzx_scene_back_colour(rgb)`.
@@ -300,10 +300,10 @@ A scene that needs a plain background asks `fzx_scene_back_colour(rgb)`.
 | --- | --- | --- | --- |
 | TITLE | RGB1555 title sprites; normal clip and local-coordinate commands | none private | its list share |
 | SELECT | original RGB1555/CLUT4 menu, course and machine art, model textures, writable Gouraud tables (settings, reflections) | none private | its list share |
-| RESULTS | results, name and table art, machine previews, finish-menu pixels and CLUTs | mode-0 CRAM words 256–287, 512–543 and 768–799 (finish menu, with the mirrored upper window) | its list share |
+| RESULTS | results, name and table art, machine previews, finish-menu pixels and CLUTs | mode-0 CRAM words 256â€“287, 512â€“543 and 768â€“799 (finish menu, with the mirrored upper window) | its list share |
 | RECORDS | original fonts, CLUTs and textures, machine preview commands | none private; no finish-menu palette | its list share |
 | LOAD | loading card art | none private | small |
-| RACE | everything else of VDP1 VRAM (track textures and shades, racer CLUTs, shadow, slot pool, 3D player textures and Gouraud) | RBG0 floor and clouds, coefficient table, line windows, back-screen table and CRAM 1–65 (`VDP2_MAP.md`) | the race list |
+| RACE | everything else of VDP1 VRAM (track textures and shades, racer CLUTs, shadow, slot pool, 3D player textures and Gouraud) | RBG0 floor and clouds, coefficient table, line windows, back-screen table and CRAM 1â€“65 (`VDP2_MAP.md`) | the race list |
 
 **Race backdrop under RESULTS:** RESULTS is drawn over the race's last image.
 - At `END_RACE`, RACE hands its VDP2 backdrop (RBG0 floor and clouds, back screen) to RESULTS as a retained lease.
@@ -473,7 +473,7 @@ arithmetic: `s32` times and `f32` distances, with `FLT_EVAL_METHOD` 0 on both HO
     entrant goes further back.
 - **Scoring:** only when the player finished (outcome `FZX_OUT_FINISH`). Every place from 1 through the last row
   with a nonzero time has `scoring = 1`. Every other row has 0.
-- **Times:** the race clock is ticks × 50 / 3 ms for everyone. The player's row is the section 4 `race_ms`.
+- **Times:** the race clock is ticks Ã— 50 / 3 ms for everyone. The player's row is the section 4 `race_ms`.
 
 ### 11.4 Attempt outcomes, spare machines and retry
 
@@ -488,8 +488,8 @@ const fzx_cup_live_t *fzx_cup_live(void);   /* read-only, published during RACE 
 | Cup start | `gTotalLives[difficulty]`: 5, 4, 3, 2 | `balance` is set |
 | Race start | `sPlayer1Lives = gPlayerLives[0]` (`menus.c` init) | `menu_lives = balance`, `kos = 0` |
 | The 5th KO in a race | `gPlayerLives[0]++` and `sPlayer1Lives++` | `fzx_cup_race_ko(run_id)`: on the 5th, both +1, once per `run_id` |
-| A player retire | pending −1 (`D_800F80C4`), applied once at the menu change | at `fzx_cup_accept` of the RETIRE outcome |
-| A pause-menu retry | `Menus_PayGpRestartLife`, locked when `sPlayer1Lives <= 0` | the PAUSE_RETRY outcome: −1 once, then the same round restarts |
+| A player retire | pending âˆ’1 (`D_800F80C4`), applied once at the menu change | at `fzx_cup_accept` of the RETIRE outcome |
+| A pause-menu retry | `Menus_PayGpRestartLife`, locked when `sPlayer1Lives <= 0` | the PAUSE_RETRY outcome: âˆ’1 once, then the same round restarts |
 | Quit | ends the cup | the QUIT outcome: no charge; the cup ends |
 
 - **Retry after a retire:** allowed when `menu_lives > 0`. A start at 0 plus the 5th KO allows a retry; 4 KOs don't.
@@ -539,7 +539,7 @@ One static in low work RAM, next to the session: scene arenas never hold cup sta
 | `fzx_cup_begin(cup, difficulty, entrants)` | any | the cup is defined; complete, unique entrants | `READY`, round 0 (clears everything first) |
 | `fzx_cup_race_start(run_id)` | `READY` | a new `run_id` | `RACING` |
 | `fzx_cup_race_ko(run_id)` | `RACING` | `run_id` is current | `RACING` |
-| `fzx_cup_accept(c)` | `RACING` | `run_id` is current; cup, round and course match; `count` is all entrants (FINISH) or 0 (other outcomes); the rows name a complete, unique entrant set; `player_kos` matches the live count; hashes valid. PAUSE_RETRY also needs `menu_lives > 0`, checked before any change | by outcome: FINISH → `SCORED`, or `FINAL` after the last round; RETIRE → `RETIRED`, or `OVER` on exhaustion; PAUSE_RETRY → `READY` (same round); QUIT → `OVER` |
+| `fzx_cup_accept(c)` | `RACING` | `run_id` is current; cup, round and course match; `count` is all entrants (FINISH) or 0 (other outcomes); the rows name a complete, unique entrant set; `player_kos` matches the live count; hashes valid. PAUSE_RETRY also needs `menu_lives > 0`, checked before any change | by outcome: FINISH â†’ `SCORED`, or `FINAL` after the last round; RETIRE â†’ `RETIRED`, or `OVER` on exhaustion; PAUSE_RETRY â†’ `READY` (same round); QUIT â†’ `OVER` |
 | `fzx_cup_intent(NEXT, run_id)` | `SCORED` | `run_id` is the accepted one | `READY`, round + 1 |
 | `fzx_cup_intent(RETRY, run_id)` | `RETIRED` | `run_id` is the accepted one | `READY`, same round, no charge |
 | `fzx_cup_intent(END, run_id)` | `FINAL`, `OVER`, `SCORED`, `RETIRED` | `run_id` is the accepted one | `IDLE` (cleared) |

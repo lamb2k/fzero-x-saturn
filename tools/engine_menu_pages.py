@@ -8,11 +8,35 @@ import struct
 
 from import_course import extract_rom_course, normalize_rom
 from import_source_art import YAML, bounded, metadata, mio0, output_location, verify_source
-from menu_assets import BASE, rgb_words
+from menu_assets import BASE, rgb_words, sign_variant
 from road_pack import fnv
 
 
-def bake(rom, decomp, dest):
+def guest_page(master, portrait, caption):
+    """Use the stock bevel, ink and caption glyphs around a crop of the guest master."""
+    from PIL import Image
+    source = Image.open(master).convert("RGBA")
+    if source.size != (1075, 1463):
+        raise ValueError("Review guest bust crop for changed master dimensions")
+    bust = source.crop((0, 0, 1075, 620)).resize((164, 95), Image.Resampling.LANCZOS)
+    ground = Image.new("RGBA", bust.size, (24, 24, 24, 255))
+    pixels = Image.alpha_composite(ground, bust).convert("RGB")
+    page = bytearray(portrait)
+    for y in range(95):
+        for x in range(164):
+            r, g, b = pixels.getpixel((x, y))
+            struct.pack_into(">H", page, ((y+2)*168+x+2)*2,
+                             0x8000 | (r>>3) | ((g>>3)<<5) | ((b>>3)<<10))
+    # Keep Tanaka's actual boxed "I won!" lettering, moved to the source left margin.
+    box = bytearray(caption)
+    for y in range(2, 30):
+        start = y * 400
+        box[start+4:start+388] = caption[start+380:start+382] * 192
+        box[start+12:start+84] = caption[start+136:start+208]
+    return page + box
+
+
+def bake(rom, decomp, dest, guest_ui=None):
     output_location(dest)
     verify_source(decomp)
     _, provenance = extract_rom_course(rom)
@@ -77,7 +101,17 @@ def bake(rom, decomp, dest):
         header.append("    {%du,%du,%du,%du},"%(len(pages),len(page),fnv(page),caption_offset))
         pages.extend(page)
         maximum = max(maximum, len(page))
-    header.extend(["};",f"#define ENDINGS_BYTES {len(pages)}u",f"#define ENDING_MAX_BYTES {maximum}u"])
+    guest_inputs = []
+    if guest_ui:
+        for name in ("robotnik", "metal_sonic"):
+            master = guest_ui / "masters" / (name + ".png")
+            guest_inputs.append(master)
+            page = guest_page(master, sprite(pairs[0][0])[2], sprite(pairs[20][1])[2])
+            header.append("    {%du,%du,%du,33264u}," % (len(pages), len(page), fnv(page)))
+            pages.extend(page)
+    header.append("};")
+    header.append(f"#define ENDING_PAGE_COUNT {len(pairs)+len(guest_inputs)}u")
+    header.extend([f"#define ENDINGS_BYTES {len(pages)}u",f"#define ENDING_MAX_BYTES {maximum}u"])
     signs = ["aMenuSign"+name+"Tex" for name in ("GpRace","TimeAttack","Practice","DeathRace","Options")]
     ui = signs + ["aCongratulationsTex","aOptionsTex","aOptionsFalconHelmetTex"]
     ui += list(dict.fromkeys(re.findall(r"\b(a(?:Options|Menu)\w+Tex)\b", options.read_text())))
@@ -87,6 +121,31 @@ def bake(rom, decomp, dest):
         w,h,pixels = sprite(symbol)
         header.extend([f"#define UI_{symbol} {i}u", f"    {{{len(bank)}u,{w}u,{h}u}},"])
         bank.extend(pixels)
+    # Use the cartridge grid, center-cropped by eight scanlines for Saturn.
+    # The stable wallpaper, heading and dim signs occupy one sprite.
+    width, height = 320, 224
+    backing = bytearray(b"\x80\x00" * (width*height))
+    def overlay(pixels, w, h, x, y):
+        for sy in range(max(0, -y), min(h, height-y)):
+            for sx in range(w):
+                src = 2*(sy*w+sx)
+                if pixels[src] or pixels[src+1]:
+                    dst = 2*((y+sy)*width+x+sx)
+                    backing[dst:dst+2] = pixels[src:src+2]
+    wallpaper = rgb_words(raw("aTitleBackgroundMainTex", 304*240*2), "RGBA16")
+    overlay(sign_variant(wallpaper,304,75,16),304,240,8,-8)
+    heading = rgb_words(raw("aSelectModeTex",128*24//2),"I4")
+    overlay(b"".join(struct.pack(">H", (v & 0x83ff) if v else 0) for v in heading),128,24,100,5)
+    vs = "aMenuSignVsBattleTex"
+    w,h,pixels = sprite(vs)
+    header.extend([f"#define UI_{vs} {len(dict.fromkeys(ui))}u", f"    {{{len(bank)}u,{w}u,{h}u}},"])
+    bank.extend(pixels)
+    for mode, suffix in ((0,"GpRace"),(1,"TimeAttack"),(2,"DeathRace"),(3,"VsBattle"),(5,"Practice"),(6,"Options")):
+        w,h,pixels = sprite("aMenuSign"+suffix+"Tex")
+        dim = sign_variant([v for v, in struct.iter_unpack(">H", pixels)], w, 128, 11)
+        overlay(dim,w,h,32+(mode%4)*64,30+(mode//4)*91)
+    header.extend([f"#define UI_MODE_BOARD {len(dict.fromkeys(ui))+1}u", f"    {{{len(bank)}u,320u,224u}},"])
+    bank.extend(backing)
     header.extend(["};",f"#define PAGES_UI_BYTES {len(bank)}u",f"#define PAGES_UI_HASH {fnv(bank)}u"])
     dest.mkdir(parents=True,exist_ok=True)
     receipt = ["# fzx generation receipt v1; regenerate, never edit"]
@@ -94,7 +153,7 @@ def bake(rom, decomp, dest):
         digest = hashlib.sha256(Path(__file__).with_name(module).read_bytes()).hexdigest()
         receipt.append(f"generator {digest} {module}")
     receipt.append("input "+provenance["normalized_rom_sha256"]+" owner-rom")
-    for path in (yaml,ending,options):
+    for path in (yaml,ending,options,*guest_inputs):
         receipt.append(f"input {hashlib.sha256(path.read_bytes()).hexdigest()} {path.name}")
     for name,blob in (("ENDINGS.PAK",pages),("PAGESUI.PAK",bank),("menu_pages.h",("\n".join(header)+"\n").encode())):
         (dest/name).write_bytes(blob)
@@ -106,5 +165,6 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("decomp",type=Path)
     parser.add_argument("dest",type=Path)
+    parser.add_argument("--guest-ui", type=Path, help="Guest UI directory containing the two portrait masters")
     args = parser.parse_args()
-    bake(Path(os.environ["FZX_TEST_ROM"]).read_bytes(), args.decomp, args.dest)
+    bake(Path(os.environ["FZX_TEST_ROM"]).read_bytes(), args.decomp, args.dest, args.guest_ui)

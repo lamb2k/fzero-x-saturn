@@ -96,6 +96,9 @@ static uint32_t roster_inflate_fnv(uint32_t family, unsigned prof) {
 #define FZX_GUEST_MASK 0ull
 #endif
 #ifndef FZX_P3_BASELINE
+#if FZX_GUEST_MASK && ENDING_PAGE_COUNT != 36u
+#error "Rebake ENDINGS.PAK with both guest winner portraits"
+#endif
 #if (FZX_GUEST_MASK & ~SELECT_GUEST_MASK)
 #error "Rebake SELECT.PAK with the enabled guest portraits"
 #endif
@@ -543,7 +546,7 @@ static void title_tick(void *u, uint32_t s) {
     if (!title_connected) return;
     ++title_ticks;
     if (title_ticks >= 80u && (input.edges & (PAD_A | PAD_C | PAD_START))) {
-        snd_event(1); (void)request(FZX_SCN_SELECT, RANK_GOTO);
+        snd_event(1); (void)request(FZX_SCN_MODES, RANK_GOTO);
     } else if (input.edges & PAD_B) (void)request(FZX_SCN_RECORDS, RANK_GOTO);
     else if (title_ticks >= 600u) {
         /* Retail cues its demo from the soundtrack and rotates GP/VS cameras.
@@ -617,9 +620,14 @@ static void ui_sprite(vdp1_cmdt_t *cmd, unsigned id, int x, int y) {
 }
 static bool pages_preload(uint32_t budget) { return art_preload(budget, pages_base(), PAGES_UI_BYTES); }
 static unsigned modes_span(vdp1_cmdt_t *span, unsigned capacity) {
-    if (!capacity) return 0;
-    ui_sprite(span, mode_cursor, 222, 44);
-    return 1;
+    static const uint8_t signs[] = {UI_aMenuSignGpRaceTex, UI_aMenuSignTimeAttackTex,
+        UI_aMenuSignDeathRaceTex, UI_aMenuSignVsBattleTex, UI_aMenuSignPracticeTex, UI_aMenuSignOptionsTex};
+    static const uint8_t positions[] = {0, 1, 2, 3, 5, 6};
+    if (capacity < 2u) return 0;
+    unsigned slot = positions[mode_cursor];
+    ui_sprite(span, UI_MODE_BOARD, 0, 0);
+    ui_sprite(span+1, signs[mode_cursor], 32 + 64*(slot%4), 30 + 91*(slot/4));
+    return 2;
 }
 static unsigned options_span(vdp1_cmdt_t *span, unsigned capacity) {
     if (capacity < 9u) return 0;
@@ -642,13 +650,16 @@ static bool panel_enter(void *u, uint32_t scene) {
 }
 static void modes_tick(void *u, uint32_t scene) {
     (void)u; (void)scene;
-    if (input.edges & PAD_B) { (void)request(FZX_SCN_SELECT, RANK_GOTO); return; }
-    if (input.repeat & (PAD_UP | PAD_DOWN)) {
-        mode_cursor = (mode_cursor + ((input.repeat & PAD_UP) ? 4u : 1u)) % 5u;
-        text_dirty = true;
+    if (input.edges & PAD_B) { (void)request(FZX_SCN_TITLE, RANK_GOTO); return; }
+    if (input.repeat & PAD_LEFT) mode_cursor = (mode_cursor + 5u) % 6u;
+    else if (input.repeat & PAD_RIGHT) mode_cursor = (mode_cursor + 1u) % 6u;
+    else if (input.repeat & (PAD_UP | PAD_DOWN)) {
+        static const uint8_t vertical[] = {4, 4, 5, 5, 1, 2};
+        mode_cursor = vertical[mode_cursor];
     }
+    if (input.repeat & (PAD_LEFT | PAD_RIGHT | PAD_UP | PAD_DOWN)) text_dirty = true;
     if (!(input.edges & (PAD_A | PAD_START))) return;
-    if (mode_cursor == 4u) (void)request(FZX_SCN_OPTIONS, RANK_GOTO);
+    if (mode_cursor == 5u) (void)request(FZX_SCN_OPTIONS, RANK_GOTO);
     else if (mode_cursor == 1u || (mode_cursor == 0u && jack_ready())) {
         if (request(FZX_SCN_SELECT, RANK_GOTO)) picked_mode = true;
     }
@@ -658,14 +669,11 @@ static void options_tick(void *u, uint32_t scene) {
     if (input.edges & (PAD_A | PAD_B | PAD_START)) (void)request(FZX_SCN_MODES, RANK_GOTO);
 }
 static void modes_draw(void) {
-    static const char *const names[] = {"GRAND PRIX","TIME ATTACK","PRACTICE","DEATH RACE","OPTIONS"};
     if (!text_dirty) return;
     text_dirty = false;
-    dbgio_printf("\x1b[H\x1b[2J\n\n   SELECT MODE\n\n");
-    for (unsigned i = 0; i < 5u; ++i)
-        dbgio_printf("   %c %s%s\n\n", mode_cursor == i ? '>' : ' ', names[i],
-                     (i == 2u || i == 3u || (i == 0u && !jack_ready())) ? "  LOCKED" : "");
-    dbgio_printf("\n   A: SELECT    B: BACK\n");
+    dbgio_printf("\x1b[H\x1b[2J");
+    if ((mode_cursor >= 2u && mode_cursor <= 4u) || (!mode_cursor && !jack_ready()))
+        dbgio_printf("\x1b[27;15HUNAVAILABLE");
 }
 static void options_draw(void) {
     if (!text_dirty) return;
@@ -976,10 +984,12 @@ static void ending_cache(void) {
     ending_page_ready = false;
     const fzx_cup_def_t *def = fzx_cup_def(cup->cup);
     if (fzx_session.menu_mode || !def || cup->round + 1u != def->rounds ||
-        !cup->difficulty || fzx_session.machine_id >= 33u) return;
+        (!cup->difficulty && fzx_session.machine_id < 33u) || fzx_session.machine_id > 34u) return;
     unsigned id = fzx_session.machine_id;
     if (id == 0u && cup->difficulty < 3u) id = 31u;
     else if (id == 31u || id == 32u) ++id;
+    if (fzx_session.machine_id >= 33u) id = fzx_session.machine_id + 1u;
+    if (id >= ENDING_PAGE_COUNT) return;
     ending_slot = id;
     uintptr_t scratch = ((uintptr_t)sat_stub_data_end + 31u) & ~(uintptr_t)31u;
     ending_page_ready = fzx_texture_cd_load_range("ENDINGS.PAK", ENDINGS_BYTES,

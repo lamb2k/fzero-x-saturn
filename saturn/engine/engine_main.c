@@ -1130,13 +1130,13 @@ static void build(row_t *row, const fzx_engine_cam_t *cam, uint32_t tick, uint16
     row->wait_road_ticks = (uint16_t)(cpu_frt_count_get() - t1);
 #if E0_ROAD_HASH
     /* Verification builds only: FNV over this frame's road commands (the user clip first) and Gouraud words, per frame row. */
-    if (row != &scratch_row && row_index < 4608u) {
+    if (row >= rows && (uint32_t)(row - rows) < row_capacity && (uint32_t)(row - rows) < 4608u) {
         const volatile uint32_t *cw = (const volatile uint32_t *)((uintptr_t)&commands[CMD_FIRST + FZX_SLAVE_ROAD_RESERVE] | CPU_CACHE_THROUGH);
         uint32_t h = 2166136261u ^ road_count;
         for (uint32_t i = 0; i < road_count * (uint32_t)(sizeof(vdp1_cmdt_t) / 4u); ++i) h = (h ^ cw[i]) * 16777619u;
         const volatile uint32_t *sw = (const volatile uint32_t *)((uintptr_t)hash_shades | CPU_CACHE_THROUGH);
         for (uint32_t i = 0; i < (road_count ? road_count - 1u : 0u) * 2u; ++i) h = (h ^ sw[i]) * 16777619u;
-        fzx_e0_rhash[row_index] = h;
+        fzx_e0_rhash[row - rows] = h;
     }
 #endif
 #if ENG_BAL_CLOUDS

@@ -290,11 +290,14 @@
   {
    "name": "ctl-cadence",
    "check": "cadence",
-   "how": "field image with the chunk cap off (E0_CAP_STABLE=0 E0_CHUNK_CAP=0)",
+   "how": "field image with chunk cap and balance disabled, retaining the candidate road implementation",
    "image": "field",
    "vars": [
     "E0_CAP_STABLE=0",
-    "E0_CHUNK_CAP=0"
+    "E0_CHUNK_CAP=0",
+    "ENG_BAL_CLOUDS=0",
+    "ENG_BAL_EARLY=0",
+    "ENG_BAL_PREWARM=0"
    ],
    "kind": "race",
    "course": "mute-city-1"
@@ -483,6 +486,36 @@
   {
    "receipt": "generated/road_tiles/road_tiles.receipt",
    "cmd": "python3 tools/road_tiles.py",
+   "rom": false
+  },
+  {
+   "receipt": "generated/road_prep/road_prep.receipt",
+   "cmd": "python3 tools/road_prep.py --sh2zam ../lib-{engine_pin} --bake generated/road_bake --output generated/road_prep",
+   "rom": false
+  },
+  {
+   "receipt": "generated/courses/silence-1/road_prep/road_prep.receipt",
+   "cmd": "python3 tools/road_prep.py --sh2zam ../lib-{engine_pin} --bake generated/courses/silence-1/road_bake --output generated/courses/silence-1/road_prep --texture-limit 240000",
+   "rom": false
+  },
+  {
+   "receipt": "generated/courses/sand-ocean-1/road_prep/road_prep.receipt",
+   "cmd": "python3 tools/road_prep.py --sh2zam ../lib-{engine_pin} --bake generated/courses/sand-ocean-1/road_bake --output generated/courses/sand-ocean-1/road_prep --texture-limit 240000",
+   "rom": false
+  },
+  {
+   "receipt": "generated/courses/devils-forest-1/road_prep/road_prep.receipt",
+   "cmd": "python3 tools/road_prep.py --sh2zam ../lib-{engine_pin} --bake generated/courses/devils-forest-1/road_bake --output generated/courses/devils-forest-1/road_prep --texture-limit 240000",
+   "rom": false
+  },
+  {
+   "receipt": "generated/courses/big-blue-1/road_prep/road_prep.receipt",
+   "cmd": "python3 tools/road_prep.py --sh2zam ../lib-{engine_pin} --bake generated/courses/big-blue-1/road_bake --output generated/courses/big-blue-1/road_prep --texture-limit 240000",
+   "rom": false
+  },
+  {
+   "receipt": "generated/courses/port-town-1/road_prep/road_prep.receipt",
+   "cmd": "python3 tools/road_prep.py --sh2zam ../lib-{engine_pin} --bake generated/courses/port-town-1/road_bake --output generated/courses/port-town-1/road_prep --texture-limit 240000",
    "rom": false
   }
  ],

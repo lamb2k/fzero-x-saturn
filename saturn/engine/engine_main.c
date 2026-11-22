@@ -118,6 +118,13 @@ static void prow_fill(uint32_t index) {
 }
 _Static_assert(FZX_RSP_PHASES + FZX_RSPC_COUNTERS + 10u == E0_PROW_WORDS, "per-frame record layout");
 #endif
+#ifndef E0_ROAD_HASH
+#define E0_ROAD_HASH 0
+#endif
+#if E0_ROAD_HASH
+uint32_t fzx_e0_rhash[4608u];
+static void *hash_shades; /* the Gouraud words of the job in flight */
+#endif
 #ifndef FZX_VDP1_DBANK
 #define FZX_VDP1_DBANK 0
 #endif
@@ -273,7 +280,12 @@ static volatile uint32_t pending_row; /* index + 1 of the frame VDP1 is drawing 
 
 /* VDP1's end-of-draw interrupt: stamp the free-running timer, then run Yaul's
  * own handler with the interrupt frame untouched (the jump reads r0 before
- * its delay slot restores it). */
+ * its delay slot restores it).
+ * The timer is read as two bytes (Yaul's cpu_frt_count_get reads FRCH, then FRCL). A byte read of FRCH loads the
+ * low byte into the chip's one TEMP register and FRCL returns TEMP, so this handler, running between the two reads
+ * of the code it interrupts, would hand that code its own low byte (a 16-bit timestamp wrong by up to +-255 ticks, a
+ * frame-row interval of about 65,500 ticks: one false 93 ms frame in a Sand Ocean race). The handler therefore saves
+ * TEMP (an FRCL read does not change it) and loads it back with a write to FRCH. */
 volatile uint32_t fzx_e0_draw_end_frt __attribute__((used));
 void (*volatile fzx_e0_draw_end_next)(void) __attribute__((used));
 void fzx_e0_draw_end(void);
@@ -285,17 +297,22 @@ __asm__(
     "    mov.l r0,@-r15\n"
     "    mov.l r1,@-r15\n"
     "    mov.l r2,@-r15\n"
+    "    mov.l r3,@-r15\n"
     "    mov.l 1f,r1\n"
+    "    mov.b @(1,r1),r0\n"       /* FRCL returns TEMP: the low byte an interrupted FRCH read left pending */
+    "    extu.b r0,r3\n"
     "    mov.b @r1,r0\n"
     "    extu.b r0,r2\n"
     "    shll8 r2\n"
     "    mov.b @(1,r1),r0\n"
     "    extu.b r0,r0\n"
     "    or r2,r0\n"
+    "    mov.b r3,@r1\n"           /* a write to FRCH only loads TEMP: hand the interrupted reader its low byte back */
     "    mov.l 2f,r1\n"
     "    mov.l r0,@r1\n"
     "    mov.l 3f,r0\n"
     "    mov.l @r0,r0\n"
+    "    mov.l @r15+,r3\n"
     "    mov.l @r15+,r2\n"
     "    mov.l @r15+,r1\n"
     "    jmp @r0\n"
@@ -873,6 +890,9 @@ static void kick(const fzx_engine_cam_t *cam, uint32_t tick) {
 #else
     job.shades = road_shades[0];
 #endif
+#if E0_ROAD_HASH
+    hash_shades = job.shades;
+#endif
 #if ENG_BAL_CLOUDS
     bal.frame = bal.frame + 1u; /* before the job: the slave reads it after its track */
 #endif
@@ -1101,6 +1121,17 @@ static void build(row_t *row, const fzx_engine_cam_t *cam, uint32_t tick, uint16
         fail(27, "TRACK", fzx_road_stream_stats.fault * 100u + fzx_slave_road_status);
 #endif
     row->wait_road_ticks = (uint16_t)(cpu_frt_count_get() - t1);
+#if E0_ROAD_HASH
+    /* Verification builds only: FNV over this frame's road commands (the user clip first) and Gouraud words, per frame row. */
+    if (row >= rows && (uint32_t)(row - rows) < row_capacity && (uint32_t)(row - rows) < 4608u) {
+        const volatile uint32_t *cw = (const volatile uint32_t *)((uintptr_t)&commands[CMD_FIRST + FZX_SLAVE_ROAD_RESERVE] | CPU_CACHE_THROUGH);
+        uint32_t h = 2166136261u ^ road_count;
+        for (uint32_t i = 0; i < road_count * (uint32_t)(sizeof(vdp1_cmdt_t) / 4u); ++i) h = (h ^ cw[i]) * 16777619u;
+        const volatile uint32_t *sw = (const volatile uint32_t *)((uintptr_t)hash_shades | CPU_CACHE_THROUGH);
+        for (uint32_t i = 0; i < (road_count ? road_count - 1u : 0u) * 2u; ++i) h = (h ^ sw[i]) * 16777619u;
+        fzx_e0_rhash[row - rows] = h;
+    }
+#endif
 #if ENG_BAL_CLOUDS
     {
         /* The slave's job (track, fills, then its clouds) is done: the clouds' count, then the
@@ -1633,6 +1664,13 @@ bool fzx_race_frame(void) {
 #endif
 #if E2_EARLY
         early_stage(cam);
+#endif
+#if ENG_PACE == 4 && !ENG_PACE_HUD_LEAD
+        {   /* The HUD text is formatted here, in the time the slave's track may hold the master up; counted in phys_ticks. */
+            const uint16_t h1 = cpu_frt_count_get();
+            fzx_drive_hud_prepare();
+            row->phys_ticks = (uint16_t)(row->phys_ticks + (uint16_t)(cpu_frt_count_get() - h1));
+        }
 #endif
 #else
         kick(&path.cams[shown - 1u], shown);

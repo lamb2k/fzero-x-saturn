@@ -1,0 +1,15 @@
+{
+ "_note": "C-136 fresh held-out set for the prospective retired-coast bound, chosen 2026-11-22 from the reference alone, before any native window ran on it. Layout as tools/attacks_heldout_c092.json (tools/attacks_duel.py SCENARIOS): script, reference machines c0,e0,c1,e1, native machines c0,c1, ticks, course (1 Mute City, 2 Sand Ocean), attack from. Every opponent machine and every attack start differs from the round-2 table, the C-092 and the C-116 held-out sets. Scenarios are those that retire a machine (side, spin, ko) because the bound scores retired coasts.",
+ "k-side-m6": ["side", "0,0,6,0", "0,6", 4000, 1, 800],
+ "k-side-m12": ["side", "4,0,12,0", "4,12", 4000, 1, 900],
+ "k-spin-m20": ["spin", "0,0,20,0", "0,20", 4000, 1, 1050],
+ "k-ko-m4": ["ko", "0,0,4,0", "0,4", 4000, 1, 880],
+ "k-ko-m27": ["ko", "7,0,27,0", "7,27", 4000, 1, 1400],
+ "k-spin-m23": ["spin", "0,0,23,0", "0,23", 4000, 1, 1200],
+ "k-side-t-m6": ["side", "0,0,6,0", "0,6", 4000, 2, 800],
+ "k-side-t-m26": ["side", "0,0,26,0", "0,26", 4000, 2, 900],
+ "k-spin-t-m7": ["spin", "0,0,7,0", "0,7", 4000, 2, 1050],
+ "k-spin-t-m23": ["spin", "2,0,23,0", "2,23", 4000, 2, 1200],
+ "k-ko-t-m4": ["ko", "0,0,4,0", "0,4", 4000, 2, 880],
+ "k-ko-t-m17": ["ko", "6,0,17,0", "6,17", 4000, 2, 1400]
+}

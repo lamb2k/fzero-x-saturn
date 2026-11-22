@@ -44,6 +44,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import attacks_duel as AD  # noqa: E402  (window selection, trace columns and the scenario table)
 import attacks_q16_floor as QF  # noqa: E402  (C-116: the Q16 retired-coast floor and its eligibility)
+import attacks_q16_bound as QB  # noqa: E402  (C-136: the prospective retired-coast bound, scored beside the others)
 
 Q = 1.0 / 65536
 U32 = 2.0 ** -24
@@ -255,6 +256,43 @@ def speeds_at(trace, t):
     return [AD.state(rows, t, k)['speed'] for k in (0, 1)]
 
 
+def coast_bounds(rows, bs, k, t, end):
+    r = [rows[(tt, k)][5:8] for tt in range(t, end + 1)]
+    if any(tt not in bs[k] for tt in range(t, end + 1)):
+        raise SystemExit('missing reference basis for racer %d window %d' % (k, t))
+    b = QB.coast_bound(r, [bs[k][tt] for tt in range(t, end + 1)])
+    return {x: b[x] for x in ('E_R', 'added_R', 'lam', 'added_S', 'perp', 'fixed', 'nu_max', 'ticks')}
+
+
+def window_bases(a, base, script, mref, d, t, end, ticks):
+    """Reference-only: the reference's trueBasis rows (fwd, up, side) after each tick T..end of the window, per racer (cached)."""
+    w = d / ('w%05d' % t)
+    cache = w / 'bases.json'
+    if cache.exists():
+        return {int(k): v for k, v in json.loads(cache.read_text()).items()}
+    bk = w / 'bakes'
+    bk.mkdir(exist_ok=True)
+    last = min(end + 1, ticks - 2)
+    run([a.ref] + base + ['--scenario', script, '--machines', mref, '--ticks', str(last + 1), '--replay-pads', str(d / 'ref.pads'),
+                          '--bake-range', '%d:%d' % (t, last), '--bake-dir', str(bk)])
+    out = {0: {}, 1: {}}
+    for k in (0, 1):
+        for tt in range(t, last + 1):
+            f = bk / ('p%d-%05d.src' % (k, tt))
+            for line in open(f):
+                x = line.split()
+                if x and x[0] == 'body':
+                    v = [float.fromhex(c) for c in x[3:12]]
+                    out[k][tt] = [v[0:3], v[3:6], v[6:9]]
+            f.unlink()
+    cache.write_text(json.dumps({str(k): {str(tt): b for tt, b in v.items()} for k, v in out.items()}))
+    try:
+        bk.rmdir()
+    except OSError:
+        pass
+    return out
+
+
 # ---------------------------------------------------------------- main
 def main():
     ap = argparse.ArgumentParser()
@@ -267,6 +305,7 @@ def main():
     ap.add_argument('--stage', default='all', choices=['all', 'ref', 'ambiguity', 'score'])
     ap.add_argument('--mutate', default=''); ap.add_argument('--seed', default='actual', choices=['actual', 'overlap'])
     ap.add_argument('--jobs', type=int, default=8); ap.add_argument('--scenarios', default='')
+    ap.add_argument('--c136', action='store_true', help='also score the C-136 coast bound (tiers R and S); needs the reference to bake bases')
     a = ap.parse_args()
     table = {k: tuple(v) for k, v in json.loads(a.table.read_text()).items() if not k.startswith('_')} if a.table else AD.SCENARIOS
     names = [n for n in (a.scenarios.split(',') if a.scenarios else table) if table[n][4] == 1 or a.course2]
@@ -496,6 +535,17 @@ def main():
                 ep[k].update(eligible=not why, ineligible_why=why, tol_q=terms['tol_q'], tol_rel=terms['tol_rel'], tol_floor=F,
                              tol_revised=terms['tol'], speed_ok_revised=terms['ok'])
             speed_ok_rev = all(e['speed_ok_revised'] for e in ep)
+            if a.c136:
+                # C-136: band + the added bound term for an eligible coast (tiers R and S), published separately; the band for the rest
+                for k in (0, 1):
+                    if not ep[k]['eligible']:
+                        ep[k].update(c136=None, speed_ok_c136R=ep[k]['speed_ok'], speed_ok_c136S=ep[k]['speed_ok'])
+                        continue
+                    bs = window_bases(a, base, script, mref, d, t, end, ticks)
+                    bb = coast_bounds(rows, bs, k, t, end)
+                    err = ep[k]['speed_err']
+                    ep[k].update(c136=dict(bb, tol_R=QB.tolerance(ep[k]['speed'], bb['added_R']), tol_S=QB.tolerance(ep[k]['speed'], bb['added_S'])),
+                                 speed_ok_c136R=err <= QB.tolerance(ep[k]['speed'], bb['added_R']), speed_ok_c136S=err <= QB.tolerance(ep[k]['speed'], bb['added_S']))
             aw = amb[sc]['windows'][str(t)]
             diag = aw['speed_diagnostic']
             # labels (diagnostic only): reach ambiguity at 46, other damage after the first contact
@@ -516,6 +566,8 @@ def main():
             res.update(pos_ok=pos_ok, events_ok=ev_ok, event_mismatch=why, speed_ok=speed_ok, speed_diagnostic=diag,
                        strict_ok=pos_ok and ev_ok and speed_ok, c092_ok=pos_ok and ev_ok and (speed_ok or diag),
                        speed_ok_revised=speed_ok_rev, c116_ok=QF.revised_ok(pos_ok, ev_ok, speed_ok_rev, diag), endpoints=ep,
+                       **(dict(c136R_ok=QF.revised_ok(pos_ok, ev_ok, all(e['speed_ok_c136R'] for e in ep), diag),
+                               c136S_ok=QF.revised_ok(pos_ok, ev_ok, all(e['speed_ok_c136S'] for e in ep), diag)) if a.c136 else {}),
                        labels=dict(sign_ambiguous=aw['sign_ambiguous'], reach_ambiguous=aw['reach_ambiguous'], wall_after_contact=wall_after),
                        first_divergence=div)
             return res
@@ -543,6 +595,12 @@ def main():
                 cur = dict(scenario=sc, start=r['start'], end=r['start'] + r['length'], windows=1, c092_ok=r['c092_ok'], strict_ok=r['strict_ok'],
                            c116_ok=r['c116_ok'], eligible=any(e.get('eligible') for e in r.get('endpoints', [])))
                 clusters.append(cur)
+    if a.c136:
+        allc = [r for v in summary['scenarios'].values() for r in v['windows']]
+        elig2 = [e for r in allc for e in r.get('endpoints', []) if e.get('eligible')]
+        summary['c136'] = dict(R=sum(r.get('c136R_ok', r['c116_ok']) for r in allc), S=sum(r.get('c136S_ok', r['c116_ok']) for r in allc),
+                               eligible_pass_R=sum(e['speed_ok_c136R'] for e in elig2), eligible_pass_S=sum(e['speed_ok_c136S'] for e in elig2),
+                               eligible=len(elig2), windows=len(allc))
     summary['trajectories'] = dict(count=len(clusters), c092_all_pass=sum(c['c092_ok'] for c in clusters),
                                    strict_all_pass=sum(c['strict_ok'] for c in clusters),
                                    c116_all_pass=sum(c['c116_ok'] for c in clusters), eligible=sum(c['eligible'] for c in clusters))
@@ -568,6 +626,10 @@ def main():
           'endpoints: by the band %d, with the floor %d; windows the floor rescued %d; ineligible reasons %s' % (
               c['eligible_racer_windows'], c['racer_windows'], c['eligible_windows'], summary['trajectories']['eligible'],
               c['eligible_speed_pass_by_band'], c['eligible_speed_pass_by_floor'], c['floor_rescued_windows'], c['ineligible_reasons']))
+    if a.c136:
+        x = summary['c136']
+        print('  C-136 (bound tiers R rigorous / S assumption-based): windows %d  R %d  S %d  (eligible racer endpoints %d: pass R %d, S %d; C-116 floor %d)' % (
+            x['windows'], x['R'], x['S'], x['eligible'], x['eligible_pass_R'], x['eligible_pass_S'], c['eligible_speed_pass_by_floor']))
     for cid in (1, 2):
         ws = [r for v in summary['scenarios'].values() if v['course'] == cid for r in v['windows']]
         if ws:

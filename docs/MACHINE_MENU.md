@@ -153,3 +153,27 @@ Evidence lives under `$FZX_EVIDENCE/host/machine-menu`,
 `$FZX_EVIDENCE/host/machine-menu-native-wrapper` and
 `$FZX_EVIDENCE/emu/machine-menu`. Generated assets, source closures, captures
 and discs are not published.
+
+## Engine scenes machine grid
+
+On the original front-end branch, confirming an available cup/course opens the
+six-column, five-row stock grid. The D-pad wraps on each axis. A, C or Start
+opens the selected machine's settings. B returns to the grid at the same slot.
+Y opens the guest picker when guests are enabled. The settings confirm writes
+the engine session and starts LOAD. Browsing and cancelling leave the session
+intact.
+
+Rebuild the private grid assets from the qualified C8 all-unlocked capture:
+
+```sh
+python tools/engine_machine_grid.py "$FZX_EVIDENCE/emu/machine-menu/all30-2" generated/machine_grid
+sh tools/check_receipt.sh generated/machine_grid/machine_grid.receipt
+```
+
+The baker reconstructs the stationary grid from thirty C8 selections at
+320 x 224. It stores a shared background, RGB1555 palettes and transparent
+4-bit patches for each selected machine. The engine owns navigation and draws
+the resulting VDP1 sprites. The machine name, weight, selected pilot and
+original grades come from the same C8 view as the selection highlight.
+Settings currently use the engine's text and portrait panel. The original
+rotating model, settings artwork and four skins remain open.

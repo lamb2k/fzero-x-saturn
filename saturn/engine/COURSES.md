@@ -98,6 +98,12 @@ whose rival sets stay on the cartridge and reach VDP1 only through the slot pool
 
 A pack that would reach the 3D player or the pool is refused at load (fail 35 past the partition, fail 51 on overlap).
 
+With `ENG_FX` (the field images; the race effects, `engine_fx.c`) the effects' art block sits just below the 3D
+player region: FX.PAK, 4,960 B (the wall-spark frames, the boost flame's head and tail, their colour tables;
+`tools/fx_assets.py`). Scenes image: 0x59ea0..0x5b200; field image: 0x5c0e0..0x5d440. Headroom per course falls by
+4,960 B (Silence: 75,424 B). A block that would meet the track is refused at load (fail 51); a failed FX.PAK read is
+fail 55. The attack effects' art (explosion, smoke, flying sparks) is not in this block.
+
 ## 4. Course features the engine does not handle yet
 
 | Feature | Courses | State |

@@ -12,10 +12,11 @@ from menu_assets import BASE, rgb_words, sign_variant
 from road_pack import fnv
 
 
-GUEST_LINES = (
-    ("Nobody beats the Eggman!", "Ho ho! Too slow, too slow!"),
-    ("I am the real Sonic.", "Target eliminated."),
+GUEST_WINNERS = (
+    ("robotnik", "Nobody beats the Eggman!"),
+    ("metal_sonic", "Target eliminated."),
 )
+
 
 # (stock ending row, top scanline, first column, exclusive last column).
 # All samples share a nine-pixel cap height and three descender scanlines.
@@ -141,10 +142,10 @@ def bake(rom, decomp, dest, guest_ui=None):
         maximum = max(maximum, len(page))
     guest_inputs = []
     if guest_ui:
-        for name, lines in zip(("robotnik", "metal_sonic"), GUEST_LINES):
+        for name, line in GUEST_WINNERS:
             master = guest_ui / "masters" / (name + ".png")
             guest_inputs.append(master)
-            page = guest_page(master, sprite(pairs[0][0])[2], guest_caption(lines[0], stock_captions))
+            page = guest_page(master, sprite(pairs[0][0])[2], guest_caption(line, stock_captions))
             header.append("    {%du,%du,%du,33264u}," % (len(pages), len(page), fnv(page)))
             pages.extend(page)
     header.append("};")

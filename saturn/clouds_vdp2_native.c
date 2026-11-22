@@ -386,6 +386,7 @@ uint32_t fzx_clouds_split_count(void) {return split_a.s.count+1u+split_a.borders
 /* Part B, on either CPU: the second half into the stage. The inputs (setup record, view, backdrop, sky lines) are in
  * memory. No other writes; the result is read by fzx_clouds_split_finish. */
 void fzx_clouds_split_b(const fzx_view_t *view,const RefBackdrop *source) {
+    purge_cached(&split_sh,sizeof(split_sh)); /* the setup's record, when the other CPU wrote it */
     split_b.s=(submit_t){split_b_cmds,SPLIT_B_COMMANDS,0};
     split_b_out.fault=0;split_b_out.commands=0;
     const bool ok=fzx_clouds_rbg_prepare_part(view,source,&split_b_out,emit,&split_b.s,FZX_CLOUDS_HALF1,&split_sh);

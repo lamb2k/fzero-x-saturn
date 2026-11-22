@@ -269,7 +269,7 @@ def window_bases(a, base, script, mref, d, t, end, ticks):
     w = d / ('w%05d' % t)
     cache = w / 'bases.json'
     if cache.exists():
-        return {int(k): v for k, v in json.loads(cache.read_text()).items()}
+        return {int(k): {int(tt): b for tt, b in v.items()} for k, v in json.loads(cache.read_text()).items()}
     bk = w / 'bakes'
     bk.mkdir(exist_ok=True)
     last = min(end + 1, ticks - 2)

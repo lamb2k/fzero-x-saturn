@@ -18,7 +18,7 @@
  * --driver-ahead LOOK: test driver R03 (saturn/engine/drive_ahead.h, the original CPU steering law with
  * a look-ahead of LOOK * speed ticks) in place of the kl,kh law; --driver still gives the start and end ticks.
  * --mutate NAME plants one model mutation for the controls: grip+5%, turn+2%, damp0.9968,
- * wall1.6, boost99, zones-off, stick+1 (a one-unit stick offset on non-zero input).
+ * wall1.6, boost99, zones-off, stick+1 (a one-unit stick offset on non-zero input), force1.0005 (every engine force constant x 1.0005).
  * Output: the fzx-handling v1 trace, and "ticks N hash H" with H = FNV-1a 64 over the
  * raw fixed-point body state of every tick (the bit-exact check between builds). */
 #include <stdint.h>
@@ -88,6 +88,8 @@ static int load_script(const char* path, Step* steps, int capacity) {
 }
 
 static double q16(int32_t v) { return v / 65536.0; }
+/* accel_force carries the build's force scale (SH2Z_VD_FORCE_FRAC); the trace prints it as the same real number at any scale */
+static double qa(int32_t v) { return v / (65536.0 * (double) (1u << (FZX_PHYS_FORCE_FRAC - 16))); }
 static double q12(int32_t v) { return v / 4096.0; }
 static double q30(int32_t v) { return v / 1073741824.0; }
 static int32_t dotu16(const int32_t u[3], const int32_t v[3]) {
@@ -155,6 +157,12 @@ int main(int argc, char** argv) {
         else if (strcmp(mutate, "boost99") == 0) rules.boost_ticks = 99;
         else if (strcmp(mutate, "zones-off") == 0) zones = 0;
         else if (strcmp(mutate, "stick+1") == 0) stick_offset = 1;
+        else if (strcmp(mutate, "force1.0005") == 0) {   /* force card control: every engine force constant x 1.0005 */
+            course.vehicle.force_low += course.vehicle.force_low / 2000;
+            course.vehicle.force_slide += course.vehicle.force_slide / 2000;
+            course.vehicle.force_high += course.vehicle.force_high / 2000;
+            course.vehicle.top_force += course.vehicle.top_force / 2000;
+        }
 #if FZX_PHYS_TUBES
         /* Tube classes (claude-tub): the lane's starting point (tubes as road) and one change
          * per tube rule. */
@@ -255,7 +263,7 @@ int main(int argc, char** argv) {
                         q16(b.half_right), q16(b.height), q12(b.lap_dist), q12(b.race_dist), q16(b.bvel[0]),
                         q16(b.bvel[1]), q16(b.bvel[2]), q16(b.speed), dot30(b.body[0], b.road[2]),
                         dot30(b.body[0], b.road[0]), q30(b.body[0][0]), q30(b.body[0][1]), q30(b.body[0][2]),
-                        q16(b.pos[0]), q16(b.pos[1]), q16(b.pos[2]), q16(b.accel_force), q16(b.lean_force),
+                        q16(b.pos[0]), q16(b.pos[1]), q16(b.pos[2]), qa(b.accel_force), q16(b.lean_force),
                         q16(b.slide_boost), q16(b.energy), q16(course.vehicle.max_energy), (unsigned) b.flags,
                         b.boost_timer, b.spin_timer, b.attack, b.free_timer, b.hit_timer, b.slide_count, b.tap_timer,
                         (int) b.node, b.lap, b.laps_done, b.race_time, b.lap_times[0], b.lap_times[1], b.lap_times[2],

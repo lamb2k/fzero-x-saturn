@@ -97,6 +97,7 @@ typedef struct {
     const uint8_t* p;
     const uint8_t* end;
     int bad;
+    int range; /* a legacy force word did not fit the wide scale */
 } Reader;
 
 static int32_t word(Reader* r) {
@@ -110,28 +111,55 @@ static int32_t word(Reader* r) {
     return (int32_t) v;
 }
 
+/* A force word of a version 2/3 pack in a wide build: Q16 widened exactly to Q(FZX_PHYS_FORCE_FRAC). A value
+ * that would not fit sets range (the load fails with -3). */
+static int32_t force_word(Reader* r, int legacy) {
+    int32_t v = word(r);
+    if (legacy) {
+        const int shift = FZX_PHYS_FORCE_FRAC - 16;
+        const int64_t lim = (int64_t) 1 << (31 - shift);
+        if (v >= lim || v < -lim) {
+            r->range = 1;
+            return 0;
+        }
+        v = (int32_t) ((uint32_t) v << shift);
+    }
+    return v;
+}
+
 static void words(Reader* r, int32_t* out, int n) {
     int i;
     for (i = 0; i < n; i++) out[i] = word(r);
 }
 
 int fzx_phys_load(FzxPhysCourse* c, const uint8_t* data, size_t size, int zones) {
-    Reader r = { data, data + size, 0 };
+    Reader r = { data, data + size, 0, 0 };
     sh2z_vd_vehicle_t* v = &c->vehicle;
     sh2z_vd_body_t* b = &c->start;
     uint32_t nn, nz, nr, nm, i;
-#if FZX_PHYS_TUBES
     uint32_t version;
-#endif
+    int wide_pack, tubes_pack;
 
     memset(c, 0, sizeof(*c));
-#if FZX_PHYS_TUBES
     if ((uint32_t) word(&r) != FZX_PHYS_MAGIC) return -1;
     version = (uint32_t) word(&r);
-    if (version != FZX_PHYS_VERSION && version != FZX_PHYS_VERSION_TUBES) return -1;
+    switch (version) {
+    case FZX_PHYS_VERSION:
+    case FZX_PHYS_VERSION_FORCE:
+        break;
+    case FZX_PHYS_VERSION_TUBES:
+    case FZX_PHYS_VERSION_FORCE_TUBES:
+#if FZX_PHYS_TUBES
+        break;
 #else
-    if ((uint32_t) word(&r) != FZX_PHYS_MAGIC || (uint32_t) word(&r) != FZX_PHYS_VERSION) return -1;
+        return -1;
 #endif
+    default:
+        return -1;
+    }
+    wide_pack = version == FZX_PHYS_VERSION_FORCE || version == FZX_PHYS_VERSION_FORCE_TUBES;
+    tubes_pack = version == FZX_PHYS_VERSION_TUBES || version == FZX_PHYS_VERSION_FORCE_TUBES;
+    (void) tubes_pack; /* read only in tube builds */
     nn = (uint32_t) word(&r);
     nz = (uint32_t) word(&r);
     nr = (uint32_t) word(&r);
@@ -141,9 +169,17 @@ int fzx_phys_load(FzxPhysCourse* c, const uint8_t* data, size_t size, int zones)
         return -2;
     c->track.length = word(&r);
     c->track.laps = word(&r);
-    v->force_low = word(&r);
-    v->force_slide = word(&r);
-    v->force_high = word(&r);
+    c->force_frac = 16;
+    if (wide_pack) {
+        const uint32_t ff = (uint32_t) word(&r);
+        if (ff != (uint32_t) FZX_PHYS_FORCE_FRAC) return -6;
+        c->force_frac = (uint8_t) ff;
+    } else if (FZX_PHYS_FORCE_FRAC != 16) {
+        c->legacy_force = 1;
+    }
+    v->force_low = force_word(&r, c->legacy_force);
+    v->force_slide = force_word(&r, c->legacy_force);
+    v->force_high = force_word(&r, c->legacy_force);
     v->crossover = word(&r);
     v->boost_mul = word(&r);
     v->plate_mul = word(&r);
@@ -165,7 +201,7 @@ int fzx_phys_load(FzxPhysCourse* c, const uint8_t* data, size_t size, int zones)
     v->boost_cost = word(&r);
     v->recharge = word(&r);
     v->hover_base = word(&r);
-    v->top_force = word(&r);
+    v->top_force = force_word(&r, c->legacy_force);
     for (i = 0; i < nn; i++) {
         sh2z_vd_node_t* n = &c->nodes[i];
         int32_t packed;
@@ -209,7 +245,7 @@ int fzx_phys_load(FzxPhysCourse* c, const uint8_t* data, size_t size, int zones)
     }
     for (i = 0; i < nm; i++) words(&r, c->mines[i].pos, 3);
 #if FZX_PHYS_TUBES
-    if (version == FZX_PHYS_VERSION_TUBES) {
+    if (tubes_pack) {
         for (i = 0; i < nn; i++) {
             c->joins[i].prev_end = word(&r);
             c->joins[i].next_start = word(&r);
@@ -252,7 +288,7 @@ int fzx_phys_load(FzxPhysCourse* c, const uint8_t* data, size_t size, int zones)
     b->speed = word(&r);
     b->energy = word(&r);
     b->hover = word(&r);
-    b->accel_force = word(&r);
+    b->accel_force = force_word(&r, c->legacy_force);
     b->spin_steer = word(&r);
     b->boost_timer = word(&r);
     b->spin_timer = word(&r);
@@ -275,6 +311,7 @@ int fzx_phys_load(FzxPhysCourse* c, const uint8_t* data, size_t size, int zones)
     b->wall_bounce = word(&r);
     b->tilt_in = word(&r);
     c->prev_buttons = (uint16_t) word(&r);
+    if (r.range) return -3;
     if (r.bad || r.p != r.end || b->node >= nn) return -4;
     c->track.nodes = c->nodes;
     c->track.zones = c->zones;
@@ -306,6 +343,7 @@ size_t fzx_phys_save(const FzxPhysCourse* c, const uint8_t* image, const sh2z_vd
                      uint8_t* out, size_t cap) {
     uint8_t* p = out;
     size_t i;
+    if (c->legacy_force) return 0;   /* the image holds Q16 words; the state's accel_force would not round-trip */
     if (c->state_offset + 4u * 96u > cap) return 0;
     for (i = 0; i < c->state_offset; i++) out[i] = image[i];
     p = out + c->state_offset;

@@ -8,6 +8,11 @@ marks), the surface zones, jumps and mines Race_Init adds, the machine's derived
 constants and racer 0's starting state. Every value is a C99 hex float, so the
 conversion to fixed point is exact up to the one rounding below.
 
+Wide force (SH2ZAM vehicle-dynamics-4, build(..., force_frac=24)): versions 4 (v2 plus wide force) and
+5 (v3 plus wide force). A word `force_frac` precedes force_low in the vehicle row; force_low, force_slide,
+force_high and top_force and the accel_force state word are Q(force_frac) (nearest, ties away from zero, as every
+other field). Everything else is byte for byte the v2/v3 layout. force_frac 16 (the default) writes v2/v3 unchanged.
+
 Tube courses (pipe, cylinder or half-pipe spans; the source has "join" lines) get format
 version 3: after the mines, one join record per node (the t where the join with the previous
 span ends, where the one with the next starts, Q30, and the join scale, Q30; a node without
@@ -27,6 +32,7 @@ and pack hashes and the format version, not the data.
 import argparse
 import hashlib
 import json
+import os
 import struct
 import sys
 from pathlib import Path
@@ -34,6 +40,9 @@ from pathlib import Path
 MAGIC = 0x465A5850  # "FZXP"
 VERSION = 2
 VERSION_TUBES = 3
+VERSION_FORCE = 4          # v2 plus a force_frac word and Q(force_frac) force constants and accel_force
+VERSION_FORCE_TUBES = 5    # v3 plus the same
+FORCE_FRAC_MIN, FORCE_FRAC_MAX = 16, 28
 ZONES_BY_SIDE = 0x8000000
 SHAPE_MASK = 0x1C0
 
@@ -62,7 +71,12 @@ def parse(path):
     return src
 
 
-def build(src, laps=3):
+def build(src, laps=3, force_frac=None):
+    if force_frac is None:
+        force_frac = int(os.environ.get("FZX_PHYS_FORCE_FRAC", "16"))   # callers that bake through build() (the qualifier, the top-speed metric, the attacks judge) select the scale by this
+    if not FORCE_FRAC_MIN <= force_frac <= FORCE_FRAC_MAX:
+        raise ValueError("force_frac %r is outside %d..%d" % (force_frac, FORCE_FRAC_MIN, FORCE_FRAC_MAX))
+    wide = force_frac != 16
     count, _, (length,) = src["course"]
     segs = src["seg"]
     if len(segs) != count or [s[0] for s in segs] != list(range(count)):
@@ -77,14 +91,18 @@ def build(src, laps=3):
         if not v[2] > 0 and (prev_end > 0 or next_start < 1):
             raise ValueError("join without a scale at %d" % a)
         tubes[a] = (prev_end, next_start, v[2] if v[2] > 0 else 1.0)
-    w = [MAGIC, VERSION_TUBES if tubes else VERSION, count, len(src["zone"]), len(src["jump"]), len(src["mine"]), fx(length, 12), laps]
+    version = (VERSION_FORCE_TUBES if tubes else VERSION_FORCE) if wide else (VERSION_TUBES if tubes else VERSION)
+    w = [MAGIC, version, count, len(src["zone"]), len(src["jump"]), len(src["mine"]), fx(length, 12), laps]
     m = src["machine"][2]
     q16 = lambda *k: [fx(m[i], 16) for i in k]
     q30 = lambda *k: [fx(m[i], 30) for i in k]
     # force_low force_slide force_high crossover boost_mul plate_mul slide_max slide_decay slew_base
-    w += q16(0, 1, 2, 3, 4, 5, 6, 7, 8)
+    if wide:
+        w.append(force_frac)
+    qf = lambda *k: [fx(m[i], force_frac) for i in k]
+    w += qf(0, 1, 2) + q16(3, 4, 5, 6, 7, 8)
     w += q30(9, 10)                     # turn_free turn_grip
-    w += q16(11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24)
+    w += q16(11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23) + qf(24)
     zf = rf = mf = 0
     for i, (_, info, v) in enumerate(segs):
         info &= 0xFFFFFFFF
@@ -117,7 +135,7 @@ def build(src, laps=3):
     s = src["scalars"][2]
     # t prop fwd_mag height half_left half_right lap_dist laps_dist race_dist speed energy hover accel spin_steer
     w += [fx(s[0], 30), fx(s[1], 30)] + [fx(x, 16) for x in s[2:6]] + [fx(x, 12) for x in s[6:9]]
-    w += [fx(x, 16) for x in s[9:14]]
+    w += [fx(x, 16) for x in s[9:12]] + [fx(s[12], force_frac), fx(s[13], 16)]
     w += [int(_boost)]
     d = src.get("dynamics", (0, 0, [0.0] * 21))[2]
     # spin, attack, attack direction (left +1, right -1), attack angle and rate, tap
@@ -148,13 +166,14 @@ def main():
     ap.add_argument("pack", type=Path)
     ap.add_argument("--laps", type=int, default=3)
     ap.add_argument("--receipt", type=Path)
+    ap.add_argument("--force-frac", type=int, default=int(os.environ.get("FZX_PHYS_FORCE_FRAC", "16")), help="fraction bits of the engine force (16: versions 2/3; 17..28: versions 4/5; default from FZX_PHYS_FORCE_FRAC, so a caller that bakes through this tool, such as the attacks judge, can select it)")
     args = ap.parse_args()
-    data = build(parse(args.source), args.laps)
+    data = build(parse(args.source), args.laps, args.force_frac)
     args.pack.write_bytes(data)
     src = parse(args.source)
     if args.receipt:
         args.receipt.write_text(json.dumps({
-            "tool": "tools/physics_pack.py", "format": "FZXP v%d" % (VERSION_TUBES if src["join"] else VERSION), "laps": args.laps,
+            "tool": "tools/physics_pack.py", "format": "FZXP v%d" % data[7], "force_frac": args.force_frac, "laps": args.laps,
             "source_sha256": hashlib.sha256(args.source.read_bytes()).hexdigest(),
             "pack_sha256": hashlib.sha256(data).hexdigest(), "pack_bytes": len(data),
             "course_line_hash": "%016x" % line_hash(src)}, indent=1) + "\n")

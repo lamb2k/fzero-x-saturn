@@ -40,7 +40,7 @@ sed 's/\r$//' "$S/src/sh2zam_vehicle_dynamics.c" | awk -v a="$ANCHOR" -v b="$OPP
 sed -e 's/\r$//' -e 's/^void sh2z_vd_step_contact(/void fzx_duel_opp_step_contact(/' "$S/src/sh2zam_vehicle_contact.c" > "$TMP/opp/opp_contact.c"
 sed -e 's/\r$//' -e 's/^void sh2z_vd_step2_contact(/void fzx_duel_opp_step2_contact(/' "$S/src/sh2zam_vehicle_contact2.c" > "$TMP/opp/opp_contact2.c"
 
-CF="-std=gnu11 $OPT -Wall -Wextra -Werror -I$S/include -I$S/src -I$ROOT/saturn -I$G/attacks"
+CF="-std=gnu11 $OPT -Wall -Wextra -Werror -I$S/include -I$S/src -I$ROOT/saturn -I$G/attacks ${FZX_CFLAGS:-}"   # FZX_CFLAGS: e.g. -DSH2Z_VD_FORCE_FRAC=24
 LIB="$ROOT/saturn/physics_native.c $S/src/sh2zam_vehicle_dynamics.c $S/src/sh2zam_vehicle_contact.c $S/src/sh2zam_body_contact.c
      $S/src/sh2zam_vehicle_dynamics2.c $S/src/sh2zam_vehicle_contact2.c $S/src/sh2zam_unit30.c $S/src/sh2zam_divu.c"
 # shellcheck disable=SC2086

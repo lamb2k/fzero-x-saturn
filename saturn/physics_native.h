@@ -18,6 +18,13 @@
 #define FZX_PHYS_MAGIC 0x465A5850u /* "FZXP" */
 #define FZX_PHYS_VERSION 2u
 #define FZX_PHYS_VERSION_TUBES 3u /* v2 plus one join record per node (tube courses) */
+#define FZX_PHYS_VERSION_FORCE 4u        /* v2 plus a force_frac word and Q(force_frac) force constants and accel_force */
+#define FZX_PHYS_VERSION_FORCE_TUBES 5u  /* v3 plus the same */
+
+/* The engine force scale of this build: SH2ZAM vehicle-dynamics-4's SH2Z_VD_FORCE_FRAC (16, the default, is
+ * today's Q16; 24 is the wide force). A pack names its scale (versions 4/5) and a reader built for another
+ * scale refuses it; a version 2/3 pack is Q16 and a wide build widens it exactly (<<) and flags it. */
+#define FZX_PHYS_FORCE_FRAC SH2Z_VD_FORCE_FRAC
 
 /* FZX_PHYS_TUBES=1: pipe and cylinder spans (SH2ZAM vehicle-dynamics-2, sh2z_vd_step2) and
  * version-3 packs. Off, the glue is the vehicle-dynamics-1 glue it always was and refuses a
@@ -40,6 +47,8 @@ typedef struct {
     sh2z_vd_ramp_t ramps[FZX_PHYS_MAX_RAMPS];
     sh2z_vd_mine_t mines[FZX_PHYS_MAX_MINES];
     uint32_t state_offset;   /* byte offset of the starting state in the pack */
+    uint8_t force_frac;      /* the pack's force scale (16 for a version 2/3 pack) */
+    uint8_t legacy_force;    /* 1: a version 2/3 pack loaded into a wide build (constants widened exactly, rounded as Q16) */
     uint16_t prev_buttons;   /* N64 buttons applied on the tick the state follows (restarts) */
 #if FZX_PHYS_TUBES
     sh2z_vd_track2_t track2; /* track (copied after the load), the joins and the tube rules */
@@ -63,12 +72,15 @@ static inline void fzx_phys_step(const FzxPhysCourse* c, sh2z_vd_body_t* b, cons
 }
 
 /* Loads a pack image (big-endian words). zones == 0 drops surface zones, jumps and
- * mines (the legacy bridge's races). Returns 0, or a negative error. */
+ * mines (the legacy bridge's races). Returns 0, or a negative error: -1 magic or version (a version this
+ * build does not read), -2 counts, -3 a record out of range (also a force constant that does not fit the
+ * build's scale), -4 the state block, -5 a tube join, -6 a pack whose force_frac is not this build's scale. */
 int fzx_phys_load(FzxPhysCourse* c, const uint8_t* data, size_t size, int zones);
 
 /* Writes a pack whose starting state is b: the course part of image (the pack c was
  * loaded from), then b and the buttons applied on b's last tick. Returns the size, or 0
- * if out is too small. A run restored from it continues bit for bit (state restore). */
+ * if out is too small (or if c is a version 2/3 pack in a wide build: its state would not round-trip).
+ * A run restored from it continues bit for bit (state restore). */
 size_t fzx_phys_save(const FzxPhysCourse* c, const uint8_t* image, const sh2z_vd_body_t* b, uint16_t prev_buttons,
                      uint8_t* out, size_t cap);
 

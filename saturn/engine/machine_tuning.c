@@ -32,6 +32,10 @@ static int32_t q16(float x) {
 
 static int32_t q30(float x) { return q16(x * 16384.0f); }
 
+/* The engine force constants in the build's force scale (SH2Z_VD_FORCE_FRAC, vehicle-dynamics-4): x * 2^F is exact in
+ * binary32 (a power of two), rounded to the nearest integer with ties away from zero, as q16 does at F = 16. */
+static int32_t qf(float x) { return q16(x * (float)(1u << (SH2Z_VD_FORCE_FRAC - 16))); }
+
 bool fzx_machine_tune(FzxPhysCourse *course, unsigned machine, uint32_t slider_bits) {
     machine = handling_profile(machine);
     if (machine >= 30 || slider_bits > 0x3f800000u) return false;
@@ -51,7 +55,7 @@ bool fzx_machine_tune(FzxPhysCourse *course, unsigned machine, uint32_t slider_b
     float plated=(stock_boost_force[2]+y[8])/y[2];
     float slew=(0.1f-1.0f)*inverse_balance(inverse_balance(inverse_balance(x)))+1.0f;
     sh2z_vd_vehicle_t *v=&course->vehicle;
-    v->force_low=q16(y[1]); v->force_slide=q16(y[0]); v->force_high=q16(y[2]); v->crossover=q16(y[3]);
+    v->force_low=qf(y[1]); v->force_slide=qf(y[0]); v->force_high=qf(y[2]); v->crossover=q16(y[3]);
     v->boost_mul=q16(boosted); v->plate_mul=q16(plated);
     v->slide_max=q16(y[4]); v->slide_decay=q16(y[4]/y[5]); v->slew_base=q16(slew);
     v->turn_free=q30(((m->weight-780.f)*-0.0050000027f)/1560.f+0.054f);

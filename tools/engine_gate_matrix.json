@@ -353,6 +353,49 @@
    "course": "mute-city-1"
   },
   {
+   "name": "ctl-record",
+   "check": "loop",
+   "how": "the loop script waits for a Mute City record 1 ms off the image's own HOST finish (RECORD_MS + 1): the wait times out",
+   "image": "scenes-drv",
+   "kind": "loop",
+   "script": "loop.txt",
+   "course": "mute-city-1",
+   "record_offset": 1,
+   "expect_error": "untilword timed out: untilword _table 6 RECORD_MS 10",
+   "expect_mark": "results1",
+   "expect_mark_not": "saved1"
+  },
+  {
+   "name": "ctl-smpc",
+   "check": "loop",
+   "how": "image built with ENG_SMPC_OVERLAP_CONTROL=1: the backup library's SMPC commands without the quiet SMPC, each opened by a RESENAB whose SF stays set across a vertical blank before its command is written (the race's window held open); the vertical blank's INTBACK issue waits on that SF and the boot's records load hangs inside one of its sections (fzx_smpc_quiet: one section open) before TITLE",
+   "image": "scenes-drv-snd0",
+   "kind": "loop",
+   "script": "loop.txt",
+   "course": "mute-city-1",
+   "vars": [
+    "ENG_SMPC_OVERLAP_CONTROL=1"
+   ],
+   "expect_error": "until timed out: until 1 1 3000",
+   "expect_mark_not": "title",
+   "expect_open": "fzx_smpc_quiet",
+   "pair": "arm-smpc2"
+  },
+  {
+   "name": "arm-smpc2",
+   "check": "loop",
+   "how": "test arm paired with ctl-smpc (counts when it passes): the same window held open across a vertical blank with the quiet SMPC kept; the loop passes and reaches title with fzx_smpc_quiet balanced",
+   "image": "scenes-drv-snd0",
+   "kind": "loop",
+   "script": "loop.txt",
+   "course": "mute-city-1",
+   "vars": [
+    "ENG_SMPC_OVERLAP_CONTROL=2"
+   ],
+   "expect_mark": "title",
+   "expect_pass": "fzx_smpc_quiet"
+  },
+  {
    "name": "ctl-reset",
    "check": "reset",
    "how": "at SELECT the chord lacks one button (0E00), so A confirms and the image goes to LOAD",
@@ -401,6 +444,36 @@
   }
  ],
  "regenerate": [
+  {
+   "receipt": "generated/floor_rbg/floor_rbg.receipt",
+   "cmd": "python3 tools/floor_rbg_assets.py --source generated/backdrop --output generated/floor_rbg",
+   "rom": false
+  },
+  {
+   "receipt": "generated/courses/silence-1/floor_rbg/floor_rbg.receipt",
+   "cmd": "python3 tools/floor_rbg_assets.py --source generated/courses/silence-1/backdrop --output generated/courses/silence-1/floor_rbg",
+   "rom": false
+  },
+  {
+   "receipt": "generated/courses/sand-ocean-1/floor_rbg/floor_rbg.receipt",
+   "cmd": "python3 tools/floor_rbg_assets.py --source generated/courses/sand-ocean-1/backdrop --output generated/courses/sand-ocean-1/floor_rbg",
+   "rom": false
+  },
+  {
+   "receipt": "generated/courses/devils-forest-1/floor_rbg/floor_rbg.receipt",
+   "cmd": "python3 tools/floor_rbg_assets.py --source generated/courses/devils-forest-1/backdrop --output generated/courses/devils-forest-1/floor_rbg",
+   "rom": false
+  },
+  {
+   "receipt": "generated/courses/big-blue-1/floor_rbg/floor_rbg.receipt",
+   "cmd": "python3 tools/floor_rbg_assets.py --source generated/courses/big-blue-1/backdrop --output generated/courses/big-blue-1/floor_rbg",
+   "rom": false
+  },
+  {
+   "receipt": "generated/courses/port-town-1/floor_rbg/floor_rbg.receipt",
+   "cmd": "python3 tools/floor_rbg_assets.py --source generated/courses/port-town-1/backdrop --output generated/courses/port-town-1/floor_rbg",
+   "rom": false
+  },
   {
    "receipt": "generated/courses/select/course_ids.receipt",
    "cmd": "python3 tools/course_bundle.py",

@@ -7,6 +7,15 @@
 #endif
 #include "physics_native.h"
 #include "physics_identity.h"
+#if E1_DRIVER == 2
+#include "drive_ahead.h"
+#endif
+#ifndef FZX_P3_BASELINE
+#if ENG_SCENES
+#include "engine_scenes.h"
+#include "machine_tuning.h"
+#endif
+#endif
 #include "course_select.h"
 #include "racer_sprites_identity.h"
 #include "texture_cd.h"
@@ -26,7 +35,8 @@
 #ifndef E1_DRIVER
 #define E1_DRIVER 0
 #endif
-/* R01: kl 0.004, kh 2.5, target 0; R02 adds B every 240 ticks. */
+/* 1, R01: kl 0.004, kh 2.5, target 0; R02 adds B every 240 ticks. 2, R03: the original CPU steering law with
+ * its look-ahead (drive_ahead.h), the GP test driver that finishes every Jack course (Port Town included). */
 #ifndef E1_DRIVER_BOOST
 #define E1_DRIVER_BOOST 0
 #endif
@@ -48,6 +58,10 @@ static sh2z_vd_body_t body;
 static FzxPadState pad_state;
 static uint16_t prev_n64;
 static uint32_t ticks;
+#if ENG_LOW_COLD
+/* Read once by fzx_phys_load at LOAD (which copies what the race uses into `course`): low work RAM (engine_low.x). */
+__attribute__((section(".bss.lowcold.drive_pack_buf")))
+#endif
 static uint32_t pack_buf[(CMAX(FZX_COURSE_MAX_PHYS_BYTES,FZX_PHYSICS_PACK_BYTES) + 3u) / 4u + 2u] __attribute__((aligned(8)));
 
 /* ---- physics ---------------------------------------------------------------- */
@@ -148,7 +162,11 @@ void fzx_drive_step(uint32_t n) {
             uint16_t button = ticks >= RACE_START_TICK ? N64_A : 0u;
             signed char sx = 0;
             if (body.intro == 0) {
+#if E1_DRIVER == 2
+                sx = fzx_e1_driver == 2u ? fzx_drive_ahead(&course.track, &body, 0.1f, &button) : driver_stick();
+#else
                 sx = driver_stick();
+#endif
                 if (E1_DRIVER_BOOST > 0 && ticks % E1_DRIVER_BOOST == 0u) button |= N64_B;
             }
             sh2z_vd_input_t in;
@@ -373,6 +391,14 @@ bool fzx_drive_load(void *scratch, uint32_t scratch_bytes) {
     if (!fzx_texture_cd_load(CNAME(FZX_CF_PHYS,"PHYS.PAK"), CSEL(phys_bytes,FZX_PHYSICS_PACK_BYTES), CSEL(phys_hash,FZX_PHYSICS_PACK_HASH), pack_buf, scratch, scratch_bytes))
         { fzx_e1_status = 2; return false; }
     if (fzx_phys_load(&course, (const uint8_t *)pack_buf, CSEL(phys_bytes,FZX_PHYSICS_PACK_BYTES), 1) != 0) { fzx_e1_status = 3; return false; }
+#ifndef FZX_P3_BASELINE
+#if ENG_SCENES
+    if (!fzx_machine_tune(&course, fzx_session.machine_id, fzx_session.slider_bits)) {
+        fzx_e1_status = 11;
+        return false;
+    }
+#endif
+#endif
     body = course.start; prev_n64 = 0; ticks = 0;
     memset(&pad_state, 0, sizeof(pad_state));
 #if E1_FIELD
@@ -401,7 +427,14 @@ bool fzx_drive_sprites_load(const vdp1_vram_partitions_t *parts, uint32_t clut_u
     /* CLUT partition: E0's bank stages first, then the set CLUTs (60 reserved), then the shadow. */
     const uintptr_t clut_base = (uintptr_t)parts->clut_base, clut_end = clut_base + parts->clut_size;
     const uintptr_t cl = (clut_base + clut_used + 31u) & ~(uintptr_t)31u, cl_end = cl + CLUT_SETS * 32u;
+#if ENG_CLUT_ALIGN
+    /* The shadow's lookup table at a 32-byte VDP1 address: VDP1 ignores CMDCOLR's two low bits. */
+    _Static_assert(!(offsetof(shadow_set_t, clut) & 7u), "shadow set layout");
+    const uintptr_t sh = ((cl_end + offsetof(shadow_set_t, clut) + 31u) & ~(uintptr_t)31u) - offsetof(shadow_set_t, clut);
+    const uintptr_t sh_end = sh + ((sizeof(shadow_set_t) + 7u) & ~7u);
+#else
     const uintptr_t sh = (cl_end + 7u) & ~(uintptr_t)7u, sh_end = sh + ((sizeof(shadow_set_t) + 7u) & ~7u);
+#endif
     if (sh_end > clut_end) { fzx_e1_status = 6; return false; }
     memcpy((void *)cl, (const void *)(set_cart + full->clut_offset), cluts);
     clut_vram = (uint32_t)(cl & 0x7ffffu);

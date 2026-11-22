@@ -168,6 +168,25 @@ float rb_racer_up(int i) {
            r->segmentBasis.y.z * r->segmentPositionInfo.segmentDisplacement.z;
 }
 
+/* C-118 replay input: racer i's physical pose on the course, which the game keeps tracking after the finish (its
+ * official raceDistance stops there). f: lapDistance (the segment walk's distance from the lap line, course.c
+ * func_8009DFA0), lateral and up (as rb_racer and rb_racer_up), world position x y z; n: segment index (-1 none),
+ * stateFlags, lap. */
+void rb_racer_phys(int i, float f[6], int n[3]) {
+    const Racer* r = &gRacers[i];
+    f[0] = r->lapDistance;
+    f[1] = -(r->segmentBasis.z.x * r->segmentPositionInfo.segmentDisplacement.x +
+             r->segmentBasis.z.y * r->segmentPositionInfo.segmentDisplacement.y +
+             r->segmentBasis.z.z * r->segmentPositionInfo.segmentDisplacement.z);
+    f[2] = r->segmentBasis.y.x * r->segmentPositionInfo.segmentDisplacement.x +
+           r->segmentBasis.y.y * r->segmentPositionInfo.segmentDisplacement.y +
+           r->segmentBasis.y.z * r->segmentPositionInfo.segmentDisplacement.z;
+    f[3] = r->segmentPositionInfo.pos.x; f[4] = r->segmentPositionInfo.pos.y; f[5] = r->segmentPositionInfo.pos.z;
+    n[0] = r->segmentPositionInfo.courseSegment ? r->segmentPositionInfo.courseSegment->segmentIndex : -1;
+    n[1] = r->stateFlags;
+    n[2] = r->lap;
+}
+
 /* Diagnostic: racer i's displacement from the course line, world axes (y up). */
 void rb_racer_disp(int i, float d[3]) {
     const Racer* r = &gRacers[i];

@@ -259,6 +259,19 @@ byte-identical to the recipe of record (docs/FUNCTIONAL_RECIPE.md).
 - **Windows:** the skyline palette's white entry flashes at night (`Background_UpdateBackgroundSprites`,
   `whiteIndex`). The plan is one CLUT word rewritten per frame, behind the change flag.
 
+**Road lookup tables aligned in the bake (lane `claude/vdp1`, 2026-11-20).**
+- **Why:** VDP1 reads a lookup table from `(CMDCOLR & ~3) * 8`. `tools/road_bake.py` pools each 32-byte
+  table at an 8-byte offset, so 106 to 186 tables per course are misaligned. `ENG_CLUT_ALIGN` copies
+  them to aligned VDP1 VRAM at every track load (up to 6 KB after the road shades; fault 39 if they do
+  not fit).
+- **Card:** align the tables to 32 bytes in an engine-only bake path. Do not change the shared tool's
+  default: the legacy recipe reads `generated/road_bake`. Regenerate the engine's six road bakes, preps
+  and the select bundle. Then remove the load-time copy and its VRAM.
+- **Gates:**
+  - every table aligned at load (count 0 copies);
+  - the Mednafen pictures unchanged against `ENG_CLUT_ALIGN=1`;
+  - legacy recipe BIN `4b4cacb2` unchanged.
+
 ## 8. Pipes and cylinders: results (lane `claude/tubes`, 2026-11-20)
 
 HOST and EMULATOR (Ymir) tiers; timings MODELLED; hardware UNRUN. Evidence: `fzx-evidence/host/claude-tub/`.
@@ -429,3 +442,28 @@ Scenes images only; `fzx_field_grid` / `fzx_field_grid_src` report it.
 - Three rounds at Standard: the same checks pass. Rival results equal Novice's: the engine's rival tuning does not
   depend on the class yet (headers baked at difficulty 1); the class sets only the spare machines.
 - One whole-file re-read in the six rounds (status 8 on the round-2 load), none in the three.
+
+**Complete cup with the R03 driver** (lane `claude/jack-gp2`; P3 front end merged; image gp-r03 11885ba5,
+`ENG_SCENES=1 FZX_E1_DRIVE=1 E1_DRIVER=2 FZX_CUP_DIAG_CATALOG=1`, sound on from the shipping mixed-mode disc; Ymir,
+timings MODELLED):
+- **R03** (`saturn/engine/drive_ahead.h`): the original CPU steering law (cpu.c `Cpu_GenerateInputs`, road spans:
+  1.2 x (0.3 x lateral + 360 x heading), clamp 70, stick 5/8, lean past the clamp) against the road direction
+  0.1 x speed ticks ahead. R01 is the same law without the look-ahead and stays the plays-right reference. HOST
+  (`fzx-phys --driver-ahead 0.1`) finishes all six: 111,280, 90,560, 92,738, 102,326, 125,976 and Port Town
+  117,113 ms (look 0.08 and 0.12 finish too).
+- Six rounds at Novice to END: the player's time equals HOST every round; 5/5 grids are the previous finish reversed;
+  points equal `gRacePositionPoints` exactly for every entrant; the cup reaches FINAL, then TITLE
+  (`tools/gp_order.py ... 6 --player-ms ...`: PASS). 4,068 sector reads, 0 under music, 0 re-reads. Every race
+  interval 2F, 0 over two; menus 0 over two. Critical path p99 by round 26.11, 25.38, 29.25, 25.52, 26.84, 25.46 ms
+  (the look-ahead's soft-float work runs on the master in R03 images only).
+
+**The GP NEXT CD fault, root cause.** A 256-sector stream (RIV1) filled the CD block's 200-sector buffer and paused.
+The next file's stream start reset the selector, which freed partition 0; the drive resumed the old play and put its
+next sector (FAD BEF) in partition 0 before the new Play (SKYL1, FAD 1371) seeked. The reader took it as SKYL1's
+first sector, so the file arrived one sector late (CD block tracer: an insert of FAD BEF between the partition clear
+and the 1371 Play; the VRAM copy is BEF, 1371..1374). "128 bytes off a sector boundary" was the shifted last sector's
+128-byte tail over old VRAM. No CD-DA command was in the window. The fix is the head-FAD check at a discontinuous
+start (`road_cd.c`, codex/p3-frontend 374ea5f): it drops such sectors (`fzx_cd_seek_stats[1]`). The whole-file
+re-read stays as a counted safety net (0 in the cup). Control `FZX_CD_STALE_CONTROL=1` waits after each start's
+selector reset for the stale sector: with the check, 49 met and 49 dropped, 0 re-reads; with `ENG_P3_UI=0` (no
+check) the first load never completes.

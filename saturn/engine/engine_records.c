@@ -16,8 +16,14 @@ volatile uint32_t fzx_rec_fault;
 static bup_t bup __attribute__((aligned(4)));
 static bup_devices_t devices;
 static bool bup_ready;
+#if ENG_LOW_COLD
+/* Read and written only by the scenes (select, results, records), never during a race frame: low work RAM
+ * (engine_low.x). `io` and `bup` stay in high work RAM: the backup library reads and writes them and has not run
+ * with its buffers in low work RAM on hardware. */
+__attribute__((section(".bss.lowcold.records_table")))
+#endif
 static fzx_records_t table;          /* the RAM table (what the screens read) */
-static fzx_records_t io;             /* one file's image for reads and writes */
+static fzx_records_t io;            /* one file's image for reads and writes */
 static uint32_t file_gen[2];         /* generation of each file, 0 = absent or invalid */
 static bool dirty;
 static uint32_t recent[RECENT], recent_at;
@@ -56,9 +62,14 @@ static bool valid(const fzx_records_t *r) {
            r->crc == body_crc(r);
 }
 
+/* The backup library's calls that issue SMPC commands from this thread (bup_status and bup_write wrap their BIOS
+ * call in RESDISA/RESENAB, bup.h; bup_init is the library's own) run inside a quiet SMPC: engine_smpc_quiet
+ * (engine_main.c) keeps them apart from the INTBACK the vertical blank issues every field. */
 static void ensure_bup(void) {
     if (bup_ready) return;
+    engine_smpc_quiet(true);
     bup_init(&bup, &devices);
+    engine_smpc_quiet(false);
     bup_ready = true;
 }
 
@@ -88,7 +99,9 @@ static fzx_rec_result_t write_table(void) {
     strcpy(dir.comment, "FZX RECORD");
     dir.language = BUP_LANG_ENGLISH;
     dir.data_size = size;
+    engine_smpc_quiet(true);
     const bup_status_t s = bup_write(BUP_DEVICE_INTERNAL, &dir, &io, BUP_WRITE_MODE_OVERWRITE);
+    engine_smpc_quiet(false);
     fzx_rec_report[7] = s;
     fzx_rec_report[5] = target + 1u;
     if (s == BUP_NOT_ENOUGH_MEMORY) return FZX_REC_FULL;
@@ -133,7 +146,9 @@ fzx_rec_result_t fzx_records_load(void) {
     {
         bup_stat_t st;
         memset(&st, 0, sizeof(st));
+        engine_smpc_quiet(true);
         (void)bup_status(BUP_DEVICE_INTERNAL, sizeof(table), &st);
+        engine_smpc_quiet(false);
         fzx_rec_report[12] = st.free_blocks; fzx_rec_report[13] = st.block_size;
     }
     dirty = true;

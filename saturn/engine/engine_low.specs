@@ -1,0 +1,4 @@
+%include <yaul.specs>
+
+*link:
+-L ldctl/off -T engine_low.x

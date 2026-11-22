@@ -3,11 +3,15 @@
  *
  *   fzx-gp-ref --course RECORD --rom BOOT --cpu-line LINE --difficulty 0..3 --seed N
  *              --ticks MAX --report OUT.json [--trace OUT.bin] [--player-cpu 0|1] [--tuning-course N]
- *              [--zones 0|1]
+ *              [--zones 0|1] [--trace-phys OUT.bin]
  *
  * Records what the native rival model is judged against: lap and race times per racer, finishing
  * order against grid order, field spread, rank changes, retirements. --trace writes racer 0's
  * line-space state per tick (float32 dist, lateral, speed; little-endian) for the native HOST runs.
+ * --trace-phys (C-118) writes racer 0's physical pose per tick, from the same tick as --trace and on past the
+ * race's end by PHYS_EXTRA ticks (the native run may outlast it): one 48-byte little-endian record, int32 tick,
+ * segment index, stateFlags, lap; float32 lapDistance, lateral, up, speed, raceDistance, world x, y, z.
+ * The extra ticks only step the game on after everything the report reads is final.
  * Nothing here runs on the Saturn, and no output is committed. */
 #include <math.h>
 #include <stdint.h>
@@ -25,6 +29,15 @@ extern int rb_gp_fresh_save;
 void rb_racer(int i, float f[5], int n[8]);
 float rb_racer_up(int i);
 void rb_racer_disp(int i, float d[3]);
+void rb_racer_phys(int i, float f[6], int n[3]);
+#define PHYS_EXTRA 3100
+static void phys_write(FILE* pf, int t) {
+    float f[5], g[6]; int v[8], n[3];
+    rb_racer(0, f, v); rb_racer_phys(0, g, n);
+    const int32_t ri[4] = { t, n[0], n[1], n[2] };
+    const float rf[8] = { g[0], g[1], g[2], f[2], f[0], g[3], g[4], g[5] };
+    fwrite(ri, sizeof ri, 1, pf); fwrite(rf, sizeof rf, 1, pf);
+}
 float rb_course_length(void);
 void rb_gp_frame(void);
 void rb_gp_zones(void);
@@ -81,7 +94,7 @@ static void tube_add(double angle_deg) {
 }
 
 int main(int argc, char** argv) {
-    const char *course = 0, *rom = 0, *line = 0, *report = 0, *trace = 0, *tube_pack = 0, *diag = 0, *ko_probe = 0, *pace_log = 0;
+    const char *course = 0, *rom = 0, *line = 0, *report = 0, *trace = 0, *tube_pack = 0, *diag = 0, *ko_probe = 0, *pace_log = 0, *phys = 0;
     int difficulty = 1, max_ticks = 14000, player_cpu = 1, tuning_course = 0, zones = 0;
     unsigned seed = 1;
     for (int i = 1; i + 1 < argc; i += 2) {
@@ -90,6 +103,7 @@ int main(int argc, char** argv) {
         else if (!strcmp(argv[i], "--cpu-line")) line = argv[i + 1];
         else if (!strcmp(argv[i], "--report")) report = argv[i + 1];
         else if (!strcmp(argv[i], "--trace")) trace = argv[i + 1];
+        else if (!strcmp(argv[i], "--trace-phys")) phys = argv[i + 1];
         else if (!strcmp(argv[i], "--difficulty")) difficulty = atoi(argv[i + 1]);
         else if (!strcmp(argv[i], "--seed")) seed = (unsigned)atoi(argv[i + 1]);
         else if (!strcmp(argv[i], "--ticks")) max_ticks = atoi(argv[i + 1]);
@@ -146,6 +160,8 @@ int main(int argc, char** argv) {
     FILE* pf = pace_log ? fopen(pace_log, "w") : NULL;
     if (pace_log && !pf) die("cannot write pace log");
     int pace_prev_target = 0, pace_prev_lap[MAXR] = {0}, pace_started = 0;
+    FILE* physf = phys ? fopen(phys, "wb") : NULL;
+    if (phys && !physf) die("cannot write trace-phys");
     for (int i = 0; i < MAXR; ++i) { finish_tick[i] = retire_tick[i] = -1; for (int k = 0; k < 4; ++k) lap_end[i][k] = -1; }
     for (int t = 0; t < max_ticks; ++t) {
         rb_gp_frame();
@@ -172,6 +188,7 @@ int main(int argc, char** argv) {
             if (t == 0) { grid_pos[i] = v[1]; grid_dist[i] = f[0]; grid_lat[i] = f[1]; max_energy[i] = f[4]; target_ms[i] = v[5]; character[i] = v[4]; chase[i] = v[6]; pace_rank[i] = v[7]; prev_lap[i] = v[0]; prev_pos[i] = v[1]; }
             if (i == 0 && start_tick < 0 && v[3] > 0) start_tick = t;
             if (i == 0 && tf) { float rec3[3] = { f[0], f[1], f[2] }; fwrite(rec3, sizeof rec3, 1, tf); }
+            if (i == 0 && physf) phys_write(physf, t);
             if (start_tick >= 0) {
                 if (v[0] != prev_lap[i] && v[0] >= 2 && v[0] <= 4 && lap_end[i][v[0] - 2] < 0) lap_end[i][v[0] - 2] = t - start_tick;
                 if ((v[2] & ST_FINISHED) && finish_tick[i] < 0) { finish_tick[i] = t - start_tick; final_pos[i] = v[1]; ++finished; }
@@ -232,6 +249,10 @@ int main(int argc, char** argv) {
     if (tf) fclose(tf);
     if (df) fclose(df);
     if (pf) fclose(pf);
+    if (physf) {   /* C-118: racer 0's pose on past the race's end; nothing the report reads changes */
+        for (int t = ticks; t < ticks + PHYS_EXTRA; ++t) { rb_gp_frame(); ref_tick(0, 0, 0); phys_write(physf, t); }
+        fclose(physf);
+    }
     FILE* o = fopen(report, "w");
     if (!o) die("cannot write report");
     fprintf(o, "{\n \"tier\": \"HOST\", \"role\": \"reference (original code)\", \"difficulty\": %d, \"seed\": %u, \"player_cpu\": %d,\n", difficulty, seed, player_cpu);

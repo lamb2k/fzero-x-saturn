@@ -71,10 +71,15 @@ regen)
   receipt=${3:?}; shift 3
   cd "$S/w"
   if sh tools/check_receipt.sh "$receipt" >/dev/null 2>&1; then echo "REGEN $receipt current"; exit 0; fi
-  d=$(dirname "$receipt"); rm -rf /tmp/gate-regen; cp -a "$d" /tmp/gate-regen
-  "$@" > /tmp/gate-regen.log 2>&1 || { tail -5 /tmp/gate-regen.log; echo "REGEN $receipt failed"; exit 1; }
+  d=$(dirname "$receipt"); rm -rf /tmp/gate-regen-$stage; cp -a "$d" /tmp/gate-regen-$stage
+  # The art tools write only into git-ignored folders (git check-ignore). w/ is a git archive, so the generator gets
+  # an empty repository for the tree's .gitignore rules, removed again before anything is built.
+  made_git=0; [ -e .git ] || { git init -q . && made_git=1; }
+  rc=0; "$@" > /tmp/gate-regen-$stage.log 2>&1 || rc=$?
+  [ "$made_git" = 0 ] || rm -rf .git
+  [ "$rc" = 0 ] || { tail -5 /tmp/gate-regen-$stage.log; echo "REGEN $receipt failed"; exit 1; }
   sh tools/check_receipt.sh "$receipt" >/dev/null 2>&1 || { echo "REGEN $receipt still stale"; exit 1; }
-  moved=$(cd "$d" && for f in $(sed -n 's/^output [0-9a-f]* //p' "$(basename "$receipt")"); do cmp -s "$f" "/tmp/gate-regen/$f" || echo "$f"; done | tr '\n' ' ')
+  moved=$(cd "$d" && for f in $(sed -n 's/^output [0-9a-f]* //p' "$(basename "$receipt")"); do cmp -s "$f" "/tmp/gate-regen-$stage/$f" || echo "$f"; done | tr '\n' ' ')
   echo "REGEN $receipt regenerated; outputs ${moved:+changed: }${moved:-unchanged}"
   ;;
 build)
@@ -87,11 +92,11 @@ source /yaul-env.sh
 export SILENT=1
 export PATH="\$YAUL_INSTALL_ROOT/bin:\$PATH"
 cd /$stage/w
-make -C saturn/engine SH2ZAM_ROOT=/$stage/lib-$pin "\$@" -B > /tmp/gate-build.log 2>&1 || { grep -E "error|\\*\\*\\*" /tmp/gate-build.log | head -20; exit 1; }
-make -C saturn/engine SH2ZAM_ROOT=/$stage/lib-$pin "\$@" -pn 2>/dev/null | sed -n 's/^SH_OUTPUT_DIR := //p' | tail -1 > /tmp/gate-outdir
+make -C saturn/engine SH2ZAM_ROOT=/$stage/lib-$pin "\$@" -B > /tmp/gate-build-$stage.log 2>&1 || { grep -E "error|\\*\\*\\*" /tmp/gate-build-$stage.log | head -20; exit 1; }
+make -C saturn/engine SH2ZAM_ROOT=/$stage/lib-$pin "\$@" -pn 2>/dev/null | sed -n 's/^SH_OUTPUT_DIR := //p' | tail -1 > /tmp/gate-outdir-$stage
 IN
   chroot_run /$stage/gate-build.sh "$@"
-  od=$S/w/saturn/engine/$(cat $R/tmp/gate-outdir)
+  od=$S/w/saturn/engine/$(cat $R/tmp/gate-outdir-$stage)
   d=$out/$label; rm -rf "$d"; mkdir -p "$d"
   cp "$od/fzs-engine.cue" "$od/fzs-engine.iso" "$od/yaul/fzs-engine.sym" "$od/yaul/fzs-engine.map" "$d/"
   cp "$od/cd/A.BIN" "$d/fzs-engine.bin"
@@ -123,7 +128,7 @@ bash ref/sat/closure.sh /$stage/w/saturn/build-orig-camera
 make -B -C saturn $vars FZX_CLOSURE=/$stage/w/saturn/build-orig-camera/ref_closure.o
 IN
   rm -rf "$S/w/saturn/$bd"
-  chroot_run /$stage/gate-legacy.sh > /tmp/gate-legacy-$kind.log 2>&1 || { tail -20 /tmp/gate-legacy-$kind.log; exit 1; }
+  chroot_run /$stage/gate-legacy.sh > /tmp/gate-legacy-$stage-$kind.log 2>&1 || { tail -20 /tmp/gate-legacy-$stage-$kind.log; exit 1; }
   d=$out/$label; rm -rf "$d"; mkdir -p "$d"
   cp "$S/w/saturn/$bd/yaul/fzero-x-saturn.bin" "$d/fzero-x-saturn.bin"
   rm -rf "$S/w/saturn/$bd" "$S/w/saturn/build-orig-camera"
@@ -138,13 +143,13 @@ host)
     cp tools/physics_host/build/gcc-O2-tubes/fzx-phys "$hb/fzx-phys"
   fi
   g=$(python3 -c "import sys;sys.path.insert(0,'tools');import course_catalog as c;print(c.gen_root('$slug'))")
-  printf "460 - 0 0\n9000 A 0 0\n" > /tmp/gate-r01.txt
+  printf "460 - 0 0\n9000 A 0 0\n" > /tmp/gate-r01-$stage.txt
   mkdir -p "$out"
   f=$out/$slug-$driver.txt
-  "$hb/fzx-phys" --pack "$g/physics/PHYS.PAK" --inputs /tmp/gate-r01.txt --driver "$driver" --checkpoints 256 > "$f" 2>&1
-  "$hb/fzx-phys" --pack "$g/physics/PHYS.PAK" --inputs /tmp/gate-r01.txt --driver "$driver" --out /tmp/gate-r01.tsv > /dev/null 2>&1
+  "$hb/fzx-phys" --pack "$g/physics/PHYS.PAK" --inputs /tmp/gate-r01-$stage.txt --driver "$driver" --checkpoints 256 > "$f" 2>&1
+  "$hb/fzx-phys" --pack "$g/physics/PHYS.PAK" --inputs /tmp/gate-r01-$stage.txt --driver "$driver" --out /tmp/gate-r01-$stage.tsv > /dev/null 2>&1
   # The finish (flags bit 25: race time, laps) or the retirement tick (bits 14, 19, 27), as tools' race_summary.
-  python3 - /tmp/gate-r01.tsv >> "$f" <<'PY'
+  python3 - /tmp/gate-r01-$stage.tsv >> "$f" <<'PY'
 import sys
 fin = ret = None
 for line in open(sys.argv[1]):
@@ -154,7 +159,7 @@ for line in open(sys.argv[1]):
     if fl & (1 << 25): fin = f[39]; break
 print('finish_ms %s retire_tick %s' % (fin or '-', ret or '-'))
 PY
-  rm -f /tmp/gate-r01.tsv
+  rm -f /tmp/gate-r01-$stage.tsv
   echo "HOST $slug $driver $(grep -E '^(ticks|finish_ms)' "$f" | tr '\n' ' ')"
   ;;
 *) echo "unknown command $cmd" >&2; exit 2;;

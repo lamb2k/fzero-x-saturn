@@ -88,6 +88,18 @@ static sh2z_field_surface_t surface;
 #if ENG_RIVAL_BEHAVE
 /* line-field-5: the behaviours' tuning, and the fall / retirement / KO-credit events for the attacks glue. */
 static sh2z_field_behave_t behave;
+#if defined(ENG_COURSE_SELECT) && ENG_COURSE_SELECT
+#include "course_drops.h"
+#define DROP_COUNT ((uint32_t)fzx_course_drop_count[fzx_cid - fzx_course_ids])
+#define DROP_ROWS (fzx_course_drops[fzx_cid - fzx_course_ids])
+#elif __has_include("rivals_drops.h")
+#include "rivals_drops.h"
+#define DROP_COUNT FZX_RIVALS_DROP_COUNT
+#define DROP_ROWS fzx_rivals_drops
+#else
+#define DROP_COUNT 0u
+static const uint16_t DROP_ROWS[1][2] = { { 0, 0 } };
+#endif
 static uint16_t prev_flags[FZX_FIELD_CARS];
 static int16_t prev_credit[FZX_FIELD_CARS];
 fzx_field_event_t fzx_field_events[FZX_FIELD_EVENTS];
@@ -380,6 +392,11 @@ bool fzx_field_load(const sh2z_vd_track_t *track, const sh2z_vd_body_t *player) 
             for (int c = 0; c < 3; ++c) { st->pos[c] = pp[i].pos[c] << 12; st->fwd[c] = pp[i].fwd[c]; st->up[c] = pp[i].up[c]; }
         }
         fzx_e2_report[1] = worst; fzx_e2_report[9] = off0;
+#if ENG_RIVAL_BEHAVE
+        /* line-field-5 drops: node flag 0x0200 on the course's drop ranges (tools/rivals_drops.py). */
+        for (uint32_t r = 0; r < DROP_COUNT; ++r)
+            for (uint32_t k = DROP_ROWS[r][0]; k <= DROP_ROWS[r][1] && k < line.count; ++k) nodes[k].flags |= 0x0200u;
+#endif
         if (off0 > 65536u || nodes[0].start != 0) { fzx_field_report[0] = 5; fzx_e2_report[0] = 4; return false; }
     }
 #endif
@@ -421,9 +438,13 @@ bool fzx_field_load(const sh2z_vd_track_t *track, const sh2z_vd_body_t *player) 
     memset(&params, 0, sizeof(params));
     params.pace_gain = 3277; params.pace_max = 81920; params.chase_gain = 655; params.steer_gain = 9830;
     params.margin = U(6); params.avoid_long = U(92); params.avoid_lat = U(69); params.avoid_offset = U(92);
-    params.avoid_ticks = 40; params.pass_hold = 60; params.contact_long = U(46); params.contact_lat = U(40);
+    /* avoid_ticks 0: the source avoids only while the vehicle ahead is within 92 (cpu.c, distanceToRacerAhead < 92),
+     * with no look-ahead for closing speed (field contact frequency, C-108). */
+    params.avoid_ticks = 0; params.pass_hold = 60; params.contact_long = U(46); params.contact_lat = U(40);
     params.bump_keep = 16384; params.hit_energy = 32768; params.side_energy = U(2); params.attack_energy = U(10);
-    params.wall_energy = U(3); params.wall_keep = 62259; params.attack_long = U(184); params.attack_lat = U(92);
+    /* wall_keep 0.998 a tick on the edge: the source wall routine (racer.c ~2880-2936) scales velocity by 0.998 a tick
+     * of contact and charges only the impact, not 5% a tick. */
+    params.wall_energy = U(3); params.wall_keep = 65405; params.attack_long = U(184); params.attack_lat = U(92);
     params.boost_speed = U(6); params.boost_energy = U(10); params.boost_min_share = 19661; params.boost_min_cap = 0;
     params.boost_behind = U(150); params.cruise = U(40); params.rank_lead = U(8);
     params.lod_near[0] = U(3000); params.lod_near[1] = U(8000); params.lod_near[2] = U(16000);
@@ -506,7 +527,7 @@ bool fzx_field_load(const sh2z_vd_track_t *track, const sh2z_vd_body_t *player) 
         /* line-field-5: the values HOST checked the bands and the C-095 tube judge with (ref/rivals_gp_main.c
          * --behave 1 --tune boost_energy=0): the source's tube bias pick (1/64 a decision; half hold to an exit,
          * the rest 20..35 decisions), cylinders hold their angle, pipes settle near their line; air nodes (shape
-         * 0x180), open-edge road (0x000), fall to retirement 95 ticks, KO window 120; free CPU boost. */
+         * 0x180), open-edge road (0x000), fall to retirement 95 ticks, KO window 120; drops; free CPU boost. */
         memset(&behave, 0, sizeof(behave));
         behave.roll_chance = 1024; behave.roll_latch = 32768; behave.roll_min = 20; behave.roll_span = 16;
         behave.roll_lead = 26214; behave.hold_lead = 7864; behave.roll_well = 52429;
@@ -516,6 +537,10 @@ bool fzx_field_load(const sh2z_vd_track_t *track, const sh2z_vd_body_t *player) 
         behave.air_mask = 0x01c0u; behave.air_value = 0x0180u; behave.open_mask = 0x01c0u; behave.open_value = 0x0000u;
         behave.air_spread = 2600; behave.fall_margin = U(30); behave.fall_ticks = 95;
         behave.ko_window = 120; behave.ko_near = U(1500); behave.ko_floor = 26;
+        /* Drops (HOST tuning seeds 1-6 and 101-106, judged on 201-206): launches out of a pipe on a drop node 1 in 16;
+         * beyond 1.8 of the radius round a drop cylinder, 16 / 65536 a step. */
+        behave.drop_mask = 0x0200u; behave.drop_value = 0x0200u; behave.drop_lat = 117965; behave.drop_chance = 16; behave.launch_chance = 4096;
+        behave.contact_norm = 36045; /* racer.c's impact: 1.1 x the closing speed along the line between the two, shared */
         params.behave = &behave;
         params.boost_energy = 0;
         fzx_field_event_count = 0;
@@ -567,7 +592,12 @@ void fzx_field_tick(const sh2z_vd_body_t *player) {
     if (fzx_field_report[0] != 1) return;
     player_into_field(player);
     if (!field.started && player->race_time > 0) { sh2z_field_start(&field); fzx_field_report[4] = field.tick; }
-    sh2z_field_step(&field);
+    /* line-field-7: the step for this image's behaviour block (the other is not linked). */
+#if ENG_RIVAL_BEHAVE && E2_PACK
+    sh2z_field_step_behave(&field);
+#else
+    sh2z_field_step_plain(&field);
+#endif
     fzx_field_report[3] = field.tick; fzx_field_report[5] = field.contacts;
     fzx_field_report[11] = field.finished; fzx_field_report[12] = field.retired;
 #if ENG_RIVAL_BEHAVE

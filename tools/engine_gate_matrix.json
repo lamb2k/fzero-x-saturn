@@ -330,6 +330,11 @@
    "tubes": false,
    "image": "scenes-drv-pt2",
    "host_driver": "0.004,3.5,0,460,-90.0"
+  },
+  {
+   "slug": "big-hand",
+   "index": 23,
+   "tubes": false
   }
  ],
  "runs": [

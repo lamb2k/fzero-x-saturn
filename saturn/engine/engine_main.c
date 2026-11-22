@@ -1097,7 +1097,6 @@ static void build(row_t *row, const fzx_engine_cam_t *cam, uint32_t tick, uint16
     const bool bal_mine = bal_master_claims(bf);
 #if ENG_BAL_SPLIT
     bool bal_b_mine = false; /* the second half is the master's (it ran it) */
-    uint16_t bal_thief = 0;  /* the master's ticks as the thief (its wait for the slave's setup and the second half) */
     if (bal_mine) {
         /* Setup and the first half here; the second half goes to whichever SH-2 claims it (the slave, once its
          * track and fills are done and the setup is out, or this one when it gets there first). */
@@ -1144,7 +1143,6 @@ static void build(row_t *row, const fzx_engine_cam_t *cam, uint32_t tick, uint16
             fzx_bal_split[10] += (uint16_t)(cpu_frt_count_get() - th0);
             ++fzx_bal_split[1]; ++fzx_bal_split[13];
         }
-        bal_thief = (uint16_t)(cpu_frt_count_get() - th0);
     }
 #endif
 #else
@@ -1325,11 +1323,7 @@ static void build(row_t *row, const fzx_engine_cam_t *cam, uint32_t tick, uint16
                                                           (const volatile void *)((uintptr_t)&commands[CMD_FIRST] | CPU_CACHE_THROUGH), (first + 1u) * sizeof(vdp1_cmdt_t)));
 #endif
         fzx_clouds_commit();
-#if ENG_BAL_SPLIT
-        row->master_ticks = (uint16_t)(bal_pre + bal_thief + (uint16_t)(cpu_frt_count_get() - b0));
-#else
-        row->master_ticks = (uint16_t)(bal_pre + (uint16_t)(cpu_frt_count_get() - b0));
-#endif
+        row->master_ticks = (uint16_t)(bal_pre + (uint16_t)(cpu_frt_count_get() - b0)); /* bal_pre covers the thief's ticks */
     }
 #endif
 #if FZX_ROAD_STREAM_PHASES

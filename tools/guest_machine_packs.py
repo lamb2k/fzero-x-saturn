@@ -11,10 +11,10 @@ from mach3d_packs import fnv32
 
 
 APPROVED = {
-    33: ("robotnik", "a0ff563cca860fc8a85f869cd26b8bb5ec2ef9da10635f51119b0f6ce8a3d980",
+    33: ("robotnik", "d6b91616f976852af222d01d2924f511afd32a13acf7581dced3f719f822e68f",
          "c7a7e3e2281fc93cfa7f375c4d18187feaa0664fdbfe18bb23214c5166e0cc52"),
-    34: ("metal-sonic", "3a22ad8fce3672ab5ff66fb154d796b46c2f7fba3d0bdd8e53c7a832eaf78ded",
-         "936b707c34e89439ce0c6ad232b0accfa5e1dfa78b47238b2d382798cd54c2f7"),
+    34: ("metal-sonic", "71adbc486e6a69645cbd815cf7021f3a7562df35bf63d4277a8d1d570a0b28f5",
+         "c0229892f6ccca910cf4a48c891609979a979034ade0b8f822ab963ca003c737"),
 }
 
 

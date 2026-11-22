@@ -18,7 +18,7 @@
 #endif
 #if ENG_COURSE_SELECT
 #include "course_ids.h"
-#define AV(c) ((((FZX_COURSE_BUNDLE_MASK) >> (c)) & 1u) ? (FZX_AVAIL_TA | FZX_AVAIL_GP) : 0u)
+#define AV(c) ((((FZX_COURSE_BUNDLE_MASK) >> (c)) & 1ull) ? (FZX_AVAIL_TA | FZX_AVAIL_GP) : 0u)
 static const fzx_course_row_t catalog[] = {
     { 0u, 0u, AV(0), 0u }, { 1u, 1u, AV(1), 0u }, { 2u, 2u, AV(2), 0u },
     { 3u, 3u, AV(3), 0u }, { 4u, 4u, AV(4), 0u }, { 5u, 5u, AV(5), 0u },

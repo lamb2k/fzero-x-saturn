@@ -525,6 +525,18 @@ static bool strip_unseen(const vref_t f[4],const int16_t clip[4]){
     }
     return false;
 }
+#ifndef FZX_ROAD_STREAM_NEAR_DIV
+#define FZX_ROAD_STREAM_NEAR_DIV 0
+#endif
+#if FZX_ROAD_STREAM_NEAR_DIV
+/* trunc(n/den) for 0 < den < 2^31 and |n/den| <= 65536 (the near-plane walk's attribute quotients, num < den): the SH-2
+ * divider, the same value as the 64-bit software division; a denominator outside int32 keeps the software form. */
+static inline int32_t near_quot(int64_t n,int64_t den){
+    return den>0&&den<=INT32_MAX?sh2z_divu_div64(n,(int32_t)den,NULL):(int32_t)(n/den);
+}
+#else
+static inline int32_t near_quot(int64_t n,int64_t den){return (int32_t)(n/den);}
+#endif
 #if FZX_ROAD_STREAM_LEAN_CLIP
 /* lean_clip with the row and side attributes (row clip mode 2): the near plane in 3D (the
  * vertices of sh2z_view_clip_near_center_divu, the attributes interpolated in its walk order
@@ -566,8 +578,8 @@ static int lean_clip_ts(draw_t *d,const vref_t v[4],const int16_t guard[4]){
             if(ii!=ji){if(k>=n)return -1;
                 const unsigned a=ii?i:j,o=ii?j:i;
                 const int64_t num=(int64_t)v[a]->z-nz,den=(int64_t)v[a]->z-v[o]->z;
-                buf[1][k].t=T[a]+(int32_t)(((int64_t)(T[o]-T[a])*num)/den);
-                buf[1][k].s=S[a]+(int32_t)(((int64_t)(S[o]-S[a])*num)/den);++k;}
+                buf[1][k].t=T[a]+near_quot((int64_t)(T[o]-T[a])*num,den);
+                buf[1][k].s=S[a]+near_quot((int64_t)(S[o]-S[a])*num,den);++k;}
         }
         if(k!=n)return -1;
         for(unsigned i=0;i<n;++i){buf[0][i].v=q[i];buf[0][i].t=buf[1][i].t;buf[0][i].s=buf[1][i].s;}
@@ -1003,6 +1015,33 @@ culled_ok:
     }
     return true;
 }
+#ifndef FZX_ROAD_STREAM_PREFILTER
+#define FZX_ROAD_STREAM_PREFILTER 0
+#endif
+#if FZX_ROAD_STREAM_PREFILTER
+#if !FZX_ROAD_STREAM_FAST_CULL || FZX_ROAD_STREAM_CLUSTERS || FZX_ROAD_STREAM_PHASES==1
+#error FZX_ROAD_STREAM_PREFILTER mirrors the FAST_CULL quad test and needs FAST_CULL on, clusters off and no =1 diagnostics
+#endif
+/* FZX_ROAD_STREAM_PREFILTER (default 0): the quads of a chunk that quad_body would cull before any clip
+ * (every corner outside one side, or the winding of the unclipped corners) are culled in a tight first pass
+ * over the chunk; the rest take the full path in their original order. The tests, the counts and the draw
+ * output are quad_body's: this only moves the cheap rejects out of the large function. Returns true when
+ * the quad is finished (culled, or skipped as the inner shell). */
+static inline bool prefilter(draw_t *d,const fzx_road_stream_nquad_t *nq,const sh2z_view_vertex_t *base){
+    if(!d->plan->outer&&(nq->flags&1u))return true;
+    const vref_t v[4]={base+nq->v[0],base+nq->v[1],base+nq->v[2],base+nq->v[3]};
+    bool safe;
+    if(classify(v,&safe)){++d->stats->quads;++d->stats->culled;FZX_RSP_COUNT(CULL_OUT,1);return true;}
+    bool front=true;
+    for(unsigned i=0;i<4;++i)if(v[i]->outcode&SH2Z_OUT_NEAR)front=false;
+    if(!safe){
+        if(!front)return false;
+        for(unsigned i=0;i<4;++i)if(v[i]->sx< -900||v[i]->sx>900||v[i]->sy< -900||v[i]->sy>900)return false;
+    }
+    if(area(v,4)>=0){++d->stats->quads;++d->stats->culled;FZX_RSP_COUNT(CULL_WIND,1);return true;}
+    return false;
+}
+#endif
 /* Native frame: each group's chunks form at most two contiguous index runs
  * (the course wraps once); each run is one batch over its position range.
  * Chunks are then visited in the source order, as the pack path visits them. */
@@ -1055,6 +1094,15 @@ static bool native_frame(draw_t *d){
                 for(unsigned i=c->quad_first,e=i+c->quad_count;i<e;++i){const unsigned strip=w->nquads[i].strip;
                     if(seen[strip]){quads+=seen[strip];if(!live[strip]){FZX_RSP_COUNT(DEAD_STRIPS,1);FZX_RSP_COUNT(DEAD_STRIP_QUADS,seen[strip]);}seen[strip]=0;}}
                 if(!any){FZX_RSP_COUNT(DEAD_CHUNKS,1);FZX_RSP_COUNT(DEAD_CHUNK_QUADS,quads);}
+            }
+#elif FZX_ROAD_STREAM_PREFILTER
+            {   FZX_RSP(QFETCH);
+                const fzx_road_stream_nquad_t *nqs=w->nquads;
+                for(unsigned i=c->quad_first,e=i+c->quad_count;i<e;){
+                    const unsigned blk=e-i>32u?32u:e-i;uint32_t live=0;
+                    for(unsigned k=0;k<blk;++k)if(!prefilter(d,nqs+i+k,base))live|=1u<<k;
+                    for(unsigned k=0;k<blk;++k)if((live>>k)&1u&&!native_quad(d,i+k,base))return false;
+                    i+=blk;}
             }
 #else
             for(unsigned i=c->quad_first,e=i+c->quad_count;i<e;++i)if(!native_quad(d,i,base))return false;

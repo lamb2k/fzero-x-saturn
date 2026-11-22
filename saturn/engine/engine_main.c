@@ -135,6 +135,13 @@ static void prow_fill(uint32_t index, uint32_t tick) {
     for (unsigned i = 0; i < E0_PROW_CT; ++i) r[1 + E0_PROW_PH + i] = (uint16_t)(ct[i] > 65535u ? 65535u : ct[i]);
 }
 #endif
+#ifndef E0_ROAD_HASH
+#define E0_ROAD_HASH 0
+#endif
+#if E0_ROAD_HASH
+uint32_t fzx_e0_rhash[4608u];
+static void *hash_shades; /* the Gouraud words of the job in flight */
+#endif
 #ifndef FZX_VDP1_DBANK
 #define FZX_VDP1_DBANK 0
 #endif
@@ -890,6 +897,9 @@ static void kick(const fzx_engine_cam_t *cam, uint32_t tick) {
 #else
     job.shades = road_shades[0];
 #endif
+#if E0_ROAD_HASH
+    hash_shades = job.shades;
+#endif
 #if ENG_BAL_CLOUDS
     bal.frame = bal.frame + 1u; /* before the job: the slave reads it after its track */
 #endif
@@ -1118,6 +1128,17 @@ static void build(row_t *row, const fzx_engine_cam_t *cam, uint32_t tick, uint16
         fail(27, "TRACK", fzx_road_stream_stats.fault * 100u + fzx_slave_road_status);
 #endif
     row->wait_road_ticks = (uint16_t)(cpu_frt_count_get() - t1);
+#if E0_ROAD_HASH
+    /* Verification builds only: FNV over this frame's road commands (the user clip first) and Gouraud words, per frame row. */
+    if (row != &scratch_row && row_index < 4608u) {
+        const volatile uint32_t *cw = (const volatile uint32_t *)((uintptr_t)&commands[CMD_FIRST + FZX_SLAVE_ROAD_RESERVE] | CPU_CACHE_THROUGH);
+        uint32_t h = 2166136261u ^ road_count;
+        for (uint32_t i = 0; i < road_count * (uint32_t)(sizeof(vdp1_cmdt_t) / 4u); ++i) h = (h ^ cw[i]) * 16777619u;
+        const volatile uint32_t *sw = (const volatile uint32_t *)((uintptr_t)hash_shades | CPU_CACHE_THROUGH);
+        for (uint32_t i = 0; i < (road_count ? road_count - 1u : 0u) * 2u; ++i) h = (h ^ sw[i]) * 16777619u;
+        fzx_e0_rhash[row_index] = h;
+    }
+#endif
 #if ENG_BAL_CLOUDS
     {
         /* The slave's job (track, fills, then its clouds) is done: the clouds' count, then the

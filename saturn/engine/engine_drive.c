@@ -215,11 +215,13 @@ void fzx_drive_step(uint32_t n) {
 uint32_t fzx_drive_tick(void) { return ticks; }
 #if FZX_PHYS_TUBES
 /* Whether the camera is outside the track surface (the road plan's outer bit; course.c
- * D_800F89D8): inside a pipe span it is not, except over the span's joins, where the
+ * D_800F89D8): inside a pipe or tunnel span it is not, except over the span's joins, where the
  * tube opens into road. Read from the player's located span and t. */
 uint8_t fzx_drive_outer(void) {
     const uint32_t n = body.node < course.track.count ? body.node : 0u;
-    if (course.nodes[n].shape != SH2Z_VD_SHAPE_PIPE) return 1u;
+    /* TRACK_FLAG_INSIDE is set on the pipe and tunnel presets and on no other shape (course.c D_800CF9F0,
+     * D_800CFA10): the half-pipe and the cylinder are seen from outside. */
+    if (course.nodes[n].shape != SH2Z_VD_SHAPE_PIPE && course.nodes[n].shape != SH2Z_VD_SHAPE_TUNNEL) return 1u;
     return (body.t < course.joins[n].prev_end || course.joins[n].next_start < body.t) ? 1u : 0u;
 }
 #endif

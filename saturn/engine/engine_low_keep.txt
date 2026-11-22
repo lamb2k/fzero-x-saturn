@@ -453,3 +453,9 @@ tier_plan_any  # sh2zam_view_merge_tier.c 136 B
 tier_plan_ends  # sh2zam_view_merge_tier.c 1548 B
 tier_plan_free  # sh2zam_view_merge_tier.c 1304 B
 unlikely.fzx_road_stream_draw_adopt  # fzx_road_stream_draw.c 232 B
+# 4. Reset-path functions that run while the race scene's phase is still RUN (C-133, memory lane part 4): the chord handler calls
+#    sh2z_scene_request, session_defaults and fzx_cup_reset after the accepted request and before sh2z_scene_frame leaves RUN
+#    (census: field 4835 of the reset run, 55 PCs). The census treats every .low hit in an established RUN as strict.
+fzx_cup_reset
+session_defaults
+sh2z_scene_request

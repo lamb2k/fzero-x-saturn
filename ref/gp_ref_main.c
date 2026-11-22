@@ -226,16 +226,12 @@ int main(int argc, char** argv) {
             rb_gp_target(tg);
             for (int i = 0; i < MAXR; ++i) {
                 rb_racer(i, ff, fl); rb_racer_pace(i, pc);
-                if (!pace_started) fprintf(pf, "S %d %d %d %d %d %d
-", i, pc[1], pc[2], pc[3], pc[4], pc[5]);
-                if (pace_started && fl[0] != pace_prev_lap[i]) fprintf(pf, "L %d %d %d %d %d
-", t - start_tick, i, fl[0], pc[0], pc[1]);
-                if (finish_tick[i] == t - start_tick) fprintf(pf, "F %d %d %d %d
-", t - start_tick, i, pc[0], pc[1]);
+                if (!pace_started) fprintf(pf, "S %d %d %d %d %d %d\n", i, pc[1], pc[2], pc[3], pc[4], pc[5]);
+                if (pace_started && fl[0] != pace_prev_lap[i]) fprintf(pf, "L %d %d %d %d %d\n", t - start_tick, i, fl[0], pc[0], pc[1]);
+                if (finish_tick[i] == t - start_tick) fprintf(pf, "F %d %d %d %d\n", t - start_tick, i, pc[0], pc[1]);
                 pace_prev_lap[i] = fl[0];
             }
-            if (!pace_started || tg[0] != pace_prev_target) fprintf(pf, "T %d %d
-", t - start_tick, tg[0]);
+            if (!pace_started || tg[0] != pace_prev_target) fprintf(pf, "T %d %d\n", t - start_tick, tg[0]);
             pace_prev_target = tg[0]; pace_started = 1;
         }
         ticks = t + 1;

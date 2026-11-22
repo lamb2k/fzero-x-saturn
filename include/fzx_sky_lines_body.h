@@ -63,13 +63,20 @@ static bool line_emit(void *context,const fzx_sky_polygon_t *p) {
     int32_t rgb[3],step[3];
     const int32_t span=yb>ya?yb-ya:1;
     for(unsigned k=0;k<3;++k){rgb[k]=((ca>>(k*5))&31)<<16;step[k]=sky_div((((cb>>(k*5))&31)<<16)-rgb[k],span);}
-    for(int32_t y=ya;y<=yb;++y) {
-        if(y>=0 && y<224) {
-            uint16_t c=0x8000;
-            for(unsigned k=0;k<3;++k){int32_t v=(rgb[k]+32768)>>16;if(v<0)v=0;if(v>31)v=31;c|=(uint16_t)(v<<(k*5));}
-            SKY_LINES[y]=c;l->set[y]=1;
+    /* The channels run between the two end colours (steps truncate toward zero, so no value leaves [0,31]): the rows
+     * on screen, from the first of them, with the rounding term added once. */
+    {
+        const int32_t y0=ya<0?0:ya,y1=yb>223?223:yb;
+        if(y0<=y1) {
+            const int32_t skip=y0-ya;
+            int32_t r=rgb[0]+step[0]*skip+32768,g=rgb[1]+step[1]*skip+32768,b=rgb[2]+step[2]*skip+32768;
+            uint16_t *const out=SKY_LINES;uint8_t *const set=l->set;
+            for(int32_t y=y0;y<=y1;++y) {
+                out[y]=(uint16_t)(0x8000u|(uint32_t)(r>>16)|((uint32_t)(g>>16)<<5)|((uint32_t)(b>>16)<<10));
+                set[y]=1;
+                r+=step[0];g+=step[1];b+=step[2];
+            }
         }
-        for(unsigned k=0;k<3;++k)rgb[k]+=step[k];
     }
     return true;
 }

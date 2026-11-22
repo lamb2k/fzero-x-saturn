@@ -1,6 +1,7 @@
 #include "fzx_view.h"
 #include <limits.h>
 #include <string.h>
+#include "fzx_fraction.h"
 #ifndef FZX_RBG_FAST
 #define FZX_RBG_FAST 0
 #endif
@@ -138,16 +139,10 @@ int32_t fzx_view_fraction(int64_t dp,int64_t dc) {
 }
 
 static uint64_t fraction32(int64_t dp,int64_t dc) {
-    uint64_t a=dp<0 ? 0u-(uint64_t)dp : (uint64_t)dp;
+    const uint64_t a=dp<0 ? 0u-(uint64_t)dp : (uint64_t)dp;
     const uint64_t b=dc<0 ? 0u-(uint64_t)dc : (uint64_t)dc;
     if(b==0)return UINT64_C(4294967296);
-    const uint64_t d=a+b;
-    uint64_t q=0;
-    for(unsigned i=0;i<32;++i) {
-        q<<=1;
-        if(a>=d-a) { a-=d-a; q|=1u; } else a+=a;
-    }
-    return q;
+    return fzx_fraction(a,a+b);
 }
 #if FZX_RBG_FAST
 /* d is a positive focal length (int32). */

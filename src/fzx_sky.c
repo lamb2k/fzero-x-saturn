@@ -1,6 +1,7 @@
 #include "fzx_sky.h"
 #include <limits.h>
 #include <string.h>
+#include "fzx_fraction.h"
 
 enum { MAX_VERTICES=12 };
 typedef struct { int32_t p[3],s; } vertex_t;
@@ -9,13 +10,7 @@ static uint64_t fraction(int64_t a,int64_t b) {
     uint64_t n=a<0?0u-(uint64_t)a:(uint64_t)a;
     const uint64_t other=b<0?0u-(uint64_t)b:(uint64_t)b;
     if(!other)return UINT64_C(4294967296);
-    const uint64_t d=n+other;
-    uint64_t q=0;
-    for(unsigned i=0;i<32;++i) {
-        q<<=1;
-        if(n>=d-n){n-=d-n;q|=1u;}else n+=n;
-    }
-    return q;
+    return fzx_fraction(n,n+other);
 }
 /* The same product, with a 32x32->64 multiply when both factors fit 32 bits (m < 2^32 always; t < 2^32 except the
  * whole-edge fraction 2^32 of fraction()). */
@@ -59,30 +54,6 @@ static int clip(const fzx_view_t *view,const vertex_t *in,unsigned count,
     }
     return (int)n;
 }
-/* floor(n * 2^32 / d) by restoring division, the original definition (all-ones when n >= d). */
-static uint32_t q32_ratio_loop(uint32_t n,uint32_t d) {
-    uint32_t q32=0;
-    for(unsigned i=0;i<32;++i) {
-        q32<<=1;
-        if(n>=d-n){n-=d-n;q32|=1u;}else n+=n;
-    }
-    return q32;
-}
-/* The same value with the SH-2 64/32 divider for 0 <= n < d < 2^31 (n * 2^31 / d fits the signed quotient; the last
- * bit is 2r >= d from the remainder r, which is n * 2^31 - q * d in wrapped 32-bit arithmetic since r < d < 2^31). */
-static uint32_t q32_ratio(uint32_t n,uint32_t d) {
-#if defined(__sh__)
-    if(n<d && d<=0x7fffffffu) {
-        *(volatile uint32_t *)0xffffff00u=d;
-        *(volatile uint32_t *)0xffffff10u=n>>1;
-        *(volatile uint32_t *)0xffffff14u=n<<31;
-        const uint32_t q=*(volatile uint32_t *)0xffffff14u;
-        const uint32_t r=(n<<31)-q*d;
-        return (q<<1)|((r<<1)>=d?1u:0u);
-    }
-#endif
-    return q32_ratio_loop(n,d);
-}
 static vertex_t at_s(const vertex_t *a,const vertex_t *b,int32_t s) {
     /* Use one orientation and the original edge for both adjacent bands.
      * Sequentially clipping a rounded lower edge before the upper edge can
@@ -93,7 +64,7 @@ static vertex_t at_s(const vertex_t *a,const vertex_t *b,int32_t s) {
      * but avoid doing each division step in two-word arithmetic on SH-2. */
     const uint32_t n=(uint32_t)((int64_t)s-a->s);
     const uint32_t d=(uint32_t)((int64_t)b->s-a->s);
-    const uint64_t t=q32_ratio(n,d);
+    const uint64_t t=n<d&&d<=0x7fffffffu?fzx_q32_ratio(n,d):fzx_fraction_loop(n,d);
     vertex_t q;
     for(unsigned j=0;j<3;++j)q.p[j]=lerp(a->p[j],b->p[j],t);
     q.s=s;return q;

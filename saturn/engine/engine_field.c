@@ -41,7 +41,7 @@
  * fzx_field_class (0 novice .. 3 master), read at fzx_field_load. */
 #if defined(ENG_COURSE_SELECT) && ENG_COURSE_SELECT
 #include "course_class.h"
-#define FIELD_ROWS (fzx_course_field_class[fzx_cid - fzx_course_ids][field_class_now])
+#define FIELD_ROWS (fzx_course_field_class[fzx_cid->row][field_class_now])
 #else
 #include "rivals_field_class.h"
 #if FZX_RIVALS_FIELD_CLASS_SEED != FZX_RIVALS_FIELD_SEED
@@ -90,8 +90,8 @@ static sh2z_field_surface_t surface;
 static sh2z_field_behave_t behave;
 #if defined(ENG_COURSE_SELECT) && ENG_COURSE_SELECT
 #include "course_drops.h"
-#define DROP_COUNT ((uint32_t)fzx_course_drop_count[fzx_cid - fzx_course_ids])
-#define DROP_ROWS (fzx_course_drops[fzx_cid - fzx_course_ids])
+#define DROP_COUNT ((uint32_t)fzx_course_drop_count[fzx_cid->row])
+#define DROP_ROWS (fzx_course_drops[fzx_cid->row])
 #elif __has_include("rivals_drops.h")
 #include "rivals_drops.h"
 #define DROP_COUNT FZX_RIVALS_DROP_COUNT

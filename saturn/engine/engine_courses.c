@@ -30,29 +30,34 @@ const fzx_course_info_t *fzx_course_info_row(uint32_t id) {
 }
 
 #if ENG_COURSE_SELECT
-/* The bundled courses' pack identities (tools/course_bundle.py) and the one LOAD selected. */
+/* The bundled courses' identity: the image keeps only an index (id, size, FNV; tools/course_bundle.py). The selected
+ * course's row is a disc file (CIDnn.BIN), read at LOAD into high work RAM and checked as it arrives; the race reads it
+ * through fzx_cid. Rows are never in the image: twelve courses would be 50 KB of cold data in low work RAM, which is
+ * as large as the host buffers that carry its load image (engine_low.x). */
 #include "course_select.h"
-const fzx_course_id_t *fzx_cid = &fzx_course_ids[0];
+#include "texture_cd.h"
+extern unsigned char sat_stub_data_end[];
+static fzx_course_id_t cid_row __attribute__((aligned(8)));
+const fzx_course_id_t *fzx_cid = &cid_row;
+static int32_t cid_loaded = -1;      /* the course id cid_row holds, or -1 */
 
-const fzx_course_id_t *fzx_course_bundled(uint32_t id) {
+static const fzx_course_index_t *course_index_row(uint32_t id) {
     for (uint32_t i = 0; i < FZX_COURSE_IDS_COUNT; ++i)
-        if (fzx_course_ids[i].id == id) return &fzx_course_ids[i];
+        if (fzx_course_index[i].id == id) return &fzx_course_index[i];
     return NULL;
 }
 
-#if ENG_LOW_COLD
-/* The bundle's table is cold and sits in low work RAM (engine_low_rodata.ld); LOAD copies the selected row here,
- * so everything the race reads through fzx_cid (the skyline ring, the sky colours) stays in high work RAM. */
-static fzx_course_id_t cid_row;
-#endif
 bool fzx_course_use(uint32_t id) {
-    const fzx_course_id_t *c = fzx_course_bundled(id);
-    if (!c) return false;
-#if ENG_LOW_COLD
-    cid_row = *c;
-    c = &cid_row;
-#endif
-    fzx_cid = c;
+    const fzx_course_index_t *x = course_index_row(id);
+    if (!x) return false;
+    if (cid_loaded == (int32_t)id) return true;
+    cid_loaded = -1;
+    if (x->bytes != FZX_COURSE_ROW_BYTES || id > 99u) return false;
+    char name[12] = { 'C', 'I', 'D', (char)('0' + id / 10u), (char)('0' + id % 10u), '.', 'B', 'I', 'N', 0, 0, 0 };
+    const uintptr_t scratch = ((uintptr_t)sat_stub_data_end + 31u) & ~(uintptr_t)31u;
+    if (!fzx_texture_cd_load(name, FZX_COURSE_ROW_BYTES, x->hash, &cid_row, (void *)scratch, 4096u)) return false;
+    if (cid_row.id != id || cid_row.row != (uint32_t)(x - fzx_course_index)) return false; /* the file is not this course's row */
+    cid_loaded = (int32_t)id;
     return true;
 }
 #endif

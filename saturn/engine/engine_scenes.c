@@ -768,12 +768,8 @@ static void select_draw(void) {
     if (select_mode)
         dbgio_printf("   TIME ATTACK\n   COURSE  < %s >\n", course_name(course_cursor));
     else
-        dbgio_printf(FZX_CUP_DIAG_CATALOG ? "   GRAND PRIX   JACK CUP
-   CLASS   < %s >
-"
-                                       : "   GRAND PRIX   JACK CUP
-   CLASS   %s
-", levels[select_difficulty]);
+        dbgio_printf(FZX_CUP_DIAG_CATALOG ? "   GRAND PRIX   JACK CUP\n   CLASS   < %s >\n"
+                                       : "   GRAND PRIX   JACK CUP\n   CLASS   %s\n", levels[select_difficulty]);
 #endif
     if (jack_ready()) dbgio_printf("   C: CHANGE MODE\n");
 #ifndef FZX_P3_BASELINE

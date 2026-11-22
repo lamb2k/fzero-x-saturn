@@ -3,7 +3,7 @@
 Usage: rivals_field_header.py REFERENCE.json OUT.h [--course SLUG] [--speed-k K]
        rivals_field_header.py --classes NOVICE.json STANDARD.json EXPERT.json MASTER.json OUT_CLASS.h [--course SLUG] [--speed-k K]
 --practice (with --classes; reports from fzx-gp-ref --mode practice): the finish column is the lap-2 pace of the reference itself, as a
-3-lap-equivalent target: (target lap + 2 x the rival's reference lap 2) ms. The engine stretches it over its endless field (engine_field.c).
+3-lap-equivalent target: (its lap 1 + 2 x its reference lap 2) ms, and the target lap column is the reference's own lap 1. The engine stretches it over its endless field (engine_field.c).
 The second form (ENG_RIVAL_CLASS, line-field-5 (d)) writes the four class row sets fzx_rivals_field_class[4][30][8]
 (class = the source's gDifficulty, cpu.c's course * 4 + difficulty tables): one reference report per class, the same
 seed and machines (the grid column may differ: Master's tier grid moves places), difficulties 0..3 in order. rivals_field.h is untouched.
@@ -29,7 +29,7 @@ def field_rows(d):
         for r in d['racers']:
             e = r['lap_end_ticks']
             lap2 = e[1] - e[0] if e[0] > 0 and e[1] > 0 else 0
-            finish[r['id']] = int(round((r['target_lap_ms'] * 60 / 1000.0 + 2 * lap2) * 1000 / 60)) if (lap2 and r['id'] and r['chase'] == 255) else 0
+            finish[r['id']] = int(round((e[0] + 2 * lap2) * 1000 / 60)) if (lap2 and r['id'] and r['chase'] == 255) else 0
     else:
         finish = rivals_finish.targets(d, slug)
     caps = rivals_finish.chase_caps(d, slug, speed_k) if speed_k else {i: 0 for i in finish}
@@ -37,7 +37,10 @@ def field_rows(d):
     for r in sorted(d['racers'], key=lambda r: r['id']):
         chase = r['chase']
         aggression = 38 if chase not in (0, 255) else 0
-        rows.append((r['grid'], r['target_lap_ms'], chase, int(round(r['max_energy'] * 256)), aggression, r['character'], finish[r['id']], caps[r['id']]))
+        lap_ms = r['target_lap_ms']
+        if '--practice' in sys.argv and r['id'] and chase == 255 and r['lap_end_ticks'][0] > 0:
+            lap_ms = int(round(r['lap_end_ticks'][0] * 1000 / 60.0))   # the reference's own lap 1 (its pace is not the row's target)
+        rows.append((r['grid'], lap_ms, chase, int(round(r['max_energy'] * 256)), aggression, r['character'], finish[r['id']], caps[r['id']]))
     if [r['id'] for r in sorted(d['racers'], key=lambda r: r['id'])] != list(range(len(rows))):
         raise SystemExit('reference ids must run 0..n-1')
     return rows

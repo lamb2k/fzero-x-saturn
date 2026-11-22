@@ -31,6 +31,7 @@ enum {
     PRE_Q8 = 92 * 256,            /* line-space box around a body that can hold a contact (reach 46, the lines' 15-unit mismatch) */
     HIT_TICKS = 60,               /* unk_208: no grip after an attack lands */
     CREDIT_TICKS = 60,            /* func_8008DBB8(victim, 60) */
+    FALL_CREDIT_TICKS = 120,      /* func_80090AFC -> func_8008DBB8(racer, 120): a fall credits a contact up to 120 ticks old */
     SPIN_OUT_TICKS = 150,         /* spinOutTimer */
     SIDE_TICKS = 15,              /* side attack (E1 P07) */
     SPIN_TICKS = 112,             /* spin attack (E1 P08) */
@@ -80,6 +81,11 @@ static uint32_t ncand, nprev_push;
 static int32_t along[FZX_ATK_MAX];
 static uint32_t rng, n_kos, reverse_run;
 static int32_t regain_pending, player_max_q8;
+/* The player's flags before this tick's steps (set by the tick's contact, which runs before the player's step). The KO credit
+ * reads them, not the state after the step: the original credits a KO on the tick both spin out (claude/attacks-outcome
+ * 964381e, the scored native's flags0_pre). Every credit path of the tick (contact damage, walls, a fall) reads this. */
+static uint32_t player_flags_pre;
+static uint8_t was_falling[FZX_ATK_MAX];
 static bool live;
 static uint32_t hunt_tap_at, hunt_cool;
 /* KO hooks raised by a contact run ahead of its tick (fzx_atk_hold_hooks) wait for that tick. */
@@ -140,6 +146,7 @@ void fzx_atk_init(const fzx_atk_field_t *f, uint32_t seed) {
     rng = seed * 2654435761u + 0x5bd1e995u;
     if (!rng) rng = 1u;
     n_kos = 0; reverse_run = 0; regain_pending = 0;
+    player_flags_pre = 0; memset(was_falling, 0, sizeof(was_falling));
     hunt_tap_at = 0; hunt_cool = 0; hunt_dir = 0;
     hook_hold = false; n_held = 0;
     ncand = 0; nprev_push = 0;
@@ -181,12 +188,28 @@ static void record_retire(uint32_t i) {
     fzx_atk_retire_place[i] = (uint8_t)(F.veh[i].rank + 1u);
 }
 
-/* The player's state as a KO's attacker: not finished, crashed or spinning out. */
-static bool player_can_score(const sh2z_vd_body_t *p) {
-    return !(p->flags & (SH2Z_VD_FINISHED | SH2Z_VD_CRASHED | SH2Z_VD_SPINNING)) && (p->flags & SH2Z_VD_ACTIVE);
+/* The player's state as a KO's attacker: not finished, crashed or spinning out, before this tick's steps. A body that is not
+ * active has crashed (vehicle-dynamics clears ACTIVE only with CRASHED), so the scored native's three-flag test is the whole rule. */
+static bool player_can_score(void) {
+    return !(player_flags_pre & (SH2Z_VD_FINISHED | SH2Z_VD_CRASHED | SH2Z_VD_SPINNING));
 }
 
-static void start_spin_out(const sh2z_vd_body_t *p, uint32_t i) {
+/* A KO credited to the player: its count, the log, 1/8 of its max energy back on the next tick, the hook. */
+static void credit_ko(uint32_t i) {
+    if (n_kos < FZX_ATK_KO_LOG) {
+        fzx_atk_kos[n_kos].tick = race_ticks(); fzx_atk_kos[n_kos].victim = (uint8_t)i; fzx_atk_kos[n_kos].attacker = 0;
+    }
+    ++n_kos;
+    if (fzx_atk_ko_count[0] < 255u) ++fzx_atk_ko_count[0];
+    ++fzx_atk_report[3];
+    regain_pending += (player_max_q8 << 8) / 8;   /* Q16: energyRegain += maxEnergy * 0.125 */
+    if (fzx_atk_ko_hook) {
+        if (hook_hold) { if (n_held < FZX_ATK_MAX) held[n_held++] = (uint8_t)i; }
+        else fzx_atk_ko_hook(i);
+    }
+}
+
+static void start_spin_out(uint32_t i) {
     rival_t *r = &R[i];
     sh2z_vehicle_t *v = &F.veh[i];
     v->energy = 0;
@@ -198,19 +221,7 @@ static void start_spin_out(const sh2z_vd_body_t *p, uint32_t i) {
     v->flags &= (uint16_t)~SH2Z_VEH_BOOST;
     ++fzx_atk_report[4];
     /* KO credit at the start of the spin-out (func_8008DBB8). */
-    if (sh2z_bc_credit(&bcf, i, &rules) == 0 && player_can_score(p)) {
-        if (n_kos < FZX_ATK_KO_LOG) {
-            fzx_atk_kos[n_kos].tick = race_ticks(); fzx_atk_kos[n_kos].victim = (uint8_t)i; fzx_atk_kos[n_kos].attacker = 0;
-        }
-        ++n_kos;
-        if (fzx_atk_ko_count[0] < 255u) ++fzx_atk_ko_count[0];
-        ++fzx_atk_report[3];
-        regain_pending += (player_max_q8 << 8) / 8;   /* Q16: energyRegain += maxEnergy * 0.125 */
-        if (fzx_atk_ko_hook) {
-            if (hook_hold) { if (n_held < FZX_ATK_MAX) held[n_held++] = (uint8_t)i; }
-            else fzx_atk_ko_hook(i);
-        }
-    }
+    if (sh2z_bc_credit(&bcf, i, &rules) == 0 && player_can_score()) credit_ko(i);
 }
 
 /* Damage (Q16) to rival i (Racer_ReceiveDamage). */
@@ -227,17 +238,19 @@ static void damage_rival(const sh2z_vd_body_t *p, uint32_t i, int32_t amount) {
     if (v->energy < 0) {
         if (r->mode & M_SPUN) { v->energy = 0; return; }
         if (!fzx_atk_visible(p, i)) { v->energy = OUT_OF_VIEW_ENERGY; ++fzx_atk_report[9]; return; }
-        start_spin_out(p, i);
+        start_spin_out(i);
     }
 }
 
 void fzx_atk_test_damage(const sh2z_vd_body_t *p, uint32_t i, int32_t amount) {
+    player_flags_pre = p->flags;   /* a HOST test: the state given is the state before the tick */
     if (live && i > 0u && i < F.count) damage_rival(p, i, amount);
 }
 
 /* ---- contact ------------------------------------------------------------------------------- */
 void fzx_atk_contact(const sh2z_vd_body_t *p, sh2z_vd_contact_t *out) {
     memset(out, 0, sizeof(*out));
+    player_flags_pre = p->flags;   /* before this tick's steps: what every KO credit of the tick reads */
     if (!live) return;
     out->regain = regain_pending; regain_pending = 0;
 #ifdef ATK_PROF
@@ -366,14 +379,14 @@ void fzx_atk_contact(const sh2z_vd_body_t *p, sh2z_vd_contact_t *out) {
  * caps 64) and at least 2 (a driven rival returning to the field moves once here and once in the field
  * step). A rival inside the window along still clears when its lateral range over that tick stays more
  * than PRE_Q8 from the player's. A KO credited to the player in that field tick would leave a regain for
- * the contact: any rival the player touched within the credit window blocks the deferral. */
+ * the contact: any rival the player touched within the longest credit window (a fall's, 120 ticks) blocks the deferral. */
 bool fzx_atk_player_clear(const sh2z_vd_body_t *p, int32_t pd, int32_t pl, bool field_pending) {
     if (!live) return true;
     if (regain_pending) return false;
     const uint32_t n = F.count;
 #if !(defined(FZX_ATK_CLEAR_NOCREDIT) && FZX_ATK_CLEAR_NOCREDIT)   /* HOST control only: the credit test dropped */
     for (uint32_t i = 1; i < n; ++i)
-        if (body[i].toucher == 0 && body[i].since <= rules.credit_window + 1u) return false;
+        if (body[i].toucher == 0 && body[i].since <= FALL_CREDIT_TICKS + 1u) return false;
 #endif
     if (!(p->flags & SH2Z_VD_ACTIVE)) return true;   /* the player's body is never active in the walk */
     const int32_t length = F.line->length, half = length / 2;
@@ -636,8 +649,24 @@ static void think(const sh2z_vd_body_t *p, uint32_t i) {
 
 static uint32_t mix(uint32_t h, uint32_t x) { return (h ^ x) * 16777619u; }
 
+/* KO at a fall start (func_80090AFC -> func_8008DBB8(racer, 120), racer.c 3884-3887): a rival the field has just flagged falling
+ * (line-field-5: a rival leaving the line in the air or on a drop), not spun out or crashed before, whose last contact was the
+ * player's and at most 120 ticks old counting this one (the age is the counter after this tick's ageing, plus the tick the race
+ * clock ran), credits the player as a spin-out start does, when the player could score before this tick's steps. The scored
+ * native (tools/attacks_host/duel_native.c, C-096 item 5) has the same rule. */
+static void check_falls(void) {
+    for (uint32_t i = 1; i < F.count; ++i) {
+        const bool fall = (F.veh[i].flags & SH2Z_VEH_FALLING) != 0;
+        if (fall && !was_falling[i] && !(R[i].mode & (M_SPUN | M_CRASHED)) && body[i].toucher == 0 &&
+            body[i].since < FALL_CREDIT_TICKS && player_can_score())
+            credit_ko(i);
+        was_falling[i] = (uint8_t)fall;
+    }
+}
+
 void fzx_atk_after(const sh2z_vd_body_t *p) {
     if (!live) return;
+    check_falls();
     /* Reverse driving: the player's speed along the line below zero, in a row. */
     reverse_run = F.veh[0].t.speed <= 0 && race_ticks() > 0 ? reverse_run + 1u : 0u;
     APROF_T(sp);

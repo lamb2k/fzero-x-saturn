@@ -4,7 +4,7 @@
  *
  *   fzx-atk --phys PHYS.PAK --rivals RIVALS.PAK [--driver 1|2] [--ticks N] [--vis 0|1] [--ai 0|1]
  *           [--difficulty D] [--report OUT.json] [--trace OUT.tsv] [--mutate NAME]
- *           [--order canonical|saturn] [--frame N] [--clear-check 1]
+ *           [--order canonical|saturn] [--frame N] [--clear-check 1] [--gate 1]
  *
  * --driver 1 is the R01 closed-loop driver (the image's E1_DRIVER=1), 2 the scripted hunter.
  * Prints "chk N HASH" every 256 field ticks (fzx_atk_chk, the image keeps the same words) and
@@ -16,7 +16,12 @@
  * end (after the kick), then the next tick's contact runs ahead with its KO hooks held. Its output must equal
  * --order canonical. --clear-check 1 (canonical order) tests fzx_atk_player_clear on every tick, with and
  * without a pending field tick, against the contact that follows: "clear ... violations 0" is required, and
- * a build with -DFZX_ATK_CLEAR_NOMOTION=1 (the travel bound dropped) is its failing control. */
+ * a build with -DFZX_ATK_CLEAR_NOMOTION=1 (the travel bound dropped) is its failing control.
+ *
+ * --gate 1 prints the reference the engine gate reads for an image built with ENG_ATTACKS (tools/engine_gate.py): "chk N H" the body
+ * hash every 256 ticks (the image's fzx_e1_checkpoints), "achk N H" the attack and field words (fzx_atk_chk), "ticks T final H hash 0" the
+ * final body hash, and "finish_ms F retire_tick R" (the player's finish time, or its first crashed tick). A tube course is built with
+ * -DFZX_PHYS_TUBES=1 (tools/attacks_host/build.sh TUBES=1). */
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -115,7 +120,7 @@ static void ko_hook(uint32_t victim) { (void)victim; ++ko_hook_calls; }
 
 int main(int argc, char **argv) {
     const char *phys = NULL, *report = NULL, *trace = NULL;
-    int driver = 1, ticks_max = 9460, vis = 1, ai = 1, diff = 1, saturn = 0, frame = 2, clear_check = 0;
+    int driver = 1, ticks_max = 9460, vis = 1, ai = 1, diff = 1, saturn = 0, frame = 2, clear_check = 0, gate = 0;
     for (int i = 1; i + 1 < argc; i += 2) {
         if (!strcmp(argv[i], "--phys")) phys = argv[i + 1];
         else if (!strcmp(argv[i], "--rivals")) rivals_path = argv[i + 1];
@@ -129,6 +134,7 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[i], "--order")) saturn = !strcmp(argv[i + 1], "saturn");
         else if (!strcmp(argv[i], "--frame")) frame = atoi(argv[i + 1]);
         else if (!strcmp(argv[i], "--clear-check")) clear_check = atoi(argv[i + 1]);
+        else if (!strcmp(argv[i], "--gate")) gate = atoi(argv[i + 1]);
         else die("unknown argument");
     }
     if (!phys || !rivals_path) die("usage: fzx-atk --phys PHYS.PAK --rivals RIVALS.PAK ...");
@@ -153,6 +159,7 @@ int main(int argc, char **argv) {
     sh2z_vd_contact_t ahead;
     int ahead_ok = 0;
     uint32_t deferred = 0, aheads = 0, clear0 = 0, clear1 = 0, viol0 = 0, viol1 = 0;
+    int32_t retire_tick = -1;
     int pred0 = 0, pred1 = 0;
     for (; t < (uint32_t)ticks_max; ++t) {
         uint16_t button = t >= RACE_START_TICK ? 0x8000u : 0u;
@@ -190,7 +197,12 @@ int main(int argc, char **argv) {
             }
         }
         const uint64_t a1 = ns_now();
+#if FZX_PHYS_TUBES
+        sh2z_vd_step2_contact(&body, &course.track2, &course.vehicle, &fzx_phys_rules, &in, &contact);
+#else
         sh2z_vd_step_contact(&body, &course.track, &course.vehicle, &fzx_phys_rules, &in, &contact);
+#endif
+        if (retire_tick < 0 && (body.flags & SH2Z_VD_CRASHED)) retire_tick = (int32_t)t;
         const uint64_t a2 = ns_now();
         if (saturn) {
             if (q_n >= 8u) q_run();
@@ -210,7 +222,7 @@ int main(int argc, char **argv) {
         t_contact += a1 - a0; t_step += a2 - a1; t_field += a3 - a2;
         if ((t + 1u) % 256u == 0u && (t + 1u) / 256u <= 64u) {
             if (saturn) q_run();   /* not needed for the body; keeps chk words in step with the canonical order */
-            printf("body %u %016llx\n", t + 1u, (unsigned long long)fnv64_body(&body));
+            printf(gate ? "chk %u %016llx\n" : "body %u %016llx\n", t + 1u, (unsigned long long)fnv64_body(&body));
         }
         if (tf) fprintf(tf, "%u\t%d\t%d\t%u\t%u\t%u\n", t, body.energy, body.speed, (unsigned)body.flags, fzx_atk_report[3], fzx_atk_report[5]);
     }
@@ -240,7 +252,13 @@ int main(int argc, char **argv) {
            fzx_atk_dmg_src[0][1] / 256.0, fzx_atk_dmg_src[1][0], fzx_atk_dmg_src[1][1] / 256.0, fzx_atk_dmg_src[2][0],
            fzx_atk_dmg_src[2][1] / 256.0);
     fprintf(stderr, "HOST ns per tick: contact %.0f, player step %.0f, field tick (attacks move/after inside) %.0f\n", (double)t_contact / t, (double)t_step / t, (double)t_field / t);
-    for (unsigned i = 0; i < FZX_ATK_CHECKPOINTS; ++i) if (fzx_atk_chk[i]) printf("chk %u %08x\n", (i + 1u) * 256u, fzx_atk_chk[i]);
+    for (unsigned i = 0; i < FZX_ATK_CHECKPOINTS; ++i) if (fzx_atk_chk[i]) printf(gate ? "achk %u %08x\n" : "chk %u %08x\n", (i + 1u) * 256u, fzx_atk_chk[i]);
+    if (gate) {
+        printf("ticks %u final %016llx hash 0\n", t, (unsigned long long)fnv64_body(&body));
+        if (body.flags & SH2Z_VD_FINISHED) printf("finish_ms %d retire_tick -\n", body.race_time);
+        else if (retire_tick >= 0) printf("finish_ms - retire_tick %d\n", retire_tick);
+        else printf("finish_ms - retire_tick -\n");
+    }
     printf("ticks %u race_ms %d finished %u kos %u ko_hook %u spun %u retired_by_damage %u field_retired %u contacts %u cpu_side %u cpu_spin %u hits %u player_hits %u held_off_screen %u player_damage %u hash %08x\n",
            t, body.race_time, (unsigned)fzx_field_report[11], fzx_atk_report[3], ko_hook_calls, fzx_atk_report[4], fzx_atk_report[5],
            (unsigned)fzx_field_report[12], fzx_atk_report[0], fzx_atk_report[6], fzx_atk_report[7], fzx_atk_report[8], fzx_atk_report[12],

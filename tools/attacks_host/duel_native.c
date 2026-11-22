@@ -137,6 +137,7 @@ int main(int argc, char **argv) {
     else if (!strcmp(mutate, "no-destroy")) { }   /* the control: a crashed machine is never destroyed */   /* the control for the opponent's search */
     else if (!strcmp(mutate, "fall-keep-energy") || !strcmp(mutate, "fall-age119") || !strcmp(mutate, "fall-wrong") ||
              !strcmp(mutate, "fall-twice")) { }   /* the falls card's controls (C-096 item 5), below */
+    else if (!strcmp(mutate, "coast-bias")) { }   /* the retired-coast floor's control (C-116): a biased damp, below */
     else if (*mutate) die("unknown mutation");
     sh2z_vd_body_t b[2] = { course[0].start, course[1].start };
     /* --nudge N: racer 0 starts N Q16 LSB to the side (the sensitivity probe: native against itself). */
@@ -216,6 +217,8 @@ int main(int argc, char **argv) {
             if (k == 0) regain = 0;
             const sh2z_vd_body_t pre = b[k];
             const sh2z_vd_contact_t c_in = c;
+            if (!strcmp(mutate, "coast-bias") && (b[k].flags & SH2Z_VD_CRASHED))   /* one Q16 LSB toward zero a tick: a biased damp */
+                for (int j = 0; j < 3; ++j) b[k].vel[j] += b[k].vel[j] > 0 ? -1 : (b[k].vel[j] < 0 ? 1 : 0);
             step(k, &b[k], &rules, &in, &c);
             /* --spin-draws: where the reference drew a spin side on this tick, the native takes the
              * same side at its own draw, inside the step (the step turns by it at once). The native

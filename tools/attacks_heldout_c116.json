@@ -1,0 +1,15 @@
+{
+ "_note": "C-116 fresh held-out set, chosen 2026-11-22 from the reference alone, before any native window ran on it. Layout as tools/attacks_heldout_c092.json (tools/attacks_duel.py SCENARIOS): script, reference machines c0,e0,c1,e1, native machines c0,c1, ticks, course (1 Mute City, 2 Sand Ocean), attack from. Every opponent machine and every attack start differs from the round-2 table and from the C-092 held-out set; the pads and starts sets already inspected are regression evidence for the C-116 amendment, not held-out.",
+ "g-bump-m1": ["bump", "2,0,1,0", "2,1", 4000, 1, 750],
+ "g-side-m14": ["side", "5,0,14,0", "5,14", 4000, 1, 950],
+ "g-spin-m16": ["spin", "0,0,16,0", "0,16", 4000, 1, 850],
+ "g-cpu-m8": ["cpu", "8,0,8,0", "8,8", 4000, 1, 750],
+ "g-ko-m18": ["ko", "0,0,18,0", "0,18", 4000, 1, 1000],
+ "g-ko-m25": ["ko", "10,0,25,0", "10,25", 4000, 1, 1300],
+ "g-bump-t-m2": ["bump", "0,0,2,0", "0,2", 4000, 2, 750],
+ "g-side-t-m10": ["side", "0,0,10,0", "0,10", 4000, 2, 950],
+ "g-spin-t-m19": ["spin", "1,0,19,0", "1,19", 4000, 2, 850],
+ "g-ko-t-m21": ["ko", "0,0,21,0", "0,21", 4000, 2, 1000],
+ "g-ko-t-m28": ["ko", "14,0,28,0", "14,28", 4000, 2, 1300],
+ "g-cpu-t-m24": ["cpu", "0,0,24,0", "0,24", 4000, 2, 750]
+}

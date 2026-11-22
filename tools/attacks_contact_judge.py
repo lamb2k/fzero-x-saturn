@@ -18,6 +18,12 @@ Every window must pass:
     retirement, KO (victim and attacker exact);
   - speed within max(one Q16 quantum, 0.005 x |reference speed|) for both racers, unless the window is
     speed-diagnostic.
+Revised score (C-116, O-123): for a racer that is an uninterrupted retired coast (tools/attacks_q16_floor.py)
+the speed tolerance is max(one Q16 quantum, 0.005 x |reference speed|, F), F the endpoint discrepancy of the
+reference-only ideal Q16 trajectory; every other endpoint keeps the band. The strict and C-092 scores are
+computed exactly as before; the revised score is position, events and (speed or speed-diagnostic) with the
+enlarged tolerance.
+
 Speed-diagnostic (reference only, frozen in ambiguity.json before any native window runs): some pair
 test in the window whose closing product dp.dv, over the reference inputs rounded to Q16 (each input
 within half a Q16 step of the reference's value) and the reference's float32 rounding, has an interval
@@ -31,12 +37,13 @@ Usage:
       [--reuse OLD_DIR] [--table FILE.json] [--start 460] [--lead 30] [--stage all|ref|ambiguity|score] [--mutate NAME]
       [--seed actual|overlap] [--jobs N]
 Everything written is derived from the owner's ROM: local only (DIR outside the repository)."""
-import argparse, hashlib, json, math, os, subprocess, sys
+import argparse, collections, hashlib, json, math, os, subprocess, sys
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import attacks_duel as AD  # noqa: E402  (window selection, trace columns and the scenario table)
+import attacks_q16_floor as QF  # noqa: E402  (C-116: the Q16 retired-coast floor and its eligibility)
 
 Q = 1.0 / 65536
 U32 = 2.0 ** -24
@@ -413,7 +420,7 @@ def main():
     # ---- stage score
     amb = json.loads(amb_path.read_text())
     amb_sha = hashlib.sha256(amb_path.read_bytes()).hexdigest()
-    summary = dict(mutation=a.mutate, seed=a.seed, ambiguity_sha256=amb_sha, windows=0, strict=0, c092=0, pos_ok=0, events_ok=0,
+    summary = dict(mutation=a.mutate, seed=a.seed, ambiguity_sha256=amb_sha, windows=0, strict=0, c092=0, c116=0, pos_ok=0, events_ok=0,
                    speed_checked=0, speed_checked_ok=0, speed_diagnostic=0, scenarios={})
     for sc in names:
         script, mref, mnat, ticks, cid, base = scen(sc)
@@ -421,6 +428,13 @@ def main():
         native = a.native if cid == 1 else (a.native2 or a.native)
         rows, length = plan[sc]['rows'], plan[sc]['length']
         lg = load_ref_log(d / 'ref.pairlog')
+        # C-116: the reference-only facts the retired-coast eligibility reads (pair touches, KOs, the colliding
+        # bit, ticks where the pair could be in reach, damage calls per racer)
+        ref_pair_ticks = sorted(set(t for t in lg['T'] if lg['T'][t]) | set(t for t in lg['K'] if lg['K'][t]) |
+                                set(t for t, P in lg['P'].items() if P['colliding']) |
+                                set(t for t, P in lg['P'].items()
+                                    if P['trail'] <= QF.REACH_ALONG and reach_interval(P)[0] <= QF.REACH2))
+        ref_damage_ticks = {k: sorted(t for t, recs in lg['D'].items() if any(a == k for a, _, _ in recs)) for k in (0, 1)}
 
         def window(item):
             t, n = item
@@ -458,7 +472,8 @@ def main():
             end = t + n
             res = dict(start=t, length=n, touching_seed=touching)
             if (end, 0) not in nat:
-                res.update(pos_ok=False, events_ok=False, speed_ok=False, strict_ok=False, c092_ok=False, reason='native stopped early')
+                res.update(pos_ok=False, events_ok=False, speed_ok=False, strict_ok=False, c092_ok=False, c116_ok=False,
+                           reason='native stopped early')
                 return res
             nlg = load_nat_log(nl)
             er, rr = ref_events(lg, rows, t, end + 1)
@@ -472,6 +487,15 @@ def main():
                                speed_tol=speed_tol(rs['speed'])))
             pos_ok = all(e['pos_err'] <= POS_TOL for e in ep)
             speed_ok = all(e['speed_err'] <= e['speed_tol'] for e in ep)
+            # C-116: the floor for each racer that is a retired coast; the other endpoints keep the band
+            ref_ctx = dict(rows=rows, pair_ticks=ref_pair_ticks, damage_ticks=ref_damage_ticks, events=er)
+            nat_ctx = dict(rows=nat, events=en, touch_ticks=[tt for tt, x in nlg['N'].items() if x['touch'] or x['push']])
+            for k in (0, 1):
+                why, F = QF.racer_floor(k, t, end, ref_ctx, nat_ctx)
+                terms = QF.speed_terms(ep[k]['speed'], AD.state(nat, end, k)['speed'], F)
+                ep[k].update(eligible=not why, ineligible_why=why, tol_q=terms['tol_q'], tol_rel=terms['tol_rel'], tol_floor=F,
+                             tol_revised=terms['tol'], speed_ok_revised=terms['ok'])
+            speed_ok_rev = all(e['speed_ok_revised'] for e in ep)
             aw = amb[sc]['windows'][str(t)]
             diag = aw['speed_diagnostic']
             # labels (diagnostic only): reach ambiguity at 46, other damage after the first contact
@@ -490,7 +514,8 @@ def main():
                                state_err=[math.dist(AD.state(rows, tt - 1, k)['pos'], AD.state(nat, tt - 1, k)['pos']) for k in (0, 1)])
                     break
             res.update(pos_ok=pos_ok, events_ok=ev_ok, event_mismatch=why, speed_ok=speed_ok, speed_diagnostic=diag,
-                       strict_ok=pos_ok and ev_ok and speed_ok, c092_ok=pos_ok and ev_ok and (speed_ok or diag), endpoints=ep,
+                       strict_ok=pos_ok and ev_ok and speed_ok, c092_ok=pos_ok and ev_ok and (speed_ok or diag),
+                       speed_ok_revised=speed_ok_rev, c116_ok=QF.revised_ok(pos_ok, ev_ok, speed_ok_rev, diag), endpoints=ep,
                        labels=dict(sign_ambiguous=aw['sign_ambiguous'], reach_ambiguous=aw['reach_ambiguous'], wall_after_contact=wall_after),
                        first_divergence=div)
             return res
@@ -499,7 +524,7 @@ def main():
         summary['scenarios'][sc] = dict(course=cid, windows=results)
         for r in results:
             summary['windows'] += 1
-            summary['strict'] += r['strict_ok']; summary['c092'] += r['c092_ok']
+            summary['strict'] += r['strict_ok']; summary['c092'] += r['c092_ok']; summary['c116'] += r['c116_ok']
             summary['pos_ok'] += r['pos_ok']; summary['events_ok'] += r['events_ok']
             if r.get('speed_diagnostic'):
                 summary['speed_diagnostic'] += 1
@@ -512,22 +537,42 @@ def main():
         for r in sorted(v['windows'], key=lambda r: r['start']):
             if cur and r['start'] <= cur['end']:
                 cur['end'] = max(cur['end'], r['start'] + r['length']); cur['windows'] += 1; cur['c092_ok'] &= r['c092_ok']
-                cur['strict_ok'] &= r['strict_ok']
+                cur['strict_ok'] &= r['strict_ok']; cur['c116_ok'] &= r['c116_ok']
+                cur['eligible'] |= any(e.get('eligible') for e in r.get('endpoints', []))
             else:
-                cur = dict(scenario=sc, start=r['start'], end=r['start'] + r['length'], windows=1, c092_ok=r['c092_ok'], strict_ok=r['strict_ok'])
+                cur = dict(scenario=sc, start=r['start'], end=r['start'] + r['length'], windows=1, c092_ok=r['c092_ok'], strict_ok=r['strict_ok'],
+                           c116_ok=r['c116_ok'], eligible=any(e.get('eligible') for e in r.get('endpoints', [])))
                 clusters.append(cur)
     summary['trajectories'] = dict(count=len(clusters), c092_all_pass=sum(c['c092_ok'] for c in clusters),
-                                   strict_all_pass=sum(c['strict_ok'] for c in clusters))
+                                   strict_all_pass=sum(c['strict_ok'] for c in clusters),
+                                   c116_all_pass=sum(c['c116_ok'] for c in clusters), eligible=sum(c['eligible'] for c in clusters))
+    # C-116 eligibility counts: racer-windows, windows with an eligible racer, and what the floor decided
+    allw = [r for v in summary['scenarios'].values() for r in v['windows']]
+    elig = [(r, e) for r in allw for e in r.get('endpoints', []) if e.get('eligible')]
+    summary['c116'] = dict(
+        score=summary.pop('c116'), eligible_racer_windows=len(elig), eligible_windows=len({id(r) for r, _ in elig}),
+        racer_windows=2 * len(allw), floor_rescued_windows=sum(1 for r in allw if r['c116_ok'] and not r['c092_ok']),
+        eligible_speed_pass_by_band=sum(1 for _, e in elig if e['speed_err'] <= e['speed_tol']),
+        eligible_speed_pass_by_floor=sum(1 for _, e in elig if e['speed_ok_revised']),
+        ineligible_reasons=dict(sorted(collections.Counter(
+            w for r in allw for e in r.get('endpoints', []) if not e.get('eligible') for w in e.get('ineligible_why', [])).items())))
     tag = (a.mutate or 'base') + ('-overlap' if a.seed == 'overlap' else '')
     (out / ('c092-%s.json' % tag)).write_text(json.dumps(summary, indent=1))
-    print('%s: windows %d  strict %d  C-092 %d  (position %d, events %d, speed checked %d/%d, speed-diagnostic %d)  '
-          'trajectories %d (C-092 all-pass %d)' % (tag, summary['windows'], summary['strict'], summary['c092'], summary['pos_ok'],
-                                                    summary['events_ok'], summary['speed_checked_ok'], summary['speed_checked'],
-                                                    summary['speed_diagnostic'], len(clusters), summary['trajectories']['c092_all_pass']))
+    c = summary['c116']
+    print('%s: windows %d  strict %d  C-092 %d  revised (C-116) %d  (position %d, events %d, speed checked %d/%d, speed-diagnostic %d)  '
+          'trajectories %d (strict %d, C-092 %d, revised %d all-pass)' % (
+              tag, summary['windows'], summary['strict'], summary['c092'], c['score'], summary['pos_ok'], summary['events_ok'],
+              summary['speed_checked_ok'], summary['speed_checked'], summary['speed_diagnostic'], len(clusters),
+              summary['trajectories']['strict_all_pass'], summary['trajectories']['c092_all_pass'], summary['trajectories']['c116_all_pass']))
+    print('  eligibility: racer-windows %d of %d, windows with an eligible racer %d, trajectories with one %d; speed passes of eligible '
+          'endpoints: by the band %d, with the floor %d; windows the floor rescued %d; ineligible reasons %s' % (
+              c['eligible_racer_windows'], c['racer_windows'], c['eligible_windows'], summary['trajectories']['eligible'],
+              c['eligible_speed_pass_by_band'], c['eligible_speed_pass_by_floor'], c['floor_rescued_windows'], c['ineligible_reasons']))
     for cid in (1, 2):
         ws = [r for v in summary['scenarios'].values() if v['course'] == cid for r in v['windows']]
         if ws:
-            print('  course %d: windows %d strict %d C-092 %d' % (cid, len(ws), sum(r['strict_ok'] for r in ws), sum(r['c092_ok'] for r in ws)))
+            print('  course %d: windows %d strict %d C-092 %d revised %d' % (cid, len(ws), sum(r['strict_ok'] for r in ws),
+                                                                      sum(r['c092_ok'] for r in ws), sum(r['c116_ok'] for r in ws)))
 
 
 if __name__ == '__main__':

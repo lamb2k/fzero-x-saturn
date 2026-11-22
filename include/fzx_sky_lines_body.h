@@ -13,6 +13,19 @@
 #include "fzx_sky.h"
 
 typedef struct {uint8_t set[224];int center;} lines_t;
+/* C division (truncating) of 32-bit values on the SH-2 64/32 divider; the quotient always fits. */
+static int32_t sky_div(int32_t n,int32_t d) {
+#if defined(__sh__)
+    if(d<0){d=-d;n=-n;}
+    if(d>0) {
+        *(volatile uint32_t *)0xffffff00u=(uint32_t)d;
+        *(volatile uint32_t *)0xffffff10u=n<0?0xffffffffu:0u;
+        *(volatile uint32_t *)0xffffff14u=(uint32_t)n;
+        return (int32_t)*(volatile uint32_t *)0xffffff14u;
+    }
+#endif
+    return n/d;
+}
 static uint16_t blend(uint16_t a,uint16_t b,int32_t t) {
     uint16_t out=0x8000;
     for(unsigned shift=0;shift<15;shift+=5) {
@@ -41,7 +54,7 @@ static bool line_emit(void *context,const fzx_sky_polygon_t *p) {
                 if(p->y[v]>yb){yb=p->y[v];cb=p->color[v];}}
             continue;
         }
-        const int32_t t=(int32_t)(((cx-x0)*65536)/(x1-x0));
+        const int32_t t=sky_div((cx-x0)*65536,x1-x0);
         y=p->y[i]+(int32_t)(((int64_t)(p->y[j]-p->y[i])*t+32768)>>16);c=blend(p->color[i],p->color[j],t);
         if(y<ya){ya=y;ca=c;}
         if(y>yb){yb=y;cb=c;}
@@ -49,7 +62,7 @@ static bool line_emit(void *context,const fzx_sky_polygon_t *p) {
     if(ya>yb)return true;
     int32_t rgb[3],step[3];
     const int32_t span=yb>ya?yb-ya:1;
-    for(unsigned k=0;k<3;++k){rgb[k]=((ca>>(k*5))&31)<<16;step[k]=((((cb>>(k*5))&31)<<16)-rgb[k])/span;}
+    for(unsigned k=0;k<3;++k){rgb[k]=((ca>>(k*5))&31)<<16;step[k]=sky_div((((cb>>(k*5))&31)<<16)-rgb[k],span);}
     for(int32_t y=ya;y<=yb;++y) {
         if(y>=0 && y<224) {
             uint16_t c=0x8000;

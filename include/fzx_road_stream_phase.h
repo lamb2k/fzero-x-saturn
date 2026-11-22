@@ -1,5 +1,7 @@
 #ifndef FZX_ROAD_STREAM_PHASE_H
 #define FZX_ROAD_STREAM_PHASE_H
+/* FZX_ROAD_STREAM_PHASES=2 is the road-slave profile: the same marks, without the
+ * dead-chunk diagnostic loops of =1 (which would add their own time to QFETCH). */
 /* Default-off C3 per-phase diagnostic (FZX_ROAD_STREAM_PHASES=1, native
  * frame-profile builds only). Disabled, every macro expands to nothing and
  * the renderer's code is unchanged. Enabled, the road scene is partitioned
@@ -19,7 +21,11 @@ enum {
      * reject and corner selection; QUAD keeps texture setup and tiering. */
     FZX_RSP_QFETCH,FZX_RSP_QCULL,FZX_RSP_QPIECE,
     /* Version 3 (E0): cluster bounds tests (FZX_ROAD_STREAM_CLUSTERS). */
-    FZX_RSP_CLUSTER,FZX_RSP_PHASES
+    FZX_RSP_CLUSTER,
+    /* Version 4 (road-slave profile, FZX_ROAD_STREAM_PHASES=2): the slave's pick
+     * (before the road build), a piece's guard clip, the row-clip strip plan,
+     * the unseen-strip-quad test and the per-frame fog preparation. */
+    FZX_RSP_PICK,FZX_RSP_PCLIP,FZX_RSP_STRIP,FZX_RSP_UNSEEN,FZX_RSP_FPREP,FZX_RSP_PHASES
 };
 enum {
     FZX_RSPC_BOUNDARIES,FZX_RSPC_STEPPED,FZX_RSPC_QUAD_CLIPS,FZX_RSPC_PIECE_CLIPS,
@@ -33,6 +39,8 @@ enum {
     /* clusters tested, quads skipped by a culled cluster, and (audit builds)
      * skipped quads that would have drawn: must stay zero. */
     FZX_RSPC_CLUSTER_TESTS,FZX_RSPC_CLUSTER_SKIPS,FZX_RSPC_CLUSTER_FALSE,
+    /* Version 4: strip quads examined and strip quads the unseen test dropped. */
+    FZX_RSPC_STRIPS,FZX_RSPC_UNSEEN,
     FZX_RSPC_COUNTERS
 };
 #if FZX_ROAD_STREAM_PHASES
@@ -61,10 +69,13 @@ static inline void fzx_rsp_begin(void){
     for(unsigned i=0;i<FZX_RSPC_COUNTERS;++i)fzx_rsp.counts[i]=0;
     fzx_rsp.phase=FZX_RSP_EYE;fzx_rsp.last=fzx_rsp_now();
 }
+/* After fzx_rsp_begin() at the end of the slave's pick: the pick's own ticks (from its t0). */
+#define FZX_RSP_PICK_DONE(t0) (fzx_rsp.ticks[FZX_RSP_PICK]=(uint16_t)(fzx_rsp_now()-(uint16_t)(t0)))
 #define FZX_RSP(p) fzx_rsp_set(FZX_RSP_##p)
 #define FZX_RSP_COUNT(c,n) (fzx_rsp.counts[FZX_RSPC_##c]+=(uint16_t)(n))
 #else
 #define FZX_RSP(p) ((void)0)
 #define FZX_RSP_COUNT(c,n) ((void)0)
+#define FZX_RSP_PICK_DONE(t0) ((void)0)
 #endif
 #endif

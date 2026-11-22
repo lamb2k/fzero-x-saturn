@@ -165,7 +165,7 @@ bool fzx_engine_slave_pick(void) {
     if (cap_stable(&pv, runs, out)) {
         fzx_e0_pick[4] = (uint16_t)(cpu_frt_count_get() - t0);
 #if FZX_ROAD_STREAM_PHASES
-        fzx_rsp_begin();
+        fzx_rsp_begin();FZX_RSP_PICK_DONE(t0);
 #endif
         return true;
     }
@@ -193,7 +193,7 @@ bool fzx_engine_slave_pick(void) {
     }
     fzx_e0_pick[4] = (uint16_t)(cpu_frt_count_get() - t0);
 #if FZX_ROAD_STREAM_PHASES
-    fzx_rsp_begin();
+    fzx_rsp_begin();FZX_RSP_PICK_DONE(t0);
 #endif
     return true;
 }

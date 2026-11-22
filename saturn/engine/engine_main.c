@@ -96,27 +96,44 @@ volatile uint32_t fzx_scp_road[FZX_RSP_PHASES], fzx_scp_road_calls;
 volatile uint32_t fzx_scp_ticks[FZX_SCP_LAYERS][FZX_SCP_PHASES], fzx_scp_calls[FZX_SCP_LAYERS];
 /* and the track build's per-frame counters, summed (quad clips, piece clips, pieces, ...). */
 volatile uint32_t fzx_e0_rsp_counts[FZX_RSPC_COUNTERS];
-/* and one record per frame row (diagnostic builds only, in the free high work
- * RAM): the 16 phase times (slave timer units, saturated), the 19 counters,
- * then quads, chunks, positions, culled, clipped, tiers 0..3 and commands. */
-enum { E0_PROW_ROWS = 4608u, E0_PROW_WORDS = 45u };
+/* and the road-slave profile (docs: claude-road): the slave's 17 used phases (slave timer
+ * units, DIV_128) and 12 counters, summed over every built frame (fzx_e0_psum), and one
+ * record per frame whose slave work reached E0_PROW_MIN timer units (fzx_e0_prow:
+ * frame row index, 17 phases, 12 counters; fzx_e0_pinfo: frames seen, rows kept,
+ * rows dropped for want of room). Diagnostic builds only. */
+#ifndef E0_PROW_MIN
+#define E0_PROW_MIN 4000u
+#endif
+enum { E0_PROW_ROWS = 1200u, E0_PROW_PH = 17u, E0_PROW_CT = 12u, E0_PROW_WORDS = 1u + E0_PROW_PH + E0_PROW_CT };
+static const uint8_t prow_phase[E0_PROW_PH] = {
+    FZX_RSP_PICK, FZX_RSP_EYE, FZX_RSP_FPREP, FZX_RSP_BATCH, FZX_RSP_QFETCH, FZX_RSP_QCULL, FZX_RSP_CLIP, FZX_RSP_QUAD,
+    FZX_RSP_EDGE, FZX_RSP_MERGE, FZX_RSP_QPIECE, FZX_RSP_PCLIP, FZX_RSP_STRIP, FZX_RSP_FOG, FZX_RSP_UNSEEN, FZX_RSP_BUILD,
+    FZX_RSP_REPORT };
 uint16_t fzx_e0_prow[E0_PROW_ROWS][E0_PROW_WORDS];
-static void prow_fill(uint32_t index) {
-    if (index >= E0_PROW_ROWS) return;
-    uint16_t *r = fzx_e0_prow[index];
+uint32_t fzx_e0_psum[E0_PROW_PH + E0_PROW_CT + 1u];
+uint32_t fzx_e0_pinfo[4];
+static void prow_fill(uint32_t index, uint32_t tick) {
+    if (tick < 420u) return; /* the scoring window */
     const volatile uint32_t *t = (const volatile uint32_t *)((uintptr_t)fzx_rsp.ticks | CPU_CACHE_THROUGH);
     const volatile uint16_t *c = (const volatile uint16_t *)((uintptr_t)fzx_rsp.counts | CPU_CACHE_THROUGH);
     const volatile fzx_road_stream_draw_stats_t *st =
         (const volatile fzx_road_stream_draw_stats_t *)((uintptr_t)&fzx_road_stream_stats | CPU_CACHE_THROUGH);
-    for (unsigned i = 0; i < FZX_RSP_PHASES; ++i) r[i] = (uint16_t)(t[i] > 65535u ? 65535u : t[i]);
-    for (unsigned i = 0; i < FZX_RSPC_COUNTERS; ++i) r[FZX_RSP_PHASES + i] = c[i];
-    uint16_t *x = r + FZX_RSP_PHASES + FZX_RSPC_COUNTERS;
-    x[0] = (uint16_t)st->quads; x[1] = (uint16_t)st->chunks; x[2] = (uint16_t)st->positions;
-    x[3] = (uint16_t)st->culled; x[4] = (uint16_t)st->clipped;
-    for (unsigned i = 0; i < 4u; ++i) x[5 + i] = (uint16_t)st->tiers[i];
-    x[9] = (uint16_t)st->commands;
+    uint32_t ph[E0_PROW_PH], ct[E0_PROW_CT], total = 0;
+    for (unsigned i = 0; i < E0_PROW_PH; ++i) { ph[i] = t[prow_phase[i]]; total += ph[i]; }
+    ct[0] = c[FZX_RSPC_PIECES]; ct[1] = c[FZX_RSPC_PIECE_CLIPS]; ct[2] = c[FZX_RSPC_QUAD_CLIPS]; ct[3] = c[FZX_RSPC_CULL_OUT];
+    ct[4] = c[FZX_RSPC_CULL_WIND]; ct[5] = c[FZX_RSPC_CULL_CLIP]; ct[6] = c[FZX_RSPC_STRIPS]; ct[7] = c[FZX_RSPC_UNSEEN];
+    ct[8] = c[FZX_RSPC_SWITCHES]; ct[9] = st->quads; ct[10] = st->culled; ct[11] = st->commands;
+    for (unsigned i = 0; i < E0_PROW_PH; ++i) fzx_e0_psum[i] += ph[i];
+    for (unsigned i = 0; i < E0_PROW_CT; ++i) fzx_e0_psum[E0_PROW_PH + i] += ct[i];
+    ++fzx_e0_psum[E0_PROW_PH + E0_PROW_CT];
+    ++fzx_e0_pinfo[0];
+    if (total < E0_PROW_MIN) return;
+    if (fzx_e0_pinfo[1] >= E0_PROW_ROWS) { ++fzx_e0_pinfo[2]; return; }
+    uint16_t *r = fzx_e0_prow[fzx_e0_pinfo[1]++];
+    r[0] = (uint16_t)index;
+    for (unsigned i = 0; i < E0_PROW_PH; ++i) r[1 + i] = (uint16_t)(ph[i] > 65535u ? 65535u : ph[i]);
+    for (unsigned i = 0; i < E0_PROW_CT; ++i) r[1 + E0_PROW_PH + i] = (uint16_t)(ct[i] > 65535u ? 65535u : ct[i]);
 }
-_Static_assert(FZX_RSP_PHASES + FZX_RSPC_COUNTERS + 10u == E0_PROW_WORDS, "per-frame record layout");
 #endif
 #ifndef FZX_VDP1_DBANK
 #define FZX_VDP1_DBANK 0
@@ -1674,7 +1691,7 @@ bool fzx_race_frame(void) {
         row->slave_ticks = (uint16_t)(fzx_slave_road_busy_sum - fzx_e0_report[11]); /* this frame's slave job */
         fzx_e0_report[11] = fzx_slave_road_busy_sum;
 #if FZX_ROAD_STREAM_PHASES
-        if (row != &scratch_row) prow_fill(row_index);
+        if (row != &scratch_row) prow_fill(row_index, row->tick);
 #endif
 #if E0_POP_LOG
         if (row != &scratch_row && row_index < POP_ROWS)

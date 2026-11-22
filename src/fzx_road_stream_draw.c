@@ -603,7 +603,7 @@ static bool piece(draw_t *d,const vref_t v[4],unsigned quad,unsigned piece_id,
 #endif
 #endif
     if(!safe){const int16_t guard[4]={RS_GX0,RS_GY0,RS_GX1,RS_GY1};
-        FZX_RSP(CLIP);FZX_RSP_COUNT(PIECE_CLIPS,1);
+        FZX_RSP(PCLIP);FZX_RSP_COUNT(PIECE_CLIPS,1);
 #if FZX_ROAD_STREAM_ROW_CLIP
         if(!solid&&height>1u){
             /* FZX_ROAD_STREAM_ROW_CLIP: the guard clip carries each corner's row (attr 0,
@@ -623,7 +623,7 @@ static bool piece(draw_t *d,const vref_t v[4],unsigned quad,unsigned piece_id,
             if(n<0)return fail(d,FZX_RS_CLIP);
             if(n<3){++d->stats->culled;return true;}
 #if FZX_ROAD_STREAM_ROW_CLIP>=2
-            if(d->emit){strip_n=strip_plan(d->hot->clip_out,n,height,row_align(w,image),strip);++d->stats->clipped;}
+            if(d->emit){FZX_RSP(STRIP);strip_n=strip_plan(d->hot->clip_out,n,height,row_align(w,image),strip);++d->stats->clipped;FZX_RSP(QPIECE);}
             else
 #endif
             {
@@ -725,8 +725,10 @@ static bool piece(draw_t *d,const vref_t v[4],unsigned quad,unsigned piece_id,
             for(unsigned k=0;k<strip_n;++k){
                 const strip_t *s=&strip[k];
                 const vref_t fan[4]={corners[s->c[0]],corners[s->c[1]],corners[s->c[2]],corners[s->c[3]]};
+                FZX_RSP(UNSEEN);FZX_RSP_COUNT(STRIPS,1);
                 const int32_t sign=area(fan,4);
-                if(!sign||strip_unseen(fan,d->view.view.clip))continue;
+                if(!sign||strip_unseen(fan,d->view.view.clip)){FZX_RSP_COUNT(UNSEEN,1);FZX_RSP(BUILD);continue;}
+                FZX_RSP(BUILD);
                 const uint32_t at=d->stats->commands;
 #if FZX_ROAD_STREAM_BUDGET
                 FZX_RS_KEEP()
@@ -1035,7 +1037,7 @@ static bool native_frame(draw_t *d){
                 d->live=sh2z_segmesh_cull(&d->cull,w->clusters->bounds+first,count);
                 FZX_RSP(QFETCH);}
 #endif
-#if FZX_ROAD_STREAM_PHASES
+#if FZX_ROAD_STREAM_PHASES==1
             {   /* Diagnostic: dead chunks and dead (chunk, strip) groups. */
                 static uint8_t seen[256],live[256];unsigned any=0;
                 for(unsigned i=c->quad_first,e=i+c->quad_count;i<e;++i){seen[w->nquads[i].strip]=0;live[w->nquads[i].strip]=0;}
@@ -1105,7 +1107,7 @@ static bool draw_any(fzx_road_stream_draw_work_t *w,const sh2z_view_center_t *vi
     if(w->clusters&&!sh2z_segmesh_cull_prepare(&d.cull,&d.view,2))return false;
 #endif
     if(w->native){
-        FZX_RSP(FOG);
+        FZX_RSP(FPREP);
         fog_prepare(w,&d.view.view,plan,pa,pb,stats);
         if(!w->fog_valid)return fail(&d,FZX_RS_INVALID);
 #if FZX_ROAD_STREAM_FOG_EARLY

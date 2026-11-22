@@ -666,7 +666,7 @@ class Gate:
             slugs |= {'mute-city-1'}
         by_slug = {c['slug']: c for c in m['courses']}
         for slug in sorted(slugs):
-            hosts[slug] = self.host(hdir, slug, by_slug.get(slug, {}).get('host_driver', '0.004,2.5'), by_slug.get(slug, {}).get('host_ahead'))
+            hosts[slug] = self.host(hdir, slug, by_slug.get(slug, {}).get('host_driver', '0.004,2.5'), by_slug.get(slug, {}).get('host_ahead'), by_slug.get(slug, {}).get('host_ticks'))
 
         # Harness runs.
         t0 = time.time()
@@ -730,9 +730,10 @@ class Gate:
             self.cleanup()
         return 0 if receipt['verdict'] == 'PASS' else 1
 
-    def host(self, hdir, slug, driver, ahead=None):
-        rc, out = self.stage_cmd('host', self.stage, wslpath(hdir), self.head['sha'][:12], slug, driver, *([str(ahead)] if ahead else []))
-        return host_ref(hdir / ('%s-%s%s.txt' % (slug, driver, '-a%s' % ahead if ahead else '')))
+    def host(self, hdir, slug, driver, ahead=None, ticks=None):
+        extra = [str(ahead) if ahead else '', str(ticks)] if ticks else [str(ahead)] if ahead else []
+        rc, out = self.stage_cmd('host', self.stage, wslpath(hdir), self.head['sha'][:12], slug, driver, *extra)
+        return host_ref(hdir / ('%s-%s%s%s.txt' % (slug, driver, '-a%s' % ahead if ahead else '', '-t%s' % ticks if ticks else '')))
 
     def base_bins(self, base_sha, ident, head):
         """BIN hashes of the base's identity images: from the shared receipt cache, else built in this stage."""
@@ -1001,8 +1002,8 @@ class Rescore(Gate):
         cue = Path(build_dir) / 'mixed' / 'fzs-engine.cue'
         return (cue, 'kept from the run') if cue.exists() else (None, 'not kept')
 
-    def host(self, hdir, slug, driver, ahead=None):
-        return host_ref(Path(hdir) / ('%s-%s%s.txt' % (slug, driver, '-a%s' % ahead if ahead else '')))
+    def host(self, hdir, slug, driver, ahead=None, ticks=None):
+        return host_ref(Path(hdir) / ('%s-%s%s%s.txt' % (slug, driver, '-a%s' % ahead if ahead else '', '-t%s' % ticks if ticks else '')))
 
     def execute(self, jobs):
         res = {}

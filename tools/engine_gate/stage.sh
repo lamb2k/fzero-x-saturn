@@ -8,7 +8,7 @@
 #   stage.sh receipts STAGE                  print STALE lines for generated receipts that do not match w/
 #   stage.sh build STAGE OUT LABEL VARS...   build saturn/engine with VARS; copy BIN/ISO/CUE/SYM/MAP to OUT/LABEL
 #   stage.sh legacy STAGE OUT LABEL KIND     KIND recipe (4b4cacb2) or off (bb5f0fc5): build and copy the BIN
-#   stage.sh host STAGE OUT KEY SLUG [DRIVER] HOST checkpoints (fzx-phys --checkpoints 256, tubes build, built once
+#   stage.sh host STAGE OUT KEY SLUG [DRIVER [AHEAD [TICKS]]] HOST checkpoints (fzx-phys --checkpoints 256, tubes build, built once
 #                                            per KEY = tree id) for SLUG's R01 race
 # OUT is a /mnt/c path. Generated assets are ROM-derived: they stay in the stage and never leave this machine.
 set -euo pipefail
@@ -135,7 +135,7 @@ IN
   echo "LEGACY $kind $(sha256sum "$d/fzero-x-saturn.bin" | cut -d' ' -f1)"
   ;;
 host)
-  out=${3:?}; key=${4:?}; slug=${5:?}; driver=${6:-0.004,2.5}; ahead=${7:-}
+  out=${3:?}; key=${4:?}; slug=${5:?}; driver=${6:-0.004,2.5}; ahead=${7:-}; ticks=${8:-}
   cd "$S/w"; pin=$(cat saturn/engine/sh2zam.pin)
   hb=$S/host-$key; mkdir -p "$hb"
   if [ ! -x "$hb/fzx-phys" ]; then
@@ -143,9 +143,9 @@ host)
     cp tools/physics_host/build/gcc-O2-tubes/fzx-phys "$hb/fzx-phys"
   fi
   g=$(python3 -c "import sys;sys.path.insert(0,'tools');import course_catalog as c;print(c.gen_root('$slug'))")
-  printf "460 - 0 0\n9000 A 0 0\n" > /tmp/gate-r01-$stage.txt
+  printf "460 - 0 0\n${ticks:-9000} A 0 0\n" > /tmp/gate-r01-$stage.txt
   mkdir -p "$out"
-  f=$out/$slug-$driver${ahead:+-a$ahead}.txt
+  f=$out/$slug-$driver${ahead:+-a$ahead}${ticks:+-t$ticks}.txt
   da=; [ -n "$ahead" ] && da="--driver-ahead $ahead"
   "$hb/fzx-phys" --pack "$g/physics/PHYS.PAK" --inputs /tmp/gate-r01-$stage.txt --driver "$driver" $da --checkpoints 256 > "$f" 2>&1
   "$hb/fzx-phys" --pack "$g/physics/PHYS.PAK" --inputs /tmp/gate-r01-$stage.txt --driver "$driver" $da --out /tmp/gate-r01-$stage.tsv > /dev/null 2>&1

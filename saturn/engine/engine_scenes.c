@@ -17,7 +17,11 @@
 #include "engine_closeup.h"
 #ifndef FZX_P3_BASELINE
 #include "title_identity.h"
-#include "engine_load_cards.h"
+#include "cards.h"
+#include "menu_pages.h"
+#ifndef ENG_SND
+#define ENG_SND 0
+#endif
 #include "select_art.h"
 #include "machine_tuning.h"
 #endif
@@ -115,6 +119,7 @@ enum { FADE_FRAMES = 16u, RETIRE_MIN = 1u };
 #define PAD_B     0x0100u
 #ifndef FZX_P3_BASELINE
 #define PAD_X 0x0040u
+#define PAD_Y 0x0020u
 #define PAD_Z 0x0010u
 #define PAD_L 0x0008u
 #define PAD_R 0x0080u
@@ -423,12 +428,14 @@ extern unsigned char sat_stub_data_end[];
 extern volatile uint32_t fzx_e1_driver;
 static uintptr_t title_cart, title_vram;
 static uint32_t title_at, title_ticks, demo_index, saved_driver;
-static bool title_connected, demo;
+static bool title_connected, demo, picked_mode;
 static fzx_session_t demo_return_session;
 
-/* The two menu packs share a cartridge reservation and use the VDP1
- * texture partition in disjoint scene leases. SELECT never reads the CD. */
-uintptr_t fzx_title_cart_limit(void) { return title_cart ? title_cart - SELECT_ART_BYTES : 0; }
+/* Permanent menu art occupies the top of expansion RAM. Only one winning
+ * portrait and caption is resident, fetched during the final round's cold LOAD. */
+static uintptr_t cards_base(void) { return title_cart - SELECT_ART_BYTES - FZX_CARDS_BYTES; }
+static uintptr_t pages_base(void) { return cards_base() - PAGES_UI_BYTES; }
+uintptr_t fzx_title_cart_limit(void) { return title_cart ? pages_base() - ENDING_MAX_BYTES : 0; }
 
 static bool title_cache(void) {
     dram_cart_init();
@@ -438,7 +445,11 @@ static bool title_cache(void) {
     return fzx_texture_cd_load("TITLE.PAK", FZX_TITLE_BYTES, FZX_TITLE_HASH,
                                (void *)title_cart, (void *)scratch, 4096u)
         && fzx_texture_cd_load("SELECT.PAK", SELECT_ART_BYTES, SELECT_ART_HASH,
-                               (void *)fzx_title_cart_limit(), (void *)scratch, 4096u);
+                               (void *)(title_cart - SELECT_ART_BYTES), (void *)scratch, 4096u)
+        && fzx_texture_cd_load("CARDS.PAK", FZX_CARDS_BYTES, FZX_CARDS_HASH,
+                               (void *)cards_base(), (void *)scratch, 4096u)
+        && fzx_texture_cd_load("PAGESUI.PAK", PAGES_UI_BYTES, PAGES_UI_HASH,
+                               (void *)pages_base(), (void *)scratch, 4096u);
 }
 static void title_cancel(void) { title_at = 0; }
 
@@ -461,7 +472,7 @@ static bool art_preload(uint32_t budget, uintptr_t source, unsigned total) {
 }
 
 static bool title_preload(uint32_t budget) { return art_preload(budget, title_cart, FZX_TITLE_BYTES); }
-static bool select_preload(uint32_t budget) { return art_preload(budget, fzx_title_cart_limit(), SELECT_ART_BYTES); }
+static bool select_preload(uint32_t budget) { return art_preload(budget, title_cart - SELECT_ART_BYTES, SELECT_ART_BYTES); }
 
 static unsigned select_span(vdp1_cmdt_t *span, unsigned capacity) {
     if (!capacity || cursor >= 35u) return 0;
@@ -516,6 +527,7 @@ static void demo_stop(void) {
 static bool title_enter(void *u, uint32_t s) {
     (void)u; (void)s;
     demo_stop();
+    picked_mode = false;
     title_ticks = 0;
 #else
 static bool title_enter(void *u, uint32_t s) {
@@ -570,16 +582,100 @@ static void title_draw(void) {
 }
 
 static const char *course_name(uint8_t course) {
+#ifndef FZX_P3_BASELINE
+    const fzx_course_row_t *row = fzx_course_find(course);
+    return row && row->display_key < sizeof(card_names)/sizeof(card_names[0]) ? card_names[row->display_key] : "UNKNOWN";
+#else
     static const char *const names[] = {
         "MUTE CITY", "SILENCE", "SAND OCEAN", "DEVIL'S FOREST", "BIG BLUE", "PORT TOWN"
     };
     const fzx_course_row_t *row = fzx_course_find(course);
     return row && row->display_key < sizeof(names) / sizeof(names[0]) ? names[row->display_key] : "UNKNOWN";
+#endif
 }
 
 static bool jack_ready(void) {
     return E1_FIELD == 29 && fzx_cup_gp_ready(FZX_CUP_JACK);
 }
+
+#ifndef FZX_P3_BASELINE
+static uint8_t mode_cursor, ending_slot, ending_place;
+static bool ending_page_ready;
+
+static void sprite(vdp1_cmdt_t *cmd, unsigned at, unsigned w, unsigned h, int x, int y) {
+    const vdp1_cmdt_draw_mode_t mode = { .end_code_disable = 1, .color_mode = VDP1_CMDT_CM_RGB_32768 };
+    memset(cmd, 0, sizeof(*cmd));
+    vdp1_cmdt_normal_sprite_set(cmd);
+    vdp1_cmdt_draw_mode_set(cmd, mode);
+    vdp1_cmdt_char_base_set(cmd, (vdp1_vram_t)(title_vram + at));
+    vdp1_cmdt_char_size_set(cmd, w, h);
+    cmd->cmd_xa = x;
+    cmd->cmd_ya = y;
+}
+static void ui_sprite(vdp1_cmdt_t *cmd, unsigned id, int x, int y) {
+    sprite(cmd, menu_sprites[id].at, menu_sprites[id].w, menu_sprites[id].h, x, y);
+}
+static bool pages_preload(uint32_t budget) { return art_preload(budget, pages_base(), PAGES_UI_BYTES); }
+static unsigned modes_span(vdp1_cmdt_t *span, unsigned capacity) {
+    if (!capacity) return 0;
+    ui_sprite(span, mode_cursor, 222, 44);
+    return 1;
+}
+static unsigned options_span(vdp1_cmdt_t *span, unsigned capacity) {
+    if (capacity < 9u) return 0;
+    ui_sprite(span, UI_aOptionsFalconHelmetTex, 32, 0);
+    ui_sprite(span+1, UI_aOptionsTex, 112, 18);
+    ui_sprite(span+2, UI_aOptionsFalconHelmetTex, 224, 0);
+    ui_sprite(span+3, UI_aOptionsVsCom2P3PTex, 24, 70);
+    ui_sprite(span+4, UI_aOptionsVsSlotTex, 24, 90);
+    ui_sprite(span+5, UI_aOptionsVsHandicapTex, 24, 110);
+    ui_sprite(span+6, UI_aOptionsSoundModeTex, 24, 130);
+    ui_sprite(span+7, UI_aOptionsAllDataClearTex, 24, 150);
+    ui_sprite(span+8, UI_aOptionsExitTex, 24, 184);
+    return 9;
+}
+static bool panel_enter(void *u, uint32_t scene) {
+    (void)u;
+    if (scene == FZX_SCN_MODES) mode_cursor = fzx_session.menu_mode ? 1u : 0u;
+    text_dirty = true;
+    return true;
+}
+static void modes_tick(void *u, uint32_t scene) {
+    (void)u; (void)scene;
+    if (input.edges & PAD_B) { (void)request(FZX_SCN_SELECT, RANK_GOTO); return; }
+    if (input.repeat & (PAD_UP | PAD_DOWN)) {
+        mode_cursor = (mode_cursor + ((input.repeat & PAD_UP) ? 4u : 1u)) % 5u;
+        text_dirty = true;
+    }
+    if (!(input.edges & (PAD_A | PAD_START))) return;
+    if (mode_cursor == 4u) (void)request(FZX_SCN_OPTIONS, RANK_GOTO);
+    else if (mode_cursor == 1u || (mode_cursor == 0u && jack_ready())) {
+        if (request(FZX_SCN_SELECT, RANK_GOTO)) picked_mode = true;
+    }
+}
+static void options_tick(void *u, uint32_t scene) {
+    (void)u; (void)scene;
+    if (input.edges & (PAD_A | PAD_B | PAD_START)) (void)request(FZX_SCN_MODES, RANK_GOTO);
+}
+static void modes_draw(void) {
+    static const char *const names[] = {"GRAND PRIX","TIME ATTACK","PRACTICE","DEATH RACE","OPTIONS"};
+    if (!text_dirty) return;
+    text_dirty = false;
+    dbgio_printf("\x1b[H\x1b[2J\n\n   SELECT MODE\n\n");
+    for (unsigned i = 0; i < 5u; ++i)
+        dbgio_printf("   %c %s%s\n\n", mode_cursor == i ? '>' : ' ', names[i],
+                     (i == 2u || i == 3u || (i == 0u && !jack_ready())) ? "  LOCKED" : "");
+    dbgio_printf("\n   A: SELECT    B: BACK\n");
+}
+static void options_draw(void) {
+    if (!text_dirty) return;
+    text_dirty = false;
+    dbgio_printf("\x1b[H\x1b[2J\x1b[10;23HUNAVAILABLE\x1b[13;23HUNAVAILABLE\x1b[15;23HUNAVAILABLE\x1b[18;23H%s\x1b[20;23HUNAVAILABLE\x1b[24;23HA / B",
+                 ENG_SND ? "STEREO" : "SOUND OFF");
+}
+static const fzx_scn_menu_hooks_t modes_hooks = {pages_preload, title_cancel, modes_span};
+static const fzx_scn_menu_hooks_t options_hooks = {pages_preload, title_cancel, options_span};
+#endif
 
 static bool select_enter(void *u, uint32_t s) {
     (void)u; (void)s;
@@ -592,6 +688,12 @@ static bool select_enter(void *u, uint32_t s) {
     for (unsigned i = 0; i < MACHINE_COUNT; ++i) if (machines[i].id == fzx_session.machine_id) cursor = i;
 #endif
     select_mode = jack_ready() ? fzx_session.menu_mode : 1u;
+#ifndef FZX_P3_BASELINE
+    if (picked_mode) {
+        select_mode = mode_cursor;
+        picked_mode = false;
+    }
+#endif
     select_difficulty = !select_mode && !FZX_CUP_DIAG_CATALOG ? 1u : fzx_session.difficulty;
     course_cursor = course_ok(fzx_session.course, select_mode) ? fzx_session.course : fzx_course_step(fzx_session.course, 1, mode_avail(select_mode));
     text_dirty = true;
@@ -599,6 +701,12 @@ static bool select_enter(void *u, uint32_t s) {
 }
 static void select_tick(void *u, uint32_t s) {
     (void)u; (void)s;
+#ifndef FZX_P3_BASELINE
+    if (input.edges & PAD_Y) {
+        (void)request(FZX_SCN_MODES, RANK_GOTO);
+        return;
+    }
+#endif
     const uint32_t probe = POKED(fzx_scn_probe);
     if (probe & 0x100u) {
         /* Capture check: can identity `probe & 0xFF` be selected, and would LOAD admit it? */
@@ -682,6 +790,7 @@ static void select_draw(void) {
                                        : "   GRAND PRIX   JACK CUP\n   CLASS   %s\n", levels[select_difficulty]);
     if (jack_ready()) dbgio_printf("   C: CHANGE MODE\n");
 #ifndef FZX_P3_BASELINE
+    dbgio_printf("   Y: MODE MENU\n");
     fzx_machine_grade_t grade = fzx_machine_grade(cursor);
     dbgio_printf("\n   MACHINE %02u   UP/DOWN\n   %s\n", cursor+1u, machine_name(cursor));
     dbgio_printf("\n   BODY %c   BOOST %c   GRIP %c\n   WEIGHT %u KG\n",
@@ -861,6 +970,77 @@ static bool gp_ahead(const fzx_cup_t *cup, unsigned a, unsigned b) {
     return cup->last_place[a] < cup->last_place[b];
 }
 
+#ifndef FZX_P3_BASELINE
+static void ending_cache(void) {
+    const fzx_cup_t *cup = fzx_cup();
+    ending_page_ready = false;
+    const fzx_cup_def_t *def = fzx_cup_def(cup->cup);
+    if (fzx_session.menu_mode || !def || cup->round + 1u != def->rounds ||
+        !cup->difficulty || fzx_session.machine_id >= 33u) return;
+    unsigned id = fzx_session.machine_id;
+    if (id == 0u && cup->difficulty < 3u) id = 31u;
+    else if (id == 31u || id == 32u) ++id;
+    ending_slot = id;
+    uintptr_t scratch = ((uintptr_t)sat_stub_data_end + 31u) & ~(uintptr_t)31u;
+    ending_page_ready = fzx_texture_cd_load_range("ENDINGS.PAK", ENDINGS_BYTES,
+        ending_pages[id].at, ending_pages[id].size, ending_pages[id].hash,
+        (void *)fzx_title_cart_limit(), (void *)scratch, 4096u);
+    if (!ending_page_ready) fault(62, "ENDING ART");
+}
+static bool ending_preload(uint32_t budget) {
+    if (ending_place == 1u && ending_page_ready)
+        return art_preload(budget, fzx_title_cart_limit(), ending_pages[ending_slot].size);
+    return art_preload(budget, pages_base()+menu_sprites[UI_aCongratulationsTex].at, 264u*31u*2u);
+}
+static unsigned ending_span(vdp1_cmdt_t *span, unsigned capacity) {
+    if (capacity < 2u) return 0;
+    if (ending_place == 1u && ending_page_ready) {
+        sprite(span, 0, 168, 99, 76, 32);
+        if (ending_pages[ending_slot].caption) {
+            sprite(span+1, ending_pages[ending_slot].caption, 200, 32, 60, 136);
+            return 2;
+        }
+    } else if (ending_place <= 3u) sprite(span, 0, 264, 31, 28, 62);
+    else return 0;
+    return 1;
+}
+static const fzx_scn_menu_hooks_t ending_hooks = {ending_preload, title_cancel, ending_span};
+static void ending_tick(void *u, uint32_t scene) {
+    (void)u; (void)scene;
+    if ((input.edges & (PAD_A|PAD_B|PAD_START)) && fzx_cup_intent(FZX_CUP_END, fzx_scn_result.run_id))
+        (void)request(FZX_SCN_TITLE, RANK_GOTO);
+}
+static void ending_draw(void) {
+    if (!text_dirty) return;
+    text_dirty = false;
+    const fzx_cup_t *cup = fzx_cup();
+    dbgio_printf("\x1b[H\x1b[2J\n   JACK CUP    FINAL CLASSIFICATION\n");
+    if (ending_place != 1u || !ending_page_ready) {
+        unsigned podium[3] = {FZX_ENTRANTS_MAX, FZX_ENTRANTS_MAX, FZX_ENTRANTS_MAX};
+        for (unsigned i = 0; i < cup->last.count; ++i) {
+            unsigned id = cup->last.row[i].entrant;
+            for (unsigned place = 0; place < 3u; ++place) {
+                if (podium[place] == FZX_ENTRANTS_MAX || gp_ahead(cup, id, podium[place])) {
+                    for (unsigned j = 2; j > place; --j) podium[j] = podium[j-1];
+                    podium[place] = id;
+                    break;
+                }
+            }
+        }
+        dbgio_printf("\x1b[14;3HPODIUM\n");
+        for (unsigned p = 0; p < 3u && podium[p] < FZX_ENTRANTS_MAX; ++p) {
+            for (unsigned i = 0; i < cup->entrants.count; ++i) {
+                if (cup->entrants.e[i].entrant != podium[p]) continue;
+                dbgio_printf("  %u  %-16s %3ld\n", p+1u,
+                             machine_name(cup->entrants.e[i].machine_id), (long)cup->total[podium[p]]);
+                break;
+            }
+        }
+    }
+    dbgio_printf("\x1b[23;3HPLACE %u    %ld PTS\n\n   A: TITLE", ending_place, (long)cup->total[0]);
+}
+#endif
+
 static void gp_draw(const fzx_cup_t *cup) {
 #ifdef FZX_P3_BASELINE
     static const char *const names[] = {
@@ -908,7 +1088,13 @@ static void gp_draw(const fzx_cup_t *cup) {
         else dbgio_printf("+%u%s\n", (unsigned)place_points[p], race->row[p].status == FZX_CL_PROJECTED ? " EST" : "");
     }
     dbgio_printf("\n UP/DOWN: PAGE    A: %s\n", !results->standings ? "STANDINGS" :
-                 cup->state == FZX_CUP_FINAL ? "TITLE" : "NEXT COURSE");
+                 cup->state == FZX_CUP_FINAL ?
+#ifdef FZX_P3_BASELINE
+                 "TITLE"
+#else
+                 "ENDING"
+#endif
+                 : "NEXT COURSE");
 }
 
 static bool results_enter(void *u, uint32_t s) {
@@ -968,6 +1154,13 @@ static void results_tick(void *u, uint32_t s) {
             } else if (cup->state == FZX_CUP_RETIRED && fzx_cup_intent(FZX_CUP_RETRY, id)) {
                 retry_pending = true;
                 (void)request(FZX_SCN_LOAD, RANK_GOTO);
+#ifndef FZX_P3_BASELINE
+            } else if (cup->state == FZX_CUP_FINAL) {
+                ending_place = 1u;
+                for (unsigned i = 1; i < cup->last.count; ++i)
+                    if (gp_ahead(cup, i, 0)) ++ending_place;
+                (void)request(FZX_SCN_ENDING, RANK_GOTO);
+#endif
             } else if (fzx_cup_intent(FZX_CUP_END, id)) (void)request(FZX_SCN_TITLE, RANK_GOTO);
         } else if ((input.edges & PAD_B) && fzx_cup_intent(FZX_CUP_END, id))
             (void)request(FZX_SCN_TITLE, RANK_GOTO);
@@ -1103,48 +1296,57 @@ static unsigned card_used;
 /* The course-menu Jack preview is solid RGB(192,64,64). Its baked 128x64
  * one-bit still expands into B1 0x7a000..0x7afff, just below the nameplate.
  * Each 8x8 character has 8 source bytes and 16 destination words. */
-static void card_track(unsigned course) {
+static bool track_shown;
+static void card_track(const uint16_t *card, unsigned map_row) {
     static const uint16_t four_pixels[16] = {
         0,1,0x10,0x11,0x100,0x101,0x110,0x111,
         0x1000,0x1001,0x1010,0x1011,0x1100,0x1101,0x1110,0x1111
     };
     volatile uint16_t *color = (volatile uint16_t *)VDP2_CRAM_MODE_1_OFFSET(0, 0, 977);
-    card_saved_track_color = *color;
-    *color = RGB1555(1, 24, 8, 8).raw;
+    if (!track_shown) card_saved_track_color = *color;
+    track_shown = true;
+    *color = card[1];
+    const uint8_t *mask = (const uint8_t *)(card + 18);
     volatile uint16_t *tiles = (volatile uint16_t *)VDP2_VRAM_ADDR(3, 0x1a000);
-    for (unsigned i = 0; i < sizeof(card_tracks[0]); ++i) {
-        const uint8_t row = card_tracks[course][i];
+    for (unsigned i = 0; i < 1024u; ++i) {
+        const uint8_t row = mask[i];
         tiles[2u*i] = four_pixels[row >> 4];
         tiles[2u*i+1u] = four_pixels[row & 15u];
     }
     volatile uint16_t *map = (volatile uint16_t *)NBG3_MAP;
     for (unsigned i = 0; i < 128u; ++i)
-        map[(5u+i/16u)*64u + 22u+i%16u] = (uint16_t)(0xd000u | (0xd00u+i));
+        map[(map_row+i/16u)*64u + 22u+i%16u] = (uint16_t)(0xd000u | (0xd00u+i));
+}
+static const uint16_t *course_card(unsigned course) {
+    return (const uint16_t *)(cards_base() + fzx_cards[course].at);
 }
 static void card_show(unsigned course) {
-    if (course >= sizeof(cards)/sizeof(cards[0])) return;
-    const unsigned cols = cards[course].cols;
+    if (course >= sizeof(fzx_cards)/sizeof(fzx_cards[0])) return;
+    const uint16_t *card = course_card(course);
+    const unsigned cols = card[0];
+    const uint16_t *cells = card + 18 + 512;
     volatile uint16_t *tiles = (volatile uint16_t *)VDP2_VRAM_ADDR(3, 0x1b000);
     volatile uint16_t *palette = (volatile uint16_t *)VDP2_CRAM_MODE_1_OFFSET(0, 0, 992);
     for (unsigned i = 0; i < 16u; ++i) {
         card_saved_colors[i] = palette[i];
-        palette[i] = card_colors[i];
+        palette[i] = card[2+i];
     }
     card_used = 32u * cols;
-    for (unsigned i = 0; i < card_used; ++i) tiles[i] = card_cells[cards[course].at+i];
+    for (unsigned i = 0; i < card_used; ++i) tiles[i] = cells[i];
     volatile uint16_t *map = (volatile uint16_t *)NBG3_MAP;
     for (unsigned i = 0; i < 2u*cols; ++i)
         map[(3u+i/cols)*64u + (40u-cols)/2u + i%cols] = (uint16_t)(0xe000u | (0xd80u+i));
-    card_track(course);
+    card_track(card, 5);
 }
 static void card_release(void) {
-    if (!card_used) return;
+    if (!track_shown) return;
     volatile uint16_t *palette = (volatile uint16_t *)VDP2_CRAM_MODE_1_OFFSET(0, 0, 992);
-    for (unsigned i = 0; i < 16u; ++i) palette[i] = card_saved_colors[i];
+    for (unsigned i = 0; i < 16u; ++i) if (card_used) palette[i] = card_saved_colors[i];
     *(volatile uint16_t *)VDP2_CRAM_MODE_1_OFFSET(0, 0, 977) = card_saved_track_color;
     volatile uint16_t *tiles = (volatile uint16_t *)VDP2_VRAM_ADDR(3, 0x1a000);
     for (unsigned i = 0; i < 2048u + card_used; ++i) tiles[i] = 0;
     card_used = 0;
+    track_shown = false;
 }
 
 #endif
@@ -1288,6 +1490,9 @@ static void load_tick(void *u, uint32_t s) {
             (void)sh2z_scene_request(&seq, FZX_SCN_TITLE, RANK_RESET);
             return;
         }
+#ifndef FZX_P3_BASELINE
+        ending_cache();
+#endif
         fzx_race_load();
 #if ENG_ROSTER
         {   /* The roster: fzx_race_load has loaded the field's families selectively
@@ -1558,6 +1763,9 @@ static bool boot_enter(void *u, uint32_t s) {
     if (!title_cache()) fault(62, "TITLE PACK");
     fzx_scn_menu_hooks_set(FZX_SCN_TITLE, &title_hooks);
     fzx_scn_menu_hooks_set(FZX_SCN_SELECT, &select_hooks);
+    fzx_scn_menu_hooks_set(FZX_SCN_MODES, &modes_hooks);
+    fzx_scn_menu_hooks_set(FZX_SCN_OPTIONS, &options_hooks);
+    fzx_scn_menu_hooks_set(FZX_SCN_ENDING, &ending_hooks);
 #endif
     fzx_cup_score_hook(gp_score);
     (void)fzx_records_load(); /* SCENES.md section 5: the saved tables and a new boot id */
@@ -1608,6 +1816,14 @@ static void common_release(void *u, uint32_t s) {
     dbgio_printf("\x1b[H\x1b[2J");
     dbgio_flush();
 }
+#ifndef FZX_P3_BASELINE
+static void select_release(void *u, uint32_t s) {
+    card_release();
+    common_release(u, s);
+}
+#else
+#define select_release common_release
+#endif
 static void title_release(void *u, uint32_t s) {
     /* TITLE releases the resident race set (SCENES.md section 7). */
     common_release(u, s);
@@ -1615,9 +1831,14 @@ static void title_release(void *u, uint32_t s) {
 }
 
 static const sh2z_scene_t table[FZX_SCN_COUNT] = {
+#ifndef FZX_P3_BASELINE
+    [FZX_SCN_MODES] = {menu_preload, panel_enter, modes_tick, common_leave, common_release, menu_arenas, 1},
+    [FZX_SCN_OPTIONS] = {menu_preload, panel_enter, options_tick, common_leave, common_release, menu_arenas, 1},
+    [FZX_SCN_ENDING] = {menu_preload, panel_enter, ending_tick, common_leave, common_release, menu_arenas, 1},
+#endif
     [FZX_SCN_BOOT]    = { NULL, boot_enter, boot_tick, common_leave, common_release, NULL, 0 },
     [FZX_SCN_TITLE]   = { menu_preload, title_enter, title_tick, common_leave, title_release, menu_arenas, 1 },
-    [FZX_SCN_SELECT]  = { menu_preload, select_enter, select_tick, common_leave, common_release, menu_arenas, 1 },
+    [FZX_SCN_SELECT]  = { menu_preload, select_enter, select_tick, common_leave, select_release, menu_arenas, 1 },
     [FZX_SCN_LOAD]    = { NULL, load_enter, load_tick, load_leave, common_release, NULL, 0 },
     [FZX_SCN_RACE]    = { NULL, race_enter, race_tick, race_leave, race_release, race_arenas, 1 },
     [FZX_SCN_RESULTS] = { menu_preload, results_enter, results_tick, common_leave, results_release, menu_arenas, 1 },
@@ -1628,6 +1849,11 @@ static void draw_current(void) {
     switch (seq.current) {
     case FZX_SCN_TITLE: title_draw(); break;
     case FZX_SCN_SELECT: select_draw(); break;
+#ifndef FZX_P3_BASELINE
+    case FZX_SCN_MODES: modes_draw(); break;
+    case FZX_SCN_OPTIONS: options_draw(); break;
+    case FZX_SCN_ENDING: ending_draw(); break;
+#endif
     case FZX_SCN_LOAD: load_draw(); break;
     case FZX_SCN_RESULTS: results_draw(); break;
     case FZX_SCN_RECORDS: records_draw(); break;
@@ -1753,7 +1979,15 @@ void fzx_scn_main(void) {
         } else if (sh2z_scene_drawing(&seq)) {
             own_frames = 0;
             if (seq.current == FZX_SCN_RACE) (void)fzx_race_frame();
-            else { const bool printed = text_dirty; draw_current(); text_frame(printed); }
+            else {
+                const bool printed = text_dirty;
+                draw_current();
+                text_frame(printed);
+#ifndef FZX_P3_BASELINE
+                if (seq.current == FZX_SCN_SELECT && printed && course_cursor < sizeof(fzx_cards)/sizeof(fzx_cards[0]))
+                    card_track(course_card(course_cursor), 16);
+#endif
+            }
         } else {
             own_frame();
             ++own_frames;

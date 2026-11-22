@@ -53,13 +53,13 @@ static bool field_solo;
  * fzx_field_class (0 novice .. 3 master), read at fzx_field_load. */
 #if defined(ENG_COURSE_SELECT) && ENG_COURSE_SELECT
 #include "course_class.h"
-#define FIELD_ROWS (fzx_course_field_class[fzx_cid - fzx_course_ids][field_class_now])
+#define FIELD_ROWS_BASE (fzx_course_field_class[fzx_cid - fzx_course_ids][field_class_now])
 #else
 #include "rivals_field_class.h"
 #if FZX_RIVALS_FIELD_CLASS_SEED != FZX_RIVALS_FIELD_SEED
 #error the class rows come from another seed than rivals_field.h
 #endif
-#define FIELD_ROWS (fzx_rivals_field_class[field_class_now])
+#define FIELD_ROWS_BASE (fzx_rivals_field_class[field_class_now])
 #endif
 #if defined(ENG_SCENES) && ENG_SCENES
 #include "engine_scenes.h"
@@ -75,7 +75,14 @@ static void field_class_pick(void) {
 #endif
 }
 #else
-#define FIELD_ROWS CSEL(field,fzx_rivals_field)
+#define FIELD_ROWS_BASE CSEL(field,fzx_rivals_field)
+#endif
+#if ENG_MODES && defined(ENG_COURSE_SELECT) && ENG_COURSE_SELECT && E2_PACK
+/* Practice races its own rows (tools/course_practice_bundle.py): the same machines, its own grid and pace. */
+#include "course_practice.h"
+#define FIELD_ROWS ((mode_now && mode_now->menu_mode == FZX_MODE_PRACTICE)     ? fzx_course_field_practice[fzx_cid - fzx_course_ids][fzx_session.difficulty & 3u] : FIELD_ROWS_BASE)
+#else
+#define FIELD_ROWS FIELD_ROWS_BASE
 #endif
 #ifndef ENG_RIVAL_SURFACE
 #define ENG_RIVAL_SURFACE 0

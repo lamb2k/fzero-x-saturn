@@ -641,6 +641,14 @@ $(error Missing or stale class bundle: run tools/course_class_bundle.py <courses
 endif
 SH_SRCS += $(G)/courses/select/course_class.c
 endif
+ifeq ($(ENG_MODES),1)
+# Practice's own rival rows per course and class (tools/course_practice_bundle.py, from fzx-gp-ref --mode practice).
+PRACTICE_RECEIPT_CHECK := $(shell sh ../../tools/check_receipt.sh $(G)/courses/select/course_practice.receipt >/dev/null 2>&1 || echo stale)
+ifneq ($(strip $(PRACTICE_RECEIPT_CHECK)),)
+$(error Missing or stale practice bundle: run tools/course_practice_bundle.py <courses>)
+endif
+SH_SRCS += $(G)/courses/select/course_practice.c
+endif
 SH_CFLAGS += -DENG_COURSE_SELECT=1 -I$(G)/courses/select -DFZX_ROAD_STREAM_TEXTURE_LIMIT=240000u
 endif
 

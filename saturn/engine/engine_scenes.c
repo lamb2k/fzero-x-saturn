@@ -24,6 +24,13 @@
 #include "engine_records.h"
 #include "engine_cup.h"
 #include "engine_field.h"
+#ifndef ENG_MODES
+#define ENG_MODES 0
+#endif
+#if ENG_MODES
+#include "engine_modes.h"
+_Static_assert(FZX_MODE_REC_TA == FZX_REC_TA && FZX_MODE_REC_DEATH == FZX_REC_DEATH_RACE, "mode record kinds");
+#endif
 #ifndef ENG_COURSE_SELECT
 #define ENG_COURSE_SELECT 0
 #endif
@@ -205,7 +212,11 @@ static void session_defaults(void) {
 }
 
 /* The catalog bit a session's mode needs (SCENES.md 11.1): GP 0, otherwise Time Attack. */
+#if ENG_MODES
+static uint8_t mode_avail(unsigned mode) { const fzx_mode_rules_t *r = fzx_mode_rules(mode); return r ? r->avail : 0u; }
+#else
 static uint8_t mode_avail(unsigned mode) { return mode == 0u ? FZX_AVAIL_GP : FZX_AVAIL_TA; }
+#endif
 static bool course_ok(uint32_t course, unsigned mode) {
     const fzx_course_row_t *row = course < 256u ? fzx_course_find((uint8_t)course) : NULL;
     return row && (row->avail & mode_avail(mode)) != 0;
@@ -214,8 +225,15 @@ static bool course_ok(uint32_t course, unsigned mode) {
 /* SELECT's only write path (SCENES.md section 3). */
 static bool session_edit(uint32_t machine_id, uint32_t course) {
     if (!machine_allowed(machine_id) || !course_ok(course, select_mode)) return false;
+#if ENG_MODES
+    if (!fzx_mode_rules(select_mode)) return false;
+#endif
     fzx_session.menu_mode = select_mode;
+#if ENG_MODES
+    fzx_session.difficulty = (uint8_t)fzx_mode_class(select_mode, select_difficulty);
+#else
     fzx_session.difficulty = select_difficulty;
+#endif
     fzx_session.cup = FZX_CUP_JACK;
     fzx_session.machine_id = (uint16_t)machine_id;
     fzx_session.course = (uint8_t)course;
@@ -581,6 +599,13 @@ static bool jack_ready(void) {
     return E1_FIELD == 29 && fzx_cup_gp_ready(FZX_CUP_JACK);
 }
 
+#if ENG_MODES
+static bool mode_picks_class(unsigned mode) { const fzx_mode_rules_t *r = fzx_mode_rules(mode); return r && r->class_pick; }
+static const char *mode_name(unsigned mode) {
+    switch (mode) { case FZX_MODE_GP: return "GRAND PRIX"; case FZX_MODE_TA: return "TIME ATTACK";
+                    case FZX_MODE_DEATH: return "DEATH RACE"; case FZX_MODE_PRACTICE: return "PRACTICE"; default: return "?"; }
+}
+#endif
 static bool select_enter(void *u, uint32_t s) {
     (void)u; (void)s;
     (void)sh2z_arena_alloc(&menu_arena, 1024u, 16u);
@@ -618,6 +643,37 @@ static void select_tick(void *u, uint32_t s) {
         fzx_scn_report[14] = 0x8000u | (sel ? 1u : 0u) | (id << 16);
         POKED(fzx_scn_probe) = 0;
     }
+#if ENG_MODES
+    if (probe & 0x400u) {
+        /* Script hook (claude/modes): mode (bits 4..7) and class (bits 0..1) under the cursor, if the mode runs. */
+        const uint32_t m = (probe >> 4) & 0xFu;
+        if (jack_ready() && fzx_mode_rules(m)) {
+            select_mode = (uint8_t)m;
+            select_difficulty = (uint8_t)(probe & 3u);
+            course_cursor = course_ok(course_cursor, m) ? course_cursor
+                          : (fzx_mode_rules(m)->cup ? fzx_cup_def(FZX_CUP_JACK)->course[0]
+                                                    : fzx_course_step(FZX_COURSE_NONE, 1, mode_avail(m)));
+            text_dirty = true;
+        }
+        POKED(fzx_scn_probe) = 0;
+    }
+    if ((input.edges & PAD_C) && jack_ready()) {
+        /* C walks the modes the race path runs: Time Attack, Grand Prix, Practice, Death Race. */
+        static const uint8_t walk[4] = { FZX_MODE_TA, FZX_MODE_GP, FZX_MODE_PRACTICE, FZX_MODE_DEATH };
+        unsigned at = 0;
+        for (unsigned i = 0; i < 4u; ++i) if (walk[i] == select_mode) at = i;
+        select_mode = walk[(at + 1u) % 4u];
+        course_cursor = fzx_mode_rules(select_mode)->cup ? fzx_cup_def(FZX_CUP_JACK)->course[0]
+                                                         : fzx_course_step(FZX_COURSE_NONE, 1, mode_avail(select_mode));
+        text_dirty = true;
+    }
+    if (mode_picks_class(select_mode) && ((fzx_mode_rules(select_mode)->cup && (input.repeat & (PAD_LEFT | PAD_RIGHT))) ||
+                                          (!fzx_mode_rules(select_mode)->cup && (input.edges & PAD_START)))) {
+        select_difficulty = (select_difficulty + ((input.repeat & PAD_LEFT) ? 3u : 1u)) % 4u;
+        text_dirty = true;
+    }
+    if (!fzx_mode_rules(select_mode)->cup && (input.repeat & (PAD_LEFT | PAD_RIGHT))) {
+#else
     if ((input.edges & PAD_C) && jack_ready()) {
         select_mode ^= 1u;
         course_cursor = select_mode ? fzx_course_step(FZX_COURSE_NONE, 1, FZX_AVAIL_TA)
@@ -629,6 +685,7 @@ static void select_tick(void *u, uint32_t s) {
         text_dirty = true;
     }
     if (select_mode && (input.repeat & (PAD_LEFT | PAD_RIGHT))) {
+#endif
         const uint8_t c = fzx_course_step(course_cursor, (input.repeat & PAD_LEFT) ? -1 : 1, mode_avail(select_mode));
         if (c != FZX_COURSE_NONE && c != course_cursor) { course_cursor = c; text_dirty = true; }
     }
@@ -674,10 +731,21 @@ static void select_draw(void) {
     text_dirty = false;
     static const char *const levels[] = { "NOVICE", "STANDARD", "EXPERT", "MASTER" };
     dbgio_printf("\x1b[H\x1b[2J\n\n   RACE SELECT\n\n");
+#if ENG_MODES
+    if (!fzx_mode_rules(select_mode)->cup)
+        dbgio_printf("   %s\n   COURSE  < %s >\n", mode_name(select_mode), course_name(course_cursor));
+    else
+        dbgio_printf("   %s   JACK CUP\n", mode_name(select_mode));
+    if (mode_picks_class(select_mode))
+        dbgio_printf("   CLASS   < %s >%s\n", levels[select_difficulty], fzx_mode_rules(select_mode)->cup ? "" : "  START");
+    else if (select_mode == FZX_MODE_DEATH)
+        dbgio_printf("   CLASS     MASTER\n");
+#else
     if (select_mode)
         dbgio_printf("   TIME ATTACK\n   COURSE  < %s >\n", course_name(course_cursor));
     else
         dbgio_printf("   GRAND PRIX   JACK CUP\n   CLASS   < %s >\n", levels[select_difficulty]);
+#endif
     if (jack_ready()) dbgio_printf("   C: CHANGE MODE\n");
 #ifndef FZX_P3_BASELINE
     fzx_machine_grade_t grade = fzx_machine_grade(cursor);
@@ -1158,7 +1226,11 @@ static bool load_enter(void *u, uint32_t s) {
     const uint8_t course = fzx_session.menu_mode == 0u && fzx_cup()->state != FZX_CUP_IDLE
                            ? fzx_cup_next_course() : fzx_session.course;
     dbgio_printf("\x1b[H\x1b[2J\x1b[8;5H%s\x1b[10;5H%s\x1b[14;4H|/-\\  LOADING",
+                 #if ENG_MODES
+                 demo ? "DEMO" : mode_name(fzx_session.menu_mode),
+#else
                  demo ? "DEMO" : fzx_session.menu_mode ? "TIME ATTACK" : "JACK CUP",
+#endif
                  machine_name(fzx_session.machine_id));
 #else
     const char *name = "?";
@@ -1485,6 +1557,11 @@ static void race_tick(void *u, uint32_t s) {
         const uint32_t forced = POKED(fzx_scn_force_end);
         if (forced) { end_reason = forced & 3u; POKED(fzx_scn_force_end) = 0; end_wait = 30u; }
         else if (b->flags & SH2Z_VD_FINISHED) { end_reason = FZX_END_FINISH; end_wait = 120u; }
+#if ENG_MODES && E1_FIELD
+        /* Death Race: every rival retired is the win (racer.c ~979); the player's time at that tick is the record. */
+        else if (fzx_mode_rules(fzx_session.menu_mode) && fzx_mode_rules(fzx_session.menu_mode)->win_all_retired &&
+                 fzx_field_report[0] == 1u && fzx_field_report[12] >= FZX_FIELD_CARS - 1u) { end_reason = FZX_END_FINISH; end_wait = 120u; }
+#endif
         else if (b->flags & (SH2Z_VD_SPINNING | SH2Z_VD_CRASHED | SH2Z_VD_FALLING)) { end_reason = FZX_END_RETIRE; end_wait = 120u; }
         if (end_reason != FZX_END_NONE) race_snapshot(end_reason);
         /* GP: a retire or quit is outcome-only, written at the event (SCENES.md 11.3). */

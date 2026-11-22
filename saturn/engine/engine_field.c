@@ -3,6 +3,18 @@
 #include "engine_field.h"
 #include "sh2zam/line_field_experimental.h"
 #include "sh2zam/unit30_experimental.h"
+#ifndef ENG_MODES
+#define ENG_MODES 0
+#endif
+#if ENG_MODES
+/* Race modes (engine_modes.h): Time Attack races alone; Practice and Death Race race without a lap-count finish; Death
+ * Race's rivals start at half energy. Scenes images only: the mode is the session's. */
+#include "engine_modes.h"
+#include "engine_scenes.h"
+extern fzx_session_t fzx_session;
+static const fzx_mode_rules_t *mode_now;
+static bool field_solo;
+#endif
 
 #if E1_FIELD < 1 || E1_FIELD > 29
 #error E1_FIELD must be 1..29 when built
@@ -352,6 +364,11 @@ static void grid_places(void) {
 
 bool fzx_field_load(const sh2z_vd_track_t *track, const sh2z_vd_body_t *player) {
     memset((void *)fzx_field_report, 0, sizeof(fzx_field_report));
+#if ENG_MODES
+    mode_now = fzx_mode_rules(fzx_session.menu_mode);
+    field_solo = mode_now && !mode_now->field;
+    if (field_solo) { fzx_field_report[0] = 1; return true; } /* no line, no rivals: the player alone */
+#endif
     trk = track;
     if (!build_line(track)) { fzx_field_report[0] = 2; return false; }
 #if ENG_RIVAL_CLASS
@@ -546,6 +563,14 @@ bool fzx_field_load(const sh2z_vd_track_t *track, const sh2z_vd_body_t *player) 
         fzx_field_event_count = 0;
     }
 #endif
+#if ENG_MODES
+    if (mode_now) {
+        if (mode_now->endless) params.laps = 99;
+        if (mode_now->rival_energy_q8 != 256u)
+            for (uint32_t i = 1; i < FZX_FIELD_CARS; ++i)
+                veh[i].max_energy = veh[i].energy = (int32_t)(((int64_t)veh[i].max_energy * mode_now->rival_energy_q8) >> 8);
+    }
+#endif
     sh2z_field_init(&field, &line, &params, veh, brain, order, slot_of, rank_order, FZX_FIELD_CARS, CSEL(field_seed,FZX_RIVALS_FIELD_SEED));
 #if ENG_RIVAL_BEHAVE
     for (uint32_t i = 0; i < FZX_FIELD_CARS; ++i) { prev_flags[i] = veh[i].flags; prev_credit[i] = brain[i].ko_credit; }
@@ -590,6 +615,9 @@ bool fzx_field_load(const sh2z_vd_track_t *track, const sh2z_vd_body_t *player) 
 
 void fzx_field_tick(const sh2z_vd_body_t *player) {
     if (fzx_field_report[0] != 1) return;
+#if ENG_MODES
+    if (field_solo) return;
+#endif
     player_into_field(player);
     if (!field.started && player->race_time > 0) { sh2z_field_start(&field); fzx_field_report[4] = field.tick; }
     /* line-field-7: the step for this image's behaviour block (the other is not linked). */
@@ -638,6 +666,18 @@ static uint32_t dist_units(const int32_t a[3], const int32_t b[3]) {
 
 unsigned fzx_field_cars(fzx_field_car_t *out, const sh2z_vd_body_t *player) {
     if (fzx_field_report[0] != 1) return 0;
+#if ENG_MODES
+    if (field_solo) {
+        /* The player alone: one car, in 3D when the arm asks for any. */
+        for (int c = 0; c < 3; ++c) {
+            out[0].pos[c] = player->pos[c];
+            for (int r = 0; r < 3; ++r) out[0].basis[r][c] = q14(player->body[r][c]);
+        }
+        out[0].id = 0; out[0].is3d = (fzx_field_k & 0xffu) >= 1u; out[0].slot = 0;
+        fzx_field_report[6] = 0; fzx_field_report[7] = out[0].is3d;
+        return 1;
+    }
+#endif
     /* fzx_field_k: K in bits 0..7, the rivals' 3D LOD (source numbering, 0 = 1) in bits 8..15. */
     const uint32_t k = (fzx_field_k & 0xffu) > FZX_FIELD_K_MAX ? FZX_FIELD_K_MAX : (fzx_field_k & 0xffu);
     const uint32_t dmax = fzx_field_d, margin = fzx_field_margin;

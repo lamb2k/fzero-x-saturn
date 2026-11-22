@@ -4,6 +4,12 @@
 #include <yaul.h>
 #include <bup.h>
 #include "engine_records.h"
+#ifndef ENG_MODES
+#define ENG_MODES 0
+#endif
+#if ENG_MODES
+#include "engine_modes.h"
+#endif
 
 #define REC_MAGIC 0x465A5852u /* "FZXR" */
 #define REC_VERSION 1u
@@ -176,6 +182,9 @@ static unsigned place_for(const fzx_rec_course_t *c, uint32_t ms) {
 void fzx_records_rank(const fzx_run_result_t *run, fzx_rank_t *out) {
     memset(out, 0, sizeof(*out));
     if (!run || run->reason != FZX_END_FINISH || run->course >= FZX_REC_COURSES) return;
+#if ENG_MODES
+    if (!fzx_mode_keeps_times(run->menu_mode)) return; /* Grand Prix and Practice keep no times */
+#endif
     if (run->menu_mode == 2u) { /* Death Race: its own single time */
         out->place = run->race_ms < table.death_race[run->course].ms ? 1u : 0u;
         return;

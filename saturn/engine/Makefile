@@ -95,6 +95,13 @@ FZX_CUP_DIAG_CATALOG ?= 0
 # Engine gate control (tools/engine_gate.py ctl-menus): 1 links a probe that holds one menu frame for 3 fields
 # when fzx_scn_stall_ctl is written. Diagnostic only; 0 (default) compiles nothing.
 ENG_SCN_STALL_CONTROL ?= 0
+# ENG_MODES (scenes image; claude/modes, plan P3 item 3): the race modes (engine_modes.c): Time Attack alone, Practice and
+# Death Race without a lap-count finish, Death Race's rivals at half energy, Grand Prix and Practice keeping no times, and
+# the SELECT placeholder's mode walk (C) and the harness probe 0x400. Default 0 while built (off = the engine's BINs).
+ENG_MODES ?= 0
+ifeq ($(filter 0 1,$(ENG_MODES)),)
+$(error ENG_MODES must be 0 or 1)
+endif
 # Engine gate control (ctl-smpc): 1 builds the scenes image's backup-library calls without the quiet SMPC
 # (engine_smpc_quiet, engine_main.c) and opens each with a RESENAB whose SF stays set across a vertical blank
 # before its command is written, so the handler's INTBACK issue waits on it for good (the hang memory lane part 4
@@ -383,7 +390,7 @@ EMIT_SWITCHES := $(E2_EMIT_PROF)$(E2_EMIT_HINT)$(E2_EMIT_CMD)$(E2_EMIT_SHADOW)$(
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter-out 0,$(subst 0,,$(EMIT_SWITCHES))),-em$(EMIT_SWITCHES),)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter-out 00000,$(BAL_SWITCHES)),-bal$(BAL_SWITCHES),)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter 0,$(E0_FLOOR_NEAR0)),-fn0,)
-SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter-out mute-city-1,$(ENG_COURSE)),-$(ENG_COURSE),)$(if $(E1_DRIVER_KH),-kh$(E1_DRIVER_KH),)$(if $(filter 1,$(ENG_COURSE_SELECT)),-sel,)$(if $(filter 1,$(ENG_TUBES)),-tubes,)$(if $(filter 0,$(ENG_RIVAL_SURFACE)),-rs0,)$(if $(filter 1,$(ENG_RIVAL_BEHAVE)),-beh,)$(if $(filter 1,$(ENG_RIVAL_CLASS)),-cls,)$(if $(filter 1,$(ENG_SCN_STALL_CONTROL)),-stallctl,)$(if $(filter-out 0,$(ENG_SMPC_OVERLAP_CONTROL)),-smpcctl$(ENG_SMPC_OVERLAP_CONTROL),)$(if $(filter 1,$(ENG_LOW_HOT_CONTROL)),-hotctl,)$(if $(filter-out 0,$(FZX_CD_TRACE)),-cdtrace$(FZX_CD_TRACE),)$(if $(filter 1,$(FZX_CD_STALE_CONTROL)),-stalectl,)
+SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter-out mute-city-1,$(ENG_COURSE)),-$(ENG_COURSE),)$(if $(E1_DRIVER_KH),-kh$(E1_DRIVER_KH),)$(if $(filter 1,$(ENG_COURSE_SELECT)),-sel,)$(if $(filter 1,$(ENG_TUBES)),-tubes,)$(if $(filter 0,$(ENG_RIVAL_SURFACE)),-rs0,)$(if $(filter 1,$(ENG_RIVAL_BEHAVE)),-beh,)$(if $(filter 1,$(ENG_RIVAL_CLASS)),-cls,)$(if $(filter 1,$(ENG_MODES)),-modes,)$(if $(filter 1,$(ENG_SCN_STALL_CONTROL)),-stallctl,)$(if $(filter-out 0,$(ENG_SMPC_OVERLAP_CONTROL)),-smpcctl$(ENG_SMPC_OVERLAP_CONTROL),)$(if $(filter 1,$(ENG_LOW_HOT_CONTROL)),-hotctl,)$(if $(filter-out 0,$(FZX_CD_TRACE)),-cdtrace$(FZX_CD_TRACE),)$(if $(filter 1,$(FZX_CD_STALE_CONTROL)),-stalectl,)
 ifeq ($(ENG_SCENES)$(ENG_P3_UI),10)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)-p3off
 endif
@@ -477,7 +484,7 @@ SH_SRCS := engine_main.c engine_scene.c engine_path.c \
     $(if $(filter 1,$(FZX_E1_DRIVE)),engine_drive.c ../physics_native.c,) \
     $(if $(filter 1,$(E1_CLOSEUP)),engine_closeup.c ../../src/fzx_vehicle.c ../../src/fzx_vehicle_draw.c,) \
     $(if $(filter-out 0,$(E1_FIELD)),engine_field.c,) \
-    $(if $(filter 1,$(ENG_SCENES)),engine_scenes.c engine_records.c engine_load_fast.c engine_cup.c,) $(if $(filter 1,$(ENG_ROSTER)),engine_roster.c,) \
+    $(if $(filter 1,$(ENG_SCENES)),engine_scenes.c engine_records.c engine_load_fast.c engine_cup.c $(if $(filter 1,$(ENG_MODES)),engine_modes.c,),) $(if $(filter 1,$(ENG_ROSTER)),engine_roster.c,) \
     $(addprefix $(SH2ZAM_ROOT)/saturn/src/,$(sort $(SH2ZAM_UNITS)))
 ifneq ($(ENG_DSP_BANDS),0)
 SH_SRCS += ../../src/fzx_band_corners.c
@@ -582,9 +589,9 @@ $(error Missing or stale C8 title/course art: $(C8_ART_CHECK))
 endif
 SH_CFLAGS += -I$(G)/$(ENG_TITLE_ART) -I$(G)/c8_cards -I$(G)/guest_mach3d
 SH_SRCS += machine_tuning.c
-SH_CFLAGS += -DENG_SCENES=1 -DFZX_CUP_DIAG_CATALOG=$(FZX_CUP_DIAG_CATALOG) -DFZX_GUEST_MASK=$(FZX_GUEST_MASK)ull -I$(G)/mach3d -I$(G)/machine_tuning -I$(G)/select_art -DFZX_CD_STREAM=1 -DFZX_LOAD_VERIFIED=1 -DENG_ROSTER=$(ENG_ROSTER) -DENG_SCN_STALL_CONTROL=$(ENG_SCN_STALL_CONTROL) -I$(G)/roster -DFZX_ROAD_PREP_BAKED=1 -I$(GC)/road_prep -I$(GC)/engine_path_ranges
+SH_CFLAGS += -DENG_SCENES=1 -DFZX_CUP_DIAG_CATALOG=$(FZX_CUP_DIAG_CATALOG) -DFZX_GUEST_MASK=$(FZX_GUEST_MASK)ull -I$(G)/mach3d -I$(G)/machine_tuning -I$(G)/select_art -DFZX_CD_STREAM=1 -DFZX_LOAD_VERIFIED=1 -DENG_ROSTER=$(ENG_ROSTER) -DENG_SCN_STALL_CONTROL=$(ENG_SCN_STALL_CONTROL) -DENG_MODES=$(ENG_MODES) -I$(G)/roster -DFZX_ROAD_PREP_BAKED=1 -I$(GC)/road_prep -I$(GC)/engine_path_ranges
 else
-SH_CFLAGS += -DENG_SCENES=1 -DFZX_CUP_DIAG_CATALOG=$(FZX_CUP_DIAG_CATALOG) -DFZX_GUEST_MASK=$(FZX_GUEST_MASK)ull -I$(G)/mach3d_scn -DFZX_CD_STREAM=1 -DFZX_LOAD_VERIFIED=1 -DENG_ROSTER=$(ENG_ROSTER) -DENG_SCN_STALL_CONTROL=$(ENG_SCN_STALL_CONTROL) -I$(G)/roster -DFZX_ROAD_PREP_BAKED=1 -I$(GC)/road_prep -I$(GC)/engine_path_ranges
+SH_CFLAGS += -DENG_SCENES=1 -DFZX_CUP_DIAG_CATALOG=$(FZX_CUP_DIAG_CATALOG) -DFZX_GUEST_MASK=$(FZX_GUEST_MASK)ull -I$(G)/mach3d_scn -DFZX_CD_STREAM=1 -DFZX_LOAD_VERIFIED=1 -DENG_ROSTER=$(ENG_ROSTER) -DENG_SCN_STALL_CONTROL=$(ENG_SCN_STALL_CONTROL) -DENG_MODES=$(ENG_MODES) -I$(G)/roster -DFZX_ROAD_PREP_BAKED=1 -I$(GC)/road_prep -I$(GC)/engine_path_ranges
 endif
 else
 SH_CFLAGS += -I$(G)/$(E1_REBAKE) -I$(G)/$(E1_VEHICLE)

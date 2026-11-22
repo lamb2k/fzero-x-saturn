@@ -16,6 +16,12 @@
 #include "machine_tuning.h"
 #endif
 #endif
+#ifndef ENG_MODES
+#define ENG_MODES 0
+#endif
+#if ENG_MODES
+#include "engine_modes.h"
+#endif
 #include "course_select.h"
 #include "racer_sprites_identity.h"
 #include "texture_cd.h"
@@ -398,6 +404,12 @@ bool fzx_drive_load(void *scratch, uint32_t scratch_bytes) {
         return false;
     }
 #endif
+#endif
+#if ENG_MODES && ENG_SCENES
+    {   /* Practice and Death Race never finish at the lap count (racer.c: the lap wraps); the lap-time ring holds 8. */
+        const fzx_mode_rules_t *rules = fzx_mode_rules(fzx_session.menu_mode);
+        if (rules && rules->endless) course.track.laps = 99;
+    }
 #endif
     body = course.start; prev_n64 = 0; ticks = 0;
     memset(&pad_state, 0, sizeof(pad_state));

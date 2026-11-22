@@ -8,7 +8,9 @@ import struct
 
 
 COURSES = ("MUTE CITY", "SILENCE", "SAND OCEAN", "DEVIL'S FOREST", "BIG BLUE", "PORT TOWN",
-           "SECTOR ALPHA", "RED CANYON", "DEVIL'S FOREST", "MUTE CITY", "BIG BLUE", "WHITE LAND")
+           "SECTOR ALPHA", "RED CANYON", "DEVIL'S FOREST", "MUTE CITY", "BIG BLUE", "WHITE LAND",
+           "FIRE FIELD", "SILENCE", "SECTOR", "RED CANYON", "WHITE LAND", "MUTE CITY",
+           "RAINBOW ROAD", "DEVIL'S FOREST", "SPACE PLANT", "SAND OCEAN", "PORT TOWN", "BIG HAND")
 
 def preview_masks(folder):
     pack = (folder / "CPREVIEW.PAK").read_bytes()

@@ -82,10 +82,18 @@ static double dot30(const int32_t a[3], const int32_t b[3]) {
 #ifndef E1_DRIVER_KH
 #define E1_DRIVER_KH 2.5f
 #endif
+/* The lateral gain and the constant lateral target of R01-t (tools/physics_host `--driver kl,kh,0,460,target`);
+ * HOST and test driver only, not game behaviour. The defaults are the nominal driver's. */
+#ifndef E1_DRIVER_KL
+#define E1_DRIVER_KL 0.004f
+#endif
+#ifndef E1_DRIVER_TARGET
+#define E1_DRIVER_TARGET 0.0f
+#endif
 static signed char driver_stick(void) {
     const float lateral = (float)(sh2z_vd_body_lateral(&body) / 65536.0);
     const float heading = (float)dot30(body.body[0], body.road[2]);
-    float steer = 0.004f * (lateral - 0.0f) + E1_DRIVER_KH * heading;
+    float steer = E1_DRIVER_KL * (lateral - E1_DRIVER_TARGET) + E1_DRIVER_KH * heading;
     if (steer > 1.0f) steer = 1.0f;
     if (steer < -1.0f) steer = -1.0f;
     return (signed char)(steer >= 0.0f ? (int)(steer * 63.0f + 0.5f) : -(int)(-steer * 63.0f + 0.5f));

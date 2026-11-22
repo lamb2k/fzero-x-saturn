@@ -19,6 +19,19 @@ const fzx_course_info_t fzx_course_info[] = {
     ROW(9, 3, 0, "MUTE CITY 2"),
     ROW(10, 4, 4, "BIG BLUE 2"),
     ROW(11, 5, 8, "WHITE LAND"),
+    /* King Cup (cup 2) and Joker Cup (cup 3): the music is the retail table's (Rainbow Road plays Sector's) */
+    ROW(12, 0, 2, "FIRE FIELD"),
+    ROW(13, 1, 1, "SILENCE 2"),
+    ROW(14, 2, 7, "SECTOR BETA"),
+    ROW(15, 3, 6, "RED CANYON 2"),
+    ROW(16, 4, 8, "WHITE LAND 2"),
+    ROW(17, 5, 0, "MUTE CITY 3"),
+    ROW(18, 0, 7, "RAINBOW ROAD"),
+    ROW(19, 1, 5, "DEVIL'S FOREST 3"),
+    ROW(20, 2, 6, "SPACE PLANT"),
+    ROW(21, 3, 2, "SAND OCEAN 2"),
+    ROW(22, 4, 3, "PORT TOWN 2"),
+    ROW(23, 5, 8, "BIG HAND"),
 };
 #undef ROW
 const uint32_t fzx_course_info_count = sizeof(fzx_course_info) / sizeof(fzx_course_info[0]);

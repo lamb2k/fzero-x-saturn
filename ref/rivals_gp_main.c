@@ -200,12 +200,15 @@ int main(int argc, char** argv) {
             #undef T
             if (!strcmp(tok, "boost_ticks")) { P.boost_ticks = (int16_t)val; continue; }
             #define B(n) if (!strcmp(tok, #n)) { behave.n = val; continue; }
-            B(drop_lat) B(drop_chance) B(launch_chance) B(contact_norm)
+            B(drop_lat) B(drop_chance) B(launch_chance) B(contact_norm) B(wall_impact) B(line_room)
             B(roll_chance) B(roll_latch) B(roll_lead) B(roll_well) B(hold_lead) B(roll_exit_ahead) B(lat_accel) B(air_spread) B(fall_margin) B(fall_ticks) B(ko_window) B(ko_near) B(ko_floor)
             #undef B
             if (!strcmp(tok, "rk_base")) { ranks.base = val; continue; }
             if (!strcmp(tok, "rk_share")) { ranks.share = val; continue; }
             if (!strcmp(tok, "rk_release")) { ranks.release_dist = val; continue; }
+            if (!strcmp(tok, "rk_coast")) { ranks.coast = val; continue; }
+            if (!strcmp(tok, "rk_floor")) { ranks.floor = val; continue; }
+            if (!strcmp(tok, "rk_after")) { ranks.after_speed = val; continue; }
             if (!strcmp(tok, "roll_min")) { behave.roll_min = (int16_t)val; continue; }
             if (!strcmp(tok, "roll_span")) { behave.roll_span = (int16_t)val; continue; }
             if (!strcmp(tok, "open_mask")) { behave.open_mask = (uint16_t)val; continue; }

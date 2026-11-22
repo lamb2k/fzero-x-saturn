@@ -52,3 +52,23 @@ Options, unknown) is refused. The table is `engine_modes.c`; `tests/test_modes.p
 
 SELECT's placeholder walks Time Attack, Grand Prix, Practice, Death Race on C; START changes Practice's class (Grand Prix: left and
 right); Master is skipped until it is open.
+
+## Entry and outcome contract (DRAFT 2, answers Codex C-137 / C-138)
+
+`engine_mode_entry.h` (HOST fixture `tests/mode_entry_driver.c`, run by `tests/test_modes.py`, six controls). Ownership:
+
+| | Front end (Codex) | Modes | Records |
+| --- | --- | --- | --- |
+| Entry | navigation, signs, cursor, Back, confirm; writes `fzx_session` after `FZX_ENTRY_OK` | `fzx_mode_caps`, `fzx_mode_entry_check` (pure, never writes the session) | none |
+| Race | HUD from the engine's numbers (bindings in the header) | field, laps, energy, class, termination | none |
+| End | shows RESULTS from the immutable `fzx_scn_result` and `fzx_outcome_t` | `fzx_mode_outcome`: kind, record table, eligibility, GP points | `fzx_records_commit` once, `fzx_records_cup_clear` |
+
+- Mode IDs are the session's (GP 0, TA 1, Death Race 2, Practice 5); Versus, Options and unknown IDs return capability 0 and `FZX_ENTRY_NO_MODE`.
+- Capability bits: runs, entry open, class pick, field, endless, cup, keeps times, wins by KO. Death Race runs but its entry bit is clear
+  (`FZX_ENTRY_CLOSED`) until its real win path qualifies; the harness opens it with `env.lab`.
+- Entry statuses: NO_MODE, CLOSED, NO_COURSE (catalog avail bit), NO_MACHINE, CLASS_LOCKED (a chosen class that is not open: Master
+  before every cup is cleared on Expert; a forced class is not checked). A rejected or cancelled entry changes nothing.
+- Outcomes: FINISH (GP, TA), WIN (Death Race, every rival retired), RETIRED, QUIT, NONE (Practice has no finish). GP finish scores
+  points and never a record; TA finish is eligible for the TA table; Death Race WIN for the Death Race table; Practice never reaches a
+  table or points. Records still ranks the run and makes the one write.
+- Not yet wired: the existing SELECT (`session_edit`) still validates by itself; once Codex's picker agrees, both call `fzx_mode_entry_check`.

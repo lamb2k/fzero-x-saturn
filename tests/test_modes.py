@@ -108,6 +108,40 @@ class Modes(unittest.TestCase):
         self.assertEqual(r.stdout.count('PASS'), 8, r.stdout)
         self.assertNotIn('FAIL', r.stdout)
 
+    def run_entry(self, edit=None):
+        src = self.tmp / 'entry'
+        src.mkdir(exist_ok=True)
+        for f in ('engine_mode_entry.c', 'engine_modes.c'):
+            text = (ENG / f).read_text()
+            (src / f).write_text(edit(text) if edit and f == 'engine_mode_entry.c' else text)
+        out = self.tmp / 'entry-drv'
+        subprocess.run(['gcc', '-std=gnu11', '-Wall', '-Wextra', '-DENG_MODES=1', '-I', str(ROOT / 'tests/records_v1_stub'), '-I', str(ENG),
+                        str(ROOT / 'tests/mode_entry_driver.c'), str(src / 'engine_mode_entry.c'), str(src / 'engine_modes.c'), '-o', str(out)],
+                       check=True)
+        r = subprocess.run([str(out)], capture_output=True, text=True)
+        return r.returncode, r.stdout
+
+    def test_entry_contract(self):
+        """The mode entry and outcome contract (engine_mode_entry.h): capabilities, reject before launch, cancel without mutation,
+        accepted entries, outcomes. Controls: each edit of the rules must fail a named case."""
+        rc, out = self.run_entry()
+        self.assertEqual(rc, 0, out)
+        self.assertGreaterEqual(out.count('PASS'), 30, out)
+        self.assertNotIn('FAIL', out)
+        for name, f in {
+            'death race entry open': lambda t: t.replace('if (!r->win_all_retired) c |= FZX_CAP_ENTRY_OPEN;', 'c |= FZX_CAP_ENTRY_OPEN;'),
+            'lab flag ignored': lambda t: t.replace(' && !env->lab', ''),
+            'master check dropped': lambda t: t.replace('r->class_pick && !env->class_open(cls)', '0'),
+            'practice keeps a record': lambda t: t.replace('else if (r->endless) return;           /* Practice never finishes: no outcome, nothing written */', ''),
+            'death race records a retire': lambda t: t.replace('case FZX_END_RETIRE: out->kind = FZX_OUTCOME_RETIRED; break;',
+                                                                'case FZX_END_RETIRE: out->kind = FZX_OUTCOME_RETIRED; out->record_table = r->record; out->record_eligible = r->record != FZX_MODE_NO_RECORD; break;'),
+            'entry writes before failing': lambda t: t.replace('    if (!(env->course_avail(req->course) & r->avail)) return FZX_ENTRY_NO_COURSE;',
+                                                               '    out->course = req->course;\n    if (!(env->course_avail(req->course) & r->avail)) return FZX_ENTRY_NO_COURSE;'),
+        }.items():
+            with self.subTest(name):
+                rc, out = self.run_entry(f)
+                self.assertNotEqual(rc, 0, name + ': the fixture did not fail')
+
     def test_table(self):
         self.check(self.run_table())
 

@@ -598,7 +598,7 @@ static bool select_enter(void *u, uint32_t s) {
     for (unsigned i = 0; i < MACHINE_COUNT; ++i) if (machines[i].id == fzx_session.machine_id) cursor = i;
 #endif
     select_mode = jack_ready() ? fzx_session.menu_mode : 1u;
-    select_difficulty = fzx_session.difficulty;
+    select_difficulty = !select_mode && !FZX_CUP_DIAG_CATALOG ? 1u : fzx_session.difficulty;
     course_cursor = course_ok(fzx_session.course, select_mode) ? fzx_session.course : fzx_course_step(fzx_session.course, 1, mode_avail(select_mode));
     text_dirty = true;
     return true;
@@ -626,11 +626,12 @@ static void select_tick(void *u, uint32_t s) {
     }
     if ((input.edges & PAD_C) && jack_ready()) {
         select_mode ^= 1u;
+        if (!select_mode && !FZX_CUP_DIAG_CATALOG) select_difficulty = 1u; /* Standard */
         course_cursor = select_mode ? fzx_course_step(FZX_COURSE_NONE, 1, FZX_AVAIL_TA)
                                               : fzx_cup_def(FZX_CUP_JACK)->course[0];
         text_dirty = true;
     }
-    if (!select_mode && (input.repeat & (PAD_LEFT | PAD_RIGHT))) {
+    if (FZX_CUP_DIAG_CATALOG && !select_mode && (input.repeat & (PAD_LEFT | PAD_RIGHT))) {
         select_difficulty = (select_difficulty + ((input.repeat & PAD_LEFT) ? 3u : 1u)) % 4u;
         text_dirty = true;
     }
@@ -683,7 +684,8 @@ static void select_draw(void) {
     if (select_mode)
         dbgio_printf("   TIME ATTACK\n   COURSE  < %s >\n", course_name(course_cursor));
     else
-        dbgio_printf("   GRAND PRIX   JACK CUP\n   CLASS   < %s >\n", levels[select_difficulty]);
+        dbgio_printf(FZX_CUP_DIAG_CATALOG ? "   GRAND PRIX   JACK CUP\n   CLASS   < %s >\n"
+                                       : "   GRAND PRIX   JACK CUP\n   CLASS   %s\n", levels[select_difficulty]);
     if (jack_ready()) dbgio_printf("   C: CHANGE MODE\n");
 #ifndef FZX_P3_BASELINE
     fzx_machine_grade_t grade = fzx_machine_grade(cursor);

@@ -89,8 +89,7 @@ else
 # 33 Robotnik, 34 Metal Sonic). Owner 2026-11-19 (O-078): both locked in the test build.
 FZX_GUEST_MASK ?= 0
 endif
-# Diagnostic only (scenes image): Jack's six rounds GP-available on course 0's assets (engine_cup.c),
-# for the GP flow and pause-retry checks until the courses lane lands. Never a release build.
+# Diagnostic class selection. The player catalog admits Standard Jack GP (C-104).
 FZX_CUP_DIAG_CATALOG ?= 0
 # Engine gate control (tools/engine_gate.py ctl-menus): 1 links a probe that holds one menu frame for 3 fields
 # when fzx_scn_stall_ctl is written. Diagnostic only; 0 (default) compiles nothing.

@@ -165,6 +165,14 @@ static int32_t left_sign = 1, hover = 0;
 static uint8_t is3d[FZX_FIELD_CARS], want_run[FZX_FIELD_CARS];
 
 static int16_t q14(int32_t q30) { return (int16_t)((q30 + (1 << 15)) >> 16); }
+/* Scaling of signed values by a power of two (C-127 finding 3). ISO C leaves the left shift of a negative value
+ * undefined, and the lateral, the packed positions and the Q1.14 rows are negative on half the road. The shift is
+ * done on the unsigned bits: the two's-complement scaling the SH-2 build has always computed, in the same
+ * instruction. Where the scaled value can leave int32 the range is checked first: q8_q16 saturates, and the load
+ * checks the pack's coordinates, its half widths and the spans between stations (stations_ok). */
+static inline int32_t shl_s32(int32_t v, unsigned n) { return (int32_t)((uint32_t)v << n); }
+static inline int32_t q8_q16(int32_t q8) { return q8 > 0x7fffff ? 0x7fffff00 : q8 < -0x800000 ? INT32_MIN : shl_s32(q8, 8); }
+static inline int32_t wq16(uint16_t whole) { return shl_s32((int32_t)whole, 16); } /* whole units -> Q16 (< 0x8000) */
 static int32_t mul30(int32_t a, int32_t b) { return (int32_t)(((int64_t)a * b) >> 30); }
 static void cross30(int32_t o[3], const int32_t a[3], const int32_t b[3]) {
     o[0] = (int32_t)(((int64_t)a[1] * b[2] - (int64_t)a[2] * b[1]) >> 30);
@@ -192,6 +200,21 @@ static int tube_at(uint32_t n, int32_t lateral, int32_t *s, int32_t *c) {
     return shape == 0x0080u ? 1 : 2;
 }
 #endif
+
+/* The pose arithmetic's range (C-127 finding 3): adjacent stations (the last with station 0) differ by less than 2^31 in
+ * every Q16 coordinate, so the interpolation's subtraction cannot overflow, and no node is wider than 0x7fff units, so
+ * its Q16 width and the tube radius fit int32. The built line is far inside both; the pack's is checked here too. */
+static bool stations_ok(void) {
+    for (uint32_t i = 0; i < line.count; ++i) {
+        const station_t *a = &stations[i], *b = &stations[i + 1u < line.count ? i + 1u : 0u];
+        if (nodes[i].half_width > 0x7fffu) return false;
+        for (int c = 0; c < 3; ++c) {
+            const int64_t d = (int64_t)b->pos[c] - a->pos[c];
+            if (d > INT32_MAX || d < INT32_MIN) return false;
+        }
+    }
+    return true;
+}
 
 static bool build_line(const sh2z_vd_track_t *track) {
     uint32_t count = 0;
@@ -246,8 +269,8 @@ static void line_pose(const sh2z_track_state_t *t, int32_t pos[3], int32_t f[3],
     for (int c = 0; c < 3; ++c) {
         int32_t bp = b->pos[c];
         pos[c] = a->pos[c] + (int32_t)(((int64_t)(bp - a->pos[c]) * fr) >> 16);
-        fw[c] = ((int32_t)a->fwd[c] << 16) + (int32_t)(((int64_t)((int32_t)b->fwd[c] - a->fwd[c]) * fr));
-        up[c] = ((int32_t)a->up[c] << 16) + (int32_t)(((int64_t)((int32_t)b->up[c] - a->up[c]) * fr));
+        fw[c] = shl_s32(a->fwd[c], 16) + (int32_t)(((int64_t)((int32_t)b->fwd[c] - a->fwd[c]) * fr));
+        up[c] = shl_s32(a->up[c], 16) + (int32_t)(((int64_t)((int32_t)b->up[c] - a->up[c]) * fr));
     }
     frame30(f, u, fw, up);
     cross30(l, u, f);
@@ -258,7 +281,7 @@ static void line_pose(const sh2z_track_state_t *t, int32_t pos[3], int32_t f[3],
     if (tube) {
         /* Round the tube: a cylinder's car sits outside, up away from the axis; a pipe's inside, up
          * toward it (at lateral 0 on top and at the bottom). The frame turns about forward. */
-        const int32_t r = (int32_t)nodes[n].half_width << 16;
+        const int32_t r = wq16(nodes[n].half_width);
         for (int c = 0; c < 3; ++c) {
             const int32_t uc = u[c], lc = l[c];
             if (tube == 2) { u[c] = mul30(uc, cs) - mul30(lc, sn); l[c] = mul30(lc, cs) + mul30(uc, sn); }
@@ -270,7 +293,7 @@ static void line_pose(const sh2z_track_state_t *t, int32_t pos[3], int32_t f[3],
 #endif
     for (int c = 0; c < 3; ++c) {
         /* lateral Q8 -> Q16 offset along -left; hover Q16 along up */
-        pos[c] += -mul30(l[c], t->lateral << 8) + mul30(u[c], hover);
+        pos[c] += -mul30(l[c], q8_q16(t->lateral)) + mul30(u[c], hover);
     }
 }
 
@@ -283,12 +306,12 @@ static void line_pose_fast(const sh2z_track_state_t *t, int32_t pos[3], int16_t 
     const int32_t d = t->dist - nodes[n].start;
     int32_t fr = (int32_t)(((uint64_t)(uint32_t)(d < 0 ? 0 : d) * nodes[n].inv_span) >> 16);
     if (fr > 65535) fr = 65535;
-    const int64_t lat = (int64_t)t->lateral << 8; /* Q16 */
+    const int64_t lat = (int64_t)t->lateral * 256; /* Q16 */
 #if RIVAL_TUBES
     int32_t sn, cs;
     const int tube = tube_at(n, t->lateral, &sn, &cs);
     if (tube) {   /* as line_pose, in Q1.14 */
-        const int32_t r = (int32_t)nodes[n].half_width << 16, s14 = sn >> 16, c14 = cs >> 16;
+        const int32_t r = wq16(nodes[n].half_width), s14 = sn >> 16, c14 = cs >> 16;
         for (int c = 0; c < 3; ++c) {
             const int32_t f = a->fwd[c] + (int32_t)((((int32_t)b->fwd[c] - a->fwd[c]) * fr) >> 16);
             const int32_t u = a->up[c] + (int32_t)((((int32_t)b->up[c] - a->up[c]) * fr) >> 16);
@@ -408,9 +431,14 @@ bool fzx_field_load(const sh2z_vd_track_t *track, const sh2z_vd_body_t *player) 
         const sh2z_line_node_t *pn = (const sh2z_line_node_t *)(const void *)pack_buf;
         const pack_pose_t *pp = (const pack_pose_t *)(const void *)((const uint8_t *)(const void *)pack_buf + 16u * line.count);
         uint32_t worst = 0, off0 = 0;
+        /* The pack's positions are source Q4 in int32 and scale to Q16 (x 4096): refuse one the scaling would wrap
+         * (|Q4| >= 2^19, 32768 units), as the load refuses a start that disagrees (C-127 finding 3). */
+        for (uint32_t i = 0; i < line.count; ++i)
+            for (int c = 0; c < 3; ++c)
+                if ((uint32_t)pp[i].pos[c] + 0x80000u >= 0x100000u) { fzx_field_report[0] = 5; fzx_e2_report[0] = 4; return false; }
         for (int c = 0; c < 3; ++c) {
-            const int32_t dd = stations[0].pos[c] - (pp[0].pos[c] << 12);
-            const uint32_t ad = dd < 0 ? (uint32_t)-dd : (uint32_t)dd;
+            const int64_t dd = (int64_t)stations[0].pos[c] - shl_s32(pp[0].pos[c], 12);
+            const uint32_t ad = (uint32_t)(dd < 0 ? -dd : dd);
             if (ad > off0) off0 = ad;
         }
         for (uint32_t i = 0; i < line.count; ++i) {
@@ -419,7 +447,7 @@ bool fzx_field_load(const sh2z_vd_track_t *track, const sh2z_vd_body_t *player) 
             if (ad > worst) worst = ad;
             nodes[i] = pn[i];
             station_t *st = &stations[i];
-            for (int c = 0; c < 3; ++c) { st->pos[c] = pp[i].pos[c] << 12; st->fwd[c] = pp[i].fwd[c]; st->up[c] = pp[i].up[c]; }
+            for (int c = 0; c < 3; ++c) { st->pos[c] = shl_s32(pp[i].pos[c], 12); st->fwd[c] = pp[i].fwd[c]; st->up[c] = pp[i].up[c]; }
         }
         fzx_e2_report[1] = worst; fzx_e2_report[9] = off0;
 #if ENG_RIVAL_BEHAVE
@@ -430,6 +458,7 @@ bool fzx_field_load(const sh2z_vd_track_t *track, const sh2z_vd_body_t *player) 
         if (off0 > 65536u || nodes[0].start != 0) { fzx_field_report[0] = 5; fzx_e2_report[0] = 4; return false; }
     }
 #endif
+    if (!stations_ok()) { fzx_field_report[0] = 6; return false; } /* 6: a station span or width out of range */
     /* Left axis sign and hover from the player's own frame at the start. */
     {
         int32_t c[3];

@@ -600,9 +600,11 @@ class Gate:
             if src == 1 and grid != [v[0] for v in vr]:
                 why.append('start grid differs from the rows')
         ok = not why
-        self.add('fixture', name, ok, 'Practice %s class %d: course %d, row %d, machine %d skin %d, field loaded, grid places 1..30%s, 29 distinct opponents' % (
-            want['slug'], diff, course, mem.words('fzx_cid_index', 1)[0], machine, skin, ' (rows)' if src == 1 else ''), '; '.join(why) or
-            'opponent machines %s' % ' '.join(map(str, sorted(opp or []))), sink=sink)
+        seen = 'mode %d class %d course %d, row %d, machine %d skin %d, field %s, grid places %s, %d distinct opponents' % (
+            mode, diff, course, mem.words('fzx_cid_index', 1)[0], machine, skin, 'loaded' if rep[0] == 1 else 'NOT loaded',
+            '1..30' if sorted(grid) == list(range(1, 31)) else 'WRONG', len(set(opp or []))) + (' (grid = rows)' if src == 1 else '')
+        self.add('fixture', name, ok, ('Practice %s: %s' % (want['slug'], seen)) if ok else ('FIXTURE FAILED, %s; seen: %s' % ('; '.join(why), seen)),
+                 ('opponent machines %s' % ' '.join(map(str, sorted(opp or [])))) if ok else 'asked: Practice (mode %d) class %d, %s' % (want['mode'], want['cls'], want['slug']), sink=sink)
         return ok
 
     def score_practice(self, run, run_dir, build_dir, lines, mk, sym, host, host_label, sink):

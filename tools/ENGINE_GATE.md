@@ -62,6 +62,19 @@ with the base's receipt.
 | `audio` | INFO: audio peak, non-zero samples and hash of each sound-on run | yes | yes |
 | `receipts` | INFO: stale generated receipts; the regenerated ROM-free outputs and whether they moved | yes | yes |
 
+**Courses (claude/modes, ENG_MODES on by default).** The `course-*` rows are Practice / Standard rows: a Time Attack race is solo and
+lighter than a field, so each course is entered through SELECT as Practice (probe `0x451`, then the course probe `0x2nn`, the
+order matters: a mode probe after the course probe can reset the course) and raced against the full 29-opponent field. At RACE entry
+`practice_fixture` asserts the session (mode 5, class 1, the course and its row in the Practice bundle, machine 0, skin 1, slider bits
+0), the loaded field (not solo), the start grid (places 1..30) and 29 distinct opponents with energy, from the rows the image links
+(`generated/courses/select/course_practice.c`, read through `stage.sh cat`). The window is the tick-420 window to an explicit end mark
+(`results`, drive tick 7200, 420 plus a Grand Prix round's 6720 ticks on Mute City: Practice has no finish); `host` compares the SH-2 checkpoints with HOST's and asks for no finish. The
+`exit` check quits through the pause menu (START, DOWN, DOWN, A) and requires RESULTS and unchanged record file generations: zero
+race-record writes. Controls: `ctl-pr-course` (the race enters Silence for a Mute City row), `ctl-pr-solo` (Time Attack, solo) and
+`ctl-pr-roster` (one opponent replaced: 28 distinct) must each fail the `fixture` check. The Practice bundle comes from
+`tools/modes_practice_regen.sh` (run it in a clean stage after `tools/course_bundle.py`). Grand Prix cost is C-138's six live Jack
+rounds; Time Attack cost is the standalone rows.
+
 **Courses.** All six Jack Cup courses are raced from the shipped scenes image, chosen in SELECT with probe
 `0x2nn`. Two are tube courses: Sand Ocean and Big Blue. Each course is judged against its own HOST reference, which
 the gate makes from that course's physics pack in the stage. Port Town's R01 driver retires, as HOST's does.

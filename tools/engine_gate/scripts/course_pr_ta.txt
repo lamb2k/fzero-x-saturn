@@ -1,6 +1,6 @@
 # Control (ctl-pr-solo): the same script as course_pr.txt but it enters Time Attack, Standard (probe 0x411), which races alone.
 # course probe would reset a mode that lists fewer courses), confirm through LOAD, race the player in driver mode against the full Practice field
-# (29 opponents) to an explicit end-of-window mark at drive tick 3780 (Practice has no finish), then leave through the pause menu (START, DOWN,
+# (29 opponents) to an explicit end-of-window mark at drive tick 7200 (420 + the 6720 ticks of a Grand Prix round on Mute City) (Practice has no finish), then leave through the pause menu (START, DOWN,
 # DOWN, A = QUIT) and mark the exit. The gate asserts the mode, class, course, machine, skin, slider bits, field and start grid at race_start
 # (engine_gate.py practice_fixture), scores the tick-420 window up to `results`, and checks that QUIT wrote no race record.
 # engine_gate.py substitutes COURSE (two hex digits).
@@ -20,8 +20,8 @@ mark select
 pad 0400 2
 until 4 1 4000
 mark race_start
-poke _fzx_e0_hold_tick 3780
-untilword _fzx_input_count 0 3780 12000
+poke _fzx_e0_hold_tick 7200
+untilword _fzx_input_count 0 7200 16000
 wait 8
 mark results
 poke _fzx_e0_hold_tick 0

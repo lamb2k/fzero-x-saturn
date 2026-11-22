@@ -351,6 +351,8 @@ static vdp1_cmdt_list_t menu_list, bare_list;
 volatile uint32_t fzx_scn_ctl[8];
 #if ENG_GHOST
 volatile uint32_t fzx_scn_commit_ticks; /* the last name commit, FRT ticks (captures) */
+volatile uint32_t fzx_scn_commit_log[8]; /* [0] commits so far; per commit (first three): video fields at entry and at exit (captures) */
+extern uint32_t video_fields_get(void);
 #endif
 static unsigned span_count;
 static bool span_open;
@@ -1036,6 +1038,7 @@ static void name_tick(void) {
         if (key == '<') {
 #if ENG_GHOST
             const uint16_t c0 = cpu_frt_count_get();
+            const uint32_t cf0 = video_fields_get();
 #endif
             results->save = fzx_records_commit(&fzx_scn_result, results->name);
 #if ENG_GHOST
@@ -1043,6 +1046,7 @@ static void name_tick(void) {
 #endif
 #if ENG_GHOST
             fzx_scn_commit_ticks = (uint16_t)(cpu_frt_count_get() - c0); /* FRT ticks the name commit held this menu frame (records, then the ghost) */
+            { const uint32_t n = fzx_scn_commit_log[0]; if (n < 3u) { fzx_scn_commit_log[1u + 2u * n] = cf0; fzx_scn_commit_log[2u + 2u * n] = video_fields_get(); } fzx_scn_commit_log[0] = n + 1u; }
 #endif
             results->editing = false;
             sh2z_scene_input_consume(&input);

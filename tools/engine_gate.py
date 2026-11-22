@@ -270,7 +270,7 @@ class Gate:
         self.stage_cmd('tree', self.stage, wslpath(tar), sub)
         regen = []
         for g in self.m.get('regenerate', []):
-            rc, out = self.stage_cmd('regen', self.stage, g['receipt'], *g['cmd'].split(), check=False)
+            rc, out = self.stage_cmd('regen', self.stage, g['receipt'], *g['cmd'].replace('{engine_pin}', pin).split(), check=False)
             regen.append(out.splitlines()[-1] if out else 'REGEN %s rc %d' % (g['receipt'], rc))
         _, out = self.stage_cmd('receipts', self.stage)
         stale = [l.split()[1] for l in out.splitlines() if l.startswith('STALE ')]

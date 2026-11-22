@@ -53,6 +53,9 @@ extern unsigned char sat_stub_data_end[];
 static fzx_course_id_t cid_row __attribute__((aligned(8)));
 const fzx_course_id_t *fzx_cid = &cid_row;
 static int32_t cid_loaded = -1;      /* the course id cid_row holds, or -1 */
+/* The selected row's position in the course index (the row's own `row` field, checked at load): the per-course tables
+ * (course_class.h, course_drops.h) are indexed by it. */
+uint32_t fzx_cid_index = 0u;
 
 static const fzx_course_index_t *course_index_row(uint32_t id) {
     for (uint32_t i = 0; i < FZX_COURSE_IDS_COUNT; ++i)
@@ -71,6 +74,7 @@ bool fzx_course_use(uint32_t id) {
     if (!fzx_texture_cd_load(name, FZX_COURSE_ROW_BYTES, x->hash, &cid_row, (void *)scratch, 4096u)) return false;
     if (cid_row.id != id || cid_row.row != (uint32_t)(x - fzx_course_index)) return false; /* the file is not this course's row */
     cid_loaded = (int32_t)id;
+    fzx_cid_index = cid_row.row;
     return true;
 }
 #endif

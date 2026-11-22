@@ -133,7 +133,8 @@ typedef struct {
   python3 tools/machine_tuning.py --rom "$FZX_TEST_ROM"
   python3 tools/guest_machine_packs.py "$GUEST_KIT/player-3d"
   python3 tools/engine_select_art.py "$PLAYER_SPRITE_SETS" generated/select_art --guest-ui "$GUEST_KIT/ui"
-  python3 tools/engine_load_cards.py generated/course_menu generated/c8_cards/engine_load_cards.h
+  python3 tools/engine_load_cards.py generated/course_menu generated/c8_cards --catalog-upstream upstream/G-Diffuser
+  python3 tools/engine_menu_pages.py upstream/G-Diffuser/decomp generated/menu_pages
   ```
 
   `GUEST_KIT` is the private hybrid-guests directory. `PLAYER_SPRITE_SETS` contains the

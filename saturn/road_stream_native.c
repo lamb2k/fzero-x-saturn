@@ -100,6 +100,64 @@ bool fzx_road_stream_guards(void){
     for(unsigned i=0;i<8;++i)if(a[(int)i-8]!=GUARD||b[i]!=GUARD||c[(int)i-8]!=GUARD||d[i]!=GUARD||fzx_input_log[12288u+i]!=GUARD)return false;
     return true;
 }
+#if FZX_ROAD_GADGETS
+/* Course gadget decals (ROADGAD.PAK, tools/gadget_bake.py): the plates and the pit, dirt and ice strips the original
+ * draws on the road, one VDP1 quad each with its own small bitmap, drawn after their chunk's road quads
+ * (fzx_road_stream_draw.c). The tables (first quad per chunk, corners, image slot per quad, image records) go to work RAM
+ * beside the road's, each read straight in and checked against its FNV; the bitmaps and fog palettes go to VDP1 behind the
+ * road's shade tables. A course that has no decals still carries a pack, with zero quads. */
+#if ENG_COURSE_SELECT
+#include "course_gadgets.h"
+#else
+#include "road_gadget_identity.h"
+#endif
+enum {GAD_VERTICES=192};   /* decal corners one frame may project: the most in any 40 chunks is 164 (Devil's Forest) */
+volatile uint32_t fzx_road_gadget_report[4]; /* [0] 1 loaded, 2+n table n refused, 9 counts, 10 VDP1 room; [1] bank, [2] bytes, [3] quads */
+volatile uint32_t fzx_road_gadget_extent;    /* bytes from the end of the road's shade tables through the decal bank */
+typedef struct {const char *name;uint32_t bytes,hash,chunks,quads,images,tex,at[5],len[5],table_hash[5];} gad_t;
+static gad_t gad;
+/* The selected course's pack: its row of the bundle, or the one course's identity. */
+static void gad_select(void){
+#if ENG_COURSE_SELECT
+    gad=(gad_t){0};
+    for(unsigned k=0;k<FZX_COURSE_IDS_COUNT;++k){const fzx_course_gadgets_t *r=fzx_course_gadgets+k;
+        if(r->id!=fzx_cid->id)continue;
+        gad=(gad_t){r->file,r->bytes,r->hash,r->chunks,r->quads,r->images,r->tex_bytes,{0},{0},{0}};
+        for(unsigned i=0;i<5u;++i){gad.at[i]=r->table[i].at;gad.len[i]=r->table[i].bytes;gad.table_hash[i]=r->table[i].hash;}}
+#else
+    gad=(gad_t){"ROADGAD.PAK",FZX_ROAD_GAD_BYTES,FZX_ROAD_GAD_FILE_HASH,FZX_ROAD_GAD_CHUNKS,FZX_ROAD_GAD_QUADS,FZX_ROAD_GAD_IMAGES,
+        FZX_ROAD_GAD_TEX_BYTES,
+        {FZX_ROAD_GAD_GFIRST_AT,FZX_ROAD_GAD_GPOS_AT,FZX_ROAD_GAD_GQUADS_AT,FZX_ROAD_GAD_GIMAGES_AT,FZX_ROAD_GAD_GTEX_AT},
+        {FZX_ROAD_GAD_GFIRST_BYTES,FZX_ROAD_GAD_GPOS_BYTES,FZX_ROAD_GAD_GQUADS_BYTES,FZX_ROAD_GAD_GIMAGES_BYTES,FZX_ROAD_GAD_GTEX_BYTES},
+        {FZX_ROAD_GAD_GFIRST_HASH,FZX_ROAD_GAD_GPOS_HASH,FZX_ROAD_GAD_GQUADS_HASH,FZX_ROAD_GAD_GIMAGES_HASH,FZX_ROAD_GAD_GTEX_HASH}};
+#endif
+}
+static bool gadget_load(fzx_road_stream_draw_work_t *w,uintptr_t vram,uintptr_t scratch,uint32_t scratch_bytes,
+    uint16_t *gfirst,sh2z_pos16_t *gpos,uint16_t *gquad){
+    fzx_road_gadget_report[0]=0;fzx_road_gadget_report[1]=0;fzx_road_gadget_report[2]=0;fzx_road_gadget_extent=0;
+    fzx_road_gadget_report[3]=gad.quads;
+    if(gad.chunks!=pack.count[FZX_RLD_CHUNKS]||gad.len[0]<(gad.chunks+1u)*2u||gad.len[1]!=gad.quads*24u||gad.len[2]!=gad.quads*4u||
+       gad.len[3]!=gad.images*sizeof(fzx_road_stream_image_t)||gad.len[4]!=gad.tex){fzx_road_gadget_report[0]=9;return false;}
+    const uintptr_t shades_end=vram+CSEL(lod_tex_bytes,FZX_ROAD_LOD_TEXTURE_BYTES)+FZX_ROAD_STREAM_SHADE_BYTES;
+    const uintptr_t bank=aligned(shades_end),vend=(uintptr_t)VDP1_VRAM(0)+0x80000u;
+    if(bank>vend||gad.tex>vend-bank){fzx_road_gadget_report[0]=10;return false;}
+    void *const dest[5]={gfirst,gpos,gquad,w->images+pack.count[FZX_RLD_IMAGES],(void *)bank};
+    for(unsigned i=0;i<5u;++i){
+        if(!gad.len[i])continue;
+        if(!fzx_texture_cd_load_range(gad.name,gad.bytes,gad.at[i],gad.len[i],gad.table_hash[i],dest[i],(void *)scratch,scratch_bytes)){
+            fzx_road_gadget_report[0]=2u+i;return false;}
+    }
+    /* The records' offsets are into GTEX; the draw reads them against the road's bank. */
+    const uint32_t shift=(uint32_t)(bank-vram);
+    for(uint32_t k=0;k<gad.images;++k){fzx_road_stream_image_t *m=w->images+pack.count[FZX_RLD_IMAGES]+k;
+        for(unsigned v=0;v<3u;++v)if(m->variant[v].mode){m->variant[v].pixels+=shift;m->variant[v].palette+=shift;}}
+    w->gfirst=gfirst;w->gpos=gpos;w->gquad=gquad;w->gquads=gad.quads;
+    w->vertex_capacity+=GAD_VERTICES;
+    fzx_road_gadget_extent=(uint32_t)(bank+gad.tex-shades_end);
+    fzx_road_gadget_report[0]=1;fzx_road_gadget_report[1]=(uint32_t)bank;fzx_road_gadget_report[2]=gad.tex;
+    return true;
+}
+#endif
 #if FZX_ROAD_PREP_BAKED
 /* Engine scenes image: the native layout prepared offline (tools/road_prep.py), each table
  * read straight into its work array and checked against its FNV as it arrives. */
@@ -165,8 +223,18 @@ bool fzx_road_stream_load(void *vram){
 #endif
     work->remap=reserve(&at,pack.count[FZX_RLD_VERTICES],sizeof(*work->remap));
     work->positions=reserve(&at,VERTICES,sizeof(*work->positions));
+#if FZX_ROAD_GADGETS
+    work->projected=RESERVE_HOT(&at,VERTICES+GAD_VERTICES,sizeof(*work->projected));
+    gad_select();
+    work->images=reserve(&at,pack.count[FZX_RLD_IMAGES]+gad.images,sizeof(*work->images));
+    uint16_t *const gfirst=reserve(&at,gad.len[0],1);
+    sh2z_pos16_t *const gpos=reserve(&at,gad.len[1]?gad.len[1]:4u,1);
+    uint16_t *const gquad=reserve(&at,gad.len[2]?gad.len[2]:4u,1);
+    if(!gfirst||!gpos||!gquad){work=NULL;return false;}
+#else
     work->projected=RESERVE_HOT(&at,VERTICES,sizeof(*work->projected));
     work->images=reserve(&at,pack.count[FZX_RLD_IMAGES],sizeof(*work->images));
+#endif
     packets=reserve(&at,FZX_ROAD_STREAM_MAX_DRAWS,sizeof(*packets));
 #if FZX_ROAD_STREAM_NATIVE_LAYOUT
     /* Native layout: renumbered positions (wrap copies included), 8-byte quad
@@ -189,6 +257,9 @@ bool fzx_road_stream_load(void *vram){
 #endif
     work->remap_capacity=pack.count[FZX_RLD_VERTICES];work->vertex_capacity=VERTICES;
     work->image_capacity=pack.count[FZX_RLD_IMAGES];
+#if FZX_ROAD_GADGETS
+    work->image_capacity+=gad.images;
+#endif
     fzx_road_stream_low_start=(uint32_t)log;fzx_road_stream_low_end=(uint32_t)aligned(at);
     for(unsigned i=0;i<8;++i){
         ((volatile uint32_t *)log)[(int)i-8]=GUARD;
@@ -204,6 +275,9 @@ bool fzx_road_stream_load(void *vram){
 #endif
         fzx_road_stream_status=3;return false;
     }
+#if FZX_ROAD_GADGETS
+    if(gad.name&&!gadget_load(work,(uintptr_t)vram,scratch,log-32u-scratch,gfirst,gpos,gquad)){fzx_road_stream_status=7;return false;}
+#endif
     if(!fzx_road_stream_guards()){fzx_road_stream_status=5;return false;}
     fzx_road_stream_report[2]=(uint32_t)(uintptr_t)work;
     fzx_road_stream_report[3]=(uint32_t)(uintptr_t)packets;

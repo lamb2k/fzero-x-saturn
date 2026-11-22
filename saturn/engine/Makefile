@@ -636,6 +636,27 @@ endif
 SH_CFLAGS += -DENG_COURSE_SELECT=1 -I$(G)/courses/select -DFZX_ROAD_STREAM_TEXTURE_LIMIT=240000u
 endif
 
+# Course gadget decals (claude/gadgets): the dash plates and the pit, dirt and ice strips the original draws on the road,
+# baked per course (tools/gadget_bake.py -> ROADGAD.PAK) and drawn through the road's VDP1 path after their chunk's road
+# quads. On by default; the scenes images carry the decals (the E0, drive and field images have no course pack to load). 0 is the identity
+# control only (byte-identical to an engine without the decals). The one-disc image needs its bundle made
+# with tools/course_gadget_bundle.py (a separate bundle next to course_ids; course_bundle.py is untouched).
+ENG_GADGETS ?= 1
+ifeq ($(and $(filter 1,$(ENG_GADGETS)),$(filter 1,$(ENG_SCENES))),1)
+GADGET_RECEIPT_CHECK := $(foreach R,$(GCREL)road_gadget/road_gadget.receipt,$(shell sh ../../tools/check_receipt.sh $(G)/$(R) >/dev/null 2>&1 || echo $(R)))
+ifneq ($(strip $(GADGET_RECEIPT_CHECK)),)
+$(error Missing or stale decal pack: $(GADGET_RECEIPT_CHECK) (tools/gadget_bake.py --course $(ENG_COURSE)))
+endif
+SH_CFLAGS += -DFZX_ROAD_GADGETS=1 -I$(GC)/road_gadget
+ifeq ($(ENG_COURSE_SELECT),1)
+GADGETS_RECEIPT_CHECK := $(shell sh ../../tools/check_receipt.sh $(G)/courses/select/course_gadgets.receipt >/dev/null 2>&1 || echo stale)
+ifneq ($(strip $(GADGETS_RECEIPT_CHECK)),)
+$(error Missing or stale decal bundle: run tools/course_gadget_bundle.py <courses>)
+endif
+SH_SRCS += $(G)/courses/select/course_gadgets.c
+endif
+endif
+
 SH_LDFLAGS += -Wl,--defsym=_sat_stub_data_end=0x0028C000 -Wl,--defsym=_fzx_input_log=0x0028D000
 # Unused functions and data are dropped at link time (SH2ZAM sections-1).
 SH_LDFLAGS += -Wl,--gc-sections
@@ -707,6 +728,7 @@ else
 endif
 	$(if $(filter 1,$(ENG_ROSTER)),cp $(G)/roster/ROSTERZ.PAK "$(IMAGE_DIRECTORY)/",rm -f "$(IMAGE_DIRECTORY)/ROSTERZ.PAK")
 	cp $(GC)/road_prep/ROADPREP.PAK "$(IMAGE_DIRECTORY)/"
+	$(if $(and $(filter 1,$(ENG_GADGETS)),$(filter-out 1,$(ENG_COURSE_SELECT))),cp $(GC)/road_gadget/ROADGAD.PAK "$(IMAGE_DIRECTORY)/",)
 else ifeq ($(E1_CLOSEUP),1)
 	cp $(G)/$(E1_VEHICLE)/MACHAB.PAK "$(IMAGE_DIRECTORY)/"
 endif
@@ -715,6 +737,7 @@ ifeq ($(E2_PACK),1)
 endif
 ifeq ($(ENG_COURSE_SELECT),1)
 	while read -r src name; do cp "$(G)/$$src" "$(IMAGE_DIRECTORY)/$$name"; done < $(G)/courses/select/files.txt
+	$(if $(filter 1,$(ENG_GADGETS)),while read -r src name; do cp "$(G)/$$src" "$(IMAGE_DIRECTORY)/$$name"; done < $(G)/courses/select/gadget_files.txt,)
 endif
 ifeq ($(E2_ROSTER),1)
 	cp $(G)/roster/ROSTER.PAK "$(IMAGE_DIRECTORY)/"

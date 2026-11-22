@@ -91,7 +91,11 @@ static void bake(double speed_k) {
         nd->lateral = lat;
         const double capq4 = cap > 0 ? cap * speed_k * 256.0 / 16.0 : 65535.0;   /* Q8 per tick -> Q4 */
         nd->speed_cap = (uint16_t)(capq4 > 65535.0 ? 65535.0 : capq4);
-        const double hw = fmin(s[2], s[3]);
+        /* The road's half width at this station as the source works it out for a racer (racer.c currentRadiusLeft and
+         * Right): the segment's radius plus t of the way to the next segment's. The smaller side. */
+        float sn[5];
+        rb_segment(i + 1 < segs ? i + 1 : 0, sn);
+        const double hw = fmin(s[2] + t * (sn[2] - s[2]), s[3] + t * (sn[3] - s[3]));
         nd->half_width = (uint16_t)(hw > 0 ? (hw > 65535 ? 65535 : hw) : 0);
         nd->flags = (uint16_t)s[4];
         /* Basis rows as the source's: x forward, y up, z side (positive left), unit length. */
@@ -249,6 +253,7 @@ static void write_pack(const char* header_path, int32_t len_q8, const int32_t* l
 int main(int argc, char** argv) {
     const char *course = 0, *rom = 0, *line = 0, *hex = 0, *header = 0, *report = 0, *pace = "33000,300", *zones = 0;
     int nriv = MAX_RIVALS;
+    double speed_k_arg = 0;
     for (int i = 1; i + 1 < argc; i += 2) {
         if (!strcmp(argv[i], "--course")) course = argv[i + 1];
         else if (!strcmp(argv[i], "--rom")) rom = argv[i + 1];
@@ -259,9 +264,10 @@ int main(int argc, char** argv) {
         else if (!strcmp(argv[i], "--pace")) pace = argv[i + 1];
         else if (!strcmp(argv[i], "--rivals")) nriv = atoi(argv[i + 1]);
         else if (!strcmp(argv[i], "--zones")) zones = argv[i + 1];
+        else if (!strcmp(argv[i], "--speed-k")) speed_k_arg = atof(argv[i + 1]);   /* bake with this speed unit, no replay (--inputs-hex then not needed) */
         else die("unknown argument");
     }
-    if (!course || !rom || !line || !hex || !header || !report || nriv < 1 || nriv > MAX_RIVALS) die("usage: see rivals_main.c");
+    if (!course || !rom || !line || (!hex && speed_k_arg <= 0) || !header || !report || nriv < 1 || nriv > MAX_RIVALS) die("usage: see rivals_main.c");
     size_t n;
     unsigned char* rec = read_file(course, &n);
     if (n != 0x7E0) die("course record must be 0x7E0 bytes");
@@ -276,13 +282,13 @@ int main(int argc, char** argv) {
     if (ref_load_course(rec, 1) != 0 || ref_race_init() != 0) die("race set-up failed");
 
     /* Replay the player once through the original code, recording line-space state. */
-    FILE* f = fopen(hex, "r");
-    if (!f) die("cannot open inputs");
+    FILE* f = hex ? fopen(hex, "r") : NULL;
+    if (hex && !f) die("cannot open inputs");
     unsigned int w;
     int ticks = 0;
     double sum_d = 0, sum_v = 0;
     float prev = 0;
-    while (ticks < MAX_TICKS && fscanf(f, "%x", &w) == 1) {
+    while (f && ticks < MAX_TICKS && fscanf(f, "%x", &w) == 1) {
         ref_tick((unsigned short)(w >> 16), (signed char)(unsigned char)(w >> 8), (signed char)(unsigned char)w);
         float pl[3];
         RefState st;
@@ -293,9 +299,9 @@ int main(int argc, char** argv) {
         prev = pl[0];
         ticks++;
     }
-    fclose(f);
-    if (sum_v <= 0) die("player never moved: cannot calibrate speed units");
-    const double speed_k = sum_d / sum_v;   /* distance per tick per speed unit */
+    if (f) fclose(f);
+    if (speed_k_arg <= 0 && sum_v <= 0) die("player never moved: cannot calibrate speed units");
+    const double speed_k = speed_k_arg > 0 ? speed_k_arg : sum_d / sum_v;   /* distance per tick per speed unit */
     bake(speed_k);
     const double length = line_len_q12 / 4096.0;
     const int32_t len_q8 = (int32_t)course_line_q8(line_len_q12);

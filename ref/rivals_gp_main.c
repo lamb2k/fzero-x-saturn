@@ -136,7 +136,7 @@ int main(int argc, char** argv) {
     P.pace_max = 81920;            /* 1.25 x pace */
     P.chase_gain = 655;            /* 0.01 per unit, as the source's chase term */
     P.steer_gain = 9830;           /* 0.15 */
-    P.margin = U(6);
+    P.margin = U(23);              /* the source's driver keeps its target at least 23 inside the road (cpu.c spBC on a straight) */
     P.avoid_long = U(92); P.avoid_lat = U(69); P.avoid_offset = U(92);   /* the source's 92 / 69 / 92 */
     P.avoid_ticks = 0;             /* the source's flat trigger: distanceToRacerAhead < 92, no closing look-ahead (cpu.c) */
     P.pass_hold = 60;
@@ -185,6 +185,7 @@ int main(int argc, char** argv) {
         behave.air_spread = 2600; behave.fall_margin = U(30); behave.fall_ticks = 95;
         behave.ko_window = 120; behave.ko_near = U(1500); behave.ko_floor = 26;
         behave.drop_mask = 0x0200; behave.drop_value = 0x0200; behave.drop_lat = DROP_LAT; behave.drop_chance = DROP_CHANCE; behave.launch_chance = LAUNCH_CHANCE;
+        behave.wall_impact = 45875;   /* line-field-12: racer.c Racer_HitWall, 0.7 of the speed into the wall, once per impact */
         behave.contact_norm = 36045;   /* 0.55: racer.c's impact, 1.1 x the closing speed along the line between the two, shared */
         P.behave = &behave;
     }
@@ -195,12 +196,12 @@ int main(int argc, char** argv) {
         for (char* tok = strtok(tb, ","); tok; tok = strtok(NULL, ",")) {
             char* eq = strchr(tok, '='); if (!eq) die("--tune name=value"); *eq = 0; const int32_t val = (int32_t)atol(eq + 1);
             #define T(n) if (!strcmp(tok, #n)) { P.n = val; continue; }
-            T(pace_gain) T(pace_max) T(chase_gain) T(steer_gain) T(avoid_long) T(avoid_lat) T(avoid_offset) T(avoid_ticks) T(pass_hold) T(contact_long) T(contact_lat)
+            T(margin) T(pace_gain) T(pace_max) T(chase_gain) T(steer_gain) T(avoid_long) T(avoid_lat) T(avoid_offset) T(avoid_ticks) T(pass_hold) T(contact_long) T(contact_lat)
             T(bump_keep) T(hit_energy) T(side_energy) T(attack_energy) T(wall_energy) T(wall_keep) T(boost_speed) T(boost_energy) T(boost_behind) T(cruise) T(rank_lead)
             #undef T
             if (!strcmp(tok, "boost_ticks")) { P.boost_ticks = (int16_t)val; continue; }
             #define B(n) if (!strcmp(tok, #n)) { behave.n = val; continue; }
-            B(drop_lat) B(drop_chance) B(launch_chance) B(contact_norm) B(wall_impact) B(line_room)
+            B(drop_lat) B(drop_chance) B(launch_chance) B(contact_norm) B(wall_impact)
             B(roll_chance) B(roll_latch) B(roll_lead) B(roll_well) B(hold_lead) B(roll_exit_ahead) B(lat_accel) B(air_spread) B(fall_margin) B(fall_ticks) B(ko_window) B(ko_near) B(ko_floor)
             #undef B
             if (!strcmp(tok, "rk_base")) { ranks.base = val; continue; }

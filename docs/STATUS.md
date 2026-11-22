@@ -15,7 +15,7 @@ The original camera, Blue Falcon, road, sky/skyline/floor/cloud and partial HUD 
 
 ## Gates and evidence
 
-Engine guest promotion on 35fc7a3 is held. Metal Sonic on Sand Ocean reached 24.6645 ms critical p99 twice (MODELLED), with 13 samples over the margin and zero intervals over two fields. Unblock when all matched guest rows pass unrounded p99 * 1.36 <= 33.3 ms. Evidence: host/codex-o169.
+Engine guest promotion on 35fc7a3 is held. Metal Sonic on Sand Ocean reached 24.6402 ms critical p99 twice (MODELLED), with 11 samples over the margin and zero intervals over two fields. Unblock when all matched guest rows pass unrounded p99 * 1.36 <= 33.3 ms. Evidence: host/codex-o172.
 
 | Area | Current evidence / remaining work |
 | --- | --- |

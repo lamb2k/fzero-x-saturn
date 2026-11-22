@@ -1,11 +1,21 @@
 /* Engine E1 close-up 3D-N test: the rival field (see engine_field.h). */
 #include <string.h>
 #include "engine_field.h"
+#include "engine_atk_prof.h"
 #include "sh2zam/line_field_experimental.h"
 #include "sh2zam/unit30_experimental.h"
 
 #if E1_FIELD < 1 || E1_FIELD > 29
 #error E1_FIELD must be 1..29 when built
+#endif
+#ifndef ENG_ATTACKS
+#define ENG_ATTACKS 0
+#endif
+#if ENG_ATTACKS
+#include "engine_attacks.h"
+#if !E2_PACK || !E2_FASTPOSE
+#error ENG_ATTACKS needs E2_PACK=1 and E2_FASTPOSE=1
+#endif
 #endif
 #ifndef E2_PACK
 #define E2_PACK 0
@@ -318,6 +328,14 @@ static void line_pose_fast(const sh2z_track_state_t *t, int32_t pos[3], int16_t 
 static uint8_t player_crossed;
 static int32_t player_last_dist = -1;
 #endif
+#if ENG_ATTACKS
+/* The player's distance along the line and lateral as player_into_field sets them (contact deferral). */
+void fzx_field_player_line(const sh2z_vd_body_t *p, int32_t *dist, int32_t *lateral) {
+    sh2z_vd_line_view_t lv;
+    sh2z_vd_line_view(p, trk, &lv);
+    *dist = lv.dist; *lateral = lv.lateral;
+}
+#endif
 static void player_into_field(const sh2z_vd_body_t *p) {
     sh2z_vd_line_view_t lv;
     sh2z_vd_line_view(p, trk, &lv);
@@ -333,7 +351,11 @@ static void player_into_field(const sh2z_vd_body_t *p) {
 #endif
     v->t.node = sh2z_line_locate(&line, v->t.dist, v->t.node);
     v->kick_lat = 0; v->kick_speed = 0; /* not applied: the player's race stays as E1's */
+#if ENG_ATTACKS
+    v->energy = p->energy >> 8;         /* contact reaches the player through its own step (engine_attacks.c) */
+#else
     v->energy = v->max_energy;
+#endif
 }
 
 volatile uint32_t fzx_e2_report[16];
@@ -581,6 +603,19 @@ bool fzx_field_load(const sh2z_vd_track_t *track, const sh2z_vd_body_t *player) 
 #endif
     field.focus = 0;
     memset(is3d, 0, sizeof(is3d)); memset(want_run, 0, sizeof(want_run));
+#if ENG_ATTACKS
+    {
+        /* One contact rule for everyone (engine_attacks.c, SH2ZAM body-contact-1): the field's own box
+         * contact and its flat wall charge are off; walls hurt through the attacks' own rule. */
+        params.contact_lat = 0;
+        params.wall_energy = 0;
+        fzx_atk_field_t a;
+        a.field = &field; a.veh = veh; a.brain = brain; a.line = &line; a.pose = line_pose_fast;
+        a.config = &fzx_rivals_field[0][0]; a.config_stride = (uint32_t)(sizeof(fzx_rivals_field[0]) / sizeof(fzx_rivals_field[0][0]));
+        a.count = FZX_FIELD_CARS;
+        fzx_atk_init(&a, FZX_RIVALS_FIELD_SEED);
+    }
+#endif
     fzx_field_report[0] = 1;
     return true;
 #else
@@ -621,11 +656,20 @@ void fzx_field_tick(const sh2z_vd_body_t *player) {
     if (fzx_field_report[0] != 1) return;
     player_into_field(player);
     if (!field.started && player->race_time > 0) { sh2z_field_start(&field); fzx_field_report[4] = field.tick; }
+    APROF_T(fp);
+#if ENG_ATTACKS
+    fzx_atk_move(player);
+#endif
+    APROF(6, fp);
     /* line-field-7: the step for this image's behaviour block (the other is not linked). */
 #if ENG_RIVAL_BEHAVE && E2_PACK
     sh2z_field_step_behave(&field);
 #else
     sh2z_field_step_plain(&field);
+#endif
+    APROF(7, fp);
+#if ENG_ATTACKS
+    fzx_atk_after(player);
 #endif
     fzx_field_report[3] = field.tick; fzx_field_report[5] = field.contacts;
     fzx_field_report[11] = field.finished; fzx_field_report[12] = field.retired;
@@ -766,6 +810,10 @@ unsigned fzx_field_classify_in(fzx_cl_in_t *out, int32_t player_ms, fzx_cl_key_t
         else if (v->flags & SH2Z_VEH_FINISHED) { c->state = FZX_CLIN_FINISHED; c->race_ms = clock_ms(b->finish_tick); }
         else if (v->flags & SH2Z_VEH_RETIRED) {
             c->state = FZX_CLIN_RETIRED; c->retire_frame = b->retire_tick; c->retire_position = c->position;
+#if ENG_ATTACKS
+            /* Racer_RetireRacer's own tick and place (engine_attacks.c), not the place at the trigger. */
+            if (fzx_atk_retire_tick[i] >= 0) { c->retire_frame = fzx_atk_retire_tick[i]; c->retire_position = fzx_atk_retire_place[i]; }
+#endif
         } else {
             c->state = FZX_CLIN_RUNNING; c->race_ms = clock_ms(now);
             c->race_distance = (float)((int64_t)v->t.lap * line.length + v->t.dist);

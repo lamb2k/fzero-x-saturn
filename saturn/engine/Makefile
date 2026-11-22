@@ -177,6 +177,11 @@ E2_EMIT_LINK ?= $(if $(filter 1,$(E2_EARLY)),$(E2_EMIT_EXACT),0)
 E2_EMIT_CULL ?= $(if $(filter 1,$(E2_CULL)),$(E2_EMIT_EXACT),0)
 # E2_EMIT_YAW (exact; needs E2_EMIT_POSE=1): the yaw bin climbed from each car's last bin (convex bins only).
 E2_EMIT_YAW ?= $(if $(filter 1,$(E2_EMIT_POSE)),$(E2_EMIT_EXACT),0)
+# ENG_ATTACKS (lane claude/attacks, generated/ATTACKS-PLAN.md): racer-racer contact, side and spin attacks,
+#   damage, spin-out, retirement and KO credit for the player and the field (engine_attacks.c, SH2ZAM
+#   body-contact-1 and vehicle-dynamics-3). Needs E1_FIELD with E2_PACK and E2_FASTPOSE, the attack
+#   tables (tools/attacks_tables.py, local) and an SH2ZAM checkout with body-contact-1. Default 0 until qualified.
+ENG_ATTACKS ?= 0
 # ENG_PACE: frame pacing. 0 as built (a frame as soon as it is ready); 1 adaptive (a two-field gap
 #   after a VDP1 draw longer than a field); 2 the 30 fps lock (presents never one field apart);
 #   3 probe (Yaul's fixed interval ENG_VDP1_INTERVAL); 4 the pipelined 30 fps lock (frame N+1 is
@@ -361,6 +366,14 @@ ifneq ($(E1_CLOSEUP):$(E1_CLOSEUP_EARLY),1:1)
 $(error E1_FIELD needs E1_CLOSEUP=1 E1_CLOSEUP_EARLY=1)
 endif
 endif
+ifeq ($(filter 0 1,$(ENG_ATTACKS)),)
+$(error ENG_ATTACKS must be 0 or 1)
+endif
+ifeq ($(ENG_ATTACKS),1)
+ifneq ($(if $(filter-out 0,$(E1_FIELD)),1,0):$(E2_PACK):$(E2_FASTPOSE),1:1:1)
+$(error ENG_ATTACKS=1 needs E1_FIELD with E2_PACK=1 E2_FASTPOSE=1)
+endif
+endif
 # The racer sprite set the player is drawn from.
 E1_SPRITES := $(if $(filter 2,$(E1_CLOSEUP)),racer_sprites_hq,racer_sprites)
 comma := ,
@@ -539,7 +552,7 @@ SH2ZAM_UNITS := sh2zam.c sh2zam_angles.c sh2zam_batch_sh2.c sh2zam_box2.c sh2zam
     $(if $(filter-out 0,$(E1_FIELD)),$(if $(filter 1,$(E2_EMIT_CMD) $(E2_EMIT_POSE) $(E2_EMIT_YAW)),sh2zam_rotation_sprite3.c,),) \
     $(if $(filter 1,$(E1_CLOSEUP)),sh2zam_vehicle.c sh2zam_view_indexed.c sh2zam_pose.c,) \
     $(if $(filter-out 0,$(E1_FIELD)),sh2zam_line_follower.c sh2zam_line_field.c $(if $(filter 1,$(E2_PACK)),$(if $(filter 1,$(ENG_RIVAL_SURFACE)),sh2zam_trig12.c,),),) \
-    $(if $(filter 1,$(ENG_SCENES)),sh2zam_scene.c,)     $(if $(filter 2,$(ENG_BAL_CLOUDS)),sh2zam_dual_claim.c,)
+    $(if $(filter 1,$(ENG_ATTACKS)),sh2zam_body_contact.c sh2zam_vehicle_contact.c $(if $(filter 1,$(ENG_TUBES)),sh2zam_vehicle_contact2.c,),) \n    $(if $(filter 1,$(ENG_SCENES)),sh2zam_scene.c,)     $(if $(filter 2,$(ENG_BAL_CLOUDS)),sh2zam_dual_claim.c,)
 
 SH_SRCS := engine_main.c engine_scene.c engine_path.c \
     ../sky_native.c ../skyline_native.c ../planes_native.c ../floor_rbg_native.c ../clouds_vdp2_native.c \
@@ -550,7 +563,7 @@ SH_SRCS := engine_main.c engine_scene.c engine_path.c \
     $(GC)/course_record.c \
     $(if $(filter 1,$(FZX_E1_DRIVE)),engine_drive.c ../physics_native.c,) \
     $(if $(filter 1,$(E1_CLOSEUP)),engine_closeup.c ../../src/fzx_vehicle.c ../../src/fzx_vehicle_draw.c,) \
-    $(if $(filter-out 0,$(E1_FIELD)),engine_field.c,) \
+    $(if $(filter-out 0,$(E1_FIELD)),engine_field.c,) $(if $(filter 1,$(ENG_ATTACKS)),engine_attacks.c,) \
     $(if $(filter 1,$(ENG_SCENES)),engine_scenes.c engine_records.c engine_load_fast.c engine_cup.c,) $(if $(filter 1,$(ENG_ROSTER)),engine_roster.c,) \
     $(addprefix $(SH2ZAM_ROOT)/saturn/src/,$(sort $(SH2ZAM_UNITS)))
 ifneq ($(ENG_DSP_BANDS),0)
@@ -564,6 +577,19 @@ endif
 SH_CFLAGS += -DENG_DSP_BANDS=$(ENG_DSP_BANDS) -DENG_DSP_BANDS_CHECK=$(ENG_DSP_BANDS_CHECK) -DENG_DSP_BANDS_CORRUPT=$(ENG_DSP_BANDS_CORRUPT)
 endif
 
+# ENG_ATK_PROF (diagnostic, drive images; changes timing slightly): attack and contact sub-steps per
+# frame row in fzx_atk_prof (engine_atk_prof.h). Default 0.
+ENG_ATK_PROF ?= 0
+ifeq ($(ENG_ATK_PROF),1)
+SH_CFLAGS += -DENG_ATK_PROF=1
+endif
+# ENG_ATK_DEFER (with ENG_ATTACKS=1; lane claude/attacks-5): a tick's contact that provably cannot reach
+# the player waits, with the field tick before it, until after the slave's kick (same results). 1 default;
+# 0 is the control (contact before every step, as attacks-4).
+ENG_ATK_DEFER ?= 1
+ifeq ($(ENG_ATTACKS),1)
+SH_CFLAGS += -DENG_ATK_DEFER=$(ENG_ATK_DEFER)
+endif
 SH_CFLAGS += -DENG_BAL_CLOUDS=$(ENG_BAL_CLOUDS) -DENG_BAL_EARLY=$(ENG_BAL_EARLY) -DENG_BAL_FORCE=$(ENG_BAL_FORCE) -DENG_BAL_HASH=$(ENG_BAL_HASH) -DENG_BAL_PREWARM=$(ENG_BAL_PREWARM)
 SH_CFLAGS += -DENG_PACE=$(ENG_PACE) $(if $(filter 3,$(ENG_PACE)),-DENG_VDP1_INTERVAL=$(ENG_VDP1_INTERVAL),) $(if $(filter 4,$(ENG_PACE)),-DENG_PACE_LEAD=$(ENG_PACE_LEAD) -DENG_PACE_EARLY_CONTROL=$(ENG_PACE_EARLY_CONTROL) -DENG_PACE_HUD_LEAD=$(ENG_PACE_HUD_LEAD),) -DFZX_ENGINE=1 -DFZX_FRAME_PROFILE=1 -DFZX_VDP1_DBANK=$(FZX_VDP1_DBANK) \
     -DFZX_VDP1_DBANK_STALE=$(FZX_VDP1_DBANK_STALE) -DFZX_ROAD_STREAM_CLUT_ALIGN=$(ENG_CLUT_ALIGN) -DENG_CLUT_ALIGN=$(ENG_CLUT_ALIGN) -DENG_CLUT_RACE_CONTROL=$(ENG_CLUT_RACE_CONTROL) -DFZX_ROAD_STREAM_GUARD_MARGIN=$(E0_GUARD_MARGIN) -DFZX_ROAD_STREAM_LINE_START=$(E0_LINE_START) -DFZX_RBG_NEAR0=$(E0_FLOOR_NEAR0) \
@@ -630,6 +656,16 @@ $(error E2_EMIT_POSE needs E2_CULL=1)
 endif
 ifeq ($(E2_PACK),1)
 SH_CFLAGS += -I$(GC)/rivals
+ifeq ($(ENG_ATTACKS),1)
+ifeq ($(wildcard $(SH2ZAM_ROOT)/saturn/include/sh2zam/body_contact_experimental.h),)
+$(error ENG_ATTACKS=1 needs an SH2ZAM checkout with body-contact-1 (claude/body-contact))
+endif
+ATK_RECEIPT_CHECK := $(shell sh ../../tools/check_receipt.sh $(G)/attacks/attacks.receipt >/dev/null 2>&1 || echo attacks)
+ifneq ($(strip $(ATK_RECEIPT_CHECK)),)
+$(error Missing or stale attack tables; run tools/attacks_tables.py DECOMP generated/attacks)
+endif
+SH_CFLAGS += -DENG_ATTACKS=1 -I$(G)/attacks
+endif
 endif
 ifeq ($(E2_ROSTER),1)
 ifneq ($(E2_PACK):$(E2_CULL):$(E2_FASTSPRITE):$(E2_EARLY),1:1:1:1)

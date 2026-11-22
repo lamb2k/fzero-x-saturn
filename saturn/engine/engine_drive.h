@@ -64,6 +64,10 @@ void fzx_drive_step(uint32_t ticks);
  * field steps here instead, after the slave's kick (the field reads the player and
  * never writes it). Same ticks, same order of field inputs. */
 void fzx_drive_field_run(void);
+#if defined(ENG_ATTACKS) && ENG_ATTACKS && defined(ENG_ATK_DEFER) && ENG_ATK_DEFER
+/* ENG_ATK_DEFER: the next tick's contact, after the field ticks and before the master waits for the track. */
+void fzx_drive_contact_ahead(void);
+#endif
 #endif
 uint32_t fzx_drive_tick(void);
 /* The chase camera for the current state; focal and tan_half from `lens`. */

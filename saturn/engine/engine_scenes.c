@@ -1584,6 +1584,11 @@ static void race_finish_hook(uint32_t timer, uint32_t tick) {
     if (fzx_cup()->state == FZX_CUP_RACING) end_wait = 1u; /* GP: RESULTS at the trigger */
 }
 extern void (*volatile fzx_drive_finish_hook)(uint32_t timer, uint32_t tick);
+#if ENG_ATTACKS
+#include "engine_attacks.h"
+/* Each KO the player scores counts in the cup (the fifth gives a spare machine, racer.c). */
+static void race_ko_hook(uint32_t victim) { (void)victim; (void)fzx_cup_race_ko(race_run_id); }
+#endif
 
 static bool race_enter(void *u, uint32_t s) {
     (void)u; (void)s;
@@ -1603,6 +1608,9 @@ static bool race_enter(void *u, uint32_t s) {
     const bool gp = fzx_cup()->state == FZX_CUP_READY && fzx_cup_race_start(race_run_id);
     cls_armed = gp || POKED(fzx_scn_gp_probe) != 0u; cls_done = false;
     fzx_drive_finish_hook = cls_armed ? race_finish_hook : NULL;
+#if ENG_ATTACKS
+    fzx_atk_ko_hook = race_ko_hook;
+#endif
     dbgio_printf("\x1b[H\x1b[2J");
     return true;
 }

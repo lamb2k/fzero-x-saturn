@@ -271,6 +271,9 @@ static sh2z_scene_input_t input;
 static uint32_t frame_fields, steps_this_frame, chord_latched, own_frames, run_counter;
 static uint32_t resident_key;   /* 0: nothing resident; else family + 1 */
 static bool retry_pending, text_dirty;
+#if ENG_GHOST
+static bool save_ran; /* a ghost write ran in this frame (a blocking backup-RAM write, like a load: not a menu frame gap) */
+#endif
 /* VDP2 registers at boot (dbgio's NBG3, black back screen): the baseline every scene's
  * release returns to. RACE's own set is kept at its release so a retry, which loads
  * nothing, gets the race's VDP2 state back unchanged (its VRAM and CRAM are untouched
@@ -921,7 +924,7 @@ static void name_tick(void) {
         if (key == '<') {
             results->save = fzx_records_commit(&fzx_scn_result, results->name);
 #if ENG_GHOST
-            if (results->rank.place == 1u) (void)fzx_ghost_race_save(&fzx_scn_result);
+            if (results->rank.place == 1u) { (void)fzx_ghost_race_save(&fzx_scn_result); save_ran = true; }
 #endif
             results->editing = false;
             sh2z_scene_input_consume(&input);
@@ -1895,8 +1898,15 @@ void fzx_scn_main(void) {
         }
 #endif
         menu_scene_prev = seq.current; menu_phase_prev = seq.phase;
-        menu_frame_prev = seq.current != FZX_SCN_RACE && !load_ran && !(seq.phase <= SH2Z_SCENE_RUN && seq.current == FZX_SCN_RACE);
+        menu_frame_prev = seq.current != FZX_SCN_RACE && !load_ran && !(seq.phase <= SH2Z_SCENE_RUN && seq.current == FZX_SCN_RACE)
+#if ENG_GHOST
+                          && !save_ran
+#endif
+                          ;
         load_ran = false;
+#if ENG_GHOST
+        save_ran = false;
+#endif
         fzx_scn_report[1] = seq.current; fzx_scn_report[2] = seq.phase; fzx_scn_report[3] = level;
         fzx_scn_report[4] = seq.epoch; fzx_scn_report[5] = seq.frames; fzx_scn_report[6] = seq.switches;
         fzx_scn_report[17] = menu_arena.high; fzx_scn_report[18] = race_arena.high;

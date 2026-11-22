@@ -1103,6 +1103,7 @@ static void build(row_t *row, const fzx_engine_cam_t *cam, uint32_t tick, uint16
     const bool bal_mine = bal_master_claims(bf);
 #if ENG_BAL_SPLIT
     bool bal_b_mine = false; /* the second half is the master's (it ran it) */
+    bool bal_b_late = false; /* the master may take the second half at bal_late (just before its track wait) */
     if (bal_mine) {
         /* Setup and the first half here; the second half goes to whichever SH-2 claims it (the slave, once its
          * track and fills are done and the setup is out, or this one when it gets there first). */
@@ -1119,37 +1120,15 @@ static void build(row_t *row, const fzx_engine_cam_t *cam, uint32_t tick, uint16
         first = fzx_clouds_split_count();
         const uint16_t sp2 = cpu_frt_count_get();
         fzx_bal_split[8] += (uint16_t)(sp1 - sp0); fzx_bal_split[9] += (uint16_t)(sp2 - sp1); ++fzx_bal_split[11];
-#if ENG_BAL_SPLIT == 1
-        if (bal_claim2.want_b == bf) ++fzx_bal_split[2];
-        bal_b_mine = sh2z_claim_a(&bal_claim2, bf);
-#elif ENG_BAL_SPLIT == 3
-        bal_b_mine = true; /* control: the master always */
+#if ENG_BAL_SPLIT != 2
+        bal_b_late = true; /* the second half: claimed after the master's other work, before it waits for the track */
 #endif
-        if (bal_b_mine) {
-            fzx_clouds_split_b(&fzx_native_view, &fzx_source_backdrop);
-            fzx_bal_split[10] += (uint16_t)(cpu_frt_count_get() - sp2);
-            ++fzx_bal_split[1];
-        }
     }
 #if E1_FIELD && E2_EARLY && ENG_BAL_SPLIT != 2
     else {
         /* The slave holds the job and the master has nothing left before the track wait: it takes the second half
          * of the fade bands, once the slave's setup is out, unless the slave claims it first. */
-        const uint16_t th0 = cpu_frt_count_get();
-        if (bal.adone != bf) { ++fzx_bal_split[14]; while (bal.adone != bf) {} }
-        /* The record is out early (the setup's outer clip passed), so bal.ok is not yet this frame's: a setup that
-         * fails is fatal at the master's collection below, whatever this part did. */
-#if ENG_BAL_SPLIT == 1
-        if (bal_claim2.want_b == bf) ++fzx_bal_split[2];
-        bal_b_mine = sh2z_claim_a(&bal_claim2, bf);
-#else
-        bal_b_mine = true;
-#endif
-        if (bal_b_mine) {
-            fzx_clouds_split_b(&fzx_native_view, &fzx_source_backdrop);
-            fzx_bal_split[10] += (uint16_t)(cpu_frt_count_get() - th0);
-            ++fzx_bal_split[1]; ++fzx_bal_split[13];
-        }
+        bal_b_late = true; /* thief: after the master's other work, in what would be its wait for the track */
     }
 #endif
 #else
@@ -1246,6 +1225,29 @@ static void build(row_t *row, const fzx_engine_cam_t *cam, uint32_t tick, uint16
 #endif
 #endif
 
+#if ENG_BAL_CLOUDS && ENG_BAL_SPLIT
+    /* The second half of the cloud fade bands, once the master's other work is done: the master takes it when no one has
+     * (the slave claims it after its first half, in its own job). Done here it costs the master only the time it would
+     * have waited for the track; the slave's setup record is out early, so it rarely waits for that. A setup that
+     * fails is fatal at the collection below, whatever this part did. */
+    uint16_t bal_late = 0;
+    if (bal_b_late) {
+        const uint16_t th0 = cpu_frt_count_get();
+        if (!bal_mine && bal.adone != bf) { ++fzx_bal_split[14]; while (bal.adone != bf) {} }
+#if ENG_BAL_SPLIT == 1
+        if (bal_claim2.want_b == bf) ++fzx_bal_split[2];
+        bal_b_mine = sh2z_claim_a(&bal_claim2, bf);
+#else
+        bal_b_mine = true;
+#endif
+        if (bal_b_mine) {
+            fzx_clouds_split_b(&fzx_native_view, &fzx_source_backdrop);
+            fzx_bal_split[10] += (uint16_t)(cpu_frt_count_get() - th0);
+            ++fzx_bal_split[1]; if (!bal_mine) ++fzx_bal_split[13];
+        }
+        bal_late = (uint16_t)(cpu_frt_count_get() - th0);
+    }
+#endif
     const uint16_t t1 = cpu_frt_count_get();
 #if E0_QUEUE_STRESS
     road_count = 0;
@@ -1330,7 +1332,11 @@ static void build(row_t *row, const fzx_engine_cam_t *cam, uint32_t tick, uint16
                                                           (const volatile void *)((uintptr_t)&commands[CMD_FIRST] | CPU_CACHE_THROUGH), (first + 1u) * sizeof(vdp1_cmdt_t)));
 #endif
         fzx_clouds_commit();
-        row->master_ticks = (uint16_t)(bal_pre + (uint16_t)(cpu_frt_count_get() - b0)); /* bal_pre covers the thief's ticks */
+        row->master_ticks = (uint16_t)(bal_pre + (uint16_t)(cpu_frt_count_get() - b0)
+#if ENG_BAL_SPLIT
+                                       + bal_late
+#endif
+                                       ); /* the prelude's ticks, the late second half's, the collection's */
     }
 #endif
 #if FZX_ROAD_STREAM_PHASES

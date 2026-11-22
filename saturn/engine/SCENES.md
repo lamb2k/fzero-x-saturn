@@ -378,8 +378,8 @@ bool fzx_cup_gp_ready(uint8_t cup);   /* every round's row has FZX_AVAIL_GP */
 ```
 
 - The courses lanes supply the rows and per-course packs (`claude/jack`, COURSES.md section 9). The one-disc scenes
-  image (`ENG_COURSE_SELECT=1`, the scenes default) lists the six Jack rows, each with `FZX_AVAIL_TA` when the bundle
-  carries its packs (`FZX_COURSE_BUNDLE_MASK`); GP stays closed until the GP field and results path are signed off. A
+  image (`ENG_COURSE_SELECT=1`, the scenes default) lists the six Jack rows, each with TA and GP availability when the bundle
+  carries its packs (`FZX_COURSE_BUNDLE_MASK`). The player build opens Standard Jack GP when all six rows are available. A
   single-course image lists courses 0 and 1 and opens only its own. The HOST default is course 0 (TA) plus course 1
   with `avail = 0`.
 - Jack lists six rounds, courses 0 to 5, in order (`game.c`: the next course is `gCourseIndex + 1` within the cup).

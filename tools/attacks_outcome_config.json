@@ -133,7 +133,18 @@
     "draws": 50000,
     "seed": 161161,
     "confidence": 0.95,
-    "family": "all applicable cells x metrics"
+    "family": "all applicable cells x metrics",
+    "zero_variance_bound": {
+      "rule": "bonferroni-binomial: all n paired differences are exactly zero, the half width is range x (1 - (alpha/K)^(1/n)), K the family size (my reading of C-161 item 4's finite-sample bound; Codex to confirm)",
+      "enabled": true,
+      "range": {
+        "hit": 1,
+        "ko": 1,
+        "wall_ko": 1,
+        "retire": 2,
+        "ko_ticks": 599
+      }
+    }
   },
   "event_min_drop": 0.01,
   "native_spin_side": "own draw",

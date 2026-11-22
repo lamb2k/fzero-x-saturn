@@ -105,7 +105,7 @@ def score(ref_recs, test_recs, ref, test, scale=1, seed=None, draws=None, nmax=N
         assert a['cell'] == b['cell'] and a['idx'] == b['idx'] and a['ns'] == b['ns'], 'episode files do not pair'
         by.setdefault(cell_key(a), []).append((a, b))
     keys = []   # (cell, metric)
-    est, ses, thetas, cover = {}, {}, [], {}
+    est, ses, thetas, cover, meta = {}, {}, [], {}, {}
     cov, miss = coverage([a for v in by.values() for a, _ in v], ref)
     for c in sorted(by):
         rr = [a for a, _ in by[c]]; tt = [b for _, b in by[c]]
@@ -127,7 +127,7 @@ def score(ref_recs, test_recs, ref, test, scale=1, seed=None, draws=None, nmax=N
             S = cnt @ X
             th[s:s + w] = stat_n(S, spec, n)
         for j, (m, kind, i) in enumerate(spec):
-            keys.append((c, m)); est[(c, m)] = hat[j]
+            keys.append((c, m)); est[(c, m)] = hat[j]; meta[(c, m)] = n
             ses[(c, m)] = np.nanstd(th[:, j]); cover[(c, m)] = None
         thetas.append((c, th, hat))
     K = len(keys)
@@ -141,6 +141,11 @@ def score(ref_recs, test_recs, ref, test, scale=1, seed=None, draws=None, nmax=N
     rows = []
     for (c, m) in keys:
         h, se, bd = float(est[(c, m)]), float(ses[(c, m)]), band_of(m)
+        zb = cfg_b.get('zero_variance_bound', {})
+        if (se == 0 or not np.isfinite(se)) and h == 0.0 and zb.get('enabled') and m in zb['range']:
+            hw = zb['range'][m] * (1.0 - ((1 - cfg_b['confidence']) / K) ** (1.0 / meta[(c, m)]))   # exact zero differences in all n pairs
+            rows.append(dict(cell=c, metric=m, diff=h, se=0.0, lo=-hw, hi=hw, band=bd, status='pass' if hw < bd else 'inconclusive (crosses band)', bound='zero-variance'))
+            continue
         if not np.isfinite(h) or not np.isfinite(se) or se <= 0:
             st = 'inconclusive (zero or undefined uncertainty)'
         else:

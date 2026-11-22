@@ -42,7 +42,12 @@ def main():
     # 1 identical arms: zero estimated uncertainty is inconclusive, never a pass
     recs = episodes()
     res = S.score(recs, recs, 'R', 'N', draws=2000)
-    allok &= check('identical arms: no interval passes on zero uncertainty', all(r['status'] != 'pass' for r in res['rows'] if r['metric'] in ('hit',)))
+    zb = [r for r in res['rows'] if r['metric'] == 'hit']
+    allok &= check('identical arms: hit passes only through the finite-sample bound', all(r['status'] == 'pass' and r.get('bound') == 'zero-variance' for r in zb))
+    allok &= check('identical arms: continuous damage metric stays inconclusive (zero uncertainty)', all(r['status'] != 'pass' for r in res['rows'] if r['metric'] == 'damage_victim'))
+    few_n = episodes()[:150]
+    res_small = S.score(few_n, few_n, 'R', 'N', draws=500)
+    allok &= check('identical arms at n=150: the zero-variance bound is too wide for the 2-point KO band', all(r['status'] != 'pass' for r in res_small['rows'] if r['metric'] == 'ko'))
     # 2 a few paired flips: hit and ko within the bands pass
     rng = random.Random(7)
     near = episodes()

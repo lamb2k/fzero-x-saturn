@@ -278,16 +278,18 @@ def run_episode(p, env, arms='GR', keep=None, mutate=''):
         res['start_energy'] = start_e
         if 'G' in arms:
             res['G'] = outcome(g_rows, ref_log(g_pl), T0, N, max_e, start_e)
-        for arm in ('R', 'S'):
+        for arm in ('R', 'S', 'C', 'T'):   # R,S replay the recorded pads; C,T run the closed-loop scripted drivers on their own state (T = C with the perturbation)
             if arm not in arms:
                 continue
             cs = []
             for k in (0, 1):
                 q = work / ('c%d.src' % k); q.write_text(convert_state((work / ('p%d.src' % k)).read_text())); cs.append(q)
             r_tr, r_pl = work / (arm.lower() + '.tsv'), work / (arm.lower() + '.pairlog')
-            cmd = base + sa + ['--ticks', str(T0 + N + 1), '--replay-pads', str(pads), '--trace', str(r_tr), '--pairlog', str(r_pl),
+            cmd = base + sa + ['--ticks', str(T0 + N + 1), '--trace', str(r_tr), '--pairlog', str(r_pl),
                                '--load-state', '%d:%s:%s' % (T0 + 1, cs[0], cs[1])]
-            if arm == 'S':   # the reference's own noise floor: +-sensitivity_q Q16 steps on every start velocity component, applied one tick AFTER the load
+            if arm in 'RS':
+                cmd += ['--replay-pads', str(pads)]
+            if arm in 'ST':   # the reference's own noise floor: +-sensitivity_q Q16 steps on every start velocity component, applied one tick AFTER the load
                 rr = rng_for(CFG['namespaces'][p['ns']], '/'.join(p['cell']), 'perturb', p['idx'])
                 for k in (0, 1):
                     for ax in range(3):

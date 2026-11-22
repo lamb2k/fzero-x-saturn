@@ -62,9 +62,14 @@ static bool valid(const fzx_records_t *r) {
            r->crc == body_crc(r);
 }
 
+/* The backup library's calls that issue SMPC commands from this thread (bup_status and bup_write wrap their BIOS
+ * call in RESDISA/RESENAB, bup.h; bup_init is the library's own) run inside a quiet SMPC: engine_smpc_quiet
+ * (engine_main.c) keeps them apart from the INTBACK the vertical blank issues every field. */
 static void ensure_bup(void) {
     if (bup_ready) return;
+    engine_smpc_quiet(true);
     bup_init(&bup, &devices);
+    engine_smpc_quiet(false);
     bup_ready = true;
 }
 
@@ -94,7 +99,9 @@ static fzx_rec_result_t write_table(void) {
     strcpy(dir.comment, "FZX RECORD");
     dir.language = BUP_LANG_ENGLISH;
     dir.data_size = size;
+    engine_smpc_quiet(true);
     const bup_status_t s = bup_write(BUP_DEVICE_INTERNAL, &dir, &io, BUP_WRITE_MODE_OVERWRITE);
+    engine_smpc_quiet(false);
     fzx_rec_report[7] = s;
     fzx_rec_report[5] = target + 1u;
     if (s == BUP_NOT_ENOUGH_MEMORY) return FZX_REC_FULL;
@@ -139,7 +146,9 @@ fzx_rec_result_t fzx_records_load(void) {
     {
         bup_stat_t st;
         memset(&st, 0, sizeof(st));
+        engine_smpc_quiet(true);
         (void)bup_status(BUP_DEVICE_INTERNAL, sizeof(table), &st);
+        engine_smpc_quiet(false);
         fzx_rec_report[12] = st.free_blocks; fzx_rec_report[13] = st.block_size;
     }
     dirty = true;

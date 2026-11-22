@@ -99,6 +99,15 @@ FZX_CUP_DIAG_CATALOG ?= 0
 # Engine gate control (tools/engine_gate.py ctl-menus): 1 links a probe that holds one menu frame for 3 fields
 # when fzx_scn_stall_ctl is written. Diagnostic only; 0 (default) compiles nothing.
 ENG_SCN_STALL_CONTROL ?= 0
+# Engine gate control (ctl-smpc): 1 builds the scenes image's backup-library calls without the quiet SMPC
+# (engine_smpc_quiet, engine_main.c) and opens each with a RESENAB whose SF stays set across a vertical blank
+# before its command is written, so the handler's INTBACK issue waits on it for good (the hang memory lane part 4
+# found). 2 does the same but keeps the quiet SMPC (the fix from its worst starting point). Control and test arms
+# only; 0 (default).
+ENG_SMPC_OVERLAP_CONTROL ?= 0
+# Census control (claude-mem4 lowpcs): 1 links fzx_race_frame into .low (ldctl/hot/engine_low_hot.ld), so the
+# check that no low work RAM code runs in a race frame must fail. Control only; 0 (default).
+ENG_LOW_HOT_CONTROL ?= 0
 # Diagnostic (scenes CD stream, saturn/road_cd.c): 1 records every sector read (FAD, first words, FNV) in
 # fzx_cd_trace; 2 also reads the CD block's FAD of the buffered sector before each transfer. 0 compiles nothing.
 FZX_CD_TRACE ?= 0
@@ -281,6 +290,27 @@ ENG_RIVAL_SURFACE ?= 1
 ifeq ($(filter 0 1,$(ENG_RIVAL_SURFACE)),)
 $(error ENG_RIVAL_SURFACE must be 0 or 1)
 endif
+# ENG_RIVAL_BEHAVE (field images with ENG_RIVAL_SURFACE=1; SH2ZAM line-field-5, claude/line-field-5): the rivals'
+# tube roll, lateral inertia, air and falls with a knock-out credit, the near-focus knock-out gate and the free CPU
+# boost (boost_energy 0), and drops and launches on the drop nodes (generated/.../rivals/drops.txt from tools/rivals_drops.py;
+# the one-disc image takes tools/course_drops_bundle.py), with the values HOST checked them with (ref/rivals_gp_main.c --behave 1). Fall, retirement
+# and KO-credit events go to fzx_field_events (engine_field.h). Default 1 (the shipping arm); 0 is line-field-4's field
+# step for step (the switch-off identity build).
+ENG_RIVAL_BEHAVE ?= 1
+ifeq ($(filter 0 1,$(ENG_RIVAL_BEHAVE)),)
+$(error ENG_RIVAL_BEHAVE must be 0 or 1)
+endif
+# ENG_RIVAL_CLASS (field images, E2_PACK=1; line-field-5 (d)): the rivals race the class's own rows (C-097: the
+# source's target tables are course * 4 + difficulty): generated/.../rivals/rivals_field_class.h (tools/rivals_field_header.py
+# --classes, four reference GP reports) and, in the one-disc image, generated/courses/select/course_class.c
+# (tools/course_class_bundle.py). Scenes images race fzx_session.difficulty, others fzx_field_class (default 1).
+# Default 0: every class races the Standard rows (rivals_field.h).
+# Parked at 0 (coordinator 2026-11-21): class pace is not measured or judged in any line-field-5 gate; the rival-class
+# lane (claude/rival-class, SH2ZAM line-field-6) owns C-097's class-pace judge, turns it on and gates it.
+ENG_RIVAL_CLASS ?= 0
+ifeq ($(filter 0 1,$(ENG_RIVAL_CLASS)),)
+$(error ENG_RIVAL_CLASS must be 0 or 1)
+endif
 ENG_SND_FADETEST ?= 0
 ifeq ($(filter 0 1 2,$(ENG_DSP_BANDS)),)
 $(error ENG_DSP_BANDS must be 0, 1 or 2)
@@ -357,7 +387,7 @@ EMIT_SWITCHES := $(E2_EMIT_PROF)$(E2_EMIT_HINT)$(E2_EMIT_CMD)$(E2_EMIT_SHADOW)$(
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter-out 0,$(subst 0,,$(EMIT_SWITCHES))),-em$(EMIT_SWITCHES),)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter-out 00000,$(BAL_SWITCHES)),-bal$(BAL_SWITCHES),)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter 0,$(E0_FLOOR_NEAR0)),-fn0,)$(if $(filter-out 0,$(E0_ROW_CLIP)),-rc$(E0_ROW_CLIP)a$(E0_ROW_ACCEPT),)
-SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter-out mute-city-1,$(ENG_COURSE)),-$(ENG_COURSE),)$(if $(E1_DRIVER_KH),-kh$(E1_DRIVER_KH),)$(if $(filter 1,$(ENG_COURSE_SELECT)),-sel,)$(if $(filter 1,$(ENG_TUBES)),-tubes,)$(if $(filter 0,$(ENG_RIVAL_SURFACE)),-rs0,)$(if $(filter 1,$(ENG_SCN_STALL_CONTROL)),-stallctl,)$(if $(filter-out 0,$(FZX_CD_TRACE)),-cdtrace$(FZX_CD_TRACE),)$(if $(filter 1,$(FZX_CD_STALE_CONTROL)),-stalectl,)
+SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter-out mute-city-1,$(ENG_COURSE)),-$(ENG_COURSE),)$(if $(E1_DRIVER_KH),-kh$(E1_DRIVER_KH),)$(if $(filter 1,$(ENG_COURSE_SELECT)),-sel,)$(if $(filter 1,$(ENG_TUBES)),-tubes,)$(if $(filter 0,$(ENG_RIVAL_SURFACE)),-rs0,)$(if $(filter 1,$(ENG_RIVAL_BEHAVE)),-beh,)$(if $(filter 1,$(ENG_RIVAL_CLASS)),-cls,)$(if $(filter 1,$(ENG_SCN_STALL_CONTROL)),-stallctl,)$(if $(filter-out 0,$(ENG_SMPC_OVERLAP_CONTROL)),-smpcctl$(ENG_SMPC_OVERLAP_CONTROL),)$(if $(filter 1,$(ENG_LOW_HOT_CONTROL)),-hotctl,)$(if $(filter-out 0,$(FZX_CD_TRACE)),-cdtrace$(FZX_CD_TRACE),)$(if $(filter 1,$(FZX_CD_STALE_CONTROL)),-stalectl,)
 ifeq ($(ENG_SCENES)$(ENG_P3_UI),10)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)-p3off
 endif
@@ -390,6 +420,11 @@ endif
 SH2ZAM_ROOT ?=
 ifeq ($(wildcard $(SH2ZAM_ROOT)/saturn/include/sh2zam/segmesh_experimental.h),)
 $(error Set SH2ZAM_ROOT to a checkout of the engine pin (saturn/engine/sh2zam.pin))
+endif
+ifeq ($(ENG_RIVAL_BEHAVE),1)
+ifeq ($(shell grep -l sh2z_field_behave $(SH2ZAM_ROOT)/saturn/include/sh2zam/line_field_experimental.h 2>/dev/null),)
+$(error ENG_RIVAL_BEHAVE=1 needs an SH2ZAM pin with line-field-5 (claude/line-field-5))
+endif
 endif
 
 G := ../../generated
@@ -509,7 +544,7 @@ endif
 ifneq ($(E1_FIELD),0)
 # FZX_CLOSEUP_CARS: 3D slots (engine_field.h FZX_FIELD_K_MAX).
 SH_CFLAGS += -DE1_FIELD=$(E1_FIELD) -DFZX_CLOSEUP_CARS=6
-SH_CFLAGS += -DENG_RIVAL_SURFACE=$(ENG_RIVAL_SURFACE) -DE2_PACK=$(E2_PACK) -DE2_FASTPOSE=$(E2_FASTPOSE) -DE2_CULL=$(E2_CULL) -DE2_LOD=$(E2_LOD) -DE2_LOD_NEAR=$(E2_LOD_NEAR) -DE2_EARLY=$(E2_EARLY) -DE2_PROF=$(E2_PROF) -DE2_FASTSPRITE=$(E2_FASTSPRITE) -DE2_ROSTER=$(E2_ROSTER)
+SH_CFLAGS += -DENG_RIVAL_SURFACE=$(ENG_RIVAL_SURFACE) -DENG_RIVAL_BEHAVE=$(ENG_RIVAL_BEHAVE) -DENG_RIVAL_CLASS=$(ENG_RIVAL_CLASS) -DE2_PACK=$(E2_PACK) -DE2_FASTPOSE=$(E2_FASTPOSE) -DE2_CULL=$(E2_CULL) -DE2_LOD=$(E2_LOD) -DE2_LOD_NEAR=$(E2_LOD_NEAR) -DE2_EARLY=$(E2_EARLY) -DE2_PROF=$(E2_PROF) -DE2_FASTSPRITE=$(E2_FASTSPRITE) -DE2_ROSTER=$(E2_ROSTER)
 SH_CFLAGS += -DE2_EMIT_PROF=$(E2_EMIT_PROF) -DE2_EMIT_HINT=$(E2_EMIT_HINT) -DE2_EMIT_CMD=$(E2_EMIT_CMD) -DE2_EMIT_SHADOW=$(E2_EMIT_SHADOW) -DE2_EMIT_POSE=$(E2_EMIT_POSE) -DE2_EMIT_SETUP=$(E2_EMIT_SETUP) -DE2_EMIT_LINK=$(E2_EMIT_LINK) -DE2_EMIT_CULL=$(E2_EMIT_CULL) -DE2_EMIT_YAW=$(E2_EMIT_YAW)
 ifeq ($(E2_EMIT_YAW):$(E2_EMIT_POSE),1:0)
 $(error E2_EMIT_YAW needs E2_EMIT_POSE=1)
@@ -589,6 +624,20 @@ ifneq ($(strip $(SELECT_RECEIPT_CHECK)),)
 $(error Missing or stale course bundle: run tools/course_bundle.py <courses>)
 endif
 SH_SRCS += engine_courses.c $(G)/courses/select/course_ids.c
+ifeq ($(ENG_RIVAL_BEHAVE),1)
+DROPS_RECEIPT_CHECK := $(shell sh ../../tools/check_receipt.sh $(G)/courses/select/course_drops.receipt >/dev/null 2>&1 || echo stale)
+ifneq ($(strip $(DROPS_RECEIPT_CHECK)),)
+$(error Missing or stale drops bundle: run tools/course_drops_bundle.py <courses>)
+endif
+SH_SRCS += $(G)/courses/select/course_drops.c
+endif
+ifeq ($(ENG_RIVAL_CLASS),1)
+CLASS_RECEIPT_CHECK := $(shell sh ../../tools/check_receipt.sh $(G)/courses/select/course_class.receipt >/dev/null 2>&1 || echo stale)
+ifneq ($(strip $(CLASS_RECEIPT_CHECK)),)
+$(error Missing or stale class bundle: run tools/course_class_bundle.py <courses>)
+endif
+SH_SRCS += $(G)/courses/select/course_class.c
+endif
 SH_CFLAGS += -DENG_COURSE_SELECT=1 -I$(G)/courses/select -DFZX_ROAD_STREAM_TEXTURE_LIMIT=240000u
 endif
 
@@ -606,9 +655,16 @@ ifneq ($(ENG_LOW_COLD),0)
 ifneq ($(ENG_SCENES),1)
 $(error ENG_LOW_COLD=1 needs ENG_SCENES=1: the block is the scenes image's unused path-pack space)
 endif
-SH_SPECS := engine_low.specs yaul-main.specs
+# engine_low_hot.ld (included after the cold list) comes from the specs' -L: ldctl/off (no section), or with
+# ENG_LOW_HOT_CONTROL=1 (census control only) ldctl/hot, a function every race frame runs, so the census check must fail.
+LOW_HOT := $(if $(filter 1,$(ENG_LOW_HOT_CONTROL)),hot,off)
+SH_SPECS := $(if $(filter 1,$(ENG_LOW_HOT_CONTROL)),engine_low_hotctl.specs,engine_low.specs) yaul-main.specs
 SH_CFLAGS += -DENG_LOW_COLD=1
-$(SH_BUILD_PATH)/$(SH_PROGRAM).elf: engine_low.x engine_low_text.ld engine_low_rodata.ld engine_low_bss.ld engine_low.specs
+$(SH_BUILD_PATH)/$(SH_PROGRAM).elf: engine_low.x engine_low_text.ld engine_low_rodata.ld engine_low_bss.ld engine_low.specs engine_low_hotctl.specs ldctl/$(LOW_HOT)/engine_low_hot.ld
+endif
+
+ifeq ($(ENG_SCENES),1)
+SH_CFLAGS += -DENG_SMPC_OVERLAP_CONTROL=$(ENG_SMPC_OVERLAP_CONTROL)
 endif
 
 IP_VERSION := V0.001

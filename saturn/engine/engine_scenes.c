@@ -13,6 +13,13 @@
 #include <yaul.h>
 #include "road_cd.h"
 #include "texture_cd.h"
+#ifndef ENG_GHOST
+#define ENG_GHOST 0
+#endif
+#if ENG_GHOST
+#define FZX_GHOST_RACE_API
+#include "engine_ghost.h"
+#endif
 #include "engine_scenes.h"
 #include "engine_closeup.h"
 #ifndef FZX_P3_BASELINE
@@ -913,6 +920,9 @@ static void name_tick(void) {
     if (input.edges & (PAD_A | PAD_START)) {
         if (key == '<') {
             results->save = fzx_records_commit(&fzx_scn_result, results->name);
+#if ENG_GHOST
+            if (results->rank.place == 1u) (void)fzx_ghost_race_save(&fzx_scn_result);
+#endif
             results->editing = false;
             sh2z_scene_input_consume(&input);
         } else if (input.edges & PAD_A) {

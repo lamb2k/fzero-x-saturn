@@ -1,6 +1,13 @@
 /* Engine line, milestone E1: the drive slice (see engine_drive.h). */
 #include <string.h>
 #include <stddef.h>
+#ifndef ENG_GHOST
+#define ENG_GHOST 0
+#endif
+#if ENG_GHOST
+#define FZX_GHOST_RACE_API
+#include "engine_ghost.h"
+#endif
 #include "engine_drive.h"
 #if ENG_SND
 #include "engine_snd.h"
@@ -126,6 +133,9 @@ static uint32_t finish_timer;
 #endif
 static void step_once(sh2z_vd_input_t *in) {
     fzx_phys_step(&course, &body, &fzx_phys_rules, in);
+#if ENG_GHOST
+    fzx_ghost_tick(&body);
+#endif
 #if ENG_SND
     engine_snd_tick(&body, &course.vehicle, course.track.laps); /* reads the state only */
 #endif
@@ -495,6 +505,9 @@ static void field_state_reset(void);
 #endif
 void fzx_drive_reset(void) {
     body = course.start; prev_n64 = 0; ticks = 0; finish_timer = 0;
+#if ENG_GHOST
+    fzx_ghost_race_begin();
+#endif
 #if E1_FIELD && ENG_BAL_EARLY
     field_pending = 0; /* player states a left race never handed to the field */
 #endif

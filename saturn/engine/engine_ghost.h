@@ -39,4 +39,15 @@ void fzx_ghost_stamp(fzx_ghost_t *g, uint32_t generation);
 typedef struct { const fzx_ghost_t *g; uint32_t tick, nib, left; int32_t cur[3], next[3], dprev[3]; bool live; } fzx_ghost_play_t;
 void fzx_ghost_play_begin(fzx_ghost_play_t *p, const fzx_ghost_t *g);
 bool fzx_ghost_play_tick(fzx_ghost_play_t *p, int32_t out_q16[3]);
+
+/* Race side (engine_ghost_race.c, ENG_GHOST=1 on the scenes image). */
+#ifdef FZX_GHOST_RACE_API
+#include "engine_records.h"
+#include "sh2zam/vehicle_dynamics_experimental.h"
+void fzx_ghost_race_begin(void);                              /* every race start (drive reset): loads the kept ghost */
+void fzx_ghost_tick(const sh2z_vd_body_t *body);              /* every physics tick */
+fzx_rec_result_t fzx_ghost_race_save(const fzx_run_result_t *run); /* a new best was committed */
+extern volatile uint32_t fzx_ghost_on, fzx_ghost_report[16];
+extern volatile int32_t fzx_ghost_pos[3];
+#endif
 #endif

@@ -10,6 +10,12 @@
 #if ENG_MODES
 #include "engine_modes.h"
 #endif
+#ifndef ENG_GHOST
+#define ENG_GHOST 0
+#endif
+#if ENG_GHOST
+#include "engine_ghost.h"
+#endif
 
 #define REC_MAGIC 0x465A5852u /* "FZXR" */
 #if ENG_MODES
@@ -273,6 +279,73 @@ fzx_rec_result_t fzx_records_credits_seen(void) {
     if (!table.progress.credits_due) return FZX_REC_OK;
     table.progress.credits_due = 0; dirty = true;
     return write_table();
+}
+#endif
+
+#if ENG_GHOST
+/* The Time Attack ghost: one slot kept as two files (FZXGHO_A, FZXGHO_B), written alternately with a generation, as the records are. */
+static const char *const ghost_file[2] = { "FZXGHO_A", "FZXGHO_B" };
+static fzx_ghost_t ghost_io;            /* one file's image; high work RAM, like `io` */
+static uint32_t ghost_gen[2];
+volatile uint32_t fzx_ghost_fault;       /* captures: 1 = the next ghost write stores a wrong CRC; 2 = it stores half the file */
+/* [0] last load (1 found, 0 none), [1] generation loaded, [2] file loaded (1 A, 2 B), [3] A valid, [4] B valid, [5] last save result,
+ * [6] file written, [7] bup status of the last write, [8] bytes of the last file written, [9] free blocks after it */
+volatile uint32_t fzx_ghost_store[16];
+
+static bool ghost_read(unsigned i, uint32_t *gen) {
+    bup_directory_t d[1];
+    memset(&d[0], 0, sizeof(d[0]));
+    if (bup_dir(BUP_DEVICE_INTERNAL, ghost_file[i], 1, d) <= 0 || d[0].data_size > sizeof(ghost_io)) return false;
+    memset(&ghost_io, 0, FZX_GHOST_HEAD_BYTES);
+    if (bup_read(BUP_DEVICE_INTERNAL, ghost_file[i], &ghost_io) != BUP_OK || !fzx_ghost_valid(&ghost_io, d[0].data_size)) return false;
+    *gen = ghost_io.generation;
+    return true;
+}
+
+bool fzx_records_ghost_load(fzx_ghost_t *dst) {
+    ensure_bup();
+    ghost_gen[0] = ghost_gen[1] = 0;
+    unsigned best = 2u;
+    for (unsigned i = 0; i < 2u; ++i) {
+        uint32_t g;
+        if (ghost_read(i, &g)) {
+            ghost_gen[i] = g;
+            fzx_ghost_store[3u + i] = 1u;
+            if (best == 2u || g > ghost_gen[best]) { best = i; memcpy(dst, &ghost_io, FZX_GHOST_FILE_BYTES(&ghost_io)); }
+        } else fzx_ghost_store[3u + i] = 0u;
+    }
+    fzx_ghost_store[0] = best < 2u; fzx_ghost_store[1] = best < 2u ? ghost_gen[best] : 0u; fzx_ghost_store[2] = best < 2u ? best + 1u : 0u;
+    return best < 2u;
+}
+
+fzx_rec_result_t fzx_records_ghost_save(const fzx_ghost_t *g) {
+    ensure_bup();
+    const unsigned target = ghost_gen[0] <= ghost_gen[1] ? 0u : 1u;
+    const uint32_t gen = (ghost_gen[0] > ghost_gen[1] ? ghost_gen[0] : ghost_gen[1]) + 1u;
+    uint32_t size = FZX_GHOST_FILE_BYTES(g);
+    memcpy(&ghost_io, g, size);
+    fzx_ghost_stamp(&ghost_io, gen);
+    const uint32_t fault = POKED(fzx_ghost_fault);
+    if (fault == 1u) ghost_io.crc ^= 0x00010000u;
+    else if (fault == 2u) size /= 2u;
+    POKED(fzx_ghost_fault) = 0;
+    bup_directory_t dir;
+    memset(&dir, 0, sizeof(dir));
+    strcpy(dir.filename, ghost_file[target]);
+    strcpy(dir.comment, "FZX GHOST");
+    dir.language = BUP_LANG_ENGLISH;
+    dir.data_size = size;
+    engine_smpc_quiet(true);
+    const bup_status_t s = bup_write(BUP_DEVICE_INTERNAL, &dir, &ghost_io, BUP_WRITE_MODE_OVERWRITE);
+    bup_stat_t st;
+    memset(&st, 0, sizeof(st));
+    (void)bup_status(BUP_DEVICE_INTERNAL, 0, &st);
+    engine_smpc_quiet(false);
+    fzx_ghost_store[7] = s; fzx_ghost_store[6] = target + 1u; fzx_ghost_store[8] = size; fzx_ghost_store[9] = st.free_blocks;
+    fzx_rec_result_t r = s == BUP_OK ? FZX_REC_OK : s == BUP_NOT_ENOUGH_MEMORY ? FZX_REC_FULL : FZX_REC_FAILED;
+    if (r == FZX_REC_OK && !fault) ghost_gen[target] = gen; else if (r == FZX_REC_OK) r = FZX_REC_FAILED;
+    fzx_ghost_store[5] = r;
+    return r;
 }
 #endif
 

@@ -104,4 +104,12 @@ extern volatile uint32_t fzx_rec_fault;
  * Around every SMPC command issued from this thread (ENG_SMPC_OVERLAP_CONTROL=1: the control, no hold and the
  * command's SF window held open across a vertical blank). */
 void engine_smpc_quiet(bool on);
+#if defined(ENG_GHOST) && ENG_GHOST
+#include "engine_ghost.h"
+/* The Time Attack ghost (one slot, two files). Load: the newest valid file into DST (true when there is one). Save: writes the
+ * older file with the next generation. */
+bool fzx_records_ghost_load(fzx_ghost_t *dst);
+fzx_rec_result_t fzx_records_ghost_save(const fzx_ghost_t *g);
+extern volatile uint32_t fzx_ghost_fault, fzx_ghost_store[16];
+#endif
 #endif

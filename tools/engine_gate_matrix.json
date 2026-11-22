@@ -83,6 +83,26 @@
    "note": "scenes, driver; sound on",
    "sound": true
   },
+  "scenes-drv-r03": {
+   "vars": [
+    "FZX_E1_DRIVE=1",
+    "ENG_SCENES=1",
+    "E1_DRIVER=2"
+   ],
+   "kind": "scenes",
+   "note": "scenes, R03 look-ahead driver (White Land 1 retires under R01); sound on",
+   "sound": true
+  },
+  "scenes-drv-r03": {
+   "vars": [
+    "FZX_E1_DRIVE=1",
+    "ENG_SCENES=1",
+    "E1_DRIVER=2"
+   ],
+   "kind": "scenes",
+   "note": "scenes, R03 look-ahead driver (White Land 1 retires under R01); sound on",
+   "sound": true
+  },
   "scenes-drv-snd0": {
    "vars": [
     "FZX_E1_DRIVE=1",
@@ -178,7 +198,10 @@
   {
    "slug": "white-land-1",
    "index": 11,
-   "tubes": false
+   "tubes": false,
+   "image": "scenes-drv-r03",
+   "host_driver": "0.004,2.5",
+   "host_ahead": 0.1
   }
  ],
  "runs": [

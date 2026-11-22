@@ -135,7 +135,7 @@ IN
   echo "LEGACY $kind $(sha256sum "$d/fzero-x-saturn.bin" | cut -d' ' -f1)"
   ;;
 host)
-  out=${3:?}; key=${4:?}; slug=${5:?}; driver=${6:-0.004,2.5}
+  out=${3:?}; key=${4:?}; slug=${5:?}; driver=${6:-0.004,2.5}; ahead=${7:-}
   cd "$S/w"; pin=$(cat saturn/engine/sh2zam.pin)
   hb=$S/host-$key; mkdir -p "$hb"
   if [ ! -x "$hb/fzx-phys" ]; then
@@ -145,9 +145,10 @@ host)
   g=$(python3 -c "import sys;sys.path.insert(0,'tools');import course_catalog as c;print(c.gen_root('$slug'))")
   printf "460 - 0 0\n9000 A 0 0\n" > /tmp/gate-r01-$stage.txt
   mkdir -p "$out"
-  f=$out/$slug-$driver.txt
-  "$hb/fzx-phys" --pack "$g/physics/PHYS.PAK" --inputs /tmp/gate-r01-$stage.txt --driver "$driver" --checkpoints 256 > "$f" 2>&1
-  "$hb/fzx-phys" --pack "$g/physics/PHYS.PAK" --inputs /tmp/gate-r01-$stage.txt --driver "$driver" --out /tmp/gate-r01-$stage.tsv > /dev/null 2>&1
+  f=$out/$slug-$driver${ahead:+-a$ahead}.txt
+  da=; [ -n "$ahead" ] && da="--driver-ahead $ahead"
+  "$hb/fzx-phys" --pack "$g/physics/PHYS.PAK" --inputs /tmp/gate-r01-$stage.txt --driver "$driver" $da --checkpoints 256 > "$f" 2>&1
+  "$hb/fzx-phys" --pack "$g/physics/PHYS.PAK" --inputs /tmp/gate-r01-$stage.txt --driver "$driver" $da --out /tmp/gate-r01-$stage.tsv > /dev/null 2>&1
   # The finish (flags bit 25: race time, laps) or the retirement tick (bits 14, 19, 27), as tools' race_summary.
   python3 - /tmp/gate-r01-$stage.tsv >> "$f" <<'PY'
 import sys

@@ -22,6 +22,9 @@ uint8_t fzx_atk_retire_place[FZX_ATK_MAX];
 void (*volatile fzx_atk_ko_hook)(uint32_t victim);
 uint32_t fzx_atk_chk[FZX_ATK_CHECKPOINTS];
 
+#ifndef ENG_RIVAL_RECHARGE
+#define ENG_RIVAL_RECHARGE 0
+#endif
 #define Q8(x) ((int32_t)((x) * 256.0 + ((x) >= 0 ? 0.5 : -0.5)))
 #define Q16(x) ((int32_t)((x) * 65536.0 + ((x) >= 0 ? 0.5 : -0.5)))
 
@@ -476,6 +479,10 @@ static void move_external(const sh2z_vd_body_t *p, uint32_t i) {
     sh2z_vehicle_t *v = &F.veh[i];
     sh2z_track_state_t *t = &v->t;
     int32_t lv = r->lv;
+#if ENG_RIVAL_RECHARGE
+    /* Not stepped by the field, so the pit refill (racer.c 5458-5467: not while crashed, airborne or spinning out) is applied here. */
+    if (!(r->mode & (M_SPUN | M_CRASHED))) sh2z_field_recharge(F.field, v, 1u);
+#endif
     /* Speed: coasting while spinning out or crashed; otherwise the engine holds the agent's target. */
     if (r->mode & M_CRASHED) t->speed = decay(t->speed, KEEP_CRASHED), lv = decay(lv, KEEP_CRASHED);
     else if (r->mode & M_SPUN) t->speed = m16(t->speed, KEEP_SPIN), lv = m16(lv, KEEP_SPIN);

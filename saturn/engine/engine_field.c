@@ -75,6 +75,9 @@ static void field_class_pick(void) {
 #else
 #define FIELD_ROWS CSEL(field,fzx_rivals_field)
 #endif
+#ifndef ENG_RIVAL_RECHARGE
+#define ENG_RIVAL_RECHARGE 0
+#endif
 #ifndef ENG_RIVAL_SURFACE
 #define ENG_RIVAL_SURFACE 0
 #endif
@@ -567,6 +570,11 @@ bool fzx_field_load(const sh2z_vd_track_t *track, const sh2z_vd_body_t *player) 
         }
         surface.zones = zones; surface.zone_count = nz < FZX_RIVALS_ZONE_MAX ? nz : FZX_RIVALS_ZONE_MAX;
         surface.plate_ticks = 60; surface.slip_steer = 16384; surface.rough_keep = 58982; surface.recharge = 512;
+#if ENG_RIVAL_RECHARGE
+        /* line-field-15: racer.c 5458-5467, a rival refills energyIncrease = 0.008 x its own max energy a tick on a pit strip
+         * (Q16 524, 0.00799), not while airborne; the flat rate above is then unused. */
+        surface.recharge_share = 524;
+#endif
         surface.wrap_mask = 0x0180u; surface.wrap_value = 0x0080u; /* pipe 0x80 and cylinder 0xC0 */
         params.surface = &surface;
         params.dash_from = (int32_t)CSEL(dash_from,FZX_RIVALS_DASH_FROM); params.dash_pace = 72090; /* 1.10 */

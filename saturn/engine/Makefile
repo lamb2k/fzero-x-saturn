@@ -309,6 +309,14 @@ ENG_RIVAL_BEHAVE ?= 1
 ifeq ($(filter 0 1,$(ENG_RIVAL_BEHAVE)),)
 $(error ENG_RIVAL_BEHAVE must be 0 or 1)
 endif
+# ENG_RIVAL_RECHARGE (field images with ENG_RIVAL_SURFACE=1; SH2ZAM line-field-15): a rival on a recharge strip refills by 0.008 of its own
+# maximum energy a tick (racer.c 5458-5467, energyIncrease), not while in the air, falling, crashed or spinning out; a rival driven by the
+# attacks takes the same rule (sh2z_field_recharge). The pit matters once the attacks hurt the rivals. Default: on when the pin has
+# line-field-15, off before it (the field's one flat rate, as before).
+ENG_RIVAL_RECHARGE ?= $(if $(and $(filter-out 0,$(E1_FIELD)),$(filter 1,$(E2_PACK)),$(filter 1,$(ENG_RIVAL_SURFACE)),$(shell grep -l 'line-field-15' $(SH2ZAM_ROOT)/saturn/include/sh2zam/line_field_experimental.h 2>/dev/null)),1,0)
+ifeq ($(filter 0 1,$(ENG_RIVAL_RECHARGE)),)
+$(error ENG_RIVAL_RECHARGE must be 0 or 1)
+endif
 # ENG_RIVAL_CLASS (field images, E2_PACK=1; line-field-5 (d)): the rivals race the class's own rows (C-097: the
 # source's target tables are course * 4 + difficulty): generated/.../rivals/rivals_field_class.h (tools/rivals_field_header.py
 # --classes, four reference GP reports) and, in the one-disc image, generated/courses/select/course_class.c
@@ -438,6 +446,7 @@ SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter 0,$(E0_PRELUDE_DIV)),-pd0,)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter 1,$(ENG_CDDA)),-cdda$(ENG_CDDA_MUSIC)$(if $(filter-out 0,$(ENG_CDDA_LOOPTEST)),-lt$(ENG_CDDA_LOOPTEST),),)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter 1,$(ENG_SND)),-snd$(ENG_SND_MUSIC)$(if $(filter-out 0,$(ENG_SND_FADETEST)),-ft$(ENG_SND_FADETEST),),)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter 1,$(ENG_ATTACKS)),-atk$(if $(filter 0,$(ENG_ATK_DEFER)),0,),)
+SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter 1,$(ENG_RIVAL_RECHARGE)),-rch,)
 # Master/slave balance (claude/balance); each 0 = the frame split as it was.
 # ENG_BAL_CLOUDS: the cloud prepare on either SH-2 (drive images, banks, ENG_PACE=4): 1 always on the
 #   slave after its track; 2 the slave takes it when its track ends before the master reaches it
@@ -643,7 +652,7 @@ endif
 ifneq ($(E1_FIELD),0)
 # FZX_CLOSEUP_CARS: 3D slots (engine_field.h FZX_FIELD_K_MAX).
 SH_CFLAGS += -DE1_FIELD=$(E1_FIELD) -DFZX_CLOSEUP_CARS=6
-SH_CFLAGS += -DENG_RIVAL_SURFACE=$(ENG_RIVAL_SURFACE) -DENG_RIVAL_BEHAVE=$(ENG_RIVAL_BEHAVE) -DENG_RIVAL_CLASS=$(ENG_RIVAL_CLASS) -DE2_PACK=$(E2_PACK) -DE2_FASTPOSE=$(E2_FASTPOSE) -DE2_CULL=$(E2_CULL) -DE2_LOD=$(E2_LOD) -DE2_LOD_NEAR=$(E2_LOD_NEAR) -DE2_EARLY=$(E2_EARLY) -DE2_PROF=$(E2_PROF) -DE2_FASTSPRITE=$(E2_FASTSPRITE) -DE2_ROSTER=$(E2_ROSTER)
+SH_CFLAGS += -DENG_RIVAL_SURFACE=$(ENG_RIVAL_SURFACE) -DENG_RIVAL_BEHAVE=$(ENG_RIVAL_BEHAVE) -DENG_RIVAL_RECHARGE=$(ENG_RIVAL_RECHARGE) -DENG_RIVAL_CLASS=$(ENG_RIVAL_CLASS) -DE2_PACK=$(E2_PACK) -DE2_FASTPOSE=$(E2_FASTPOSE) -DE2_CULL=$(E2_CULL) -DE2_LOD=$(E2_LOD) -DE2_LOD_NEAR=$(E2_LOD_NEAR) -DE2_EARLY=$(E2_EARLY) -DE2_PROF=$(E2_PROF) -DE2_FASTSPRITE=$(E2_FASTSPRITE) -DE2_ROSTER=$(E2_ROSTER)
 SH_CFLAGS += -DE2_EMIT_PROF=$(E2_EMIT_PROF) -DE2_EMIT_HINT=$(E2_EMIT_HINT) -DE2_EMIT_CMD=$(E2_EMIT_CMD) -DE2_EMIT_SHADOW=$(E2_EMIT_SHADOW) -DE2_EMIT_POSE=$(E2_EMIT_POSE) -DE2_EMIT_SETUP=$(E2_EMIT_SETUP) -DE2_EMIT_LINK=$(E2_EMIT_LINK) -DE2_EMIT_CULL=$(E2_EMIT_CULL) -DE2_EMIT_YAW=$(E2_EMIT_YAW)
 ifeq ($(E2_EMIT_YAW):$(E2_EMIT_POSE),1:0)
 $(error E2_EMIT_YAW needs E2_EMIT_POSE=1)

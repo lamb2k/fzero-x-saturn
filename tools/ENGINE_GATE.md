@@ -49,10 +49,10 @@ with the base's receipt.
 | `cadence` | 0 intervals over two fields, from tick 420 (every row on E0) | field race; loop races | every race image, loops, six courses |
 | `timing` | INFO: master, slave (with the slave's cloud share) and critical path mean / p99 / max; VDP1 p99 | same | same |
 | `margin` | unrounded critical-path p99 x 1.36 at most 33.3 ms (ENGINE_PLAN 5 gate 9; about 24.485 ms) | field race | race images, six courses |
-| `host` | SH-2 checkpoints equal HOST's (`fzx-phys --checkpoints 256`, tubes build, the stage's packs); the finish ms equal, or a retirement where HOST retires; a whole race also matches HOST's final state hash | field race; loop's cold race | plus drive, roster, and each course |
+| `host` | SH-2 checkpoints equal HOST's (`fzx-phys --checkpoints 256`, tubes build, the stage's packs; for an image built with `ENG_ATTACKS`, which is every image with the rival field, `fzx-atk --gate 1` from `tools/attacks_host`: the player with the racer-racer contact, the same checkpoints plus the attack and field words `fzx_atk_chk`); the finish ms equal, or a retirement where HOST retires; a whole race also matches HOST's final state hash | field race; loop's cold race | plus drive, roster, and each course |
 | `determinism` | two runs give the same per-field ticks and pixel hashes, work RAM, VRAM and stills | field race | field race; loop |
 | `loop` | cold and retry races give equal finish ms, checkpoints and tick-2000 stills | sound on | sound on and off |
-| `reboot` | the saved name survives a reboot (the loop script waits for it, and for the saved Mute City record, `RECORD_MS` in `loop.txt`: the image's own Mute City HOST finish from `fzx-phys`; an image built with `ENG_ATTACKS` stops the gate, since this line has no `fzx-atk` reference) | yes | yes |
+| `reboot` | the saved name survives a reboot (the loop script waits for it, and for the saved Mute City record, `RECORD_MS` in `loop.txt`: the image's own Mute City HOST finish from `fzx-phys`; an image built with `ENG_ATTACKS` waits for the finish of its own HOST, `fzx-atk`, instead) | yes | yes |
 | `reset` | the soft reset returns to TITLE from title, select, records, a fade, load, race and results; the fire count rises each time | sound on | sound on and off |
 | `cancel` | loads cancelled at 30, 100 and 180 fields return to TITLE (load state 3), and the next cold load races | sound on | sound on and off |
 | `menus` | no menu frame over two fields: `fzx_scn_ctl[7]` is 0 and `[6]` is at most 2 at every mark | every scenes run | every scenes run |

@@ -19,6 +19,9 @@
 #include "title_identity.h"
 #include "cards.h"
 #include "menu_pages.h"
+#ifndef ENG_SND
+#define ENG_SND 0
+#endif
 #include "select_art.h"
 #include "machine_tuning.h"
 #endif

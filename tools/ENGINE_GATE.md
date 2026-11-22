@@ -68,7 +68,7 @@ order matters: a mode probe after the course probe can reset the course) and rac
 `practice_fixture` asserts the session (mode 5, class 1, the course and its row in the Practice bundle, machine 0, skin 1, slider bits
 0), the loaded field (not solo), the start grid (places 1..30) and 29 distinct opponents with energy, from the rows the image links
 (`generated/courses/select/course_practice.c`, read through `stage.sh cat`). The window is the tick-420 window to an explicit end mark
-(`results`, drive tick 7200, 420 plus a Grand Prix round's 6720 ticks on Mute City: Practice has no finish); `host` compares the SH-2 checkpoints with HOST's and asks for no finish. The
+(`results`, drive tick 3780: the Practice race in the harness ends by itself between drive tick 6126 and 7176 on the five courses measured, so the window stays well inside it); `host` compares the SH-2 checkpoints with HOST's and asks for no finish. The
 `exit` check quits through the pause menu (START, DOWN, DOWN, A) and requires RESULTS and unchanged record file generations: zero
 race-record writes. Controls: `ctl-pr-course` (the race enters Silence for a Mute City row), `ctl-pr-solo` (Time Attack, solo) and
 `ctl-pr-roster` (one opponent replaced: 28 distinct) must each fail the `fixture` check. The Practice bundle comes from

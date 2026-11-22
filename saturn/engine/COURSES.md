@@ -555,7 +555,7 @@ Big Hand 422 / 6,752 (the largest chunk count; `FZX_EPATH_MAX_CHUNKS` 512). Ever
   the free gap between the end of `.bss` and the top of the master stack in high work RAM (the whole image is in high work RAM):
   that gap is 59,264 B on the select image at the engine pin `cc18a63` (63,456 B at `8d7773e`; the pin bump grew the image by 4,192 B,
   text and data 4,064, bss 128), and was 92,032 B with the 98,304 B arena. Measured at the end of 24 runs the master stack's
-  untouched part is 53,444..53,464 B (52,184 at Mute City 3 and White Land 1), 33 KB above its 20,480 B floor. The arena peak,
+  untouched part is 53,444..53,464 B (52,184 at Mute City 3 and White Land 1), 33 KB above its 20,480 B floor; after merging engine `b573443` (title, guest and menu art, cid-index) it is 48,484..48,504 B (28 KB above the floor; the merge cost 5 KB of high work RAM), re-run on Mute City 1, Silence 2 and White Land 2 with the same finishes, cadence and arena peaks. The arena peak,
   `fzx_road_stream_high_used`, is in the table (largest: Big Hand 109,072, Space Plant 108,584, Rainbow Road 108,408, Sand Ocean 2
   108,208, Silence 2 101,008): 22,000 B of headroom inside the 131,072 B arena at the worst course. The gadget lane's decals share
   the arena: Mute City needs +3.9 KB on 87,360 B and Devil's Forest more on 88,560 B; both fit, as the arena has 43,712 B and

@@ -1,5 +1,5 @@
 #!/bin/sh
-# Regenerate the engine_path and road_prep outputs (and receipts) of one course, or all six, after a change to
+# Regenerate the engine_path, road_prep and engine_path_ranges outputs (and receipts) of one course, or all six, after a change to
 # src/fzx_view.c (an input of both generators). Run from the tree root, under Linux/WSL, with the course's ROM-derived
 # generated/ inputs in place (engine_path/raw, road_bake); nothing here reads or prints the ROM.
 #   tools/regen_view_receipts.sh [COURSE|.|all]       COURSE is a slug (silence-1, ...), . the default course
@@ -17,6 +17,7 @@ one() {
     tex=$(python3 -c "import json,sys;print(json.load(open(sys.argv[1]))['texture_limit'])" "$g/road_bake/road_bake.json")
     python3 tools/engine_path.py --raw "$g/engine_path/raw" --output "$g/engine_path" --sh2zam "$lib" --fog "$fog"
     python3 tools/road_prep.py --sh2zam "$lib" --bake "$g/road_bake" --output "$g/road_prep" --texture-limit "$tex"
+    python3 tools/engine_path_ranges.py --gen "$g"   # its receipt pins engine_path.receipt: stale once that is regenerated
 }
 if [ "$which" = all ]; then
     for c in . silence-1 sand-ocean-1 devils-forest-1 big-blue-1 port-town-1; do one "$c"; done

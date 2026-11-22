@@ -1,15 +1,16 @@
-"""Bake Jack Cup nameplates and track silhouettes from the original course menu."""
+"""Bake Saturn nameplates and track silhouettes from the original course menu."""
 import argparse
 import hashlib
 import json
 import math
+import re
 from pathlib import Path
 import struct
 
 
 COURSES = ("MUTE CITY", "SILENCE", "SAND OCEAN", "DEVIL'S FOREST", "BIG BLUE", "PORT TOWN")
 
-def preview_masks(folder):
+def preview_masks(folder, course_ids=range(6)):
     pack = (folder / "CPREVIEW.PAK").read_bytes()
     receipt = (folder / "course_preview.receipt").read_text().splitlines()
     if "output " + hashlib.sha256(pack).hexdigest() + " CPREVIEW.PAK" not in receipt:
@@ -21,7 +22,7 @@ def preview_masks(folder):
     # a 128x64 panel, preserving aspect and the inclines in the original mesh.
     view = [v / 65536 for v in struct.unpack_from(">18i", pack, cameras + 35 * 72)]
     masks = []
-    for course in range(len(COURSES)):
+    for course in course_ids:
         first, count, face, num_faces = struct.unpack_from(">4I", pack, desc + course * 16)
         points = []
         for vertex in range(first, first + count):
@@ -54,14 +55,14 @@ def preview_masks(folder):
     return masks
 
 
-def bake(source, dest):
+def labels(source, names):
     atlas = (source / "COURSEUI.PAK").read_bytes()
     manifest = json.loads((source / "course_menu.json").read_text())
     table = manifest["fonts"]["3"]
     patterns = bytearray()
     layouts = []
     palette = [0]
-    for name in COURSES:
+    for name in names:
         # Course-menu Font 3 is a 16-line proportional font. Draw each source
         # glyph into the line, then store the line as Saturn 8x8 4bpp cells.
         pixels = [bytearray(320) for _ in range(16)]
@@ -70,7 +71,8 @@ def bake(source, dest):
             if ch == " ":
                 x += table["space"]
                 continue
-            idx = table["symbols"].index("aFont3PrimeTex") if ch == "'" else ord(ch) - ord("A")
+            symbol = "Prime" if ch == "'" else "Num" + ch if ch.isdigit() else ch
+            idx = table["symbols"].index("aFont3" + symbol + "Tex")
             glyph = manifest["images"][table["images"][idx]]
             w, h = glyph["width"], glyph["height"]
             if not glyph["clut"] or h != 16 or x+w > 320:
@@ -95,6 +97,11 @@ def bake(source, dest):
                         patterns.append(row[col]*16 + row[col+1])
     if len(palette) > 16 or max(c for _,c in layouts) > 40:
         raise ValueError("Course label exceeds its NBG3 lease")
+    return palette, layouts, patterns
+
+
+def bake(source, dest):
+    palette, layouts, patterns = labels(source, COURSES)
     masks = preview_masks(source.parent / "course_menu_preview")
     dest.parent.mkdir(parents=True, exist_ok=True)
     words = [int.from_bytes(patterns[i:i+2],"big") for i in range(0,len(patterns),2)]
@@ -116,9 +123,67 @@ def bake(source, dest):
         out.write("};\n")
 
 
+def bake_catalog(source, dest, upstream):
+    """One independently loadable card per stock course; the racing catalog owns availability."""
+    from import_source_art import output_location, verify_source
+    from road_pack import fnv
+
+    output_location(dest)
+    verify_source(upstream / "decomp")
+    def digest(path):
+        return hashlib.sha256(path.read_bytes()).hexdigest()
+
+    menu_receipt = (source / "course_menu.receipt").read_text().splitlines()
+    inputs = [source / "COURSEUI.PAK", source / "course_menu.json"]
+    for path in inputs:
+        if f"output {digest(path)} {path.name}" not in menu_receipt:
+            raise ValueError(f"Course menu receipt disagrees with {path.name}")
+    inputs += [source.parent / "course_menu_preview/CPREVIEW.PAK",
+               upstream / "port/gdx_discord.cpp",
+               upstream / "decomp/src/overlays/course_select/course_model.c"]
+    table = (upstream / "port/gdx_discord.cpp").read_text().split("kCourseNames[kCourseMax] = {", 1)[1].split("};", 1)[0]
+    names = [name.upper() for name in re.findall(r'"([^"]+)"', table)[:24]]
+    if len(names) != 24 or tuple(names[:6]) != COURSES:
+        raise ValueError("Stock course order changed")
+    model = (upstream / "decomp/src/overlays/course_select/course_model.c").read_text()
+    colors = re.findall(r"case [0-3]:\s*gDPSetPrimColor\(gfx\+\+, 0, 0, (\d+), (\d+), (\d+), 255\)", model)
+    if len(colors) != 4:
+        raise ValueError("Expected four stock cup preview colors")
+    masks = preview_masks(source.parent / "course_menu_preview", range(24))
+    palette, layouts, patterns = labels(source, names)
+    dest.mkdir(parents=True, exist_ok=True)
+    blob = bytearray()
+    rows = []
+    for course, ((word, cols), mask) in enumerate(zip(layouts, masks)):
+        rgb = [int(v) >> 3 for v in colors[course // 6]]
+        tint = 0x8000 | rgb[0] | rgb[1] << 5 | rgb[2] << 10
+        cells = patterns[word*2:word*2+64*cols]
+        card = struct.pack(">HH16H", cols, tint, *(palette + [0]*(16-len(palette)))) + mask + cells
+        rows.append(dict(course=course, name=names[course], offset=len(blob), size=len(card), fnv=fnv(card)))
+        blob.extend(card)
+    (dest / "CARDS.PAK").write_bytes(blob)
+    (dest / "cards.json").write_text(json.dumps(rows, indent=2) + "\n")
+    hdr = ["/* Generated offsets in CARDS.PAK, indexed by stock course ID. */",
+           f"#define FZX_CARDS_BYTES {len(blob)}u", f"#define FZX_CARDS_HASH {fnv(blob)}u",
+           "static const struct { unsigned int at, size, hash; } fzx_cards[] = {"]
+    hdr += ["    {%du,%du,%du}," % (r["offset"],r["size"],r["fnv"]) for r in rows]
+    hdr += ["};", "static const char *const card_names[] = {"]
+    hdr += ["    " + json.dumps(name) + "," for name in names]
+    (dest / "cards.h").write_text("\n".join(hdr + ["};", ""]), newline="\n")
+    receipt = ["# fzx generation receipt v1; regenerate, never edit",
+               f"generator {digest(Path(__file__))} engine_load_cards.py"]
+    receipt += [f"input {digest(path)} {path.name}" for path in inputs]
+    receipt += [f"output {digest(dest / name)} {name}" for name in ("CARDS.PAK","cards.h","cards.json")]
+    (dest / "cards.receipt").write_text("\n".join(receipt)+"\n", newline="\n")
+
+
 if __name__ == "__main__":
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("source", type=Path)
     p.add_argument("header", type=Path)
+    p.add_argument("--catalog-upstream", type=Path, help="bake all stock cards to the output directory using this pinned G-Diffuser tree")
     args = p.parse_args()
-    bake(args.source,args.header)
+    if args.catalog_upstream:
+        bake_catalog(args.source, args.header, args.catalog_upstream)
+    else:
+        bake(args.source, args.header)

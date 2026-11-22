@@ -25,10 +25,9 @@
  * flags match MASK:VALUE tubes (the course's pipes and cylinders: 0x180:0x80). Tuning names plate_ticks,
  * slip_steer, rough_keep and recharge set the surface; --dash Q8 sets the final dash (fzx-rivals writes
  * ZONES.txt.dash). None of them: line-field-3 step for step.
- * line-field-6 (claude/rival-class): --race 1 sets the race conduct; FIELD.txt columns 9 and 10 give each racer's
- * spin and rear attack chances (Q16), tuning names after_speed, finish_slip, focus_lead, rear_long, rear_lat,
- * spin_ticks, rear_ticks set it and chase_lead_add moves the player chasers' lead (whole units; tools/rivals_class.py
- * gives the class's values). Without --race 1 the columns and names are ignored by the field. */
+ * line-field-12 (claude/rival-class): --ranks 1 sets the moving pace ranks; FIELD.txt column 9 gives each racer's
+ * pace rank (0 = chaser), --rank-steps S1,S2,.. the rank steps in ticks, tuning names rk_base, rk_share and
+ * rk_release (Q8; default two thirds of --length) the rest (tools/rivals_ranks.py). Without --ranks 1 the column is ignored. */
 #include <stdint.h>
 #include <math.h>
 #include <stdio.h>
@@ -45,7 +44,8 @@ static sh2z_line_node_t nodes[MAXN];
 static sh2z_field_zone_t zones[256];
 static sh2z_field_surface_t surface;
 static sh2z_field_behave_t behave;   /* line-field-5 (--behave 1) */
-static sh2z_field_race_t race;       /* line-field-6 (--race 1) */
+static sh2z_field_ranks_t ranks;     /* line-field-12 (--ranks 1) */
+static int32_t rank_step[32];
 #ifndef DROP_LAT
 #define DROP_LAT 117965    /* 1.8 of the radius round (about 103 degrees; the reference falls at 105 and 151) */
 #endif
@@ -66,7 +66,7 @@ int main(int argc, char** argv) {
     int tube_angles = 0; long tube_ticks = 0, tube_bin[4] = {0, 0, 0, 0};
     /* line-field-5: --sources 1 adds rivals' energy losses by source (contact, wall, boost, other), wall incidents
      * and the near-edge share, as tools judge the reference's (fzx-gp-ref --diag). */
-    int use_behave = 0, use_race = 0; double tube_clamp = 0; int32_t chase_lead_add = 0;
+    int use_behave = 0, use_ranks = 0; double tube_clamp = 0;
     const char* fixture = "";
     const char* drops_file = NULL;
     int sources = 0; double src_amount[4] = {0, 0, 0, 0}; long src_n[4] = {0, 0, 0, 0}, wall_inc = 0, edge_ticks = 0, road_ticks = 0;
@@ -94,7 +94,11 @@ int main(int argc, char** argv) {
         else if (!strcmp(argv[i], "--tube-clamp")) tube_clamp = atof(argv[i + 1]);   /* C-095 control: angles held below this (degrees) */   /* 1: tube_angles over pipe and cylinder nodes */
         else if (!strcmp(argv[i], "--sources")) sources = atoi(argv[i + 1]);
         else if (!strcmp(argv[i], "--behave")) use_behave = atoi(argv[i + 1]);   /* line-field-5 behaviours, defaults below */
-        else if (!strcmp(argv[i], "--race")) use_race = atoi(argv[i + 1]);       /* line-field-6 race conduct */
+        else if (!strcmp(argv[i], "--ranks")) use_ranks = atoi(argv[i + 1]);     /* line-field-12 pace ranks */
+        else if (!strcmp(argv[i], "--rank-steps")) {
+            char *q = argv[i + 1]; ranks.step_count = 0;
+            while (*q && ranks.step_count < 32) { rank_step[ranks.step_count++] = (int32_t)strtol(q, &q, 10); if (*q == ',') ++q; }
+        }
         else if (!strcmp(argv[i], "--fixture")) fixture = argv[i + 1];
         else if (!strcmp(argv[i], "--drops")) drops_file = argv[i + 1];   /* line-field-5 drop nodes (tools/rivals_drops.py) */   /* C-100 fixtures: relabel, stuck, suppress */
         else die("unknown argument");
@@ -184,7 +188,7 @@ int main(int argc, char** argv) {
         behave.contact_norm = 36045;   /* 0.55: racer.c's impact, 1.1 x the closing speed along the line between the two, shared */
         P.behave = &behave;
     }
-    if (use_race) P.race = &race;
+    if (use_ranks) { ranks.step = rank_step; ranks.release_dist = (int32_t)(length * 2 / 3); P.ranks = &ranks; }
     /* Tuning overrides for HOST experiments only: --tune "name=value,..." (integers, the field's own units). */
     if (tune) {
         char tb[1024]; strncpy(tb, tune, sizeof tb - 1); tb[sizeof tb - 1] = 0;
@@ -199,12 +203,9 @@ int main(int argc, char** argv) {
             B(drop_lat) B(drop_chance) B(launch_chance) B(contact_norm)
             B(roll_chance) B(roll_latch) B(roll_lead) B(roll_well) B(hold_lead) B(roll_exit_ahead) B(lat_accel) B(air_spread) B(fall_margin) B(fall_ticks) B(ko_window) B(ko_near) B(ko_floor)
             #undef B
-            #define R(n) if (!strcmp(tok, #n)) { race.n = val; continue; }
-            R(after_speed) R(finish_slip) R(focus_lead) R(rear_long) R(rear_lat)
-            #undef R
-            if (!strcmp(tok, "spin_ticks")) { race.spin_ticks = (uint8_t)val; continue; }
-            if (!strcmp(tok, "rear_ticks")) { race.rear_ticks = (uint8_t)val; continue; }
-            if (!strcmp(tok, "chase_lead_add")) { chase_lead_add = val; continue; }
+            if (!strcmp(tok, "rk_base")) { ranks.base = val; continue; }
+            if (!strcmp(tok, "rk_share")) { ranks.share = val; continue; }
+            if (!strcmp(tok, "rk_release")) { ranks.release_dist = val; continue; }
             if (!strcmp(tok, "roll_min")) { behave.roll_min = (int16_t)val; continue; }
             if (!strcmp(tok, "roll_span")) { behave.roll_span = (int16_t)val; continue; }
             if (!strcmp(tok, "open_mask")) { behave.open_mask = (uint16_t)val; continue; }
@@ -234,13 +235,13 @@ int main(int argc, char** argv) {
     memset(veh, 0, sizeof veh); memset(brain, 0, sizeof brain);
     f = fopen(config, "r");
     if (!f) die("cannot open config");
-    int count = 0, id, g, ms, chase, aggr, finish, cap1, spin, rear; double maxe;
+    int count = 0, id, g, ms, chase, aggr, finish, cap1, prank; double maxe;
     char row[256];
     uint32_t rs = seed * 2654435761u + 12345u;   /* set-up variation, separate from the field's generator */
     #define RND() (rs ^= rs << 13, rs ^= rs >> 17, rs ^= rs << 5, rs)
     while (fgets(row, sizeof row, f)) {
-        finish = cap1 = spin = rear = 0;
-        if (sscanf(row, "%d %d %d %d %lf %d %d %d %d %d", &id, &g, &ms, &chase, &maxe, &aggr, &finish, &cap1, &spin, &rear) < 6) break;
+        finish = cap1 = prank = 0;
+        if (sscanf(row, "%d %d %d %d %lf %d %d %d %d", &id, &g, &ms, &chase, &maxe, &aggr, &finish, &cap1, &prank) < 6) break;
         if (id != count || count >= MAXV) die("config ids must run 0..n-1");
         sh2z_vehicle_t* v = &veh[id]; sh2z_field_brain_t* b = &brain[id];
         sh2z_field_grid_slot(&L, (uint32_t)(g - 1), U(146), U(100), U(50), 4, &v->t);   /* the source grid: 146 back, 100 per place, 4 columns of 100 */
@@ -254,8 +255,8 @@ int main(int argc, char** argv) {
         b->pace += (int32_t)((int64_t)b->pace * ((int)(RND() % 81) - 40) / 10000);   /* +-0.4% skill variation: no two rivals tie for long */
         b->lane = (int32_t)((int)(RND() % (uint32_t)(2 * tune_lane + 1)) - tune_lane) * 256;
         b->chase = (int16_t)(chase == 255 ? -1 : chase);
-        b->chase_lead = (int16_t)(chase == 0 ? (int)(RND() % 400) - 10 + (use_race ? chase_lead_add : 0) : 30);   /* the source's offset ranges */
-        if (use_race) { b->spin_chance = (uint16_t)spin; b->rear_chance = (uint16_t)rear; }   /* line-field-6 */
+        b->chase_lead = (int16_t)(chase == 0 ? (int)(RND() % 400) - 10 + 0 : 30);   /* the source's offset ranges */
+        if (use_ranks) b->pace_rank = (uint8_t)prank;   /* line-field-12 */
         b->aggression = (uint8_t)aggr;
         b->finish_ticks = finish > 0 ? finish * 60 / 1000 : 0;   /* line-field-2: race ticks */
         b->first_lap_cap = cap1 > 0 ? cap1 : 0;                  /* line-field-3: Q8 per tick */

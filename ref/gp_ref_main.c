@@ -155,11 +155,11 @@ int main(int argc, char** argv) {
     if (diag && !df) die("cannot write diag");
     if (trace && !tf) die("cannot write trace");
     /* PACE LOG (claude/rival-class): text, race ticks from the start. "S id rank chase setting a360 a364" per racer at
-     * the start; "T tick target" when the race target (D_i3_80141990) changes; "L tick id lap target398 rank" when a
+     * the start; "C tick id chase rank dist lap" when a racer's chase target changes (a release); "T tick target" when the race target (D_i3_80141990) changes; "L tick id lap target398 rank" when a
      * racer's lap counter changes; "F tick id target398 rank" at its finish. HOST diagnostics only. */
     FILE* pf = pace_log ? fopen(pace_log, "w") : NULL;
     if (pace_log && !pf) die("cannot write pace log");
-    int pace_prev_target = 0, pace_prev_lap[MAXR] = {0}, pace_started = 0;
+    int pace_prev_target = 0, pace_prev_lap[MAXR] = {0}, pace_prev_chase[MAXR] = {0}, pace_started = 0;
     FILE* physf = phys ? fopen(phys, "wb") : NULL;
     if (phys && !physf) die("cannot write trace-phys");
     for (int i = 0; i < MAXR; ++i) { finish_tick[i] = retire_tick[i] = -1; for (int k = 0; k < 4; ++k) lap_end[i][k] = -1; }
@@ -229,6 +229,8 @@ int main(int argc, char** argv) {
                 if (!pace_started) fprintf(pf, "S %d %d %d %d %d %d\n", i, pc[1], pc[2], pc[3], pc[4], pc[5]);
                 if (pace_started && fl[0] != pace_prev_lap[i]) fprintf(pf, "L %d %d %d %d %d\n", t - start_tick, i, fl[0], pc[0], pc[1]);
                 if (finish_tick[i] == t - start_tick) fprintf(pf, "F %d %d %d %d\n", t - start_tick, i, pc[0], pc[1]);
+                if (pace_started && pc[2] != pace_prev_chase[i]) fprintf(pf, "C %d %d %d %d %.0f %d\n", t - start_tick, i, pc[2], pc[1], ff[0], fl[0]);
+                pace_prev_chase[i] = pc[2];
                 pace_prev_lap[i] = fl[0];
             }
             if (!pace_started || tg[0] != pace_prev_target) fprintf(pf, "T %d %d\n", t - start_tick, tg[0]);

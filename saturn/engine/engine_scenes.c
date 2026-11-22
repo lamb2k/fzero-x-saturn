@@ -667,11 +667,11 @@ static void select_tick(void *u, uint32_t s) {
         }
         POKED(fzx_scn_probe) = 0;
     }
-    if (probe & 0x800u) {
-        /* Capture check (claude/modes): clear cup (bits 4..5) on class (bits 0..1) with the cursor's machine, then report
-         * [14] = 0x800 | result | unlock level << 8 | credits due << 12 | the Master offer << 13. */
+    if (probe & 0x4000u) {
+        /* Capture check (claude/modes; 0x800 is the manager's preload control, which consumes it first): clear cup (bits 4..5) on class (bits 0..1) with the cursor's machine, then report
+         * [14] = 0x4000 | result | unlock level << 8 | credits due << 12 | the Master offer << 13. */
         const fzx_rec_result_t r = fzx_records_cup_clear((uint8_t)(probe & 3u), (uint8_t)((probe >> 4) & 3u), (uint16_t)cursor);
-        fzx_scn_report[14] = 0x800u | (uint32_t)r | (fzx_records_unlock_level() << 8) | (fzx_records_credits_due() ? 0x1000u : 0u) |
+        fzx_scn_report[14] = 0x4000u | (uint32_t)r | (fzx_records_unlock_level() << 8) | (fzx_records_credits_due() ? 0x1000u : 0u) |
                              (fzx_records_class_open(3u) ? 0x2000u : 0u);
         POKED(fzx_scn_probe) = 0;
     }

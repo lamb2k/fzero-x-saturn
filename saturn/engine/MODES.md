@@ -48,7 +48,7 @@ Options, unknown) is refused. The table is `engine_modes.c`; `tests/test_modes.p
 | Probe | Effect |
 | --- | --- |
 | `0x400 \| mode << 4 \| class` | SELECT: mode and class under the cursor (GP needs the catalog bit) |
-| `0x800 \| cup << 4 \| class` | clear that cup on that class with the cursor's machine; `fzx_scn_report[14]` = `0x800 \| result \| unlock << 8 \| credits << 12 \| Master offered << 13` |
+| `0x4000 \| cup << 4 \| class` | clear that cup on that class with the cursor's machine; `fzx_scn_report[14]` = `0x4000 \| result \| unlock << 8 \| credits << 12 \| Master offered << 13` |
 
 SELECT's placeholder walks Time Attack, Grand Prix, Practice, Death Race on C; START changes Practice's class (Grand Prix: left and
 right); Master is skipped until it is open.

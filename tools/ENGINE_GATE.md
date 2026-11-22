@@ -48,7 +48,7 @@ with the base's receipt.
 | `legacy` | recipe BIN `4b4cacb2`, OFF BIN `bb5f0fc5` | `--legacy` | yes |
 | `cadence` | 0 intervals over two fields, from tick 420 (every row on E0) | field race; loop races | every race image, loops, six courses |
 | `timing` | INFO: master, slave (with the slave's cloud share) and critical path mean / p99 / max; VDP1 p99 | same | same |
-| `margin` | critical-path p99 at most 24.5 ms (ENGINE_PLAN 5 gate 9) | field race | race images, six courses |
+| `margin` | unrounded critical-path p99 x 1.36 at most 33.3 ms (ENGINE_PLAN 5 gate 9; about 24.485 ms) | field race | race images, six courses |
 | `host` | SH-2 checkpoints equal HOST's (`fzx-phys --checkpoints 256`, tubes build, the stage's packs); the finish ms equal, or a retirement where HOST retires; a whole race also matches HOST's final state hash. An image whose make resolved `ENG_ATTACKS=1` (the build's `config.txt`) is judged against `fzx-atk` and must also hold `_fzx_atk_chk` and equal every recorded attack + field word, zeros included, at the reference's expected ticks; a missing configuration, symbol or stream fails the check (C-114) | field race; loop's cold race | plus drive, roster, and each course |
 | `determinism` | two runs give the same per-field ticks and pixel hashes, work RAM, VRAM and stills | field race | field race; loop |
 | `loop` | cold and retry races give equal finish ms, checkpoints and tick-2000 stills | sound on | sound on and off |

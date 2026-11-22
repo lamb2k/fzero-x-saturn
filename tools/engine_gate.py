@@ -54,6 +54,15 @@ def pct(a, q):
     return b[min(len(b) - 1, int(q * len(b)))] if b else 0.0
 
 
+def margin_ok(p99, lim):
+    """ENGINE_PLAN 5 gate 9: the unrounded critical-path p99 times the margin stays within the budget (33.3 ms x 1.36).
+    Exact rational arithmetic on the measured value and the matrix's decimal limits, so the boundary does not depend on
+    float rounding (C-127 finding 1: 24.49 ms is 33.3064 ms and fails). Returns (ok, product in ms)."""
+    from fractions import Fraction
+    prod = Fraction(p99) * Fraction(repr(lim['critical_margin']))
+    return prod <= Fraction(repr(lim['critical_budget_ms'])), float(prod)
+
+
 def mean(a):
     return sum(a) / len(a) if a else 0.0
 
@@ -145,6 +154,7 @@ def frame_rows(mem, window_tick):
                 master=[round(mean(busy), 2), round(pct(busy, .99), 2), round(max(busy, default=0), 2)],
                 slave=[round(mean(slave), 2), round(pct(slave, .99), 2), round(max(slave, default=0), 2)],
                 critical=[round(mean(crit), 2), round(pct(crit, .99), 2), round(max(crit, default=0), 2)],
+                critical_p99_raw=pct(crit, .99),   # unrounded: the margin judge (gate 9) uses this
                 vdp1_p99=round(pct(vdp1, .99), 2), road_cmds_max=rep[9])
 
 
@@ -429,9 +439,11 @@ class Gate:
             '/'.join(map(str, fr['master'])), '/'.join(map(str, fr['slave'])), '/'.join(map(str, fr['critical'])), fr['vdp1_p99']),
             'MODELLED (Ymir)', info=True, sink=sink)
         if margin:
-            self.add('margin', name, fr['critical'][1] <= self.lim['critical_p99_ms'],
-                     'critical p99 %.2f ms (limit %.1f = 33.3 / 1.36)' % (fr['critical'][1], self.lim['critical_p99_ms']),
-                     'ENGINE_PLAN 5 gate 9; MODELLED', sink=sink)
+            ok, product = margin_ok(fr['critical_p99_raw'], self.lim)
+            self.add('margin', name, ok,
+                     'critical p99 %.4f ms x %s = %.4f ms (limit %s)' % (
+                         fr['critical_p99_raw'], self.lim['critical_margin'], product, self.lim['critical_budget_ms']),
+                     'ENGINE_PLAN 5 gate 9 (unrounded p99 x margin <= budget); MODELLED', sink=sink)
 
     def attack_stream(self, host, mem):
         """C-114 item 1: what an image run to the race's end owes the attack comparison. The feature the build's make

@@ -2,7 +2,8 @@
  "comment": "Engine gate matrix (tools/engine_gate.py, tools/ENGINE_GATE.md). Agreed before measuring; change limits only with the owner's or integrator's say-so, never after seeing a result.",
  "limits": {
   "over_two": 0,
-  "critical_p99_ms": 24.5,
+  "critical_budget_ms": 33.3,
+  "critical_margin": 1.36,
   "master_stack_min": 20480,
   "slave_stack_min": 4096,
   "slave_guard_trips": 0,

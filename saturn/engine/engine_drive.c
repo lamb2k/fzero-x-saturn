@@ -423,6 +423,9 @@ bool fzx_drive_load(void *scratch, uint32_t scratch_bytes) {
 #endif
     body = course.start; prev_n64 = 0; ticks = 0;
     memset(&pad_state, 0, sizeof(pad_state));
+#if ENG_GHOST
+    fzx_ghost_race_begin();
+#endif
 #if E1_FIELD
 #if E2_PACK
     if (!fzx_field_pack_load(scratch, scratch_bytes)) { fzx_e1_status = 10; return false; }

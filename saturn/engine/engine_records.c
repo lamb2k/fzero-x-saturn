@@ -12,7 +12,11 @@
 #endif
 
 #define REC_MAGIC 0x465A5852u /* "FZXR" */
+#if ENG_MODES
+#define REC_VERSION 2u
+#else
 #define REC_VERSION 1u
+#endif
 #define RECENT 8u
 
 volatile uint32_t fzx_rec_report[16];
@@ -43,11 +47,15 @@ static uint32_t crc32(const uint8_t *p, uint32_t n) {
     }
     return ~c;
 }
-static uint32_t body_crc(const fzx_records_t *r) {
+#if ENG_MODES
+#define REC_V1_BYTES ((uint32_t)offsetof(fzx_records_t, progress))
+#endif
+static uint32_t body_crc_n(const fzx_records_t *r, uint32_t bytes) {
     const uint8_t *p = (const uint8_t *)r;
     const uint32_t skip = (uint32_t)offsetof(fzx_records_t, crc) + 4u;
-    return crc32(p + skip, (uint32_t)sizeof(*r) - skip);
+    return crc32(p + skip, bytes - skip);
 }
+static uint32_t body_crc(const fzx_records_t *r) { return body_crc_n(r, (uint32_t)sizeof(*r)); }
 
 static void empty_time(fzx_rec_time_t *t) {
     memset(t, 0, sizeof(*t));
@@ -64,6 +72,11 @@ static void defaults(fzx_records_t *r) {
     }
 }
 static bool valid(const fzx_records_t *r) {
+#if ENG_MODES
+    /* Version 1 files (before cup progress) stay readable: their bytes end where progress begins. */
+    if (r->magic == REC_MAGIC && r->version == 1u && r->bytes == REC_V1_BYTES && r->generation &&
+        r->crc == body_crc_n(r, REC_V1_BYTES)) return true;
+#endif
     return r->magic == REC_MAGIC && r->version == REC_VERSION && r->bytes == sizeof(*r) && r->generation &&
            r->crc == body_crc(r);
 }
@@ -141,6 +154,9 @@ fzx_rec_result_t fzx_records_load(void) {
     if (best < 2u) {
         (void)read_file(best);
         table = io;
+#if ENG_MODES
+        table.version = REC_VERSION; table.bytes = sizeof(table); /* a version 1 file: progress is zero (read_file clears io) */
+#endif
         boot = io.boot_id;
         r = FZX_REC_OK;
     } else r = present ? FZX_REC_FAILED : FZX_REC_ABSENT;
@@ -226,6 +242,39 @@ fzx_rec_result_t fzx_records_commit(const fzx_run_result_t *run, const char name
     fzx_rec_report[4] = r; fzx_rec_report[6] = dirty;
     return r;
 }
+
+#if ENG_MODES
+fzx_rec_result_t fzx_records_cup_clear(uint8_t difficulty, uint8_t cup, uint16_t machine_id) {
+    if (difficulty > 3u || cup >= FZX_REC_CUPS) return FZX_REC_FAILED;
+    fzx_rec_progress_t *p = &table.progress;
+    bool before = false; /* var_v1: some cup is still under three difficulties */
+    for (unsigned i = 0; i < FZX_REC_CUPS; ++i) before |= p->cup_cleared[i] < 3u;
+    if (machine_id < 30u) p->cup_done[difficulty][machine_id / 3u] |= (uint16_t)((1u << ((machine_id % 3u) * 5u)) << cup);
+    if (p->cup_cleared[cup] < difficulty + 1u) p->cup_cleared[cup] = (uint8_t)(difficulty + 1u);
+    bool all = true;
+    for (unsigned i = 0; i < FZX_REC_CUPS; ++i) all &= p->cup_cleared[i] >= 3u;
+    if (before && all) p->credits_due = 1;
+    dirty = true;
+    const fzx_rec_result_t r = write_table();
+    fzx_rec_report[4] = r; fzx_rec_report[6] = dirty;
+    return r;
+}
+uint32_t fzx_records_unlock_level(void) {
+    const fzx_rec_progress_t *p = &table.progress;
+    unsigned sum = 0;
+    bool all3 = true, three2 = true;
+    for (unsigned i = 0; i < FZX_REC_CUPS; ++i) { sum += p->cup_cleared[i]; all3 &= p->cup_cleared[i] >= 3u; }
+    for (unsigned i = 0; i < 3u; ++i) three2 &= p->cup_cleared[i] >= 2u;
+    return sum >= 16u ? 3u : all3 ? 2u : three2 ? 1u : 0u;
+}
+bool fzx_records_class_open(uint32_t difficulty) { return difficulty < 3u || (difficulty == 3u && fzx_records_unlock_level() >= 2u); }
+bool fzx_records_credits_due(void) { return table.progress.credits_due != 0u; }
+fzx_rec_result_t fzx_records_credits_seen(void) {
+    if (!table.progress.credits_due) return FZX_REC_OK;
+    table.progress.credits_due = 0; dirty = true;
+    return write_table();
+}
+#endif
 
 fzx_rec_result_t fzx_records_rewrite(void) {
     dirty = true;

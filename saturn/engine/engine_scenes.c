@@ -657,6 +657,14 @@ static void select_tick(void *u, uint32_t s) {
         }
         POKED(fzx_scn_probe) = 0;
     }
+    if (probe & 0x800u) {
+        /* Capture check (claude/modes): clear cup (bits 4..5) on class (bits 0..1) with the cursor's machine, then report
+         * [14] = 0x800 | result | unlock level << 8 | credits due << 12 | the Master offer << 13. */
+        const fzx_rec_result_t r = fzx_records_cup_clear((uint8_t)(probe & 3u), (uint8_t)((probe >> 4) & 3u), (uint16_t)cursor);
+        fzx_scn_report[14] = 0x800u | (uint32_t)r | (fzx_records_unlock_level() << 8) | (fzx_records_credits_due() ? 0x1000u : 0u) |
+                             (fzx_records_class_open(3u) ? 0x2000u : 0u);
+        POKED(fzx_scn_probe) = 0;
+    }
     if ((input.edges & PAD_C) && jack_ready()) {
         /* C walks the modes the race path runs: Time Attack, Grand Prix, Practice, Death Race. */
         static const uint8_t walk[4] = { FZX_MODE_TA, FZX_MODE_GP, FZX_MODE_PRACTICE, FZX_MODE_DEATH };
@@ -669,7 +677,9 @@ static void select_tick(void *u, uint32_t s) {
     }
     if (mode_picks_class(select_mode) && ((fzx_mode_rules(select_mode)->cup && (input.repeat & (PAD_LEFT | PAD_RIGHT))) ||
                                           (!fzx_mode_rules(select_mode)->cup && (input.edges & PAD_START)))) {
-        select_difficulty = (select_difficulty + ((input.repeat & PAD_LEFT) ? 3u : 1u)) % 4u;
+        /* Master is offered once every cup is cleared on Expert (common.c gUnlockableLevel >= 2). */
+        do select_difficulty = (select_difficulty + ((input.repeat & PAD_LEFT) ? 3u : 1u)) % 4u;
+        while (!fzx_records_class_open(select_difficulty));
         text_dirty = true;
     }
     if (!fzx_mode_rules(select_mode)->cup && (input.repeat & (PAD_LEFT | PAD_RIGHT))) {
@@ -984,6 +994,15 @@ static bool results_enter(void *u, uint32_t s) {
     memset(results, 0, sizeof(*results));
     if (fzx_cup()->state == FZX_CUP_RACING) {
         if (!fzx_cup_accept(&scn_cls)) return false;
+#if ENG_MODES
+        if (fzx_cup()->state == FZX_CUP_FINAL) {
+            /* A cup won (menus.c: the final round's results with the player first overall) marks its clear and trophy. */
+            const fzx_cup_t *cup = fzx_cup();
+            bool first = true;
+            for (unsigned i = 1; i < cup->entrants.count; ++i) first &= !gp_ahead(cup, i, 0u);
+            if (first) (void)fzx_records_cup_clear(cup->difficulty, cup->cup, cup->entrants.e[0].machine_id);
+        }
+#endif
         text_dirty = true;
         return true;
     }

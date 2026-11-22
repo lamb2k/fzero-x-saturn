@@ -104,6 +104,9 @@ bool fzx_atk_visible(const sh2z_vd_body_t *player, uint32_t i);
 const fzx_atk_field_t *fzx_atk_field(void);
 /* HOST tests only (the retire-order case): damage to rival i as a contact would deal it (Q16). */
 void fzx_atk_test_damage(const sh2z_vd_body_t *player, uint32_t i, int32_t amount);
+#ifdef FZX_ATK_HOST_TESTS
+void fzx_atk_test_touch(uint32_t i, uint32_t since);   /* rival i's last contact was the player's, since ticks ago */
+#endif
 /* FNV-1a of the attack state (determinism and HOST = SH-2). */
 uint32_t fzx_atk_hash(void);
 /* Every 256 field ticks: the field hash mixed with the attack hash (HOST = SH-2 checkpoints). */

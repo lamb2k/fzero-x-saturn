@@ -4,7 +4,7 @@
  *
  *   fzx-atk --phys PHYS.PAK --rivals RIVALS.PAK [--driver 1|2] [--ticks N] [--vis 0|1] [--ai 0|1]
  *           [--difficulty D] [--report OUT.json] [--trace OUT.tsv] [--mutate NAME]
- *           [--order canonical|saturn] [--frame N] [--clear-check 1] [--gate 1]
+ *           [--order canonical|saturn] [--frame N] [--clear-check 1] [--gate 1] [--credit-test 1]
  *
  * --driver 1 is the R01 closed-loop driver (the image's E1_DRIVER=1), 2 the scripted hunter.
  * Prints "chk N HASH" every 256 field ticks (fzx_atk_chk, the image keeps the same words) and
@@ -21,7 +21,12 @@
  * --gate 1 prints the reference the engine gate reads for an image built with ENG_ATTACKS (tools/engine_gate.py): "chk N H" the body
  * hash every 256 ticks (the image's fzx_e1_checkpoints), "achk N H" the attack and field words (fzx_atk_chk), "ticks T final H hash 0" the
  * final body hash, and "finish_ms F retire_tick R" (the player's finish time, or its first crashed tick). A tube course is built with
- * -DFZX_PHYS_TUBES=1 (tools/attacks_host/build.sh TUBES=1). */
+ * -DFZX_PHYS_TUBES=1 (tools/attacks_host/build.sh TUBES=1).
+ *
+ * --credit-test 1 runs the KO credit rules of the engine (engine_attacks.c) on a freshly loaded field, one rule input at a time, and exits
+ * 0 when every case gives what the scored native gives (tools/attacks_host/duel_native.c: the player's flags from before the tick's steps,
+ * a 60-tick window at a spin-out start, a 120-tick window at a fall start, one credit a fall). Each rule has its failing control, a build
+ * with one rule changed: -DFZX_ATK_CREDIT_POST=1 (the flags after the step, as before 964381e), -DFZX_ATK_FALL_WINDOW=119 and =121. */
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -118,9 +123,64 @@ static int player_clear(const sh2z_vd_body_t *b, bool pending) {
 static int nonzero(const sh2z_vd_contact_t *c) { return (c->push[0] | c->push[1] | c->push[2] | c->damage | c->hit | c->regain) != 0; }
 static void ko_hook(uint32_t victim) { (void)victim; ++ko_hook_calls; }
 
+/* ---- the KO credit rules, case by case (--credit-test) ---- */
+typedef struct { const char *name; int fall; int touch; uint32_t since; uint32_t pre, post; unsigned expect; } credit_case_t;
+static int credit_tests(const sh2z_vd_body_t *start) {
+    const uint32_t CLEAN = SH2Z_VD_ACTIVE, SPIN = SH2Z_VD_ACTIVE | SH2Z_VD_SPINNING, CRASH = SH2Z_VD_ACTIVE | SH2Z_VD_CRASHED,
+                   FIN = SH2Z_VD_ACTIVE | SH2Z_VD_FINISHED;
+    /* since is the counter before the tick's contact ages it by one: 59 is a 60-tick-old contact, 60 is 61 */
+    static const credit_case_t cases[] = {
+        { "spin-out: touched 5 ticks ago, player clean", 0, 1, 5, CLEAN, CLEAN, 1 },
+        { "spin-out: contact 60 ticks old (window edge)", 0, 1, 59, CLEAN, CLEAN, 1 },
+        { "spin-out: contact 61 ticks old", 0, 1, 60, CLEAN, CLEAN, 0 },
+        { "spin-out: never touched by the player", 0, 0, 0, CLEAN, CLEAN, 0 },
+        { "spin-out: player spinning before the tick", 0, 1, 5, SPIN, SPIN, 0 },
+        { "spin-out: player crashed before the tick", 0, 1, 5, CRASH, CRASH, 0 },
+        { "spin-out: player finished before the tick", 0, 1, 5, FIN, FIN, 0 },
+        { "spin-out: both spin out on this tick (clean before, spinning after)", 0, 1, 5, CLEAN, SPIN, 1 },
+        { "spin-out: player spinning before, clean after", 0, 1, 5, SPIN, CLEAN, 0 },
+        { "fall: touched 5 ticks ago, player clean", 1, 1, 5, CLEAN, CLEAN, 1 },
+        { "fall: contact 120 ticks old (window edge)", 1, 1, 118, CLEAN, CLEAN, 1 },
+        { "fall: contact 121 ticks old", 1, 1, 119, CLEAN, CLEAN, 0 },
+        { "fall: never touched by the player", 1, 0, 0, CLEAN, CLEAN, 0 },
+        { "fall: player spinning before the tick", 1, 1, 5, SPIN, SPIN, 0 },
+        { "fall: player clean before, spinning after", 1, 1, 5, CLEAN, SPIN, 1 },
+    };
+    int bad = 0;
+    const uint32_t regain_q16 = (uint32_t)(((fzx_atk_field()->config[3]) << 8) / 8);
+    for (unsigned k = 0; k < sizeof(cases) / sizeof(cases[0]); ++k) {
+        const credit_case_t *c = &cases[k];
+        fzx_atk_field_t f = *fzx_atk_field();
+        fzx_atk_init(&f, 1);
+        f.veh[1].energy = 256; f.veh[1].flags = 0;
+        fzx_atk_vis_gate = 0; fzx_atk_ai = 0; ko_hook_calls = 0;
+        sh2z_vd_body_t pre = *start, post = *start;
+        pre.flags = c->pre; post.flags = c->post;
+        if (c->touch) fzx_atk_test_touch(1, c->since);
+        sh2z_vd_contact_t out;
+        fzx_atk_contact(&pre, &out);                               /* the tick's contact: ages the counter, sees the flags before the step */
+        if (c->fall) {
+            f.veh[1].flags |= SH2Z_VEH_FALLING;                    /* the field's step flags the rival falling */
+            fzx_atk_after(&post);
+            fzx_atk_after(&post);                                  /* a second look at the same fall: one credit only */
+        } else {
+            fzx_atk_test_damage(&post, 1, 50 * 65536);             /* damage enough to spin it out, with the state after the step */
+        }
+        const unsigned kos = fzx_atk_report[3];
+        fzx_atk_contact(&pre, &out);                               /* the next tick's contact carries the energy regain */
+        const int regain_ok = kos == 0 ? out.regain == 0 : (uint32_t)out.regain == regain_q16;
+        const int ok = kos == c->expect && ko_hook_calls == c->expect && fzx_atk_ko_count[0] == c->expect && regain_ok;
+        printf("credit %-3s %2u %s: %u KO (want %u), hook %u, regain %s\n", ok ? "ok" : "BAD", k + 1, c->name, kos, c->expect, ko_hook_calls,
+               regain_ok ? "ok" : "BAD");
+        bad += !ok;
+    }
+    printf("credit-test %s: %d of %u cases wrong\n", bad ? "FAIL" : "PASS", bad, (unsigned)(sizeof(cases) / sizeof(cases[0])));
+    return bad ? 1 : 0;
+}
+
 int main(int argc, char **argv) {
     const char *phys = NULL, *report = NULL, *trace = NULL;
-    int driver = 1, ticks_max = 9460, vis = 1, ai = 1, diff = 1, saturn = 0, frame = 2, clear_check = 0, gate = 0;
+    int driver = 1, ticks_max = 9460, vis = 1, ai = 1, diff = 1, saturn = 0, frame = 2, clear_check = 0, gate = 0, credit_test = 0;
     for (int i = 1; i + 1 < argc; i += 2) {
         if (!strcmp(argv[i], "--phys")) phys = argv[i + 1];
         else if (!strcmp(argv[i], "--rivals")) rivals_path = argv[i + 1];
@@ -135,6 +195,7 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[i], "--frame")) frame = atoi(argv[i + 1]);
         else if (!strcmp(argv[i], "--clear-check")) clear_check = atoi(argv[i + 1]);
         else if (!strcmp(argv[i], "--gate")) gate = atoi(argv[i + 1]);
+        else if (!strcmp(argv[i], "--credit-test")) credit_test = atoi(argv[i + 1]);
         else die("unknown argument");
     }
     if (!phys || !rivals_path) die("usage: fzx-atk --phys PHYS.PAK --rivals RIVALS.PAK ...");
@@ -152,6 +213,7 @@ int main(int argc, char **argv) {
     }
     fzx_atk_vis_gate = (uint32_t)vis; fzx_atk_ai = (uint32_t)ai; fzx_atk_difficulty = (uint32_t)diff;
     fzx_atk_ko_hook = ko_hook;
+    if (credit_test) return credit_tests(&body);
     FILE *tf = trace ? fopen(trace, "w") : NULL;
     enum { RACE_START_TICK = 460u };
     uint16_t prev = 0;

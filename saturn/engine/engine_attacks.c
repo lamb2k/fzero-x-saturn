@@ -31,7 +31,11 @@ enum {
     PRE_Q8 = 92 * 256,            /* line-space box around a body that can hold a contact (reach 46, the lines' 15-unit mismatch) */
     HIT_TICKS = 60,               /* unk_208: no grip after an attack lands */
     CREDIT_TICKS = 60,            /* func_8008DBB8(victim, 60) */
+#if defined(FZX_ATK_FALL_WINDOW)
+    FALL_CREDIT_TICKS = FZX_ATK_FALL_WINDOW,   /* HOST control only: a fall window other than the original's */
+#else
     FALL_CREDIT_TICKS = 120,      /* func_80090AFC -> func_8008DBB8(racer, 120): a fall credits a contact up to 120 ticks old */
+#endif
     SPIN_OUT_TICKS = 150,         /* spinOutTimer */
     SIDE_TICKS = 15,              /* side attack (E1 P07) */
     SPIN_TICKS = 112,             /* spin attack (E1 P08) */
@@ -209,7 +213,7 @@ static void credit_ko(uint32_t i) {
     }
 }
 
-static void start_spin_out(uint32_t i) {
+static void start_spin_out(const sh2z_vd_body_t *p, uint32_t i) {
     rival_t *r = &R[i];
     sh2z_vehicle_t *v = &F.veh[i];
     v->energy = 0;
@@ -221,7 +225,12 @@ static void start_spin_out(uint32_t i) {
     v->flags &= (uint16_t)~SH2Z_VEH_BOOST;
     ++fzx_atk_report[4];
     /* KO credit at the start of the spin-out (func_8008DBB8). */
+#if defined(FZX_ATK_CREDIT_POST) && FZX_ATK_CREDIT_POST   /* HOST control only: the rule before 964381e, the flags after the tick's step */
+    if (sh2z_bc_credit(&bcf, i, &rules) == 0 && !(p->flags & (SH2Z_VD_FINISHED | SH2Z_VD_CRASHED | SH2Z_VD_SPINNING))) credit_ko(i);
+#else
+    (void)p;
     if (sh2z_bc_credit(&bcf, i, &rules) == 0 && player_can_score()) credit_ko(i);
+#endif
 }
 
 /* Damage (Q16) to rival i (Racer_ReceiveDamage). */
@@ -238,14 +247,17 @@ static void damage_rival(const sh2z_vd_body_t *p, uint32_t i, int32_t amount) {
     if (v->energy < 0) {
         if (r->mode & M_SPUN) { v->energy = 0; return; }
         if (!fzx_atk_visible(p, i)) { v->energy = OUT_OF_VIEW_ENERGY; ++fzx_atk_report[9]; return; }
-        start_spin_out(i);
+        start_spin_out(p, i);
     }
 }
 
 void fzx_atk_test_damage(const sh2z_vd_body_t *p, uint32_t i, int32_t amount) {
-    player_flags_pre = p->flags;   /* a HOST test: the state given is the state before the tick */
-    if (live && i > 0u && i < F.count) damage_rival(p, i, amount);
+    if (live && i > 0u && i < F.count) damage_rival(p, i, amount);   /* p: the state after the step (the visibility test); the credit reads the flags fzx_atk_contact saw */
 }
+#ifdef FZX_ATK_HOST_TESTS
+/* HOST tests: rival i's last contact was the player's, `since` ticks ago (the credit rules' inputs). */
+void fzx_atk_test_touch(uint32_t i, uint32_t since) { body[i].toucher = 0; body[i].since = since; }
+#endif
 
 /* ---- contact ------------------------------------------------------------------------------- */
 void fzx_atk_contact(const sh2z_vd_body_t *p, sh2z_vd_contact_t *out) {

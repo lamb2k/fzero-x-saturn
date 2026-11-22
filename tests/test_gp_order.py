@@ -20,6 +20,35 @@ POINTS = [100, 93, 87, 81, 76, 71, 66, 62, 58, 54, 50, 47, 44, 41, 38,
 CUP_AT, VEH_AT, CLS_AT, SIZE = 0x1000, 0x2000, 0x3000, 0x4000
 READY, RACING, SCORED, FINAL = 1, 2, 3, 5
 PLAYER_MS = [111280, 90560, 92738, 102326, 125976, 117113]
+NAMES = ["BLUE FALCON", "GOLDEN FOX", "WILD GOOSE", "FIRE STINGRAY", "WHITE CAT", "RED GAZELLE", "GREAT STAR",
+         "IRON TIGER", "DEEP CLAW", "TWIN NORITTA", "SUPER PIRANHA", "MIGHTY HURRICANE", "LITTLE WYVERN",
+         "SPACE ANGLER", "GREEN PANTHER", "BLACK BULL", "WILD BOAR", "ASTRO ROBIN", "KING METEOR", "QUEEN METEOR",
+         "WONDER WASP", "HYPER SPEEDER", "DEATH ANCHOR", "CRAZY BEAR", "NIGHT THUNDER", "BIG FANG",
+         "MIGHTY TYPHOON", "MAD WOLF", "SONIC PHANTOM", "BLOOD HAWK"]   # engine_scenes.c machine_name, ids 0..29
+TIES = ((7, 8), (21, 22))    # rivals that take the same places every round: tied totals, a tie-break by last place
+TIE_AT = (4, 24)             # their finishing places (0-based) in every round; the sorted totals show where every tie falls
+
+
+def machine_of(e):
+    return (e * 7 + 3) % 30
+
+
+def nbg3_vram(lines):
+    """A VDP2 VRAM image whose NBG3 map (byte 0x7e000, 64 x 64 big-endian words, glyph in the low byte) shows `lines`."""
+    v = bytearray(0x80000)
+    for r, text in enumerate(lines):
+        for c, ch in enumerate(text):
+            struct.pack_into('>H', v, 0x7e000 + 128 * r + 2 * c, 0x1000 | ord(ch))
+    return bytes(v)
+
+
+def page_lines(rnd, final, entrants_order, total, first):
+    """What gp_draw prints for page `first // 10` of the standings (engine_scenes.c)."""
+    lines = ['', ' JACK CUP  %u/6   PORT TOWN' % (rnd + 1), '', ' FINAL STANDINGS' if final else ' CUP STANDINGS', '']
+    for p in range(first, min(first + 10, 30)):
+        e = entrants_order[p]
+        lines.append(' %2u %c %-16s %3d PTS' % (p + 1, '>' if e == 0 else ' ', NAMES[machine_of(e)], total[e]))
+    return lines + ['', ' UP/DOWN: PAGE    A: %s' % ('TITLE' if final else 'NEXT COURSE')]
 
 
 def fnv(h, b):
@@ -43,6 +72,8 @@ def image(state, cup, rnd, run_id, accepted, total, last_place, last, grid_order
     d[CUP_AT:CUP_AT + 4] = bytes([state, cup, 0, rnd])
     d[CUP_AT + 4:CUP_AT + 16] = struct.pack('>III', 1, run_id, accepted)
     d[CUP_AT + 20] = 30                                   # entrants.count
+    for i in range(30):
+        d[CUP_AT + 22 + 4 * i:CUP_AT + 26 + 4 * i] = bytes([i, machine_of(i), 1, 1 if i == 0 else 0])
     d[CUP_AT + 144:CUP_AT + 264] = struct.pack('>30i', *total)
     d[CUP_AT + 264:CUP_AT + 294] = bytes(last_place)
     d[CUP_AT + 324:CUP_AT + 324 + len(last)] = last
@@ -54,7 +85,7 @@ def image(state, cup, rnd, run_id, accepted, total, last_place, last, grid_order
     return bytes(d)
 
 
-def write_cup(where, fault=()):
+def write_cup(where, fault=(), pages=False):
     """Six rounds of the Jack Cup; `fault` names the corruptions to apply."""
     where = Path(where)
     (where / 'fzs-engine.sym').write_text(
@@ -70,6 +101,9 @@ def write_cup(where, fault=()):
         run_id = 65537 + r if not ('repeat-run' in fault and r == 3) else 65537 + r - 1
         grid = list(range(30)) if prev_fin is None else prev_fin[::-1]
         fin = [(r * 7 + k * 11) % 30 for k in range(30)]
+        for (a, b), at in zip(TIES, TIE_AT):                  # the tied rivals finish side by side, swapping sides in turn
+            fin = [e for e in fin if e not in (a, b)]
+            fin[at:at] = [a, b] if r % 2 == 0 else [b, a]
         rows = [(e, PLAYER_MS[r] if e == 0 else 80000 + 500 * k) for k, e in enumerate(fin)]
         for k, e in enumerate(fin):
             total[e] += POINTS[k]
@@ -90,13 +124,34 @@ def write_cup(where, fault=()):
             results = b''
         for mark, data in (('start', start), ('results', results), ('standings', standings)):
             (run / ('round%d_%s.wram-high' % (r + 1, mark))).write_bytes(data)
+        # what the standings page displays: the order sorted from the record (points, player first on a tie, better last place)
+        order = sorted(range(30), key=lambda e: (-total[e], 0 if e == 0 else 1, last_place[e]))
+        shown = list(order)
+        ties = [k for k in range(29) if total[order[k]] == total[order[k + 1]]]
+        if r == 5 and 'display-swap-tied' in fault:             # two tied rows on page 1 trade places on the display, the record is intact
+            k = next(k for k in ties if k < 9)
+            shown[k], shown[k + 1] = shown[k + 1], shown[k]
+        if r == 5 and 'display-swap-tied-p3' in fault:          # the same on page 3
+            k = next(k for k in ties if k >= 20)
+            shown[k], shown[k + 1] = shown[k + 1], shown[k]
+        tot = list(total)
+        if r == 5 and 'display-points' in fault:
+            tot[shown[2]] += 1
+        for first, name in ((0, 'round%d_standings' % (r + 1)), (10, 'end_page2'), (20, 'end_page3')):
+            if name != 'round%d_standings' % (r + 1) and not (r == 5 and pages):
+                continue
+            lines = page_lines(r, r == 5 and 'display-title' not in fault, shown, tot, first)
+            if r == 5 and 'display-marker' in fault and first == 0:
+                lines = [l.replace(' > ', '   ') for l in lines]
+            if not (r == 5 and 'display-missing' in fault):
+                (run / ('%s.vdp2-vram' % name)).write_bytes(nbg3_vram(lines))
         prev_fin, prev_last, prev_run = fin, last, run_id
     return run, where / 'fzs-engine.sym'
 
 
-def score(fault=(), extra=()):
+def score(fault=(), extra=(), pages=False):
     with tempfile.TemporaryDirectory() as t:
-        run, sym = write_cup(t, fault)
+        run, sym = write_cup(t, fault, pages)
         p = subprocess.run([sys.executable, str(SCORER), str(run), str(sym), '6',
                             '--player-ms', ','.join(map(str, PLAYER_MS)), *extra],
                            capture_output=True, text=True)
@@ -130,6 +185,38 @@ class GpOrder(unittest.TestCase):
                 rc, out = score((fault,))
                 self.assertEqual(rc, 1, out)
                 self.assertIn(why, out)
+
+    def test_display_matches_the_sorted_record(self):
+        rc, out = score(pages=True, extra=('--display', 'round6_standings,end_page2,end_page3', '--pages', '3'))
+        self.assertEqual(rc, 0, out)
+        self.assertIn('display round6_standings: 10 rows 1-10', out)
+        self.assertIn('display end_page2: 10 rows 11-20', out)
+        self.assertIn('display end_page3: 10 rows 21-30', out)
+        self.assertIn('tied adjacent pairs in the final order: 5', out)
+
+    def test_display_faults_fail(self):
+        three = ('--display', 'round6_standings,end_page2,end_page3', '--pages', '3')
+        cases = (
+            ('display-swap-tied', 'row 1 shows', three),        # two tied displayed rows swapped, the cup record intact
+            ('display-swap-tied-p3', 'row 22 shows', three),    # the same on page 3
+            ('display-points', 'differ from the record order', three),
+            ('display-marker', 'row 5 shows', three),            # the player marker missing (the player finishes fifth)
+            ('display-title', "title 'CUP STANDINGS'", three),
+            ('display-missing', 'is missing or short', three),
+        )
+        for fault, why, extra in cases:
+            with self.subTest(fault=fault):
+                rc, out = score((fault,), extra, pages=True)
+                self.assertEqual(rc, 1, out)
+                self.assertIn(why, out)
+        with self.subTest(fault='one page of three supplied'):
+            rc, out = score(pages=True, extra=('--pages', '3'))
+            self.assertEqual(rc, 1, out)
+            self.assertIn('1 page dump(s) supplied', out)
+        with self.subTest(control='swap-tied'):
+            rc, out = score(extra=('--control', 'swap-tied'))
+            self.assertEqual(rc, 1, out)
+            self.assertIn('row 1 shows', out)
 
     def test_existing_controls_still_fail(self):
         for ctl in ('missing-round', 'wrong-points'):

@@ -19,13 +19,23 @@ Every check must hold for PASS (C-097, C-127 finding 2):
 - last_place equals each entrant's finishing place;
 - the cup state at each standings dump is SCORED before the cup's last round and FINAL after it (state 5); the final
   standings (points, ties to the better last place, the player first on a tie with a rival; engine_scenes.c gp_ahead)
-  are printed.
+  are printed;
+- the DISPLAY shows that order (C-127 finding 2, C-144): the NBG3 map of each roundN_standings Ymir dump (VDP2 VRAM byte
+  0x7e000, 64 big-endian words a row, the glyph the low byte; engine_scenes.c gp_draw) is read back, and its page is
+  compared row by row with the order sorted from the cup record (points, the player ahead of a tied rival, the better
+  last place): the place number, the player marker, the machine name (from the entrant's machine id) and the points, under
+  the title CUP STANDINGS (FINAL STANDINGS after the last round). Pages of ten rows: the default checks page 1 of every
+  round; `--display NAME,NAME,NAME --pages 3` also reads the final order's pages 2 and 3 from dumps of those names
+  (the P3 ending route requests all three pages), and `--pages N` fails when fewer than N dumps were supplied. Two tied
+  rows swapped on the display while the record stays intact are a FAIL (`--control swap-tied`, tests/test_gp_order.py).
 
 Controls (each must FAIL): --control missing-round drops the last round's standings dump; --control wrong-points
-replaces round 2's award by a monotone but wrong schedule (100, 99, 98, ...). tests/test_gp_order.py builds synthetic
+replaces round 2's award by a monotone but wrong schedule (100, 99, 98, ...); --control swap-tied swaps two adjacent
+displayed rows of the final page (the first tied pair, else the first two rows) in the dump as read. tests/test_gp_order.py builds synthetic
 runs: C-127's (every course ID zero, FINAL throughout, empty RESULTS payloads) and each fault on its own must FAIL.
 --player-ms a,b,...: also require the player's official time each round to equal these (HOST) values."""
-import struct, sys
+import re, struct, sys
+from pathlib import Path
 
 POINTS = [100, 93, 87, 81, 76, 71, 66, 62, 58, 54, 50, 47, 44, 41, 38,
           35, 33, 31, 29, 27, 25, 23, 22, 21, 20, 19, 18, 17, 16, 15]   # racer.c gRacePositionPoints
@@ -40,6 +50,14 @@ control = None
 if '--control' in sys.argv:
     control = sys.argv[sys.argv.index('--control') + 1]
     args.remove(control)
+display_names = None   # --display NAME,NAME,NAME: dumps holding the final order's pages 1, 2, 3 (default: each round's standings dump)
+if '--display' in sys.argv:
+    v = sys.argv[sys.argv.index('--display') + 1]; args.remove(v)
+    display_names = v.split(',')
+pages_req = 1
+if '--pages' in sys.argv:
+    v = sys.argv[sys.argv.index('--pages') + 1]; args.remove(v)
+    pages_req = int(v)
 player_ms = None   # --player-ms a,b,...: the player's official time each round must equal (HOST references)
 if '--player-ms' in sys.argv:
     v = sys.argv[sys.argv.index('--player-ms') + 1]; args.remove(v)
@@ -52,6 +70,37 @@ for l in open(symf):
     if len(p) == 3: sym[p[2].split('.lto_priv.')[0]] = int(p[0], 16)
 NEED = max(sym['_cup'] - WRAM + CUP_LAST + CL_SIZE, sym['_veh'] - WRAM + 64 * 30,
            (sym['_scn_cls'] - WRAM + CL_SIZE) if '_scn_cls' in sym else 0)
+
+SCENES_SRC = Path(__file__).resolve().parent.parent / 'saturn' / 'engine' / 'engine_scenes.c'
+def machine_names():
+    """The machine_name table of engine_scenes.c (what gp_draw prints for an entrant's machine id)."""
+    m = re.search(r'static const char \*machine_name\(unsigned id\) \{\s*static const char \*const names\[\] = \{(.*?)\};', SCENES_SRC.read_text(), re.S)
+    return re.findall(r'"([^"]*)"', m.group(1)) if m else []
+NAMES = machine_names()
+NBG3_MAP = 0x7e000
+
+def nbg3_lines(vram):
+    """The text rows of the NBG3 map: 64 x 64 one-word cells, the glyph in the low byte (non-printable cells are blanks)."""
+    out = []
+    for r in range(64):
+        w = struct.unpack_from('>64H', vram, NBG3_MAP + 128 * r)
+        out.append(''.join(chr(x & 0xff) if 32 <= (x & 0xff) < 127 else ' ' for x in w).rstrip())
+    return out
+
+ROW_RE = re.compile(r'^\s*(\d+) (.) (.{16}) +(-?\d+) PTS$')
+def display_page(vram):
+    """(title, rows) of the standings page: title is the line after the course heading; rows are (place, marker, name, points)."""
+    lines = nbg3_lines(vram)
+    title = next((l.strip() for l in lines if 'STANDINGS' in l or 'RESULTS' in l), None)
+    rows = []
+    for l in lines:
+        m = ROW_RE.match(l)
+        if m: rows.append((int(m.group(1)), m.group(2), m.group(3).strip(), int(m.group(4))))
+    return title, rows
+
+def shown_vram(name):
+    try: return open('%s/%s.vdp2-vram' % (run, name), 'rb').read()
+    except OSError: return None
 
 def dump(name):
     if control == 'missing-round' and name == 'round%d_standings' % R: return None
@@ -84,7 +133,8 @@ def cup(d):
     ents = d[a + 20:a + 142]; total = list(struct.unpack_from('>30i', d, a + 144))
     last_place = list(d[a + 264:a + 294])
     last = classification(d, a + CUP_LAST)
-    return dict(state=st, cup=c, diff=diff, round=rnd, run_id=run_id, accepted=acc, total=total, last_place=last_place,
+    entrants = [(ents[2 + 4 * i], ents[3 + 4 * i]) for i in range(min(ents[0], 30))]
+    return dict(state=st, cup=c, diff=diff, round=rnd, run_id=run_id, accepted=acc, total=total, last_place=last_place, entrants=entrants,
                 last=last, last_round=last['round'], course=last['course'], outcome=last['outcome'],
                 player_place=last['player_place'], rows=last['rows'], count=ents[0])
 
@@ -169,6 +219,41 @@ for r in range(1, R + 1):
               'round %d: player time %s ms, HOST %s' % (r, pms, player_ms[r - 1] if r <= len(player_ms) else '-'))
     check(not bad, 'round %d: points differ from the schedule for entrants %s' % (r, bad))
     check(all(c['last_place'][e] == k + 1 for k, e in enumerate(fin)), 'round %d: last_place inconsistent' % r)
+    # DISPLAY: the standings page the harness captured at this mark against the order sorted from the cup record.
+    ordered = sorted(range(30), key=lambda e: (-c['total'][e], 0 if e == 0 else 1, c['last_place'][e]))
+    machine = {ent: c_ent for ent, c_ent in ((c['entrants'][i][0], c['entrants'][i][1]) for i in range(c['count']))} if c['count'] else {}
+    def expect(first):
+        out = []
+        for k in range(first, min(first + 10, 30)):
+            e = ordered[k]; mid = machine.get(e, 255)
+            nm = NAMES[mid] if mid < len(NAMES) else 'MACHINE'
+            out.append((k + 1, '>' if e == 0 else ' ', nm, c['total'][e]))
+        return out
+    pages = [('round%d_standings' % r, 0)]
+    if r == R and display_names is not None:
+        pages = [(n, 10 * i) for i, n in enumerate(display_names)]
+    if r == R:
+        check(len(pages) >= pages_req, 'display: %d page dump(s) supplied for the final order, %d required (--display, --pages)' % (len(pages), pages_req))
+    for name, first in pages:
+        vr = shown_vram(name)
+        if not check(vr is not None and len(vr) >= NBG3_MAP + 128 * 64, 'round %d: display dump %s.vdp2-vram is missing or short' % (r, name)):
+            continue
+        title, rows = display_page(vr)
+        if r == R and name == 'round%d_standings' % R and control == 'swap-tied':
+            ties = [k for k in range(len(rows) - 1) if rows[k][3] == rows[k + 1][3]]
+            k = ties[0] if ties else 0
+            if len(rows) > k + 1:   # the tied rows trade places on the display (place numbers stay in their lines)
+                a, b = rows[k], rows[k + 1]
+                rows[k], rows[k + 1] = (a[0],) + b[1:], (b[0],) + a[1:]
+        want_title = 'FINAL STANDINGS' if c['state'] == CUP_FINAL else 'CUP STANDINGS'
+        ok_t = check(title == want_title, 'round %d: display %s title %r, want %r' % (r, name, title, want_title))
+        want = expect(first)
+        ok_r = check(rows == want, 'round %d: display %s rows differ from the record order%s' % (
+            r, name, ''.join('\n    row %d shows %s, record %s' % (i + 1 + first, a, b) for i, (a, b) in enumerate(zip(rows, want)) if a != b)
+            + ('' if len(rows) == len(want) else '\n    %d rows shown, %d expected' % (len(rows), len(want)))))
+        if ok_t and ok_r and r == R:
+            ties = sum(1 for k in range(30 - 1) if c['total'][ordered[k]] == c['total'][ordered[k + 1]])
+            print('  display %s: %d rows %d-%d match the sorted record (tied adjacent pairs in the final order: %d)' % (name, len(rows), first + 1, first + len(rows), ties))
     prev, prev_total = c, list(c['total'])
 
 if c is not None and len(seen) == R:

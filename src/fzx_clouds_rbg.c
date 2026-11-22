@@ -304,7 +304,7 @@ bool fzx_clouds_rbg_prepare(const fzx_view_t *view,const RefBackdrop *source,
         inner_band=(unsigned)(inner*7+127)/255;
         goto bands;
     }
-    sh->bands=0;
+    sh->bands=0;sh->valid=0;
 #endif
     memset(out,0,sizeof(*out));out->hash=2166136261u;clear_window(out);
     if(!view || !source || !emit || source->faults || source->count!=20 ||
@@ -345,6 +345,12 @@ bool fzx_clouds_rbg_prepare(const fzx_view_t *view,const RefBackdrop *source,
     FZX_SCP(OUTER);
     if(!projected(view,(const int32_t (*)[3])outer,xy,&count))return fail(out,2);
     if(count<3){FZX_SCP_END();return true;}
+#if ENG_BAL_SPLIT
+    /* The bands need only the positions and the inner alpha: the part-B CPU may start now. Whether the window shows any
+     * line is known later (valid); the result is dropped then, when it does not. */
+    memcpy(sh->positions,positions,sizeof(positions));sh->inner=inner;sh->bands=1;
+    if(sh->ready)sh->ready(sh->ready_arg);
+#endif
     FZX_SCP(MAPPING);
 #if FZX_RBG_DIV
     if(!mapping_div(view,c,(const int32_t (*)[3])positions,out))return false;
@@ -373,7 +379,7 @@ bool fzx_clouds_rbg_prepare(const fzx_view_t *view,const RefBackdrop *source,
         if(!polygon((const int32_t (*)[2])xy,count,inner_band,out,emit,context))return false;
     }
 #if ENG_BAL_SPLIT
-    memcpy(sh->positions,positions,sizeof(positions));sh->inner=inner;sh->bands=1;
+    sh->valid=1;
     if(!(parts&(FZX_CLOUDS_HALF0|FZX_CLOUDS_HALF1))){FZX_SCP_END();return true;}
 bands:
     FZX_SCP(BANDS);
@@ -440,7 +446,7 @@ bands:
 /* The whole job (the slave's whole claim, the non-balanced callers): all parts in order. */
 bool fzx_clouds_rbg_prepare(const fzx_view_t *view,const RefBackdrop *source,
                             fzx_clouds_rbg_t *out,fzx_floor_emit_fn emit,void *context) {
-    fzx_clouds_split_t sh;
+    fzx_clouds_split_t sh;sh.ready=0;sh.ready_arg=0;
     return fzx_clouds_rbg_prepare_part(view,source,out,emit,context,FZX_CLOUDS_ALL,&sh);
 }
 #endif

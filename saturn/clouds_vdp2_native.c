@@ -345,7 +345,8 @@ static fzx_clouds_split_t split_sh __attribute__((aligned(16)));      /* the set
 static fzx_clouds_rbg_t split_b_out __attribute__((aligned(16)));    /* the part-B CPU's out record (counters only) */
 static vdp1_cmdt_t split_b_cmds[SPLIT_B_COMMANDS] __attribute__((aligned(16)));
 static clouds_split_state_t split_b __attribute__((aligned(16)));
-bool fzx_clouds_split_setup(vdp1_cmdt_t *commands,unsigned capacity,const fzx_view_t *view,const RefBackdrop *source) {
+bool fzx_clouds_split_setup(vdp1_cmdt_t *commands,unsigned capacity,const fzx_view_t *view,const RefBackdrop *source,
+                            void (*ready)(void *),void *ready_arg) {
     if(!commands || capacity<2 || !view || !source)return false;
     memset(commands,0,sizeof(*commands));vdp1_cmdt_user_clip_coord_set(commands);
     commands->cmd_xa=view->clip[0];commands->cmd_ya=view->clip[1];commands->cmd_xc=view->clip[2]-1;commands->cmd_yc=view->clip[3]-1;
@@ -370,6 +371,7 @@ bool fzx_clouds_split_setup(vdp1_cmdt_t *commands,unsigned capacity,const fzx_vi
     }
     split_a.s=(submit_t){commands+1+borders,capacity-1-borders,0};split_a.borders=borders;band_count=0;
     fzx_plane_busy=1;
+    split_sh.ready=ready;split_sh.ready_arg=ready_arg;
     if(!fzx_clouds_rbg_prepare_part(view,source,&CLOUDS_STAGE,emit,&split_a.s,FZX_CLOUDS_SETUP,&split_sh)) {
         fzx_plane_stats.fault=CLOUDS_STAGE.fault;fzx_clouds_status=3;return false;
     }
@@ -398,14 +400,19 @@ void fzx_clouds_split_b(const fzx_view_t *view,const RefBackdrop *source) {
 void fzx_clouds_split_purge_remote(void) {
     purge_cached(&split_b,sizeof(split_b));
     purge_cached(split_b_cmds,sizeof(split_b_cmds));
+    purge_cached(&split_sh,sizeof(split_sh)); /* valid: written by the setup's CPU after the part-B CPU read the record */
 }
 /* The master, once both halves are done: the stage behind the first half, the job's status words as clouds_body
  * writes them. *count: the commands of the whole job. False when part B failed. */
 bool fzx_clouds_split_finish(uint32_t *count) {
-    if(!split_b.ok){fzx_plane_stats.fault=split_b.fault?split_b.fault:CLOUDS_STAGE.fault;fzx_clouds_status=3;return false;}
-    if(split_a.s.count+split_b.count>split_a.s.capacity){fzx_plane_stats.fault=5;fzx_clouds_status=3;return false;}
-    memcpy(split_a.s.commands+split_a.s.count,split_b_cmds,split_b.count*sizeof(vdp1_cmdt_t));
-    split_a.s.count+=split_b.count;
+    /* The second half ran speculatively from the setup's early record: when the setup ended without bands (no visible line)
+     * its output, and a failure of it, are void. */
+    const bool bands=split_sh.valid!=0;
+    if(bands && !split_b.ok){fzx_plane_stats.fault=split_b.fault?split_b.fault:CLOUDS_STAGE.fault;fzx_clouds_status=3;return false;}
+    const uint32_t b_count=bands?split_b.count:0u;
+    if(split_a.s.count+b_count>split_a.s.capacity){fzx_plane_stats.fault=5;fzx_clouds_status=3;return false;}
+    memcpy(split_a.s.commands+split_a.s.count,split_b_cmds,b_count*sizeof(vdp1_cmdt_t));
+    split_a.s.count+=b_count;
     memset(&fzx_plane_stats,0,sizeof(fzx_plane_stats));
     fzx_plane_stats.draws=split_a.s.count;fzx_plane_stats.hash=CLOUDS_STAGE.hash;fzx_plane_busy=0;
     fzx_clouds_degenerate+=CLOUDS_STAGE.degenerate;fzx_clouds_bands=split_a.s.count;

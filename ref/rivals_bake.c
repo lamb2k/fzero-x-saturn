@@ -81,11 +81,14 @@ int rb_gp_tuning_course(int n) {
 
 /* After ref_race_init(): re-run the race set-up as a 30-racer Grand Prix race.
  * cpu_line is the course's CPU line in host order (0x200 s16); the hooks skip the ROM read. */
+/* The game mode the race runs as (claude/modes, HOST only): 0 = Grand Prix, else the GAMEMODE_ value (Practice, Death Race). */
+static int rb_mode_override;
+void rb_gp_mode(int mode) { rb_mode_override = mode; }
 int rb_gp_init(int difficulty, unsigned seed, const short* cpu_line) {
     int i;
     static s16 line[0x200];
     for (i = 0; i < 0x200; ++i) line[i] = cpu_line[i];
-    gGameMode = GAMEMODE_GP_RACE;
+    gGameMode = rb_mode_override ? rb_mode_override : GAMEMODE_GP_RACE;
     gDifficulty = difficulty;
     gNumPlayers = 1;
     gTotalLapCount = 3;

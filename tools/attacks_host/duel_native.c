@@ -18,12 +18,18 @@
  *   N t along_ok d2_q32 closing_q32 touch first push hit0 hit1 damage0 damage1 (damage Q16 raw)
  *   K t victim attacker      a KO credited at the victim's spin-out start, or at its fall start (C-096 item 5)
  *
+ * --drive bump|side|spin (attacks-5, C-168): closed loop. The pads of every tick after --from come from the same scripted drivers the
+ * reference runs (ref/duel_main.c: steer gains 0.004 and 2.5, throttle from tick 460, the attacker's double tap, the level-keeping lift),
+ * read from this runner's own state; the pads file only gives the buttons held on tick T. Parameters: --attack-from --att-side --near
+ * --bump-off --tap-int --launch0 --launch1 --lane-frac --drv-tap AT,DIR (the driver's memory at T, written by the reference's --drv-out).
+ *
  * Racer 1 is stepped as the reference's racer 1 is: an id at or above gNumPlayers, whose spline
  * search runs with the computer racers' bounds (3 iterations, squared tolerance 5) where the human
  * player's has 100 and 1 (tools/attacks_host/duel_build.sh builds that step from the library source).
  * --opponent-search player gives racer 1 the player's search (the control; the runner before C-092
  * round 4). --regain-pending 1: racer 0 starts with the KO energy regain the reference credited on
  * tick T still pending (it is applied at the start of the next tick; the bake does not carry it). */
+#include <math.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -67,10 +73,23 @@ static void step(int k, sh2z_vd_body_t *b, const sh2z_vd_rules_t *rules, const s
 #endif
 }
 static int pads_b[2][20000], pads_x[2][20000];
-static signed char draw[2][20000];   /* --spin-draws: the reference's spin side per tick and racer (0 none) */
+static signed char draw[2][20000];
+/* the reference's scripted drivers (ref/duel_main.c), floats as there */
+#define N64_A 0x8000u
+#define N64_Z 0x2000u
+#define N64_R 0x0010u
+static signed char drv_steer(float lateral, float heading, float target, float kl) {
+    float s = kl * (lateral - target) + 2.5f * heading;
+    if (s > 1.0f) s = 1.0f;
+    if (s < -1.0f) s = -1.0f;
+    return (signed char)(s >= 0.0f ? (int)(s * 63.0f + 0.5f) : -(int)(-s * 63.0f + 0.5f));
+}   /* --spin-draws: the reference's spin side per tick and racer (0 none) */
 
 int main(int argc, char **argv) {
     const char *p0 = 0, *p1 = 0, *pads = 0, *trace = 0, *mutate = "", *pairlog = 0, *draws = 0;
+    const char *drive = 0, *pads_out = 0;
+    int attack_from = 700, att_side = 0, tap_int = 90, launch[2] = { 0, 0 }, tap_at = -1000, tap_dir = 0;
+    float near_ = 38.0f, bump_off = 0.0f, lane_frac = 0.0f;
     int from = -1, ticks = 120, c0 = 0, c1 = 0, since = -1, toucher = -1, touching = 0, side[2] = { 0, 0 }, nudge = 0, regain_pending = 0;
     for (int i = 1; i + 1 < argc; i += 2) {
         if (!strcmp(argv[i], "--pack0")) p0 = argv[i + 1];
@@ -88,6 +107,17 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[i], "--spin-side1")) side[1] = atoi(argv[i + 1]);
         else if (!strcmp(argv[i], "--spin-draws")) draws = argv[i + 1];
         else if (!strcmp(argv[i], "--mutate")) mutate = argv[i + 1];
+        else if (!strcmp(argv[i], "--pads-out")) pads_out = argv[i + 1];
+        else if (!strcmp(argv[i], "--drive")) drive = argv[i + 1];
+        else if (!strcmp(argv[i], "--attack-from")) attack_from = atoi(argv[i + 1]);
+        else if (!strcmp(argv[i], "--att-side")) att_side = atoi(argv[i + 1]);
+        else if (!strcmp(argv[i], "--near")) near_ = (float)atof(argv[i + 1]);
+        else if (!strcmp(argv[i], "--bump-off")) bump_off = (float)atof(argv[i + 1]);
+        else if (!strcmp(argv[i], "--tap-int")) tap_int = atoi(argv[i + 1]);
+        else if (!strcmp(argv[i], "--launch0")) launch[0] = atoi(argv[i + 1]);
+        else if (!strcmp(argv[i], "--launch1")) launch[1] = atoi(argv[i + 1]);
+        else if (!strcmp(argv[i], "--lane-frac")) lane_frac = (float)atof(argv[i + 1]);
+        else if (!strcmp(argv[i], "--drv-tap")) { if (sscanf(argv[i + 1], "%d,%d", &tap_at, &tap_dir) != 2) die("--drv-tap AT,DIR"); }
         else if (!strcmp(argv[i], "--regain-pending")) regain_pending = atoi(argv[i + 1]);
         else if (!strcmp(argv[i], "--opponent-search")) {
             if (!strcmp(argv[i + 1], "cpu")) opp_cpu = 1;
@@ -159,7 +189,54 @@ int main(int argc, char **argv) {
     if (trace && !tf) die("cannot write the trace");
     FILE *lf = pairlog ? fopen(pairlog, "w") : NULL;
     if (pairlog && !lf) die("cannot write the pair log");
+    int sc = -1;
+    if (drive) {
+        sc = !strcmp(drive, "bump") ? 0 : !strcmp(drive, "side") ? 1 : !strcmp(drive, "spin") ? 2 : -1;
+        if (sc < 0) die("--drive bump|side|spin");
+        last = 19999;
+    }
+    const float track_len = (float)(course[0].track.length / 4096.0);
     for (t = from + 1; t <= from + ticks && t <= last; ++t) {
+        if (drive) {   /* the scripted drivers of ref/duel_main.c, from the state after the previous tick */
+            float lat[2], hd[2], ld[2];
+            for (int k = 0; k < 2; ++k) {
+                const sh2z_vd_body_t *v = &b[k];
+                lat[k] = (float)(sh2z_vd_body_lateral(v) / 65536.0);
+                hd[k] = (float)(((double)v->body[0][0] * v->road[2][0] + (double)v->body[0][1] * v->road[2][1] +
+                                 (double)v->body[0][2] * v->road[2][2]) / 1073741824.0 / 1073741824.0);
+                ld[k] = (float)(v->lap_dist / 4096.0);
+            }
+            unsigned short pb[2] = { 0, 0 };
+            signed char px[2] = { 0, 0 };
+            if (t >= 460 + launch[0]) pb[0] = N64_A;
+            if (t >= 460 + launch[1]) pb[1] = N64_A;
+            float gap = ld[1] - ld[0];
+            if (gap > track_len * 0.5f) gap -= track_len;
+            if (gap < -track_len * 0.5f) gap += track_len;
+            float lane_o = 60.0f;
+            if (lane_frac != 0.0f) lane_o = lane_frac * (lane_frac > 0.0f ? (float)(b[1].half_left / 65536.0) : (float)(b[1].half_right / 65536.0));
+            float target0 = 0.0f, target1 = lane_o;
+            const int spin0 = (b[0].flags & SH2Z_VD_SPINNING) != 0, spin1 = (b[1].flags & SH2Z_VD_SPINNING) != 0;
+            const int ret1 = (b[1].flags & SH2Z_VD_CRASHED) != 0;
+            switch (sc) {
+            case 0: target0 = lat[1] + (att_side ? att_side * bump_off : 0.0f); break;
+            default: target0 = lat[1] + (att_side ? att_side * near_ : (lat[0] > lat[1] ? near_ : -near_)); break;
+            }
+            if (sc >= 1 && t >= attack_from) {
+                if (t - tap_at >= tap_int && fabsf(gap) < 25.0f && fabsf(lat[1] - lat[0]) < 75.0f && !spin0 && !spin1 && !ret1) {
+                    tap_at = t + (sc == 2 ? 2 : 0); tap_dir = lat[1] > lat[0] ? -1 : 1;
+                }
+                const int dt = t - tap_at;
+                if (dt == 0 || dt == 2) pb[0] |= tap_dir < 0 ? N64_Z : N64_R;
+                if (sc == 2 && dt >= -2 && dt <= 4) pb[0] |= tap_dir < 0 ? N64_R : N64_Z;
+            }
+            if (t >= 460 && gap > 15.0f) pb[1] &= (unsigned short)~N64_A;
+            if (t >= 460 && gap < -15.0f) pb[0] &= (unsigned short)~N64_A;
+            if (spin0) target0 = lat[0];
+            px[0] = drv_steer(lat[0], hd[0], target0, 0.004f);
+            px[1] = drv_steer(lat[1], hd[1], target1, 0.004f);
+            for (int k = 0; k < 2; ++k) { pads_b[k][t] = pb[k]; pads_x[k][t] = px[k]; }
+        }
         /* Contact first, on the state after the previous tick (Racer_Update's order). */
         for (int k = 0; k < 2; ++k) {
             sh2z_bc_body_t *c = &bc[k];
@@ -286,5 +363,11 @@ int main(int argc, char **argv) {
     }
     if (tf) fclose(tf);
     if (lf) fclose(lf);
+    if (drive && pads_out) {
+        FILE *of = fopen(pads_out, "w");
+        if (!of) die("cannot write the pads");
+        for (int q = from + 1; q <= from + ticks; ++q) fprintf(of, "%d %d %d %d %d\n", q, pads_b[0][q], pads_x[0][q], pads_b[1][q], pads_x[1][q]);
+        fclose(of);
+    }
     return 0;
 }

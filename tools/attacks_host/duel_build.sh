@@ -44,9 +44,9 @@ CF="-std=gnu11 $OPT -Wall -Wextra -Werror -I$S/include -I$S/src -I$ROOT/saturn -
 LIB="$ROOT/saturn/physics_native.c $S/src/sh2zam_vehicle_dynamics.c $S/src/sh2zam_vehicle_contact.c $S/src/sh2zam_body_contact.c
      $S/src/sh2zam_vehicle_dynamics2.c $S/src/sh2zam_vehicle_contact2.c $S/src/sh2zam_unit30.c $S/src/sh2zam_divu.c"
 # shellcheck disable=SC2086
-"$CC" $CF "$ROOT/tools/attacks_host/duel_native.c" $LIB "$TMP/opp/opp_contact.c" -o "$OUT/fzx-duel-native"
+"$CC" $CF "$ROOT/tools/attacks_host/duel_native.c" $LIB "$TMP/opp/opp_contact.c" -lm -o "$OUT/fzx-duel-native"
 # shellcheck disable=SC2086
-"$CC" $CF -DFZX_PHYS_TUBES=1 "$ROOT/tools/attacks_host/duel_native.c" $LIB "$TMP/opp/opp_contact2.c" -o "$OUT/fzx-duel-native-tubes"
+"$CC" $CF -DFZX_PHYS_TUBES=1 "$ROOT/tools/attacks_host/duel_native.c" $LIB "$TMP/opp/opp_contact2.c" -lm -o "$OUT/fzx-duel-native-tubes"
 # shellcheck disable=SC2086
 "$CC" $CF "$ROOT/tools/attacks_host/pair_probe.c" "$S/src/sh2zam_body_contact.c" "$S/src/sh2zam_unit30.c" "$S/src/sh2zam_divu.c" -lm \
     -o "$OUT/fzx-pair-probe"

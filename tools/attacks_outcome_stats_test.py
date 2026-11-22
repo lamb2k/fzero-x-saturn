@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Self-tests of the outcome judge's scorer (C-161) on synthetic episodes: each check has an input that makes it fail.
+"""Self-tests of the outcome judge's scorer (C-168) on synthetic episodes: each check has an input that makes it fail.
 Run: python3 tools/attacks_outcome_stats_test.py"""
 import copy, random, sys
 from pathlib import Path
@@ -8,12 +8,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import attacks_outcome_stats as S  # noqa: E402
 
 CELL = ['side', 'open', 'wall', 'middle']
-N = 1024
+N = 2400
 
 
 def arm(rng, p_hit=0.97, p_ko=0.6):
     ko = rng.random() < p_ko
-    return dict(hit=int(rng.random() < p_hit), ko=int(ko), ko_tick=rng.randint(20, 400) if ko else None, wall_ko=0,
+    return dict(hit=int(rng.random() < p_hit), ko=int(ko), ko_tick=rng.randint(100, 300) if ko else None, wall_ko=0,
                 wall_ko_w={'60': int(ko and rng.random() < 0.2)}, retire=int(ko), nd=[1, 2], sd=[rng.uniform(0, .1), rng.uniform(0, .3)],
                 sp=[rng.uniform(.3, 1), rng.uniform(.3, 1)], contacts=3, bad=[], side_starts=1, spin_starts=0)
 
@@ -23,82 +23,95 @@ def episodes(seed=1):
     recs = []
     for i in range(N):
         a = arm(rng)
-        recs.append(dict(cell=CELL, idx=i, ns='t', R=a, N=copy.deepcopy(a)))
+        recs.append(dict(cell=CELL, idx=i, ns='t', C=a, T=copy.deepcopy(a), N=copy.deepcopy(a)))
     return recs
 
 
-def only_family(res):
-    return [r for r in res['rows']]
+def rows(recs):
+    res = S.score(recs, recs, recs)
+    return {r['metric']: r for r in res['rows']}, res
 
 
 def check(name, ok):
-    print('%-62s %s' % (name, 'ok' if ok else 'FAILED'))
+    print('%-70s %s' % (name, 'ok' if ok else 'FAILED'))
     return ok
 
 
 def main():
-    S.CFG['coverage'] = dict(min_ref_contacts=100, min_ref_ko_events=50)
-    allok = True
-    # 1 identical arms: zero estimated uncertainty is inconclusive, never a pass
+    ok = True
+    # 1 identical arms pass every metric (zero allowance used)
     recs = episodes()
-    res = S.score(recs, recs, 'R', 'N', draws=2000)
-    zb = [r for r in res['rows'] if r['metric'] == 'hit']
-    allok &= check('identical arms: hit passes only through the finite-sample bound', all(r['status'] == 'pass' and r.get('bound') == 'zero-variance' for r in zb))
-    allok &= check('identical arms: continuous damage metric stays inconclusive (zero uncertainty)', all(r['status'] != 'pass' for r in res['rows'] if r['metric'] == 'damage_victim'))
-    few_n = episodes()[:150]
-    res_small = S.score(few_n, few_n, 'R', 'N', draws=500)
-    allok &= check('identical arms at n=150: the zero-variance bound is too wide for the 2-point KO band', all(r['status'] != 'pass' for r in res_small['rows'] if r['metric'] == 'ko'))
-    # 2 a few paired flips: hit and ko within the bands pass
-    rng = random.Random(7)
-    near = episodes()
-    for r in near:
-        if rng.random() < 0.004: r['N']['hit'] ^= 1
-        if rng.random() < 0.004: r['N']['ko'] ^= 1; r['N']['ko_tick'] = 100 if r['N']['ko'] else None
-    res = S.score(near, near, 'R', 'N', draws=2000)
-    st = {r['metric']: r['status'] for r in res['rows']}
-    allok &= check('0.4% paired flips: hit passes', st['hit'] == 'pass')
-    allok &= check('0.4% paired flips: ko passes (band 2 points)', st['ko'] == 'pass')
-    # 3 shifted probabilities must fail or be inconclusive, never pass
-    for nm, key, shift in (('hit', 'hit', 0.06), ('ko', 'ko', 0.05)):
-        bad = copy.deepcopy(near)
-        flips = 0
-        for r in bad:
-            if r['N'][key] == 1 and flips < shift * N:
-                r['N'][key] = 0; flips += 1
-                if key == 'ko': r['N']['ko_tick'] = None
-        st = {x['metric']: x['status'] for x in S.score(near, bad, 'R', 'N', draws=2000)['rows']}
-        allok &= check('%d%% shift in %s fails' % (shift * 100, nm), st[nm] == 'fail')
-    # 4 KO time shift beyond 12 ticks
-    bad = copy.deepcopy(near)
-    for r in bad:
-        if r['N']['ko_tick']: r['N']['ko_tick'] += 40
-    st = {x['metric']: x['status'] for x in S.score(near, bad, 'R', 'N', draws=2000)['rows']}
-    allok &= check('KO time +40 ticks fails', st['ko_ticks'] == 'fail')
-    # 5 damage shift beyond 0.03 of max energy
-    bad = copy.deepcopy(near)
-    for r in bad:
-        r['N']['sd'][1] += 0.08
-    st = {x['metric']: x['status'] for x in S.score(near, bad, 'R', 'N', draws=2000)['rows']}
-    allok &= check('victim damage +0.08 fails', st['damage_victim'] == 'fail')
-    # 6 coverage: too few reference KOs is inconclusive
-    few = copy.deepcopy(near)
-    for r in few[40:]:
-        r['R']['ko'] = 0; r['R']['ko_tick'] = None; r['R']['wall_ko_w'] = {}
-    res = S.score(few, few, 'R', 'N', draws=500)
-    allok &= check('fewer than 50 reference KO events: missing coverage', any(m[1] == 'KO events' for m in res['missing_coverage']) and S.verdict(res) != 'pass')
-    # 7 structural violation is reported
-    badk = copy.deepcopy(near); badk[3]['N']['bad'] = ['ko without contact']
-    res = S.score(near, badk, 'R', 'N', draws=500)
-    allok &= check('structural violation in the test arm', S.verdict(res) == 'structural violation')
-    # 8 pairing is enforced
-    mis = copy.deepcopy(near); mis[0]['idx'] = 99999
+    r, res = rows(recs)
+    ok &= check('identical arms: every metric passes', S.verdict(res) == 'pass')
+    # 2 a native KO shift of 0.4 points with no reference variation passes (inside the 0.5 point allowance); 0.9 points fails
+    rng = random.Random(3)
+    for share, want in ((0.004, 'pass'), (0.009, 'fail')):
+        rs = episodes()
+        flip = rng.sample([i for i, x in enumerate(rs) if x['N']['ko']], int(share * N))
+        for i in flip:
+            rs[i]['N']['ko'] = 0; rs[i]['N']['ko_tick'] = None
+        r, _ = rows(rs)
+        ok &= check('native KO share %.1f points low: %s' % (share * 100, want), r['ko']['status'] == want)
+    # 3 the reference's own variation widens the bar: the nudged arm moves KO by 1 point, native by 1.4 passes, by 1.6 fails
+    for share, want in ((0.014, 'pass'), (0.016, 'fail')):
+        rs = episodes()
+        ids = [i for i, x in enumerate(rs) if x['C']['ko']]
+        for i in ids[:24]:   # 24 / 2400 = 1 point
+            rs[i]['T']['ko'] = 0; rs[i]['T']['ko_tick'] = None
+        for i in ids[:round(share * N)]:
+            rs[i]['N']['ko'] = 0; rs[i]['N']['ko_tick'] = None
+        r, _ = rows(rs)
+        ok &= check('nudge moves KO 1.0 point, native %.1f points: %s' % (share * 100, want), r['ko']['status'] == want)
+    # 4 damage: 0.004 of max energy passes, 0.007 fails
+    for dv, want in ((0.004, 'pass'), (0.007, 'fail')):
+        rs = episodes()
+        for x in rs:
+            x['N']['sd'][1] += dv * x['N']['nd'][1]
+        r, _ = rows(rs)
+        ok &= check('native victim damage +%.3f of max energy: %s' % (dv, want), r['damage_victim']['status'] == want)
+    # 5 time to KO: 1.5 ticks passes, 3 ticks fails
+    for dv, want in ((1, 'pass'), (3, 'fail')):
+        rs = episodes()
+        for x in rs:
+            if x['N']['ko_tick']: x['N']['ko_tick'] += dv
+        r, _ = rows(rs)
+        ok &= check('native time to KO +%d ticks: %s' % (dv, want), r['ko_ticks']['status'] == want)
+    # 6 retirements: 0.015 per episode passes, 0.03 fails
+    for share, want in ((0.015, 'pass'), (0.03, 'fail')):
+        rs = episodes()
+        for i in range(round(share * N)):
+            rs[i]['N']['retire'] += 1
+        r, _ = rows(rs)
+        ok &= check('native retirements +%.3f per episode: %s' % (share, want), r['retire']['status'] == want)
+    # 7 hit probability and wall-KO use the 0.5 point allowance
+    rs = episodes()
+    for i in range(round(0.009 * N)):
+        rs[i]['N']['hit'] = 1 - rs[i]['N']['hit'] if rs[i]['N']['hit'] == 0 else rs[i]['N']['hit']
+    rs2 = episodes()
+    drop = [i for i, x in enumerate(rs2) if x['N']['hit']][:round(0.009 * N)]
+    for i in drop: rs2[i]['N']['hit'] = 0
+    r, _ = rows(rs2)
+    ok &= check('native hit probability 0.9 points low: fail', r['hit']['status'] == 'fail')
+    rs3 = episodes()
+    ids = [i for i, x in enumerate(rs3) if x['N']['ko'] and x['N']['wall_ko_w']['60']][:round(0.009 * N)]
+    for i in ids: rs3[i]['N']['wall_ko_w']['60'] = 0
+    r, _ = rows(rs3)
+    ok &= check('native wall-KO 0.9 points low: fail', r['wall_ko']['status'] == 'fail')
+    # 8 unpaired episode files are refused
+    bad = episodes(); bad[5]['idx'] = 999
     try:
-        S.score(near, mis, 'R', 'N', draws=500); allok &= check('unpaired episode files are refused', False)
+        S.score(recs, recs, bad); refused = False
     except AssertionError:
-        allok &= check('unpaired episode files are refused', True)
-    print('ALL OK' if allok else 'FAILURES')
-    return 0 if allok else 1
+        refused = True
+    ok &= check('episode files that do not pair are refused', refused)
+    # 9 not applicable metrics are skipped (bump has no wall-KO on interior cells)
+    rs = episodes()
+    for x in rs: x['cell'] = ['bump', 'open', 'interior', 'middle']
+    r, _ = rows(rs)
+    ok &= check('interior cell: wall-KO is not scored', 'wall_ko' not in r)
+    print('ALL OK' if ok else 'SOME CHECK FAILED')
+    sys.exit(0 if ok else 1)
 
 
 if __name__ == '__main__':
-    sys.exit(main())
+    main()

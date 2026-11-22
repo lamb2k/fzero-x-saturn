@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
-"""Attacks outcome judge (C-161), HOST: generator, episode runner, per-episode outcome metrics.
+"""Attacks outcome judge (C-168, attacks-5), HOST: generator, closed-loop episode runner, per-episode outcome metrics.
 
-An episode is one paired 600-tick run of the duel reference (the original race code, ref/duel_main.c) and of the
-native pair (tools/attacks_host/duel_native.c) from the same serialized start state and the same pad script.
-  G  the original reference, closed-loop scripted drivers, from tick 0: records the pads and bakes both racers at T0.
-  R  the reference replayed from the converted start (the native entry state: nearest fixed point, then float32),
-     with the recorded pads (the C-142 matched-start form). This is the reference arm of the judge.
-  N  the native pair from the packs of the same state, with the same pads.
-Every interpretation of C-161 is a named parameter of tools/attacks_outcome_config.json.
+An episode is one paired 600-tick closed-loop run from one converted start state:
+  G  the original from tick 0 with the scripted drivers: only bakes the start (both racers at T0) and the drivers' memory.
+  C  the original code from the converted start with its scripted drivers (the reference arm of the judge).
+  T  C plus the seeded 1 q start-velocity nudge applied one tick after the load: the reference's own variation.
+  N  the native pair from the packs of the same state with the same drivers ported into tools/attacks_host/duel_native.c
+     (`--mutate` runs the control mutants).
+Every interpretation of C-168 is a named parameter of tools/attacks_outcome_config.json.
 Everything run here is derived from the owner's ROM: local only, outside the repository.
 
-  attacks_outcome.py manifest --ns pilot --out DIR          write the episode manifest (parameters only) and its hash
-  attacks_outcome.py run --ns pilot --arms GR --out DIR [--per-cell N] [--cells filter]   run episodes, one JSON line each
+  attacks_outcome.py manifest --ns score --out DIR          write the episode manifest (parameters only) and its hash
+  attacks_outcome.py run --ns score --arms CT --out DIR [--per-cell N] [--cells filter]   run episodes, one JSON line each
 """
 import argparse, hashlib, json, math, os, random, re, shutil, struct, subprocess, sys
 from concurrent.futures import ProcessPoolExecutor
@@ -244,7 +244,10 @@ def scenario_args(p, cfg):
     return a
 
 
-def run_episode(p, env, arms='GR', keep=None, mutate=''):
+def run_episode(p, env, arms='CT', keep=None, mutates=('',)):
+    """C-168 (attacks-5): one paired closed-loop episode. G (the original from tick 0) only bakes the converted start and the drivers'
+    memory at T0; C is the reference from the converted start with its scripted drivers, T the same with the 1 q post-load nudge, N the
+    native pair from the same packs with the same drivers ported to the runner (one run per mutant in `mutates`)."""
     cfg, T0 = CFG, CFG['t0']
     N = p.get('ticks', CFG['episode_ticks'])
     machines = env['machines']
@@ -258,27 +261,24 @@ def run_episode(p, env, arms='GR', keep=None, mutate=''):
     sa = scenario_args(p, cfg)
     res = dict(p)
     try:
-        g_tr, g_pl, pads = work / 'g.tsv', work / 'g.pairlog', work / 'ref.pads'
+        g_tr, g_pl, pads, drv = work / 'g.tsv', work / 'g.pairlog', work / 'ref.pads', work / 'g.drv'
         s0, s1 = work / 'p0.src', work / 'p1.src'
         if not (work / 'p1.pack').exists() or not g_tr.exists():
-            cmd = base + sa + ['--ticks', str(T0 + N + 1), '--trace', str(g_tr), '--pairlog', str(g_pl), '--pads', str(pads),
-                               '--bake-at', str(T0), '--bake0', str(s0), '--bake1', str(s1)]
+            cmd = base + sa + ['--ticks', str(T0 + 2), '--trace', str(g_tr), '--pairlog', str(g_pl), '--pads', str(pads),
+                               '--bake-at', str(T0), '--bake0', str(s0), '--bake1', str(s1), '--drv-out', str(drv)]
             if p['energy']:
                 cmd += ['--set-energy', '%d:0:%s' % (T0, p['energy'][0]), '--set-energy', '%d:1:%s' % (T0, p['energy'][1])]
             run(cmd)
             for k in (0, 1):
                 (work / ('p%d.pack' % k)).write_bytes(PP.build(PP.parse(work / ('p%d.src' % k)), 3))
         g_rows = load_trace(g_tr)
-        # the start state's energies: the converted bake values (what both arms load)
-        start_e = []
+        start_e = []   # the start state's energies: the converted bake values (what both arms load)
         for k in (0, 1):
             raw = (work / ('p%d.src' % k)).read_text()
             sc = [l for l in convert_state(raw).splitlines() if l.startswith('scalars ')][0].split()
             start_e.append(float.fromhex(sc[3 + 10]))
         res['start_energy'] = start_e
-        if 'G' in arms:
-            res['G'] = outcome(g_rows, ref_log(g_pl), T0, N, max_e, start_e)
-        for arm in ('R', 'S', 'C', 'T'):   # R,S replay the recorded pads; C,T run the closed-loop scripted drivers on their own state (T = C with the perturbation)
+        for arm in ('C', 'T'):   # closed-loop scripted drivers on their own state; T = C with the perturbation
             if arm not in arms:
                 continue
             cs = []
@@ -287,9 +287,9 @@ def run_episode(p, env, arms='GR', keep=None, mutate=''):
             r_tr, r_pl = work / (arm.lower() + '.tsv'), work / (arm.lower() + '.pairlog')
             cmd = base + sa + ['--ticks', str(T0 + N + 1), '--trace', str(r_tr), '--pairlog', str(r_pl),
                                '--load-state', '%d:%s:%s' % (T0 + 1, cs[0], cs[1])]
-            if arm in 'RS':
-                cmd += ['--replay-pads', str(pads)]
-            if arm in 'ST':   # the reference's own noise floor: +-sensitivity_q Q16 steps on every start velocity component, applied one tick AFTER the load
+            if keep:
+                cmd += ['--pads', str(work / (arm.lower() + '.pads'))]
+            if arm == 'T':   # the reference's own 1 q variation: +-sensitivity_q Q16 steps on every start velocity component, applied one tick AFTER the load
                 rr = rng_for(CFG['namespaces'][p['ns']], '/'.join(p['cell']), 'perturb', p['idx'])
                 for k in (0, 1):
                     for ax in range(3):
@@ -298,18 +298,26 @@ def run_episode(p, env, arms='GR', keep=None, mutate=''):
             res[arm] = outcome(load_trace(r_tr), ref_log(r_pl), T0, N, max_e, start_e)
         if 'N' in arms:
             p1 = g_rows[(T0, 1)]
-            plog = open(g_pl).read().split('\n')
-            col = [l for l in plog if l.startswith('P %d ' % (T0 + 1))][0].split()
-            n_tr, n_pl = work / ('n%s.tsv' % mutate), work / ('n%s.pairlog' % mutate)
-            cmd = [native, '--pack0', str(work / 'p0.pack'), '--pack1', str(work / 'p1.pack'), '--pads', str(pads), '--from', str(T0),
-                   '--ticks', str(N), '--machines', '%d,%d' % (p['attacker'], p['victim']), '--since', str(p1[5]), '--toucher', str(p1[6]),
-                   '--touching', col[3], '--trace', str(n_tr), '--pairlog', str(n_pl)]
-            if mutate:
-                cmd += ['--mutate', mutate]
-            run(cmd)
-            nrows = load_trace(n_tr)
-            nrows.update({(T0, k): g_rows[(T0, k)] for k in (0, 1)})
-            res['N' + (':' + mutate if mutate else '')] = outcome(nrows, nat_log(n_pl), T0, N, max_e, start_e)
+            col = [l for l in open(g_pl).read().split('\n') if l.startswith('P %d ' % (T0 + 1))][0].split()
+            tap_at, tap_dir = open(drv).read().split()
+            for mutate in mutates:
+                n_tr, n_pl = work / ('n%s.tsv' % mutate), work / ('n%s.pairlog' % mutate)
+                cmd = [native, '--pack0', str(work / 'p0.pack'), '--pack1', str(work / 'p1.pack'), '--pads', str(pads), '--from', str(T0),
+                       '--ticks', str(N), '--machines', '%d,%d' % (p['attacker'], p['victim']), '--since', str(p1[5]), '--toucher', str(p1[6]),
+                       '--touching', col[3], '--trace', str(n_tr), '--pairlog', str(n_pl), '--drive', p['cell'][0],
+                       '--attack-from', str(p['attack_from']), '--att-side', str(p['att_side']), '--near', str(p['near']),
+                       '--bump-off', str(p['bump_off']), '--tap-int', str(p['tap_int']), '--launch0', str(p['launch0']),
+                       '--launch1', str(p['launch1']), '--drv-tap', '%s,%s' % (tap_at, tap_dir)]
+                if p['cell'][2] == 'wall' or abs(p['lane_frac']) > 0:
+                    cmd += ['--lane-frac', str(p['lane_frac'])]
+                if keep:
+                    cmd += ['--pads-out', str(work / ('n%s.pads' % mutate))]
+                if mutate:
+                    cmd += ['--mutate', mutate]
+                run(cmd)
+                nrows = load_trace(n_tr)
+                nrows.update({(T0, k): g_rows[(T0, k)] for k in (0, 1)})
+                res['N' + (':' + mutate if mutate else '')] = outcome(nrows, nat_log(n_pl), T0, N, max_e, start_e)
     finally:
         if not keep:
             shutil.rmtree(work, ignore_errors=True)
@@ -320,33 +328,30 @@ _ENV = {}
 
 
 def _work(args):
-    p, arms, keep, mutate = args
-    return run_episode(p, _ENV, arms, keep, mutate)
+    p, arms, keep, mutates = args
+    return run_episode(p, _ENV, arms, keep, mutates)
 
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument('cmd', choices=['manifest', 'run', 'fixtures'])
+    ap.add_argument('cmd', choices=['manifest', 'run'])
     ap.add_argument('--ns', required=True, choices=list(CFG['namespaces']))
     ap.add_argument('--out', required=True, type=Path)
-    ap.add_argument('--arms', default='GR')
+    ap.add_argument('--arms', default='CT', help='any of C T N (G, the bake of the converted start, always runs)')
     ap.add_argument('--per-cell', type=int, default=CFG['cells']['episodes_per_cell'])
     ap.add_argument('--first', type=int, default=0, help='first episode index in each cell')
     ap.add_argument('--cells', default='', help='comma list of cell prefixes, e.g. side/open')
-    ap.add_argument('--mutate', default='')
+    ap.add_argument('--mutate', default='', help='comma list of native mutants (N arm only); a run with mutants writes only the N:<name> arms')
     ap.add_argument('--keep', action='store_true', help='keep each episode directory (packs, pads) under OUT/episodes')
-    ap.add_argument('--jobs', type=int, default=8)
+    ap.add_argument('--jobs', type=int, default=6)
     ap.add_argument('--tables', help='attacks_tables.h'); ap.add_argument('--ref'); ap.add_argument('--rom')
     ap.add_argument('--course-open'); ap.add_argument('--course-tube'); ap.add_argument('--native-open'); ap.add_argument('--native-tube')
     ap.add_argument('--tmp', default='/dev/shm/ao')
     a = ap.parse_args()
-    a.jobs = min(a.jobs, 8)   # coordinator's cap (2026-11-22): at most 8 workers, run under nice
+    a.jobs = min(a.jobs, 6)   # coordinator's cap (fzx-cpu-cap, 2026-11-22): at most 6 workers, run under nice
     machines = machine_table(a.tables)
     sel = [c for c in cells() if not a.cells or any('/'.join(c).startswith(x) for x in a.cells.split(','))]
     items = [episode_params(a.ns, c, i, machines) for c in sel for i in range(a.first, a.first + a.per_cell)]
-    if a.cmd == 'fixtures':
-        a.ns = 'fixtures'
-        items = [fixture_params(nm, i, machines) for nm in CFG['fixtures']['families'] for i in range(CFG['fixtures']['per_family'])]
     a.out.mkdir(parents=True, exist_ok=True)
     if a.cmd == 'manifest':
         assert a.ns in CFG['namespaces']
@@ -357,10 +362,11 @@ def main():
     _ENV.update(machines=machines, ref=a.ref, rom=a.rom, course_open=a.course_open, course_tube=a.course_tube, native_open=a.native_open,
                 native_tube=a.native_tube, tmp=a.tmp)
     Path(a.tmp).mkdir(parents=True, exist_ok=True)
-    tag = '%s%s' % (a.arms, ('-' + a.mutate) if a.mutate else '')
+    mutates = tuple(m for m in a.mutate.split(',') if m) or ('',)
+    tag = '%s%s' % (a.arms, ('-' + '+'.join(mutates)) if a.mutate else '')
     outf = a.out / ('episodes-%s-%s.jsonl' % (a.ns, tag))
     keep = lambda p: str(a.out / 'episodes' / ('%s-%d' % ('-'.join(p['cell']), p['idx']))) if a.keep else None
-    jobs = [(p, a.arms, keep(p), a.mutate) for p in items]
+    jobs = [(p, a.arms, keep(p), mutates) for p in items]
     with ProcessPoolExecutor(a.jobs, initializer=_ENV.update, initargs=(dict(_ENV),)) as ex, open(outf, 'w') as f:
         for r in ex.map(_work, jobs, chunksize=4):
             f.write(json.dumps(r, sort_keys=True) + '\n')

@@ -279,6 +279,7 @@ int main(int argc, char **argv) {
                 gone[k] = 1;
             }
         const uint32_t spin_before = b[1].flags & SH2Z_VD_SPINNING, spin_before0 = b[0].flags & SH2Z_VD_SPINNING;
+        const uint32_t flags0_pre = b[0].flags;   /* attacks-5 fix: the KO credit reads the player's state before this tick's steps (the original credits a KO on the tick both spin out) */
         for (int k = 0; k < 2; ++k) {
             const uint16_t btn = (uint16_t)pads_b[k][t];
             sh2z_vd_input_t in;
@@ -323,7 +324,7 @@ int main(int argc, char **argv) {
              * locate failed. The player must be able to score, as at a spin-out start. */
             const int fell_now = (b[k].flags & SH2Z_VD_FALLING) && !(pre.flags & (SH2Z_VD_CRASHED | SH2Z_VD_SPINNING | SH2Z_VD_FALLING));
             if (k == 1 && fell_now && bc[1].toucher == 0 && bc[1].since != UINT32_MAX &&
-                !(b[0].flags & (SH2Z_VD_FINISHED | SH2Z_VD_CRASHED | SH2Z_VD_SPINNING))) {
+                !(flags0_pre & (SH2Z_VD_FINISHED | SH2Z_VD_CRASHED | SH2Z_VD_SPINNING))) {
                 const uint32_t age = bc[1].since + (b[1].race_ticks != pre.race_ticks ? 1u : 0u);
                 if (age <= (!strcmp(mutate, "fall-age119") ? 119u : 120u)) {
                     const int wrong = !strcmp(mutate, "fall-wrong");
@@ -343,7 +344,7 @@ int main(int argc, char **argv) {
         }
         /* KO credit at the opponent's spin-out start (contact damage or walls this tick). */
         if (!spin_before && (b[1].flags & SH2Z_VD_SPINNING) && bc[1].toucher == 0 && bc[1].since <= br.credit_window &&
-            !(b[0].flags & (SH2Z_VD_FINISHED | SH2Z_VD_CRASHED | SH2Z_VD_SPINNING))) {
+            !(flags0_pre & (SH2Z_VD_FINISHED | SH2Z_VD_CRASHED | SH2Z_VD_SPINNING))) {
             ++kos;
             regain += course[0].vehicle.max_energy / 8;
             if (lf) fprintf(lf, "K %d 1 %d\n", t, bc[1].toucher);

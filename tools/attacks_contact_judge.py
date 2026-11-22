@@ -352,7 +352,7 @@ def main():
             def endpoint(force=None, perturb=(), until=None):
                 key = (force, perturb, until)
                 if key not in cache:
-                    tag = 'f%s-p%s-u%d' % (force and '%d_%d' % force, '_'.join('%d.%d.%d.%d.%g' % p for p in perturb), until)
+                    tag = 'f%s-p%s-u%d' % (force and '%d_%d' % force, '_'.join('%d.%d.%d.%g' % p for p in perturb), until)
                     tr = d / 'replay' / ('%s.tsv' % hashlib.sha1(tag.encode()).hexdigest()[:16])
                     pl = tr.with_suffix('.pairlog')
                     tr.parent.mkdir(exist_ok=True)

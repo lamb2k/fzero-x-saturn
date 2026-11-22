@@ -784,13 +784,19 @@ class Gate:
             cache.write_text(json.dumps(have, indent=1) + '\n')
         return {k: v['bin'] for k, v in have.items()}
 
+    def run_mapping(self, run):
+        # The census resolves symbols from this exact build, including control arms.
+        control = run.get('image_build') or ''
+        build = self.ctl_builds[control]['dir'] if control else self.builds_dir(run['image'])
+        return dict(image=run['image'], kind=run['kind'], build=str(build), control_build=control)
+
     def execute(self, jobs):
         res = {}
 
         def one(job):
             r, kind, arg = job
-            b = self.ctl_builds.get(r['image_build']) if r.get('image_build') else None
-            bd = b['dir'] if b else self.builds_dir(r['image'])
+            mapping = self.run_mapping(r)
+            bd = mapping['build']
             cap = r.get('cap', 40000 if r['kind'] in ('loop', 'cancel', 'reset') else 30000)
             pokes = r.get('pokes', '-') if kind == 'race' else str(arg)
             sound = self.m['images'][r['image']].get('sound', False)
@@ -799,8 +805,7 @@ class Gate:
                 cue = self.discs.get(r.get('image_build') or r['image'])
             out = self.harness(bd, self.ev / 'runs' / r['name'], kind, pokes if kind == 'race' else str(arg), cap,
                                audio=sound, cue=cue)
-            # The run-to-image mapping, explicit in the receipt (census tools read it; they never guess from names).
-            out.update(image=r['image'], kind=r.get('kind', ''), build=str(bd), control_build=r.get('image_build') or '')
+            out.update(mapping)
             return r['name'], out
 
         log('running %d harness jobs, %d at a time' % (len(jobs), self.a.jobs))
@@ -1016,13 +1021,13 @@ class Rescore(Gate):
     def execute(self, jobs):
         res = {}
         for r, kind, arg in jobs:
-            b = self.ctl_builds.get(r['image_build']) if r.get('image_build') else None
-            bd = b['dir'] if b else self.builds_dir(r['image'])
+            mapping = self.run_mapping(r)
+            bd = mapping['build']
             sound = self.m['images'][r['image']].get('sound', False)
             mixed = Path(bd) / 'mixed' / 'fzs-engine.cue'
             cue = mixed if sound and r.get('disc') != 'data' and mixed.exists() else Path(bd) / 'fzs-engine.cue'
             ok = result_kv(read_result(self.ev / 'runs' / r['name']))[0].get('exit') == 'ok'
-            res[r['name']] = dict(rc=0 if ok else 1, seconds=None, cue=str(cue), rescored=True)
+            res[r['name']] = dict(rc=0 if ok else 1, seconds=None, cue=str(cue), rescored=True, **mapping)
         return res
 
 

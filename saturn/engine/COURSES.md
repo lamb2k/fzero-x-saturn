@@ -467,3 +467,68 @@ start (`road_cd.c`, codex/p3-frontend 374ea5f): it drops such sectors (`fzx_cd_s
 re-read stays as a counted safety net (0 in the cup). Control `FZX_CD_STALE_CONTROL=1` waits after each start's
 selector reset for the stale sector: with the check, 49 met and 49 dropped, 0 re-reads; with `ENG_P3_UI=0` (no
 check) the first load never completes.
+
+## 11. The Queen Cup (lane `claude/courses-queen`, 2026-11-22)
+
+Courses 6..11 (ROM record order: Sector Alpha, Red Canyon 1, Devil's Forest 2, Mute City 2, Big Blue 2, White Land 1)
+go through the per-course pipeline of section 2 (`tools/course_catalog.py` rows, `SHIPPED` = the first six) and are
+selectable on the same disc: the select image carries 12 courses. Tiers: HOST (`fzx-phys`), EMULATOR (Ymir, timing
+MODELLED); HARDWARE not run.
+
+**Bake measurements (HOST).** Chunks / triangles, ROADLTX (VDP1 texels), ROADLOD (cartridge), ROADPREP:
+Sector Alpha 306 / 5,594, 173,992 / 165,968 / 71,740 B; Red Canyon 1 198 / 3,136, 67,000 / 94,984 / 39,504;
+Devil's Forest 2 307 / 5,066, 164,312 / 149,304 / 66,668; Mute City 2 264 / 5,132, 189,992 / 149,688 / 67,696;
+Big Blue 2 274 / 5,076, 164,480 / 150,544 / 67,976; White Land 1 281 / 5,062, 134,624 / 150,152 / 65,868.
+Every course fits the Jack maxima for VDP1 (Silence 236,384 B, 316,768 B limit), the path pack region
+(<= 566,644 of 573,440 B) and the cartridge (about 600 KB free); Sector Alpha has 2,797 quads (Jack max 2,661).
+
+**Tool changes the Queen courses needed** (Jack outputs stay byte-identical):
+- `road_tiles.py` accepts a reshaped source tile: same texel count and same line stride, width differing from the
+  declared texture (Big Blue 2 material D_8002008, 64x32 drawn from a 128x16 texture).
+- `road_bake.py` / `road_prep.py --pack-limit`, `FZX_ROAD_STREAM_PACK_LIMIT` in `src/fzx_road_stream.c`: Sector Alpha's
+  ROADLOD is 165,968 B against the 160,000 B literal. The select and course-specific engine builds use 240,000.
+- `ref/rivals_build.sh` links `-lm` (`fzx-rivals-gp`).
+- CD root list 128 -> 192 entries (`FZX_TEXTURE_CD_ROOT_ENTRIES`, `road_native.c`): 12 courses are 141 files.
+
+**Card: course identity rows on disc.** `fzx_course_ids[]` was 4,172 B a course in `.low` (25 KB for six, 100 KB for 24)
+against 6,448 B of slack in the `.bsshost` buffer that carries `.low`'s load image: a 12-course image did not link.
+`tools/course_bundle.py` now writes each row as a disc file `CIDnn.BIN` (big-endian, `fzx_course_id_t`'s layout built in
+Python, a `_Static_assert` on every field offset in `course_ids.h`) and the image keeps only `fzx_course_index[]`
+(id, size, FNV-1a: 8 B a course). `fzx_course_use()` reads and checks the selected row into `cid_row` (high work RAM) at
+LOAD. The row carries an explicit `row` field; `engine_field.c` uses `fzx_cid->row` instead of
+`fzx_cid - fzx_course_ids`, which was wrong with `ENG_LOW_COLD` (fzx_cid points at `cid_row`, not into the table).
+`.low` is 0x102b0 B for 12 courses against 0x13640 B for six before; `.lowbss` +3.4 KB (root list).
+
+**Gate.** `tools/engine_gate_matrix.json` lists the six courses. A course entry may name its own image and HOST driver:
+White Land 1 retires under the R01 driver (reference and native model alike, 35 kl/kh pairs scanned) and finishes only
+under R03, so it runs on `scenes-drv-r03` (`E1_DRIVER=2`) against `fzx-phys --driver 0.004,2.5 --driver-ahead 0.1`.
+Run one course: `python tools/engine_gate.py --full --only course --courses mute-city-2 --base "" --stage <stage> --jobs 1`.
+
+| Course | HOST finish (R01) | Ymir | Checkpoints | Intervals | Critical path mean / p99 / max | Master p99 | Slave p99 | VDP1 p99 | Cold LOAD |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Sector Alpha | 98,843 ms | equal | 25/25 | 3,102 x 2F, 0 over | 19.79 / 24.95 / 26.51 | 24.69 | 22.20 | 10.71 | 333 fields |
+| Red Canyon 1 | 97,580 ms | equal | 25/25 | 3,064 x 2F, 0 over | 19.41 / 22.77 / 26.98 | 22.30 | 20.19 | 9.33 | 271 |
+| Devil's Forest 2 | 109,503 ms | equal | 28/28 | 3,422 x 2F, 0 over | 21.30 / 24.70 / 25.93 | 23.98 | 22.33 | 11.04 | 325 |
+| Mute City 2 | 97,479 ms | equal | 25/25 | 3,061 x 2F, 0 over | 21.71 / 29.54 / 31.38 | 24.83 | 27.44 | 11.78 | 326 |
+| Big Blue 2 | 80,008 ms | equal | 21/21 | 2,537 x 2F, 0 over | 21.81 / 28.24 / 31.38 | 25.52 | 26.19 | 10.58 | 323 |
+| White Land 1 (R03, `scenes-drv-r03`) | 111,775 ms (R03; R01 retires at tick 4,992) | equal | 28/28 | 3,490 x 2F, 0 over | 21.66 / 28.47 / 29.89 | 27.38 | 24.92 | 9.82 | 321 |
+
+Master stack unused 110,732..110,748 B (109,436 B on the R03 image), slave 5,760 B, guard trips 0 on every course; menus 0 over two. Critical-path
+p99 over the 24.5 ms limit on Sector Alpha, Devil's Forest 2, Mute City 2, Big Blue 2 and White Land 1 (R03's soft-float look-ahead runs on the master): reported, not tuned (the
+Jack courses sit at 24.6 to 29.3 ms in the same gate). The native model's R01 finish is 0.03% (Red Canyon 1) and 0.06%
+(Big Blue 2) from the original code's; Jack is within 0.005%: float noise of about 1e-4 growing into wall contact.
+
+**Open (not baked or not drawn).** Stars on Mute City 2 (the Silence star item); jumps (Mute City 2 one, White Land 1
+four) and air sections (Red Canyon 1, White Land 1) are physics-correct within the bands above but rivals ignore them;
+borderless shapes (Big Blue 2, White Land 1); camera-path packs truncate on Red Canyon 1 (779 ticks), White Land 1
+(1,062) and Big Blue 2 (996), as on Big Blue 1. Rival bands and drops for the Queen courses were not run.
+
+**Re-bake steps after this merges (ROM needed).** `tools/course_catalog.py`, `road_bake.py`, `road_tiles.py`,
+`road_prep.py` and `src/fzx_road_stream.c` are generator inputs, so every stage's road, backdrop and select receipts
+are stale. Per course slug, one course at a time (parallel runs race for the `road` step): the `road` step is
+`road_assets.py --course SLUG`, `road_pack.py`, `road_bake.py` and `road_prep.py` (Queen courses add
+`--texture-limit 240000 --pack-limit 240000`; Jack keeps its defaults); the `back` step is `backdrop_assets.py --course SLUG`,
+`sky_assets.py`, `skyline_assets.py`, `plane_assets.py --cloud-only` and `floor_rbg_assets.py`. The gate also lists every course's `rivals.receipt`
+(`ref/rivals_build.sh` changed: `-lm`) and `course_class.receipt` as stale; the engine build does not read them. Then, for the 12 slugs in catalog order: `course_bundle.py`,
+`course_drops_bundle.py`, `course_class_bundle.py`, `engine_load_cards.py`. Jack outputs come out byte-identical (only
+`road_bake.json` differs: it records the pack limit).

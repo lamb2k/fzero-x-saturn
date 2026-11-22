@@ -517,6 +517,11 @@
    "receipt": "generated/courses/port-town-1/road_prep/road_prep.receipt",
    "cmd": "python3 tools/road_prep.py --sh2zam ../lib-{engine_pin} --bake generated/courses/port-town-1/road_bake --output generated/courses/port-town-1/road_prep --texture-limit 240000",
    "rom": false
+  },
+  {
+   "receipt": "generated/attacks/attacks.receipt",
+   "cmd": "python3 tools/attacks_tables.py upstream/G-Diffuser/decomp generated/attacks",
+   "rom": false
   }
  ],
  "determinism_mask": [

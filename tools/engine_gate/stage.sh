@@ -8,6 +8,7 @@
 #   stage.sh receipts STAGE                  print STALE lines for generated receipts that do not match w/
 #   stage.sh build STAGE OUT LABEL VARS...   build saturn/engine with VARS; copy BIN/ISO/CUE/SYM/MAP to OUT/LABEL
 #   stage.sh legacy STAGE OUT LABEL KIND     KIND recipe (4b4cacb2) or off (bb5f0fc5): build and copy the BIN
+#   stage.sh hostatk STAGE OUT KEY SLUG      the HOST reference of an image with ENG_ATTACKS (fzx-atk, the R01 driver), built once per KEY and course
 #   stage.sh host STAGE OUT KEY SLUG [DRIVER] HOST checkpoints (fzx-phys --checkpoints 256, tubes build, built once
 #                                            per KEY = tree id) for SLUG's R01 race
 # OUT is a /mnt/c path. Generated assets are ROM-derived: they stay in the stage and never leave this machine.
@@ -161,6 +162,22 @@ print('finish_ms %s retire_tick %s' % (fin or '-', ret or '-'))
 PY
   rm -f /tmp/gate-r01-$stage.tsv
   echo "HOST $slug $driver $(grep -E '^(ticks|finish_ms)' "$f" | tr '\n' ' ')"
+  ;;
+hostatk)
+  # hostatk STAGE OUT KEY SLUG: the HOST reference of an image built with ENG_ATTACKS (tools/attacks_host, fzx-atk --gate 1, the R01 driver):
+  # body checkpoints, attack words, the final body hash, the player's finish. One fzx-atk per course (its rivals pack is compiled in),
+  # built with tubes for every course as the scenes images' physics is (vehicle-dynamics-2 gives road courses the same bits).
+  out=${3:?}; key=${4:?}; slug=${5:?}
+  cd "$S/w"; pin=$(cat saturn/engine/sh2zam.pin)
+  hb=$S/host-$key; mkdir -p "$hb"
+  g=$(python3 -c "import sys;sys.path.insert(0,'tools');import course_catalog as c;print(c.gen_root('$slug'))")
+  if [ ! -x "$hb/fzx-atk-$slug" ]; then
+    SH2ZAM_ROOT=$S/lib-$pin GEN=$g ATK_GEN=$S/w/generated TUBES=1 TAG=-gate-$key-$slug bash tools/attacks_host/build.sh gcc -O2 > "$hb/build-atk-$slug.log" 2>&1 || { tail -20 "$hb/build-atk-$slug.log"; exit 1; }
+    cp tools/attacks_host/build/gcc-O2-gate-$key-$slug/fzx-atk "$hb/fzx-atk-$slug"
+  fi
+  mkdir -p "$out"
+  "$hb/fzx-atk-$slug" --phys "$g/physics/PHYS.PAK" --rivals "$g/rivals/RIVALS.PAK" --driver 1 --gate 1 > "$out/$slug-atk.txt" 2> "$out/$slug-atk.err"
+  echo "HOSTATK $slug $(grep -E '^(ticks|finish_ms)' "$out/$slug-atk.txt" | paste -sd' ' -)"
   ;;
 *) echo "unknown command $cmd" >&2; exit 2;;
 esac

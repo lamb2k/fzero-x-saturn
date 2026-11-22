@@ -198,17 +198,19 @@ def error_text(run_dir):
 
 
 def host_ref(path):
-    chk, final, finish, retire = [], None, None, None
+    chk, achk, final, finish, retire = [], [], None, None, None
     for line in Path(path).read_text().splitlines():
         p = line.split()
         if p and p[0] == 'chk':
             chk.append((int(p[1]), p[2]))
+        elif p and p[0] == 'achk':   # fzx-atk (--gate 1): the attack and field words, as fzx_atk_chk
+            achk.append((int(p[1]), p[2]))
         elif p and p[0] == 'ticks':
             final = p[3]
         elif p and p[0] == 'finish_ms':
             finish = None if p[1] == '-' else int(p[1])
             retire = None if p[3] == '-' else int(p[3])
-    return dict(chk=chk, final=final, finish_ms=finish, retire_tick=retire)
+    return dict(chk=chk, achk=achk, final=final, finish_ms=finish, retire_tick=retire)
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -240,6 +242,7 @@ class Gate:
         self.checks, self.controls = [], []
         self.discs, self.results = {}, {}
         self.times = {}
+        self.hosts_atk, self._atk = {}, {}
         self.ev.mkdir(parents=True, exist_ok=True)
         (self.ev / 'tmp').mkdir(exist_ok=True)
 
@@ -358,16 +361,41 @@ class Gate:
 
     def record_ms(self, hosts, build_dir, offset=0):
         """The Mute City record a loop script waits for (RECORD_MS): the image's own R01 HOST finish (fzx-phys, the
-        player alone), plus OFFSET for the control that must time out. This line has no attack HOST (fzx-atk): an
-        image whose symbols hold fzx_atk_chk stops the gate rather than wait for the wrong record."""
-        if ' _fzx_atk_chk' in (Path(build_dir) / 'fzs-engine.sym').read_text():
-            raise SystemExit('RECORD_MS: %s is built with ENG_ATTACKS and this gate has no fzx-atk reference' % build_dir)
+        player alone), plus OFFSET for the control that must time out. An image built with ENG_ATTACKS (its symbols
+        hold fzx_atk_chk) takes the finish of fzx-atk (tools/attacks_host), which includes the racer-racer contact."""
+        if self.is_atk(build_dir):
+            ref = self.host_atk('mute-city-1')
+            if not ref or ref['finish_ms'] is None:
+                raise SystemExit('no Mute City fzx-atk HOST finish for RECORD_MS (%s)' % build_dir)
+            return ref['finish_ms'] + offset
         if 'mute-city-1' not in hosts:
             hosts['mute-city-1'] = self.host(self.ev / 'host', 'mute-city-1', '0.004,2.5')
         ref = hosts['mute-city-1']
         if not ref or ref['finish_ms'] is None:
             raise SystemExit('no Mute City HOST finish for RECORD_MS (%s)' % build_dir)
         return ref['finish_ms'] + offset
+
+    def is_atk(self, build_dir):
+        """True for an image built with ENG_ATTACKS: its HOST reference is fzx-atk, not fzx-phys (the player alone)."""
+        k = str(build_dir)
+        if k not in self._atk:
+            self._atk[k] = ' _fzx_atk_chk' in (Path(build_dir) / 'fzs-engine.sym').read_text()
+        return self._atk[k]
+
+    def host_atk(self, slug):
+        if slug not in self.hosts_atk:
+            hdir = self.ev / 'host'
+            self.stage_cmd('hostatk', self.stage, wslpath(hdir), self.head['sha'][:12], slug)
+            self.hosts_atk[slug] = host_ref(hdir / ('%s-atk.txt' % slug))
+        return self.hosts_atk[slug]
+
+    def pick(self, hosts, slug, build_dir):
+        """The HOST reference of a course for an image: fzx-atk for an image with attacks, fzx-phys otherwise."""
+        if not slug:
+            return None
+        if self.is_atk(build_dir):
+            return self.host_atk(slug)
+        return hosts.get(slug)
 
     def script_for(self, name, course_index=None, record_ms=None):
         text = (GATE / 'scripts' / name).read_text()
@@ -408,7 +436,7 @@ class Gate:
         fr = frame_rows(mem, self.lim['race_window_tick'])
         self.cadence_checks(name, fr, sink)
         if host is not None:
-            self.host_check(name, kv, chk, host, full_final=True, sink=sink)
+            self.host_check(name, kv, chk, host, full_final=True, sink=sink, mem=mem)
         self.memory_checks(name, mem, kv, sink)
         return fr
 
@@ -426,7 +454,7 @@ class Gate:
                          fr['critical_p99_raw'], self.lim['critical_margin'], product, self.lim['critical_budget_ms']),
                      'ENGINE_PLAN 5 gate 9 (unrounded p99 x margin <= budget); MODELLED', sink=sink)
 
-    def host_check(self, name, kv, chk, host, full_final, sink=None, prefix='', against=''):
+    def host_check(self, name, kv, chk, host, full_final, sink=None, prefix='', against='', mem=None):
         """SH-2 against HOST: every checkpoint the image wrote equals HOST's, the finish (or retirement) matches, and
         for a race run to the reference's end, the final state hash too."""
         e1 = lambda i: kv.get('%s_fzx_e1_report%d' % (prefix, i), kv.get('e1_report%d' % i))
@@ -447,8 +475,17 @@ class Gate:
         else:
             ok = ok and not finished
             notes.append('retires as HOST (tick %s)' % host['retire_tick'] if not finished else 'finished; HOST retires')
-        self.add('host', name, ok, 'checkpoints %d/%d equal%s' % (same, n, (' (HOST %s)' % against) if against else ''),
-                 '; '.join(notes), sink=sink)
+        label = 'checkpoints %d/%d equal%s' % (same, n, (' (HOST %s)' % against) if against else '')
+        if host.get('achk') and mem is not None and mem.has('fzx_atk_chk'):
+            # An image with attacks also keeps fzx_atk_chk (attack and field words every 256 field ticks): the same words
+            # as fzx-atk (--gate 1), every one the image wrote.
+            words = mem.words('fzx_atk_chk', 64)
+            ha = dict(host['achk'])
+            wrote = [(256 * (i + 1), '%08x' % w) for i, w in enumerate(words) if w]
+            asame = sum(1 for t, h in wrote if ha.get(t) == h)
+            ok = ok and len(wrote) > 0 and asame == len(wrote)
+            label += '; attack words %d/%d equal' % (asame, len(wrote))
+        self.add('host', name, ok, label, '; '.join(notes), sink=sink)
 
     def memory_checks(self, name, mem, kv, sink=None, prefix=''):
         g = lambda s: kv.get('%s_fzx_%s' % (prefix, s), kv.get('_fzx_%s' % s))
@@ -500,7 +537,7 @@ class Gate:
                 self.add('loop', name, eq, 'cold %s ms / retry %s ms; checkpoints %d / %d %s; tick-2000 stills %s' % (
                     f1, f2, len(c1), len(c2), 'equal' if c1 == c2 else 'DIFFERENT', 'equal' if same_still else 'DIFFERENT'), sink=sink)
                 if host is not None:
-                    self.host_check(name + ' cold', k1, c1, host, full_final=False, sink=sink, prefix='')
+                    self.host_check(name + ' cold', k1, c1, host, full_final=False, sink=sink, prefix='', mem=Mem(run_dir, 'results1', sym))
                 for m in ('results1', 'results2'):
                     mem = Mem(run_dir, m, sym)
                     self.cadence_checks('%s %s' % (name, m), frame_rows(mem, self.lim['race_window_tick']), sink, margin=False)
@@ -710,7 +747,7 @@ class Gate:
                 continue
             rd = self.ev / 'runs' / r['name']
             bd = builds[r['image']]['dir']
-            host = hosts.get(r.get('course')) if r.get('course') else None
+            host = self.pick(hosts, r.get('course'), bd)
             if r['kind'] == 'race':
                 self.score_race(r, rd, bd, host)
             else:
@@ -886,11 +923,11 @@ class Gate:
                 rd = self.ev / 'runs' / name
                 bd = self.ctl_builds[name]['dir'] if c.get('vars') else builds[c['image']]['dir']
                 if c['kind'] == 'race':
-                    host = hosts.get(c.get('course')) if c.get('course') else None
+                    host = self.pick(hosts, c.get('course'), bd)
                     self.score_race(dict(name=name), rd, bd, host, sink=sink)
                 else:
                     hslug = c.get('host_course', c.get('course'))
-                    host = hosts.get(hslug) if hslug else None
+                    host = self.pick(hosts, hslug, bd)
                     if hslug and host is None:
                         host = hosts[hslug] = self.host(self.ev / 'host', hslug, '0.004,2.5')
                     self.score_scenes(dict(name=name, kind=c['kind']), rd, bd, host, sink=sink, host_label=hslug or '')
@@ -1012,6 +1049,11 @@ class Rescore(Gate):
 
     def host(self, hdir, slug, driver):
         return host_ref(Path(hdir) / ('%s-%s.txt' % (slug, driver)))
+
+    def host_atk(self, slug):
+        if slug not in self.hosts_atk:
+            self.hosts_atk[slug] = host_ref(self.ev / 'host' / ('%s-atk.txt' % slug))
+        return self.hosts_atk[slug]
 
     def execute(self, jobs):
         res = {}

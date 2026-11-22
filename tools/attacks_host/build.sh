@@ -22,7 +22,7 @@ EXTRA=()
 if [ "$TUBES" = 1 ]; then
     EXTRA=("$S/src/sh2zam_vehicle_dynamics2.c" "$S/src/sh2zam_vehicle_contact2.c")
 fi
-"$CC" -std=gnu11 $OPT -Wall -Wextra -Werror $DEFS "$@" -I"$ROOT/tools/attacks_host/include" -I"$S/include" -I"$S/src" \
+"$CC" -std=gnu11 $OPT -Wall -Wextra -Werror -Wno-type-limits $DEFS "$@" -I"$ROOT/tools/attacks_host/include" -I"$S/include" -I"$S/src" \
     -I"$ROOT/saturn" -I"$ROOT/saturn/engine" -I"$G/rivals" -I"$AG/attacks" \
     "$ROOT/tools/attacks_host/attacks_main.c" "$ROOT/saturn/physics_native.c" "$ROOT/saturn/engine/engine_field.c" \
     "$ROOT/saturn/engine/engine_attacks.c" \

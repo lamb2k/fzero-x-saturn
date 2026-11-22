@@ -2,6 +2,8 @@
 #include <stdio.h>
 #include <string.h>
 #include <sys/mman.h>
+#include <sys/wait.h>
+#include <unistd.h>
 #include "road_stream_under_test.c"
 #define CHECK(x) do{if(!(x)){fprintf(stderr,"line %u: %s\n",__LINE__,#x);return 1;}}while(0)
 unsigned fixture_cart_id=4,fixture_cart_bytes=0x400000;
@@ -61,6 +63,77 @@ static bool render(unsigned capacity,uint32_t *count){
         commands[0].cmd_xc!=300||commands[0].cmd_yc!=218||commands[1].kind!=42))return false;
     return ok;
 }
+#if FZX_ROAD_STREAM_CLUT_ALIGN
+/* C-127 finding 4: fzx_road_stream_clut_align must refuse an area outside VDP1 VRAM before any write.
+ * Only [0x25c00000, 0x25c80000) is mapped, so a write past the end faults; a refusal must also leave the
+ * materials and every mapped VRAM byte as they were. */
+#define VRAM_AT 0x25c00000u
+#define VRAM_END (VRAM_AT+0x80000u)
+static int clut_ready(unsigned moves){   /* a loaded track whose first three images use a lookup table */
+    seed();CHECK(fzx_road_stream_load((void *)0x25c01000u)&&work->image_capacity==5);
+    for(uint32_t i=0;i<work->image_capacity;++i)memset(&work->images[i],0,sizeof(work->images[i]));
+    for(unsigned k=0;k<3;++k){          /* tables at 8-byte offsets need a move; multiples of 0x40 do not */
+        work->images[k].variant[0].mode=1;
+        work->images[k].variant[0].palette=k<moves?0x08u+0x40u*k:0x40u*(k+1u);
+    }
+    return 0;
+}
+static int clut_refused(uintptr_t dest,uint32_t bytes,unsigned moves,uint32_t status){
+    static uint8_t before[0x80000];
+    CHECK(clut_ready(moves)==0);
+    uint32_t palettes[3];for(unsigned k=0;k<3;++k)palettes[k]=work->images[k].variant[0].palette;
+    memcpy(before,(const void *)(uintptr_t)VRAM_AT,sizeof(before));
+    uint32_t used=77;
+    CHECK(!fzx_road_stream_clut_align((void *)dest,bytes,&used));
+    CHECK(fzx_road_stream_clut_report[2]==status&&fzx_road_stream_clut_report[0]==0);
+    for(unsigned k=0;k<3;++k)CHECK(work->images[k].variant[0].palette==palettes[k]);
+    if(status==2)CHECK(used==77&&!memcmp(before,(const void *)(uintptr_t)VRAM_AT,sizeof(before)));
+    else{        /* refused for want of room: nothing written outside [dest, dest+bytes) */
+        CHECK(!memcmp(before,(const void *)(uintptr_t)VRAM_AT,dest-VRAM_AT));
+        CHECK(!memcmp(before+(dest-VRAM_AT)+bytes,(const void *)(uintptr_t)(dest+bytes),VRAM_END-dest-bytes));
+    }
+    return 0;
+}
+static int clut_bounds(void){
+    CHECK(mmap((void *)(uintptr_t)VRAM_AT,0x80000u,PROT_READ|PROT_WRITE,MAP_PRIVATE|MAP_ANONYMOUS|MAP_FIXED_NOREPLACE,-1,0)!=MAP_FAILED);
+    for(uint32_t i=0;i<0x80000u;i+=4)*(uint32_t *)(uintptr_t)(VRAM_AT+i)=0x5a5a0000u^i;
+    /* Normal path (unchanged): two tables move into a 64-byte area after the texture bank. */
+    CHECK(clut_ready(2)==0);
+    uint32_t used=0;
+    CHECK(fzx_road_stream_clut_align((void *)0x25c02000u,64u,&used));
+    CHECK(used==64&&fzx_road_stream_clut_report[0]==2&&fzx_road_stream_clut_report[1]==3&&fzx_road_stream_clut_report[2]==1);
+    CHECK(work->images[0].variant[0].palette==0x1000u&&work->images[1].variant[0].palette==0x1020u);
+    CHECK(work->images[2].variant[0].palette==0xc0u);
+    CHECK(!memcmp((const void *)0x25c02000u,(const void *)0x25c01008u,32)&&!memcmp((const void *)0x25c02020u,(const void *)0x25c01048u,32));
+    /* The last 32 bytes of VRAM are still a valid area. */
+    CHECK(clut_ready(1)==0);
+    CHECK(fzx_road_stream_clut_align((void *)(uintptr_t)(VRAM_END-32u),32u,&used)&&used==32);
+    CHECK(work->images[0].variant[0].palette==VRAM_END-32u-0x25c01000u);
+    /* Refused before any write (status 2): at the end (even with nothing to move), one slot past it, far past it,
+     * below VRAM. One slot short inside VRAM: refused for room (status 3), the old offsets restored. Each case runs
+     * in its own child, so a write past the end (a fault) is reported for that case alone. */
+    static const struct { uintptr_t dest; uint32_t bytes; unsigned moves, status; const char *what; } no[] = {
+        { VRAM_END, 0u, 0, 2, "end, nothing to move" }, { VRAM_END, 32u, 1, 2, "end" },
+        { VRAM_END+32u, 32u, 1, 2, "one slot past" }, { VRAM_END+0x80000u, 32u, 1, 2, "far past" },
+        { 0x26000000u, 0x1000u, 2, 2, "far past, 4 KB" }, { VRAM_AT-32u, 32u, 1, 2, "below" },
+        { 0x25c02000u, 32u, 2, 3, "one slot short" }, { VRAM_END-32u, 32u, 2, 3, "one slot short at the end" },
+    };
+    unsigned bad=0;
+    for(unsigned i=0;i<sizeof(no)/sizeof(no[0]);++i){
+        fflush(NULL);
+        const pid_t pid=fork();
+        CHECK(pid>=0);
+        if(!pid)_exit(clut_refused(no[i].dest,no[i].bytes,no[i].moves,no[i].status));
+        int st=0;CHECK(waitpid(pid,&st,0)==pid);
+        if(!WIFEXITED(st)||WEXITSTATUS(st)){
+            ++bad;fprintf(stderr,"clut case %s (dest %#lx, %u B): %s %d\n",no[i].what,(unsigned long)no[i].dest,no[i].bytes,
+                          WIFSIGNALED(st)?"signal":"exit",WIFSIGNALED(st)?WTERMSIG(st):WEXITSTATUS(st));
+        }
+    }
+    CHECK(!bad);
+    return 0;
+}
+#endif
 int main(void){
     CHECK(mmap((void *)0x00200000u,0x100000u,PROT_READ|PROT_WRITE,MAP_PRIVATE|MAP_ANONYMOUS|MAP_FIXED_NOREPLACE,-1,0)!=MAP_FAILED);
     CHECK(mmap((void *)0x04000000u,0x400000u,PROT_READ|PROT_WRITE,MAP_PRIVATE|MAP_ANONYMOUS|MAP_FIXED_NOREPLACE,-1,0)!=MAP_FAILED);
@@ -107,5 +180,9 @@ int main(void){
         CHECK(fzx_road_stream_status==(f==POST_GUARD?5u:4u));
         CHECK(adapters==(f==DRAW?0u:1u));
     }
+#if FZX_ROAD_STREAM_CLUT_ALIGN
+    CHECK(clut_bounds()==0);
+    puts("ROAD_STREAM_NATIVE_HOST_PASS clut bounds: normal, last slot, end, one past, far past, below, one slot short");
+#endif
     puts("ROAD_STREAM_NATIVE_HOST_PASS load admission allocation guards stream adapter capacity clip failures");return 0;
 }

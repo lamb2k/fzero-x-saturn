@@ -1249,14 +1249,25 @@ extern uint32_t __low_start[], __low_end[], __low_load[], __lowbss_start[], __lo
 extern uint32_t __bsshost_start[], __bsshost_end[];
 volatile uint32_t fzx_low_report[4];
 static void __attribute__((noinline)) engine_low_init(void) {
-    const volatile uint32_t *src = __low_load;
-    for (volatile uint32_t *dst = __low_start; dst < __low_end; ) *dst++ = *src++;
-    for (volatile uint32_t *p = __lowbss_start; p < __lowbss_end; ) *p++ = 0u;
-    for (volatile uint32_t *p = __bsshost_start; p < __bsshost_end; ) *p++ = 0u;
+    /* The linker labels are distinct arrays to C, so the extents are integer address differences and the loops
+     * run by word count; no pointer into one label is ordered against another (C-127 finding 5). engine_low.x
+     * aligns every label to 16 bytes and asserts the block's limits. */
+    const uintptr_t low = (uintptr_t)__low_start, bss = (uintptr_t)__lowbss_start, host = (uintptr_t)__bsshost_start;
+    const uint32_t low_words = (uint32_t)(((uintptr_t)__low_end - low) / 4u);
+    const uint32_t bss_words = (uint32_t)(((uintptr_t)__lowbss_end - bss) / 4u);
+    const uint32_t host_words = (uint32_t)(((uintptr_t)__bsshost_end - host) / 4u);
+    const volatile uint32_t *src = (const volatile uint32_t *)(uintptr_t)__low_load;
+    volatile uint32_t *dst = (volatile uint32_t *)low;
+    for (uint32_t n = low_words; n; --n) *dst++ = *src++;
+    volatile uint32_t *p = (volatile uint32_t *)bss;
+    for (uint32_t n = bss_words; n; --n) *p++ = 0u;
+    p = (volatile uint32_t *)host;
+    for (uint32_t n = host_words; n; --n) *p++ = 0u;
     cpu_cache_purge();
     uint32_t dirty = 0u;
-    for (const volatile uint32_t *p = __bsshost_start; p < __bsshost_end; ++p)
-        if (*p != 0u) { dirty = (uint32_t)(p - (const volatile uint32_t *)__bsshost_start) + 1u; break; }
+    const volatile uint32_t *q = (const volatile uint32_t *)host;
+    for (uint32_t n = 0u; n < host_words; ++n)
+        if (q[n] != 0u) { dirty = n + 1u; break; }
     fzx_low_report[0] = (uint32_t)((uintptr_t)__low_end - (uintptr_t)__low_start);
     fzx_low_report[1] = (uint32_t)((uintptr_t)__lowbss_end - (uintptr_t)__lowbss_start);
     fzx_low_report[2] = (uint32_t)((uintptr_t)__bsshost_end - (uintptr_t)__bsshost_start);

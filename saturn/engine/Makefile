@@ -296,6 +296,15 @@ ENG_TUBES ?= $(if $(filter sand-ocean-1 big-blue-1,$(ENG_COURSE)),1,$(if $(filte
 ifeq ($(filter 0 1,$(ENG_TUBES)),)
 $(error ENG_TUBES must be 0 or 1)
 endif
+# ENG_LOCATE_FAR / ENG_LOCATE_FAR_RUN (E1 drive images; SH2ZAM vehicle-dynamics-6, SH2Z_VD_LOCATE_FAR): the
+# closest-point search of the player's physics stops when its residual stays above FAR units for RUN passes in
+# a row. A body over a gap (Fire Field's big jump, 380 units off the line) has no closest point and the search ran
+# all 99 passes every tick (about 20 ms on the master). On for every course; the default 128 units and 8 passes
+# stop no search on the other 23 courses (host counter 0). ENG_LOCATE_FAR=0 builds the earlier search (the
+# control that shows the cost), ENG_LOCATE_FAR=3 with ENG_LOCATE_FAR_RUN=1 the stop that changes a normal course.
+ENG_LOCATE_FAR ?= 128
+ENG_LOCATE_FAR_RUN ?= 8
+
 # ENG_RIVAL_SURFACE (field images with the rival pack, E2_PACK=1): the rivals meet the course's surface
 # (SH2ZAM line-field-4): its zones (plates, low grip, rough ground, recharge strips), its pipes and cylinders
 # as tubes (no edge, the lateral wraps round; the cars drawn round the tube), and the final dash on the
@@ -480,6 +489,7 @@ SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(E1_RACE_TICKS),-rt$(E1_RACE_TICKS),)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(E1_DRIVER_TARGET),-tg$(E1_DRIVER_TARGET),)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter 1,$(ENG_COURSE_SELECT)),-sel,)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter 1,$(ENG_TUBES)),-tubes,)
+SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter-out 128,$(ENG_LOCATE_FAR)),-lf$(ENG_LOCATE_FAR),)$(if $(filter-out 8,$(ENG_LOCATE_FAR_RUN)),-lr$(ENG_LOCATE_FAR_RUN),)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter 0,$(ENG_RIVAL_SURFACE)),-rs0,)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter 1,$(ENG_RIVAL_BEHAVE)),-beh,)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter 1,$(ENG_RIVAL_CLASS)),-cls,)
@@ -716,6 +726,7 @@ endif
 # may use a larger track texture budget (tools/road_bake.py --texture-limit; placement checked at load); its
 # sky gradient need not be monotonic in brightness (a sunset), so sky bands pick their colour by distance.
 SH_CFLAGS += $(if $(filter 1,$(FZX_E1_DRIVE)),$(if $(filter 1,$(ENG_TUBES)),-DFZX_PHYS_TUBES=1,),)
+SH_CFLAGS += $(if $(filter 1,$(FZX_E1_DRIVE)),$(if $(filter-out 0,$(ENG_LOCATE_FAR)),-DSH2Z_VD_LOCATE_FAR=$(ENG_LOCATE_FAR) -DSH2Z_VD_LOCATE_FAR_RUN=$(ENG_LOCATE_FAR_RUN),),)
 SH_CFLAGS += $(if $(GCREL),-DENG_COURSE_SKYLINE=1 -DFZX_ROAD_STREAM_TEXTURE_LIMIT=240000u -DFZX_ROAD_STREAM_PACK_LIMIT=240000u -DFZX_SKY_LINEAR_PICK=1 -DENG_COURSE_INDEX=$(COURSE_INDEX_$(ENG_COURSE)),)
 ifeq ($(ENG_COURSE_SELECT),1)
 ifneq ($(ENG_SCENES),1)

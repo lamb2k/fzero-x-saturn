@@ -94,6 +94,15 @@ FZX_CUP_DIAG_CATALOG ?= 0
 # Engine gate control (tools/engine_gate.py ctl-menus): 1 links a probe that holds one menu frame for 3 fields
 # when fzx_scn_stall_ctl is written. Diagnostic only; 0 (default) compiles nothing.
 ENG_SCN_STALL_CONTROL ?= 0
+# Engine gate control (ctl-smpc): 1 builds the scenes image's backup-library calls without the quiet SMPC
+# (engine_smpc_quiet, engine_main.c) and opens each with a RESENAB whose SF stays set across a vertical blank
+# before its command is written, so the handler's INTBACK issue waits on it for good (the hang memory lane part 4
+# found). 2 does the same but keeps the quiet SMPC (the fix from its worst starting point). Control and test arms
+# only; 0 (default).
+ENG_SMPC_OVERLAP_CONTROL ?= 0
+# Census control (claude-mem4 lowpcs): 1 links fzx_race_frame into .low (ldctl/hot/engine_low_hot.ld), so the
+# check that no low work RAM code runs in a race frame must fail. Control only; 0 (default).
+ENG_LOW_HOT_CONTROL ?= 0
 # Diagnostic (scenes CD stream, saturn/road_cd.c): 1 records every sector read (FAD, first words, FNV) in
 # fzx_cd_trace; 2 also reads the CD block's FAD of the buffered sector before each transfer. 0 compiles nothing.
 FZX_CD_TRACE ?= 0
@@ -352,7 +361,7 @@ EMIT_SWITCHES := $(E2_EMIT_PROF)$(E2_EMIT_HINT)$(E2_EMIT_CMD)$(E2_EMIT_SHADOW)$(
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter-out 0,$(subst 0,,$(EMIT_SWITCHES))),-em$(EMIT_SWITCHES),)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter-out 00000,$(BAL_SWITCHES)),-bal$(BAL_SWITCHES),)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter 0,$(E0_FLOOR_NEAR0)),-fn0,)
-SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter-out mute-city-1,$(ENG_COURSE)),-$(ENG_COURSE),)$(if $(E1_DRIVER_KH),-kh$(E1_DRIVER_KH),)$(if $(filter 1,$(ENG_COURSE_SELECT)),-sel,)$(if $(filter 1,$(ENG_TUBES)),-tubes,)$(if $(filter 0,$(ENG_RIVAL_SURFACE)),-rs0,)$(if $(filter 1,$(ENG_SCN_STALL_CONTROL)),-stallctl,)$(if $(filter-out 0,$(FZX_CD_TRACE)),-cdtrace$(FZX_CD_TRACE),)$(if $(filter 1,$(FZX_CD_STALE_CONTROL)),-stalectl,)
+SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter-out mute-city-1,$(ENG_COURSE)),-$(ENG_COURSE),)$(if $(E1_DRIVER_KH),-kh$(E1_DRIVER_KH),)$(if $(filter 1,$(ENG_COURSE_SELECT)),-sel,)$(if $(filter 1,$(ENG_TUBES)),-tubes,)$(if $(filter 0,$(ENG_RIVAL_SURFACE)),-rs0,)$(if $(filter 1,$(ENG_SCN_STALL_CONTROL)),-stallctl,)$(if $(filter-out 0,$(ENG_SMPC_OVERLAP_CONTROL)),-smpcctl$(ENG_SMPC_OVERLAP_CONTROL),)$(if $(filter 1,$(ENG_LOW_HOT_CONTROL)),-hotctl,)$(if $(filter-out 0,$(FZX_CD_TRACE)),-cdtrace$(FZX_CD_TRACE),)$(if $(filter 1,$(FZX_CD_STALE_CONTROL)),-stalectl,)
 ifeq ($(ENG_SCENES)$(ENG_P3_UI),10)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)-p3off
 endif
@@ -601,9 +610,16 @@ ifneq ($(ENG_LOW_COLD),0)
 ifneq ($(ENG_SCENES),1)
 $(error ENG_LOW_COLD=1 needs ENG_SCENES=1: the block is the scenes image's unused path-pack space)
 endif
-SH_SPECS := engine_low.specs yaul-main.specs
+# engine_low_hot.ld (included after the cold list) comes from the specs' -L: ldctl/off (no section), or with
+# ENG_LOW_HOT_CONTROL=1 (census control only) ldctl/hot, a function every race frame runs, so the census check must fail.
+LOW_HOT := $(if $(filter 1,$(ENG_LOW_HOT_CONTROL)),hot,off)
+SH_SPECS := $(if $(filter 1,$(ENG_LOW_HOT_CONTROL)),engine_low_hotctl.specs,engine_low.specs) yaul-main.specs
 SH_CFLAGS += -DENG_LOW_COLD=1
-$(SH_BUILD_PATH)/$(SH_PROGRAM).elf: engine_low.x engine_low_text.ld engine_low_rodata.ld engine_low_bss.ld engine_low.specs
+$(SH_BUILD_PATH)/$(SH_PROGRAM).elf: engine_low.x engine_low_text.ld engine_low_rodata.ld engine_low_bss.ld engine_low.specs engine_low_hotctl.specs ldctl/$(LOW_HOT)/engine_low_hot.ld
+endif
+
+ifeq ($(ENG_SCENES),1)
+SH_CFLAGS += -DENG_SMPC_OVERLAP_CONTROL=$(ENG_SMPC_OVERLAP_CONTROL)
 endif
 
 IP_VERSION := V0.001

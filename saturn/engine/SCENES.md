@@ -139,9 +139,10 @@ typedef struct {
 
   `GUEST_KIT` is the private hybrid-guests directory. `PLAYER_SPRITE_SETS` contains the
   checked player-profile folders `c00s1` through `c29s1`. The loading-card generator
-  also reads the sibling `generated/course_menu_preview` pack. Stage the contents of
-  `$GUEST_KIT/title-cover/native-title` in `generated/title_guest`. The build reads the
-  pack and its identity header from that same directory. Use `ENG_TITLE_ART=title` for the
+  also reads the sibling `generated/course_menu_preview` pack. Stage the approved uppercase packs with
+  `python3 tools/stage_guest_titles.py "$FZX_EVIDENCE"` in the build checkout.
+  The default scenes build reads the main pack and header from `generated/title_guest`.
+  Use `ENG_TITLE_ART=title` for the
   original title or `ENG_P3_UI=0` for the pre-P3 scenes build.
   - Our side is plumbing only: the identity, the gate, save stability, and loading the art pack the session names.
     The artwork itself is Codex's lane.

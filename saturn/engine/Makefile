@@ -180,8 +180,10 @@ E2_EMIT_YAW ?= $(if $(filter 1,$(E2_EMIT_POSE)),$(E2_EMIT_EXACT),0)
 # ENG_ATTACKS (lane claude/attacks, generated/ATTACKS-PLAN.md): racer-racer contact, side and spin attacks,
 #   damage, spin-out, retirement and KO credit for the player and the field (engine_attacks.c, SH2ZAM
 #   body-contact-1 and vehicle-dynamics-3). Needs E1_FIELD with E2_PACK and E2_FASTPOSE, the attack
-#   tables (tools/attacks_tables.py, local) and an SH2ZAM checkout with body-contact-1. Default 0 until qualified.
-ENG_ATTACKS ?= 0
+#   tables (tools/attacks_tables.py, local) and an SH2ZAM checkout with body-contact-1. Default 1 on every image that has
+#   the field (owner, 2026-11-22: "close enough"); 0 is the identity arm (the images without attacks, as before this switch).
+ENG_ATK_DEFER ?= 1
+ENG_ATTACKS ?= $(if $(filter-out 0,$(E1_FIELD)),$(if $(and $(filter 1,$(E2_PACK)),$(filter 1,$(E2_FASTPOSE))),1,0),0)
 # ENG_PACE: frame pacing. 0 as built (a frame as soon as it is ready); 1 adaptive (a two-field gap
 #   after a VDP1 draw longer than a field); 2 the 30 fps lock (presents never one field apart);
 #   3 probe (Yaul's fixed interval ENG_VDP1_INTERVAL); 4 the pipelined 30 fps lock (frame N+1 is
@@ -435,6 +437,7 @@ SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter 0,$(E0_PRELUDE_WINDOW)),-pw0,)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter 0,$(E0_PRELUDE_DIV)),-pd0,)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter 1,$(ENG_CDDA)),-cdda$(ENG_CDDA_MUSIC)$(if $(filter-out 0,$(ENG_CDDA_LOOPTEST)),-lt$(ENG_CDDA_LOOPTEST),),)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter 1,$(ENG_SND)),-snd$(ENG_SND_MUSIC)$(if $(filter-out 0,$(ENG_SND_FADETEST)),-ft$(ENG_SND_FADETEST),),)
+SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter 1,$(ENG_ATTACKS)),-atk$(if $(filter 0,$(ENG_ATK_DEFER)),0,),)
 # Master/slave balance (claude/balance); each 0 = the frame split as it was.
 # ENG_BAL_CLOUDS: the cloud prepare on either SH-2 (drive images, banks, ENG_PACE=4): 1 always on the
 #   slave after its track; 2 the slave takes it when its track ends before the master reaches it
@@ -586,7 +589,6 @@ endif
 # ENG_ATK_DEFER (with ENG_ATTACKS=1; lane claude/attacks-5): a tick's contact that provably cannot reach
 # the player waits, with the field tick before it, until after the slave's kick (same results). 1 default;
 # 0 is the control (contact before every step, as attacks-4).
-ENG_ATK_DEFER ?= 1
 ifeq ($(ENG_ATTACKS),1)
 SH_CFLAGS += -DENG_ATK_DEFER=$(ENG_ATK_DEFER)
 endif

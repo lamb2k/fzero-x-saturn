@@ -232,10 +232,11 @@ void fzx_road_stream_clut_touch(void){
 #define CLUT_SLOTS 256u
 bool fzx_road_stream_clut_align(void *area,uint32_t area_bytes,uint32_t *used){
     const uintptr_t pixels=(uintptr_t)fzx_road_stream_report[7],dest=(uintptr_t)area;
-    const uintptr_t base=(uintptr_t)VDP1_VRAM(0);
+    const uintptr_t base=(uintptr_t)VDP1_VRAM(0),end=base+0x80000u;
     fzx_road_stream_clut_report[0]=0;fzx_road_stream_clut_report[1]=0;fzx_road_stream_clut_report[2]=2;
-    if(!used||fzx_road_stream_status!=1||!work||!work->images||(dest&31u)||dest<base||
-       area_bytes>base+0x80000u-dest||dest<pixels+CSEL(lod_tex_bytes,FZX_ROAD_LOD_TEXTURE_BYTES))return false;
+    /* dest inside VDP1 VRAM before the capacity subtraction, so end-dest cannot wrap (C-127 finding 4). */
+    if(!used||fzx_road_stream_status!=1||!work||!work->images||(dest&31u)||dest<base||dest>=end||
+       area_bytes>end-dest||dest<pixels+CSEL(lod_tex_bytes,FZX_ROAD_LOD_TEXTURE_BYTES))return false;
     *used=0;
     const uint32_t low=(1u<<CLUT_SLOT_SHIFT)-1u,count=work->image_capacity*3u;
     uint32_t n=0,lookups=0;

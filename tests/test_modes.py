@@ -142,6 +142,34 @@ class Modes(unittest.TestCase):
                 rc, out = self.run_entry(f)
                 self.assertNotEqual(rc, 0, name + ': the fixture did not fail')
 
+    def run_ghost(self, edit=None, tsv=None):
+        src = self.tmp / 'ghost'
+        src.mkdir(exist_ok=True)
+        text = (ENG / 'engine_ghost.c').read_text()
+        (src / 'engine_ghost.c').write_text(edit(text) if edit else text)
+        out = self.tmp / 'ghost-drv'
+        subprocess.run(['gcc', '-std=gnu11', '-Wall', '-Wextra', '-I', str(ENG), str(ROOT / 'tests/ghost_driver.c'), str(src / 'engine_ghost.c'),
+                        '-lm', '-o', str(out)], check=True)
+        r = subprocess.run([str(out)] + ([str(tsv)] if tsv else []), capture_output=True, text=True)
+        return r.returncode, r.stdout
+
+    def test_ghost(self):
+        """The Time Attack ghost codec (engine_ghost.h): a drive plays back as recorded, damage is refused, an overlong drive is not
+        kept. Controls: each edit of the codec must fail a named case."""
+        rc, out = self.run_ghost()
+        self.assertEqual(rc, 0, out)
+        self.assertGreaterEqual(out.count('PASS'), 9, out)
+        for name, f in {
+            'crc not checked': lambda t: t.replace('if (g->crc != body_crc(g)) return false;', ''),
+            'sample count not checked': lambda t: t.replace('return n == g->samples && p.nib >= g->bytes * 2u - 1u;', 'return true;'),
+            'midpoint dropped': lambda t: t.replace('(((int64_t)p->cur[i] + p->next[i]) << 15)', '((int64_t)p->cur[i] << 16)'),
+            'overrun still kept': lambda t: t.replace('if (rec.over || rec.samples < 2u) return false;', 'if (rec.samples < 2u) return false;'),
+            'second difference not used': lambda t: t.replace('const int32_t d = v[i] - rec.prev[i], dd = d - rec.dprev[i];', 'const int32_t d = v[i] - rec.prev[i], dd = d;'),
+        }.items():
+            with self.subTest(name):
+                rc, out = self.run_ghost(f)
+                self.assertNotEqual(rc, 0, name + ': the fixture did not fail')
+
     def test_table(self):
         self.check(self.run_table())
 

@@ -29,8 +29,19 @@ COURSES = {
                         "DEVIL'S FOREST"),
     "big-blue-1": (4, "aCourseBigBlue1", "big_blue_textures.yaml", (0x23EC50, 0x243D90), 0x264690, 4, "BIG BLUE"),
     "port-town-1": (5, "aCoursePortTown1", "port_town_textures.yaml", (0x239A80, 0x23EC50), 0x264540, 3, "PORT TOWN"),
+    # Queen Cup (course ids 6..11 in the ROM's record order; venue ids 5 white land, 6 sector, 7 red canyon)
+    "sector-alpha": (6, "aCourseSectorAlpha", "sector_textures.yaml", (0x255100, 0x259600), 0x264920, 7, "SECTOR ALPHA"),
+    "red-canyon-1": (7, "aCourseRedCanyon1", "red_canyon_textures.yaml", (0x259600, 0x25F360), 0x264860, 6, "RED CANYON"),
+    "devils-forest-2": (8, "aCourseDevilsForest2", "devils_forest_textures.yaml", (0x24A270, 0x2507F0), 0x264740, 5,
+                        "DEVIL'S FOREST 2"),
+    "mute-city-2": (9, "aCourseMuteCity2", "mute_city_textures.yaml", (0x235130, 0x239A80), 0x264C80, 0, "MUTE CITY 2"),
+    "big-blue-2": (10, "aCourseBigBlue2", "big_blue_textures.yaml", (0x23EC50, 0x243D90), 0x264B40, 4, "BIG BLUE 2"),
+    "white-land-1": (11, "aCourseWhiteLand1", "white_land_textures.yaml", (0x2507F0, 0x255100), 0x2652B0, 8, "WHITE LAND"),
 }
 DEFAULT = "mute-city-1"
+# The courses the shipped disc bundles when a bundle tool gets no slugs (the Jack Cup). A later cup joins this
+# list when its courses are in the image; a lane bundling more names them on the command line.
+SHIPPED = tuple(COURSES)[:6]
 
 
 def course(slug: str) -> dict:

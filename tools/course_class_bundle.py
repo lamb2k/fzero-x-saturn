@@ -21,7 +21,7 @@ from course_bundle import OUT, ROOT  # noqa: E402
 
 
 def main():
-    slugs = sys.argv[1:] or list(course_catalog.COURSES)
+    slugs = sys.argv[1:] or list(course_catalog.SHIPPED)
     ids = [int(v) for v in re.findall(r'\.id = (\d+)u', (OUT / 'course_ids.c').read_text())]
     if ids != [course_catalog.course(s)['index'] for s in slugs]:
         raise SystemExit('give the courses in course_ids.c order (course indexes %s)' % ids)

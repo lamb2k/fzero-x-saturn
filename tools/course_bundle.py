@@ -99,7 +99,7 @@ MAXES = ('path_bytes', 'road_bytes', 'lod_bytes', 'lod_tex_bytes', 'prep_bytes',
 
 
 def main():
-    slugs = sys.argv[1:] or list(course_catalog.COURSES)
+    slugs = sys.argv[1:] or list(course_catalog.SHIPPED)
     rows = [row(s) for s in slugs]
     if len({r['floor_shared'] for r in rows}) != 1:
         raise SystemExit('FLOORMAP/FLOORKOF differ between courses')

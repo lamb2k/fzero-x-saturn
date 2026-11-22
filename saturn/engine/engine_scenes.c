@@ -767,7 +767,6 @@ static bool select_enter(void *u, uint32_t s) {
 #ifndef FZX_P3_BASELINE
     if (picked_mode) {
         select_mode = mode_cursor;
-
     }
 #endif
     select_difficulty = !select_mode && !FZX_CUP_DIAG_CATALOG ? 1u : fzx_session.difficulty;
@@ -1382,7 +1381,7 @@ static unsigned card_used;
  * one-bit still expands into B1 0x7a000..0x7afff, just below the nameplate.
  * Each 8x8 character has 8 source bytes and 16 destination words. */
 static bool track_shown;
-static void card_track(const uint16_t *card, unsigned map_row) {
+static void card_track(const uint16_t *card, unsigned map_row, unsigned map_col) {
     static const uint16_t four_pixels[16] = {
         0,1,0x10,0x11,0x100,0x101,0x110,0x111,
         0x1000,0x1001,0x1010,0x1011,0x1100,0x1101,0x1110,0x1111
@@ -1400,12 +1399,12 @@ static void card_track(const uint16_t *card, unsigned map_row) {
     }
     volatile uint16_t *map = (volatile uint16_t *)NBG3_MAP;
     for (unsigned i = 0; i < 128u; ++i)
-        map[(map_row+i/16u)*64u + 22u+i%16u] = (uint16_t)(0xd000u | (0xd00u+i));
+        map[(map_row+i/16u)*64u + map_col+i%16u] = (uint16_t)(0xd000u | (0xd00u+i));
 }
 static const uint16_t *course_card(unsigned course) {
     return (const uint16_t *)(cards_base() + fzx_cards[course].at);
 }
-static void card_show(unsigned course) {
+static void card_show(unsigned course, unsigned name_row, unsigned track_row, unsigned track_col) {
     if (course >= sizeof(fzx_cards)/sizeof(fzx_cards[0])) return;
     const uint16_t *card = course_card(course);
     const unsigned cols = card[0];
@@ -1420,8 +1419,8 @@ static void card_show(unsigned course) {
     for (unsigned i = 0; i < card_used; ++i) tiles[i] = cells[i];
     volatile uint16_t *map = (volatile uint16_t *)NBG3_MAP;
     for (unsigned i = 0; i < 2u*cols; ++i)
-        map[(3u+i/cols)*64u + (40u-cols)/2u + i%cols] = (uint16_t)(0xe000u | (0xd80u+i));
-    card_track(card, 5);
+        map[(name_row+i/cols)*64u + (40u-cols)/2u + i%cols] = (uint16_t)(0xe000u | (0xd80u+i));
+    card_track(card, track_row, track_col);
 }
 static void card_release(void) {
     if (!track_shown) return;
@@ -1473,7 +1472,7 @@ static bool load_enter(void *u, uint32_t s) {
     bar_off = *(volatile uint16_t *)(NBG3_MAP + (BAR_ROW * 64u + 4u) * 2u);
     *(volatile uint16_t *)(NBG3_MAP + (BAR_ROW * 64u + 3u) * 2u) = bar_off;
 #ifndef FZX_P3_BASELINE
-    card_show(course);
+    card_show(course, 3, 5, 22);
 #endif
     text_dirty = false;
     return true;
@@ -2073,11 +2072,11 @@ void fzx_scn_main(void) {
                 text_frame(printed);
 #ifndef FZX_P3_BASELINE
                 if (seq.current == FZX_SCN_CUPS && printed) {
-                    if (browsing_courses) card_track(course_card(cup_course()), 16);
-                    else card_release();
+                    card_release();
+                    if (browsing_courses) card_show(cup_course(), 24, 16, 12);
                 }
                 if (seq.current == FZX_SCN_SELECT && printed && course_cursor < sizeof(fzx_cards)/sizeof(fzx_cards[0]))
-                    card_track(course_card(course_cursor), 16);
+                    card_track(course_card(course_cursor), 16, 22);
 #endif
             }
         } else {

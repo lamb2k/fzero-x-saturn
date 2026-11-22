@@ -3,10 +3,12 @@
 Frozen before any untouched trajectory was scored. The score is `tools/attacks_matched.py score`; the population of
 untouched trajectories is `tools/attacks_heldout_c142.json` (14 scenarios chosen by a seeded generator from the
 reference's scenario parameters alone; no native window has run on it). Hashes of both files are recorded in the commit
-that adds this record; the files are not edited after it:
+that adds this record; the files are not edited after it (the table was first committed with CRLF line endings; commit after this one
+stores it with LF, the repository's convention, and the hash below is of the LF file; the JSON content is the same and
+the untouched set was scored from the LF file):
 
     attacks_matched.py          b4fe279074ca2893df4bdc11a632bc81fc0b2cc4d817f0e6bda5f950dfb5136f
-    attacks_heldout_c142.json   3bb9be8da5d36180a2f211591f3289b16cf90008702661d9befa9b36a745ba60
+    attacks_heldout_c142.json   0ac1f6d1caf6a0eca74e96d5a268198836cb104e8c918c44cc358252cc4a04f0
 
 ## Definition
 

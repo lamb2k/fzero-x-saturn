@@ -1,0 +1,11 @@
+# lowpcs v3 (C-132): the .low functions reviewed as soft-reset / TITLE transition work. A hit on one counts as transition work only
+# when the census positively identifies it after an accepted reset-to-TITLE request, outside fzx_race_frame (see lowpcs.py).
+# Frozen before the targeted rerun; the list is the 8 symbols of the gate6 census (lowpcs-gate4-cov3.txt, gate6 lowpcs-final).
+_art_preload          # title_enter's art preload
+_fzx_cup_reset        # soft reset: the cup state back to its start
+_session_defaults     # soft reset: session settings back to defaults
+_sh2z_scene_request   # the scene change request (RACE -> TITLE)
+_title_enter          # TITLE scene entry
+_title_preload        # TITLE preload
+_title_span           # TITLE drawing spans (first TITLE frame)
+_title_tick           # TITLE scene tick

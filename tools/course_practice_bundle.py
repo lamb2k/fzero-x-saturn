@@ -13,7 +13,7 @@ Everything here is derived from the owner's ROM: generated/ only, never committe
 
     tools/course_practice_bundle.py mute-city-1 silence-1 sand-ocean-1 devils-forest-1 big-blue-1 port-town-1
 """
-import hashlib, re, sys
+import hashlib, json, re, sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -21,19 +21,88 @@ import course_catalog  # noqa: E402
 from course_bundle import OUT, ROOT  # noqa: E402
 
 
+class Bad(SystemExit):
+    pass
+
+
+def check_rows(slug, v):
+    """One course's header values (4 classes x 30 vehicles x 8 columns, tools/rivals_field_header.py): refuse a table that is not a
+    Practice field (grid places 1..30 in every class, the same 29 distinct machines in every class, the player a machine of its own)."""
+    if len(v) != 4 * 30 * 8:
+        raise Bad('%s: practice headers need 4 x 30 rows of 8 columns, found %d values' % (slug, len(v)))
+    cls = [[v[(k * 30 + i) * 8:(k * 30 + i) * 8 + 8] for i in range(30)] for k in range(4)]
+    machines = [tuple(r[5] for r in c) for c in cls]
+    if len(set(machines)) != 1:
+        raise Bad('%s: the four classes do not share one field of machines' % slug)
+    if len(set(machines[0][1:])) != 29 or machines[0][0] in machines[0][1:]:
+        raise Bad('%s: the 29 opponents are not 29 distinct machines (the player is not one of them)' % slug)
+    for k, c in enumerate(cls):
+        if sorted(r[0] for r in c) != list(range(1, 31)):
+            raise Bad('%s: class %d grid places are not 1..30' % (slug, k))
+        if any(r[3] <= 0 for r in c):
+            raise Bad('%s: class %d has a vehicle with no energy' % (slug, k))
+        if any(r[1] <= 0 for r in c[1:]):
+            raise Bad('%s: class %d has an opponent with no pace' % (slug, k))
+
+
+def check_reports(slug, reports):
+    """The four reference reports a course's rows came from (fzx-gp-ref --mode practice, difficulties 0..3, seed 1): one course, one
+    field, 30 unique racers. Returns the course length."""
+    if len(reports) != 4:
+        raise Bad('%s: need the four class reports, found %d' % (slug, len(reports)))
+    lens = set()
+    for d, r in enumerate(reports):
+        if r.get('tier') != 'HOST' or int(r.get('difficulty', -1)) != d or int(r.get('seed', -1)) != 1:
+            raise Bad('%s: report %d is not the HOST report of class %d, seed 1' % (slug, d, d))
+        ids = [x.get('id') for x in r.get('racers', [])]
+        if ids != list(range(30)):
+            raise Bad('%s: report %d racers are not ids 0..29 once each' % (slug, d))
+        lens.add(round(float(r.get('course_length', 0)), 2))
+    if len(lens) != 1 or min(lens) <= 0:
+        raise Bad('%s: the class reports are of different courses (lengths %s)' % (slug, sorted(lens)))
+    return lens.pop()
+
+
+def check_report_rows(slug, reports, v):
+    """The header's rows are the reports' (grid, machine and energy per racer in id order, every class)."""
+    for k, r in enumerate(reports):
+        for i, x in enumerate(sorted(r['racers'], key=lambda x: x['id'])):
+            row = v[(k * 30 + i) * 8:(k * 30 + i) * 8 + 8]
+            if row[0] != x['grid'] or row[5] != x['character'] or row[3] != int(round(x['max_energy'] * 256)):
+                raise Bad('%s: class %d racer %d: the header does not match its report' % (slug, k, i))
+
+
 def main():
-    slugs = sys.argv[1:] or list(course_catalog.COURSES)
+    args = sys.argv[1:]
+    rdir = None
+    if '--reports' in args:
+        rdir = Path(args[args.index('--reports') + 1])
+        del args[args.index('--reports'):args.index('--reports') + 2]
+    slugs = args or list(course_catalog.COURSES)
     ids = [int(v) for v in re.findall(r'\.id = (\d+)u', (OUT / 'course_ids.c').read_text())]
     if ids != [course_catalog.course(s)['index'] for s in slugs]:
         raise SystemExit('give the courses in course_ids.c order (course indexes %s)' % ids)
     sets = []
+    lengths = []
     for s in slugs:
         p = course_catalog.gen_root(s) / 'rivals/rivals_field_practice.h'
+        if not p.is_file():
+            raise Bad('%s: no practice header %s (run tools/modes_practice_regen.sh)' % (s, p))
         m = re.search(r'fzx_rivals_field_class\[4\]\[30\]\[8\]\s*=\s*\{(.*?)\};', p.read_text(), re.S)
         v = [int(x) for x in re.findall(r'-?\d+', m[1])] if m else []
-        if len(v) != 4 * 30 * 8:
-            raise SystemExit('%s: practice headers need 4 x 30 rows of 8 columns' % p)
+        check_rows(s, v)
+        if rdir is not None:
+            reps = []
+            for d in range(4):
+                rp = rdir / s / ('practice-d%d-s1.json' % d)
+                if not rp.is_file():
+                    raise Bad('%s: no report %s' % (s, rp))
+                reps.append(json.load(open(rp)))
+            lengths.append(check_reports(s, reps))
+            check_report_rows(s, reps, v)
         sets.append((p, v))
+    if rdir is not None and len(set(lengths)) != len(lengths):
+        raise Bad('two courses share one course length: a report is of another course')
     h = ['/* Generated by tools/course_practice_bundle.py; derived from the owner\'s ROM: never commit. */',
          '#ifndef FZX_COURSE_PRACTICE_H', '#define FZX_COURSE_PRACTICE_H', '#include <stdint.h>', '#include "course_ids.h"',
          '/* [course row of fzx_course_ids][class: novice, standard, expert, master][vehicle][8] (rivals_field.h columns) */',

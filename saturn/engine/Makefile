@@ -645,7 +645,7 @@ $(error Missing or stale class bundle: run tools/course_class_bundle.py <courses
 endif
 SH_SRCS += $(G)/courses/select/course_class.c
 endif
-SH_CFLAGS += -DENG_COURSE_SELECT=1 -I$(G)/courses/select -DFZX_ROAD_STREAM_TEXTURE_LIMIT=262144u -DFZX_ROAD_STREAM_PACK_LIMIT=240000u
+SH_CFLAGS += -DENG_COURSE_SELECT=1 -I$(G)/courses/select -DFZX_ROAD_STREAM_HIGH_BYTES=131072u -DFZX_ROAD_STREAM_TEXTURE_LIMIT=262144u -DFZX_ROAD_STREAM_PACK_LIMIT=240000u
 endif
 
 SH_LDFLAGS += -Wl,--defsym=_sat_stub_data_end=0x0028C000 -Wl,--defsym=_fzx_input_log=0x0028D000

@@ -1,4 +1,4 @@
-"""Bake Jack Cup nameplates and track silhouettes from the original course menu."""
+"""Bake the Jack and Queen Cup nameplates and track silhouettes from the original course menu."""
 import argparse
 import hashlib
 import json
@@ -7,7 +7,8 @@ from pathlib import Path
 import struct
 
 
-COURSES = ("MUTE CITY", "SILENCE", "SAND OCEAN", "DEVIL'S FOREST", "BIG BLUE", "PORT TOWN")
+COURSES = ("MUTE CITY", "SILENCE", "SAND OCEAN", "DEVIL'S FOREST", "BIG BLUE", "PORT TOWN",
+           "SECTOR ALPHA", "RED CANYON", "DEVIL'S FOREST", "MUTE CITY", "BIG BLUE", "WHITE LAND")
 
 def preview_masks(folder):
     pack = (folder / "CPREVIEW.PAK").read_bytes()
@@ -107,7 +108,7 @@ def bake(source, dest):
         for i in range(0,len(words),16):
             out.write(",".join(map(str,words[i:i+16]))+",\n")
         out.write("};\n")
-        out.write("static const uint8_t card_tracks[6][1024] = {\n")
+        out.write("static const uint8_t card_tracks[%d][1024] = {\n" % len(COURSES))
         for mask in masks:
             out.write("{\n")
             for i in range(0,len(mask),32):

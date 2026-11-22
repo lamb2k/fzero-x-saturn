@@ -22,6 +22,8 @@
 static const fzx_course_row_t catalog[] = {
     { 0u, 0u, AV(0), 0u }, { 1u, 1u, AV(1), 0u }, { 2u, 2u, AV(2), 0u },
     { 3u, 3u, AV(3), 0u }, { 4u, 4u, AV(4), 0u }, { 5u, 5u, AV(5), 0u },
+    { 6u, 6u, AV(6), 0u }, { 7u, 7u, AV(7), 0u }, { 8u, 8u, AV(8), 0u },
+    { 9u, 9u, AV(9), 0u }, { 10u, 10u, AV(10), 0u }, { 11u, 11u, AV(11), 0u },
 };
 #else
 #define AV(c) ((c) == ENG_COURSE_INDEX ? FZX_AVAIL_TA : 0u)

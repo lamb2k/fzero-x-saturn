@@ -4,7 +4,7 @@
 #ifndef ENG_COURSE_INDEX
 #define ENG_COURSE_INDEX 0
 #endif
-#define ROW(i, r, m, k) { (uint8_t)(i), 0u, (uint8_t)(r), (uint8_t)(m), { 0, 0, 0, 0 }, k }
+#define ROW(i, r, m, k) { (uint8_t)(i), (uint8_t)((i) / 6u), (uint8_t)(r), (uint8_t)(m), { 0, 0, 0, 0 }, k }
 const fzx_course_info_t fzx_course_info[] = {
     ROW(0, 0, 0, "MUTE CITY"),
     ROW(1, 1, 1, "SILENCE"),
@@ -12,6 +12,13 @@ const fzx_course_info_t fzx_course_info[] = {
     ROW(3, 3, 5, "DEVIL'S FOREST"),
     ROW(4, 4, 4, "BIG BLUE"),
     ROW(5, 5, 3, "PORT TOWN"),
+    /* Queen Cup (cup 1): the music is the BGM id of race.c D_i2_80106F14 */
+    ROW(6, 0, 7, "SECTOR ALPHA"),
+    ROW(7, 1, 6, "RED CANYON"),
+    ROW(8, 2, 5, "DEVIL'S FOREST 2"),
+    ROW(9, 3, 0, "MUTE CITY 2"),
+    ROW(10, 4, 4, "BIG BLUE 2"),
+    ROW(11, 5, 8, "WHITE LAND"),
 };
 #undef ROW
 const uint32_t fzx_course_info_count = sizeof(fzx_course_info) / sizeof(fzx_course_info[0]);

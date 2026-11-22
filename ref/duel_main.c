@@ -26,7 +26,9 @@
  * (a reference-only perturbation; repeatable up to 8 times). --replay-pads FILE drives both racers
  * from a recorded --pads file instead of the scripted drivers (as the native windows are driven).
  * --bake-range A:B --bake-dir DIR writes both racers' sources after every tick A..B
- * (DIR/p<k>-<tick>.src): the matched-state one-tick scan (tools/attacks_onestep.py). */
+ * (DIR/p<k>-<tick>.src): the matched-state one-tick scan (tools/attacks_onestep.py).
+ * --set-age T:K:A sets racer K's age since the last human contact (unk_288) to A just before tick T, and
+ * --set-toucher T:K:W its toucher (W -1 none): reference-only settings for the falls card's boundary tests. */
 #include <math.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -48,6 +50,11 @@ int duel_log_count(void);
 void duel_log_get(int i, int* kind, int* tick, int* a, int* b, float f[10]);
 void duel_pair(float* trail, int* colliding);
 void duel_perturb(int k, int field, int axis, float delta);
+void duel_set_age(int k, int age);
+void duel_set_toucher(int k, int who);
+int duel_load(int k, const char* key, const float* v, int n);
+void duel_set_energy(int k, float e);
+void duel_radius(int k, float* left, float* right);
 
 static void die(const char* m) { fprintf(stderr, "fzx-duel: %s\n", m); exit(2); }
 static unsigned char* read_file(const char* path, size_t* n) {
@@ -73,6 +80,30 @@ static void bake(int k, const char* path, int tick) {
     fclose(bake_out);
 }
 
+/* --load-state T:SRC0:SRC1 (attacks-3): just before tick T, both racers' baked state fields are replaced by the values of the two
+ * state sources (the bake format; the matched-start diagnostic gives it the native entry state converted back to floats). */
+static void load_state(int k, const char* path) {
+    char line[4096];
+    FILE* f = fopen(path, "r");
+    if (!f) die("cannot open a load-state source");
+    while (fgets(line, sizeof line, f)) {
+        char key[64], *p = line;
+        float v[32];
+        int n = 0, a, b, used;
+        if (line[0] == '#' || sscanf(p, "%63s %d %d%n", key, &a, &b, &used) != 3) continue;
+        p += used;
+        for (;;) {
+            char* e;
+            double d = strtod(p, &e);
+            if (e == p || n >= 32) break;
+            v[n++] = (float)d;
+            p = e;
+        }
+        duel_load(k, key, v, n);
+    }
+    fclose(f);
+}
+
 #define N64_A 0x8000u
 #define N64_Z 0x2000u
 #define N64_R 0x0010u
@@ -92,8 +123,13 @@ int main(int argc, char** argv) {
     const char *length_out = 0, *pairlog = 0, *replay = 0, *bake_dir = 0;
     int bake_from = -1, bake_to = -1;
     int force_tick = -1, force_value = -1, npert = 0, pert_t[8], pert_k[8], pert_f[8], pert_a[8];
+    int age_t = -1, age_k = 0, age_v = 0, tch_t = -1, tch_k = 0, tch_v = -1, load_t = -1;
+    const char *load0 = 0, *load1 = 0, *drv_out = 0;
     float pert_d[8];
     float e0 = 0.0f, e1 = 0.0f;
+    /* outcome judge (attacks-4) episode parameters; the defaults are the scripted drivers' constants, so no flag changes a run */
+    float lane_frac = 0.0f, near = 38.0f, bump_off = 0.0f, nrg_v[2] = { 0, 0 };
+    int att_side = 0, tap_int = 90, launch[2] = { 0, 0 }, nrg_t[2] = { -1, -1 }, nrg_k[2] = { 0, 1 }, nrg_n = 0;
     for (int i = 1; i + 1 < argc; i += 2) {
         if (!strcmp(argv[i], "--course")) course = argv[i + 1];
         else if (!strcmp(argv[i], "--rom")) rom = argv[i + 1];
@@ -113,6 +149,23 @@ int main(int argc, char** argv) {
                 die("--perturb T:K:F:A:D");
             npert++;
         }
+        else if (!strcmp(argv[i], "--load-state")) {
+            if (sscanf(argv[i + 1], "%d:", &load_t) != 1) die("--load-state T:SRC0:SRC1");
+            char* c1 = strchr(argv[i + 1], ':'); char* c2 = c1 ? strchr(c1 + 1, ':') : 0;
+            if (!c2) die("--load-state T:SRC0:SRC1");
+            *c2 = 0; load0 = c1 + 1; load1 = c2 + 1;
+        }
+        else if (!strcmp(argv[i], "--set-age")) { if (sscanf(argv[i + 1], "%d:%d:%d", &age_t, &age_k, &age_v) != 3) die("--set-age T:K:A"); }
+        else if (!strcmp(argv[i], "--set-toucher")) { if (sscanf(argv[i + 1], "%d:%d:%d", &tch_t, &tch_k, &tch_v) != 3) die("--set-toucher T:K:W"); }
+        else if (!strcmp(argv[i], "--lane-frac")) lane_frac = (float)atof(argv[i + 1]);
+        else if (!strcmp(argv[i], "--near")) near = (float)atof(argv[i + 1]);
+        else if (!strcmp(argv[i], "--bump-off")) bump_off = (float)atof(argv[i + 1]);
+        else if (!strcmp(argv[i], "--att-side")) att_side = atoi(argv[i + 1]);
+        else if (!strcmp(argv[i], "--tap-int")) tap_int = atoi(argv[i + 1]);
+        else if (!strcmp(argv[i], "--launch0")) launch[0] = atoi(argv[i + 1]);
+        else if (!strcmp(argv[i], "--launch1")) launch[1] = atoi(argv[i + 1]);
+        else if (!strcmp(argv[i], "--set-energy")) { if (nrg_n >= 2 || sscanf(argv[i + 1], "%d:%d:%f", &nrg_t[nrg_n], &nrg_k[nrg_n], &nrg_v[nrg_n]) != 3) die("--set-energy T:K:E (at most 2)"); nrg_n++; }
+        else if (!strcmp(argv[i], "--drv-out")) drv_out = argv[i + 1];   /* attacks-5: the scripted driver's memory at the bake tick (tap_at tap_dir) */
         else if (!strcmp(argv[i], "--bake0")) bake0 = argv[i + 1];
         else if (!strcmp(argv[i], "--bake1")) bake1 = argv[i + 1];
         else if (!strcmp(argv[i], "--bake-range")) { if (sscanf(argv[i + 1], "%d:%d", &bake_from, &bake_to) != 2) die("--bake-range A:B"); }
@@ -160,25 +213,33 @@ int main(int argc, char** argv) {
     for (int t = 0; t < ticks; ++t) {
         unsigned short b[2] = { 0, 0 };
         signed char x[2] = { 0, 0 };
-        if (t >= 460) { b[0] = N64_A; b[1] = N64_A; }
+        /* attacks-5 (C-168): the converted start is loaded BEFORE the driver reads the state, so the closed-loop drivers decide the
+         * first tick from the same converted state the native arm starts from (it was loaded after the decision before) */
+        if (load_t == t) { load_state(0, load0); load_state(1, load1); duel_state(0, f0, n0); duel_state(1, f1, n1); }
+        if (t >= 460 + launch[0]) b[0] = N64_A;
+        if (t >= 460 + launch[1]) b[1] = N64_A;
         /* gap: O ahead of P along the lap (+), wrapped */
         float gap = f1[10] - f0[10];
         if (gap > length * 0.5f) gap -= length;
         if (gap < -length * 0.5f) gap += length;
-        const float lane_o = 60.0f;   /* O keeps 60 left of the line */
+        float lane_o = 60.0f;   /* O keeps 60 left of the line */
+        if (lane_frac != 0.0f) {   /* a fraction of O's local half width, signed (+ left) */
+            float rl, rr; duel_radius(1, &rl, &rr);
+            lane_o = lane_frac * (lane_frac > 0.0f ? rl : rr);
+        }
         float target0 = 0.0f, target1 = lane_o;
         const float* fa = attacker ? f1 : f0;   /* the attacker's and the victim's state */
         const float* fv = attacker ? f0 : f1;
         const float vgap = attacker ? -gap : gap;
         switch (sc) {
-        case 0: target0 = f1[8]; break;                                   /* onto O */
-        case 1: case 2: case 4: target0 = f1[8] + (f0[8] > f1[8] ? 38.0f : -38.0f); break; /* beside O */
+        case 0: target0 = f1[8] + (att_side ? att_side * bump_off : 0.0f); break;   /* onto O */
+        case 1: case 2: case 4: target0 = f1[8] + (att_side ? att_side * near : (f0[8] > f1[8] ? near : -near)); break; /* beside O */
         case 3: target0 = 0.0f; target1 = f0[8] + (f1[8] > f0[8] ? 38.0f : -38.0f); break;  /* O beside P */
         }
         if (sc >= 1 && t >= attack_from) {
             /* Attack when beside the victim: two presses two ticks apart toward it, every 90 ticks. */
             const int k = attacker;
-            if (t - tap_at >= 90 && fabsf(vgap) < 25.0f && fabsf(fv[8] - fa[8]) < 75.0f && !(n0[0] & ST_SPIN) && !(n1[0] & ST_SPIN) &&
+            if (t - tap_at >= tap_int && fabsf(vgap) < 25.0f && fabsf(fv[8] - fa[8]) < 75.0f && !(n0[0] & ST_SPIN) && !(n1[0] & ST_SPIN) &&
                 !(n1[0] & ST_RETIRED)) {
                 tap_at = t + (sc == 2 ? 2 : 0); tap_dir = fv[8] > fa[8] ? -1 : 1;   /* victim to the left (+lateral) -> Z, else R */
             }
@@ -195,6 +256,8 @@ int main(int argc, char** argv) {
         if (replay) { b[0] = rb[0][t]; x[0] = rx[0][t]; b[1] = rb[1][t]; x[1] = rx[1][t]; }
         for (int q = 0; q < npert; ++q)
             if (pert_t[q] == t) duel_perturb(pert_k[q], pert_f[q], pert_a[q], pert_d[q]);
+        if (age_t == t) duel_set_age(age_k, age_v);
+        if (tch_t == t) duel_set_toucher(tch_k, tch_v);
         if (lf) {
             float trail; int colliding;
             duel_pair(&trail, &colliding);
@@ -227,7 +290,10 @@ int main(int argc, char** argv) {
                         fs[k][0], fs[k][1], fs[k][2], fs[k][3], fs[k][4], fs[k][5], fs[k][6], fs[k][7], fs[k][8], fs[k][9], fs[k][10],
                         ns[k][0], ns[k][1], ns[k][2], ns[k][3], ns[k][4], ns[k][5], fs[k][11]);
         }
+        for (int q = 0; q < nrg_n; ++q)
+            if (t == nrg_t[q]) { duel_set_energy(nrg_k[q], nrg_v[q]); duel_state(0, f0, n0); duel_state(1, f1, n1); }
         if (t == bake_at && bake0 && bake1) { bake(0, bake0, t); bake(1, bake1, t); }
+        if (t == bake_at && drv_out) { FILE* df = fopen(drv_out, "w"); if (!df) die("cannot write the driver state"); fprintf(df, "%d %d\n", tap_at, tap_dir); fclose(df); }
         if (bake_dir && t >= bake_from && t <= bake_to) {
             char path[1024];
             for (int k = 0; k < 2; ++k) {

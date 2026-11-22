@@ -1,0 +1,226 @@
+{
+  "_comment": "attacks outcome judge (C-168, O-175): every interpretation of the ruling is a named parameter here. Hashed into the freeze record.",
+  "version": 2,
+  "t0": 600,
+  "episode_ticks": 600,
+  "cells": {
+    "maneuvers": [
+      "side",
+      "spin",
+      "bump"
+    ],
+    "environments": [
+      "open",
+      "tube"
+    ],
+    "placements": [
+      "wall",
+      "interior"
+    ],
+    "attacker_bands": [
+      "light",
+      "middle",
+      "heavy"
+    ],
+    "episodes_per_cell": 2400
+  },
+  "environment_course": {
+    "open": "mute-city",
+    "tube": "sand-ocean"
+  },
+  "band_rule": "tertiles of the 30 stock machines by weight (kg, attacks_tables column 3), ties by machine id; attacker is racer 0 (the credited human), victim is racer 1",
+  "balance_block": [
+    "victim_band(3)",
+    "initiation_side(2)",
+    "energy_start(2)"
+  ],
+  "placement": {
+    "wall_lane_frac": [
+      0.72,
+      0.9
+    ],
+    "wall_lane_frac_tube": [
+      0.92,
+      1.0
+    ],
+    "interior_lane_frac": [
+      -0.12,
+      0.12
+    ],
+    "_comment": "lane = signed fraction of the local half width; wall: sign = side of the victim, attacker positions itself inside"
+  },
+  "driver": {
+    "near": [
+      32.0,
+      44.0
+    ],
+    "bump_offset": [
+      24.0,
+      42.0
+    ],
+    "tap_interval": [
+      70,
+      110
+    ],
+    "launch_jitter": [
+      0,
+      40
+    ],
+    "attack_from_offset": [
+      20,
+      80
+    ]
+  },
+  "energy": {
+    "low_frac": [
+      0.1,
+      0.3
+    ],
+    "low_frac_bump": [
+      0.005,
+      0.03
+    ],
+    "low_applies_to": "both racers",
+    "normal": "unchanged bake"
+  },
+  "reading_retire_per_field": "episode",
+  "reading_contact_unit": "damaging",
+  "reading_damage_racers": [
+    "victim",
+    "attacker"
+  ],
+  "reading_wall_ko": "credited KO with victim non-contact (wall) damage >= 0.01 within wall_ko_window ticks before and including the KO tick (the KO credit window is 60)",
+  "applicability": {
+    "ko": [
+      "side",
+      "spin",
+      "bump"
+    ],
+    "wall_ko": {
+      "maneuvers": [
+        "side",
+        "spin",
+        "bump"
+      ],
+      "placements": [
+        "wall"
+      ],
+      "environments": [
+        "open",
+        "tube"
+      ]
+    },
+    "structurally_zero": {
+      "attack_starts": [
+        "bump"
+      ]
+    }
+  },
+  "event_min_drop": 0.01,
+  "native_spin_side": "own draw",
+  "namespaces": {
+    "pilot": "fzx-attacks-outcome/pilot/v1",
+    "score": "fzx-attacks-outcome/c168/v1"
+  },
+  "wall_ko_window": 60,
+  "controls": {
+    "_comment": "native runner mutants (duel_native.c --mutate); each must make at least one of its mapped metrics fail the C-168 rule in some cell. no-destroy and coast-bias have no mapped metric (their own fixture and C-116 floor were part of the dropped judge); they run and are reported.",
+    "credit-off": {
+      "mechanism": "KO credit and regain",
+      "metrics": [
+        "ko",
+        "ko_ticks"
+      ]
+    },
+    "share-swap": {
+      "mechanism": "contact damage split by weight",
+      "metrics": [
+        "damage_victim",
+        "damage_attacker"
+      ]
+    },
+    "push2.5": {
+      "mechanism": "attack push strength",
+      "metrics": [
+        "wall_ko",
+        "hit"
+      ]
+    },
+    "reach45": {
+      "mechanism": "legal reach 46 to 45",
+      "metrics": [
+        "hit"
+      ]
+    },
+    "spin140": {
+      "mechanism": "spin-out duration 120 to 140",
+      "metrics": [
+        "retire",
+        "ko_ticks"
+      ]
+    },
+    "opp-player": {
+      "mechanism": "opponent spline search bounds",
+      "metrics": [
+        "wall_ko",
+        "hit"
+      ]
+    },
+    "heavy5": {
+      "mechanism": "heavy gain 10 to 5",
+      "metrics": [
+        "damage_victim",
+        "ko"
+      ]
+    },
+    "impact1.2": {
+      "mechanism": "impact gain 1.1 to 1.2",
+      "metrics": [
+        "damage_victim",
+        "pre_energy_victim"
+      ]
+    },
+    "no-destroy": {
+      "mechanism": "a crashed machine hit for more than 25 is destroyed",
+      "metrics": [],
+      "fixtures": [
+        "terminal",
+        "retire"
+      ],
+      "row": "seeded KO-bearing episode with a destroy event"
+    },
+    "coast-bias": {
+      "mechanism": "retired-coast damp bias",
+      "metrics": [],
+      "own_floor": "C-116"
+    }
+  },
+  "sensitivity_q": 1,
+  "scoring": {
+    "_comment": "C-168: per cell and metric, pass when |native - reference| <= |nudged reference - reference| + tolerance, on the same starts. reference = C, nudged reference = T (1 q post-load nudge), native = N. One closed-loop run of episodes_per_cell paired starts per cell; one scoring round.",
+    "reference_arm": "C",
+    "nudged_arm": "T",
+    "test_arm": "N",
+    "tolerance": {
+      "hit": 0.005,
+      "ko": 0.005,
+      "wall_ko": 0.005,
+      "damage": 0.005,
+      "pre_energy": 0.005,
+      "ko_ticks": 2.0,
+      "retire": 0.02
+    },
+    "metric_forms": {
+      "hit": "share of episodes with a damaging contact on the victim",
+      "ko": "share of episodes with a credited KO",
+      "wall_ko": "share of episodes with a credited KO whose victim took non-contact damage in the credit window (wall_ko_window)",
+      "damage_victim/damage_attacker": "sum of contact damage / max energy over the sum of damaging contact episodes (ratio of sums per cell)",
+      "pre_energy_victim/pre_energy_attacker": "sum of energy / max energy before the damaging contact over the same episodes (ratio of sums)",
+      "ko_ticks": "mean ticks from T0 to the first credited KO over the episodes that have one in that arm (time to KO; the share of KOs is the ko metric)",
+      "retire": "retirements per episode, both racers"
+    },
+    "controls_rule": "a mutant passes its control when, in at least one cell where its mechanism is exercised, at least one of its mapped metrics does not pass the scoring rule against C (using the same T)",
+    "coverage_reported_not_gating": true
+  },
+  "drivers": "closed loop for C, T and N: the reference's scripted drivers (ref/duel_main.c) run in the original and, ported line for line in floats, in tools/attacks_host/duel_native.c (--drive)"
+}

@@ -3,6 +3,7 @@
  * so both are pad-driven and the original's contact, attack, damage, spin-out, retirement and KO
  * rules run between them unchanged. HOST reference role only; decomp headers only (the host driver
  * is ref/duel_main.c). MIT; see ../LICENSE. */
+#include <string.h>
 #include "global.h"
 #include "fzx_racer.h"
 #include "fzx_course.h"
@@ -158,11 +159,54 @@ void duel_pair(float* trail, int* colliding) {
     *colliding = p->areColliding ? 1 : 0;
 }
 
+/* Reference-only settings before a tick (the falls card's boundary tests, C-096 item 5): racer k's age since the
+ * last human contact (unk_288), and its toucher (unk_28C: -1 none, else that racer). */
+void duel_set_age(int k, int age) { gRacers[k].unk_288 = age; }
+void duel_set_toucher(int k, int who) { gRacers[k].unk_28C = who < 0 ? NULL : &gRacers[who]; }
+
+/* Outcome judge (attacks-4): racer k's energy (the episode's start state), and the course half widths under racer k (left, right). */
+void duel_set_energy(int k, float e) { gRacers[k].energy = e; }
+void duel_radius(int k, float* left, float* right) { *left = gRacers[k].currentRadiusLeft; *right = gRacers[k].currentRadiusRight; }
+
 /* Reference-only perturbation before a tick: racer k's position (field 0) or velocity (field 1), one axis. */
 void duel_perturb(int k, int field, int axis, float delta) {
     Racer* r = &gRacers[k];
     f32* v = field == 0 ? &r->segmentPositionInfo.pos.x : &r->velocity.x;
     v[axis] += delta;
+}
+
+
+/* Reference-only state load (attacks-3, the matched-start diagnostic): the inverse of duel_bake's state keys. Racer k's baked
+ * state fields take the values of v (a source line's floats, already rounded by the caller to the native entry state's
+ * format); integer-valued fields and every field the pack does not hold are left as the original run has them. Returns 1 if
+ * the key was a state key, 0 otherwise (course and machine keys are ignored). */
+static void load_vec(Vec3f* d, const float* v) { d->x = v[0]; d->y = v[1]; d->z = v[2]; }
+static void load_mtx(Mtx3F* m, const float* v) {
+    m->x.x = v[0]; m->x.y = v[1]; m->x.z = v[2]; m->y.x = v[3]; m->y.y = v[4]; m->y.z = v[5]; m->z.x = v[6]; m->z.y = v[7]; m->z.z = v[8];
+}
+int duel_load(int k, const char* key, const float* v, int n) {
+    Racer* r = &gRacers[k];
+    RacerSegmentPositionInfo* p = &r->segmentPositionInfo;
+    if (!strcmp(key, "pos") && n == 3) load_vec(&p->pos, v);
+    else if (!strcmp(key, "vel") && n == 3) load_vec(&r->velocity, v);
+    else if (!strcmp(key, "body") && n == 9) load_mtx(&r->trueBasis, v);
+    else if (!strcmp(key, "road") && n == 9) load_mtx(&r->segmentBasis, v);
+    else if (!strcmp(key, "gravity_up") && n == 3) load_vec(&r->gravityUp, v);
+    else if (!strcmp(key, "tilt_up") && n == 3) load_vec(&r->tiltUp, v);
+    else if (!strcmp(key, "ground_up") && n == 3) load_vec(&r->upFromGround, v);
+    else if (!strcmp(key, "fwd") && n == 3) load_vec(&p->segmentForward, v);
+    else if (!strcmp(key, "spos") && n == 3) load_vec(&p->segmentPos, v);
+    else if (!strcmp(key, "disp") && n == 3) load_vec(&p->segmentDisplacement, v);
+    else if (!strcmp(key, "ground") && n == 3) load_vec(&p->lastGroundedPos, v);
+    else if (!strcmp(key, "bvel") && n == 3) load_vec(&r->unk_5C, v);
+    else if (!strcmp(key, "scalars") && n == 14) {
+        p->segmentTValue = v[0]; p->segmentLengthProportion = v[1]; p->segmentForwardMagnitude = v[2]; r->heightAboveGround = v[3];
+        r->currentRadiusLeft = v[4]; r->currentRadiusRight = v[5]; r->lapDistance = v[6]; r->lapsCompletedDistance = v[7];
+        r->raceDistance = v[8]; r->speed = v[9]; r->energy = v[10]; r->unk_17C = v[11]; r->accelerationForce = v[12]; r->unk_238 = v[13];
+    } else if (!strcmp(key, "dynamics") && n == 21) {
+        r->unk_200 = v[15]; r->driftAttackForce = v[16]; r->jumpBoost = v[17]; r->unk_198 = v[18]; r->unk_234 = v[19]; r->tiltUpInput = v[20];
+    } else return 0;
+    return 1;
 }
 
 /* Physics pack source of racer k (as ref_handling_bake does for racer 0). */

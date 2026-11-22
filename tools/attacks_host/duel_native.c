@@ -16,7 +16,12 @@
  * --pairlog FILE (C-092): per tick, the pair test as the body-contact rule decided it, from the
  * inputs it read (logging only; d2 and closing repeat sh2z_bc_pair's integer terms):
  *   N t along_ok d2_q32 closing_q32 touch first push hit0 hit1 damage0 damage1 (damage Q16 raw)
- *   K t victim attacker      a KO credited at the victim's spin-out start
+ *   K t victim attacker      a KO credited at the victim's spin-out start, or at its fall start (C-096 item 5)
+ *
+ * --drive bump|side|spin (attacks-5, C-168): closed loop. The pads of every tick after --from come from the same scripted drivers the
+ * reference runs (ref/duel_main.c: steer gains 0.004 and 2.5, throttle from tick 460, the attacker's double tap, the level-keeping lift),
+ * read from this runner's own state; the pads file only gives the buttons held on tick T. Parameters: --attack-from --att-side --near
+ * --bump-off --tap-int --launch0 --launch1 --lane-frac --drv-tap AT,DIR (the driver's memory at T, written by the reference's --drv-out).
  *
  * Racer 1 is stepped as the reference's racer 1 is: an id at or above gNumPlayers, whose spline
  * search runs with the computer racers' bounds (3 iterations, squared tolerance 5) where the human
@@ -24,6 +29,7 @@
  * --opponent-search player gives racer 1 the player's search (the control; the runner before C-092
  * round 4). --regain-pending 1: racer 0 starts with the KO energy regain the reference credited on
  * tick T still pending (it is applied at the start of the next tick; the bake does not carry it). */
+#include <math.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -67,10 +73,23 @@ static void step(int k, sh2z_vd_body_t *b, const sh2z_vd_rules_t *rules, const s
 #endif
 }
 static int pads_b[2][20000], pads_x[2][20000];
-static signed char draw[2][20000];   /* --spin-draws: the reference's spin side per tick and racer (0 none) */
+static signed char draw[2][20000];
+/* the reference's scripted drivers (ref/duel_main.c), floats as there */
+#define N64_A 0x8000u
+#define N64_Z 0x2000u
+#define N64_R 0x0010u
+static signed char drv_steer(float lateral, float heading, float target, float kl) {
+    float s = kl * (lateral - target) + 2.5f * heading;
+    if (s > 1.0f) s = 1.0f;
+    if (s < -1.0f) s = -1.0f;
+    return (signed char)(s >= 0.0f ? (int)(s * 63.0f + 0.5f) : -(int)(-s * 63.0f + 0.5f));
+}   /* --spin-draws: the reference's spin side per tick and racer (0 none) */
 
 int main(int argc, char **argv) {
     const char *p0 = 0, *p1 = 0, *pads = 0, *trace = 0, *mutate = "", *pairlog = 0, *draws = 0;
+    const char *drive = 0, *pads_out = 0;
+    int attack_from = 700, att_side = 0, tap_int = 90, launch[2] = { 0, 0 }, tap_at = -1000, tap_dir = 0;
+    float near_ = 38.0f, bump_off = 0.0f, lane_frac = 0.0f;
     int from = -1, ticks = 120, c0 = 0, c1 = 0, since = -1, toucher = -1, touching = 0, side[2] = { 0, 0 }, nudge = 0, regain_pending = 0;
     for (int i = 1; i + 1 < argc; i += 2) {
         if (!strcmp(argv[i], "--pack0")) p0 = argv[i + 1];
@@ -88,6 +107,17 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[i], "--spin-side1")) side[1] = atoi(argv[i + 1]);
         else if (!strcmp(argv[i], "--spin-draws")) draws = argv[i + 1];
         else if (!strcmp(argv[i], "--mutate")) mutate = argv[i + 1];
+        else if (!strcmp(argv[i], "--pads-out")) pads_out = argv[i + 1];
+        else if (!strcmp(argv[i], "--drive")) drive = argv[i + 1];
+        else if (!strcmp(argv[i], "--attack-from")) attack_from = atoi(argv[i + 1]);
+        else if (!strcmp(argv[i], "--att-side")) att_side = atoi(argv[i + 1]);
+        else if (!strcmp(argv[i], "--near")) near_ = (float)atof(argv[i + 1]);
+        else if (!strcmp(argv[i], "--bump-off")) bump_off = (float)atof(argv[i + 1]);
+        else if (!strcmp(argv[i], "--tap-int")) tap_int = atoi(argv[i + 1]);
+        else if (!strcmp(argv[i], "--launch0")) launch[0] = atoi(argv[i + 1]);
+        else if (!strcmp(argv[i], "--launch1")) launch[1] = atoi(argv[i + 1]);
+        else if (!strcmp(argv[i], "--lane-frac")) lane_frac = (float)atof(argv[i + 1]);
+        else if (!strcmp(argv[i], "--drv-tap")) { if (sscanf(argv[i + 1], "%d,%d", &tap_at, &tap_dir) != 2) die("--drv-tap AT,DIR"); }
         else if (!strcmp(argv[i], "--regain-pending")) regain_pending = atoi(argv[i + 1]);
         else if (!strcmp(argv[i], "--opponent-search")) {
             if (!strcmp(argv[i + 1], "cpu")) opp_cpu = 1;
@@ -135,6 +165,9 @@ int main(int argc, char **argv) {
     else if (!strcmp(mutate, "heavy5")) br.heavy_gain = Q16(5.0);
     else if (!strcmp(mutate, "opp-player")) opp_cpu = 0;
     else if (!strcmp(mutate, "no-destroy")) { }   /* the control: a crashed machine is never destroyed */   /* the control for the opponent's search */
+    else if (!strcmp(mutate, "fall-keep-energy") || !strcmp(mutate, "fall-age119") || !strcmp(mutate, "fall-wrong") ||
+             !strcmp(mutate, "fall-twice")) { }   /* the falls card's controls (C-096 item 5), below */
+    else if (!strcmp(mutate, "coast-bias")) { }   /* the retired-coast floor's control (C-116): a biased damp, below */
     else if (*mutate) die("unknown mutation");
     sh2z_vd_body_t b[2] = { course[0].start, course[1].start };
     /* --nudge N: racer 0 starts N Q16 LSB to the side (the sensitivity probe: native against itself). */
@@ -156,7 +189,54 @@ int main(int argc, char **argv) {
     if (trace && !tf) die("cannot write the trace");
     FILE *lf = pairlog ? fopen(pairlog, "w") : NULL;
     if (pairlog && !lf) die("cannot write the pair log");
+    int sc = -1;
+    if (drive) {
+        sc = !strcmp(drive, "bump") ? 0 : !strcmp(drive, "side") ? 1 : !strcmp(drive, "spin") ? 2 : -1;
+        if (sc < 0) die("--drive bump|side|spin");
+        last = 19999;
+    }
+    const float track_len = (float)(course[0].track.length / 4096.0);
     for (t = from + 1; t <= from + ticks && t <= last; ++t) {
+        if (drive) {   /* the scripted drivers of ref/duel_main.c, from the state after the previous tick */
+            float lat[2], hd[2], ld[2];
+            for (int k = 0; k < 2; ++k) {
+                const sh2z_vd_body_t *v = &b[k];
+                lat[k] = (float)(sh2z_vd_body_lateral(v) / 65536.0);
+                hd[k] = (float)(((double)v->body[0][0] * v->road[2][0] + (double)v->body[0][1] * v->road[2][1] +
+                                 (double)v->body[0][2] * v->road[2][2]) / 1073741824.0 / 1073741824.0);
+                ld[k] = (float)(v->lap_dist / 4096.0);
+            }
+            unsigned short pb[2] = { 0, 0 };
+            signed char px[2] = { 0, 0 };
+            if (t >= 460 + launch[0]) pb[0] = N64_A;
+            if (t >= 460 + launch[1]) pb[1] = N64_A;
+            float gap = ld[1] - ld[0];
+            if (gap > track_len * 0.5f) gap -= track_len;
+            if (gap < -track_len * 0.5f) gap += track_len;
+            float lane_o = 60.0f;
+            if (lane_frac != 0.0f) lane_o = lane_frac * (lane_frac > 0.0f ? (float)(b[1].half_left / 65536.0) : (float)(b[1].half_right / 65536.0));
+            float target0 = 0.0f, target1 = lane_o;
+            const int spin0 = (b[0].flags & SH2Z_VD_SPINNING) != 0, spin1 = (b[1].flags & SH2Z_VD_SPINNING) != 0;
+            const int ret1 = (b[1].flags & SH2Z_VD_CRASHED) != 0;
+            switch (sc) {
+            case 0: target0 = lat[1] + (att_side ? att_side * bump_off : 0.0f); break;
+            default: target0 = lat[1] + (att_side ? att_side * near_ : (lat[0] > lat[1] ? near_ : -near_)); break;
+            }
+            if (sc >= 1 && t >= attack_from) {
+                if (t - tap_at >= tap_int && fabsf(gap) < 25.0f && fabsf(lat[1] - lat[0]) < 75.0f && !spin0 && !spin1 && !ret1) {
+                    tap_at = t + (sc == 2 ? 2 : 0); tap_dir = lat[1] > lat[0] ? -1 : 1;
+                }
+                const int dt = t - tap_at;
+                if (dt == 0 || dt == 2) pb[0] |= tap_dir < 0 ? N64_Z : N64_R;
+                if (sc == 2 && dt >= -2 && dt <= 4) pb[0] |= tap_dir < 0 ? N64_R : N64_Z;
+            }
+            if (t >= 460 && gap > 15.0f) pb[1] &= (unsigned short)~N64_A;
+            if (t >= 460 && gap < -15.0f) pb[0] &= (unsigned short)~N64_A;
+            if (spin0) target0 = lat[0];
+            px[0] = drv_steer(lat[0], hd[0], target0, 0.004f);
+            px[1] = drv_steer(lat[1], hd[1], target1, 0.004f);
+            for (int k = 0; k < 2; ++k) { pads_b[k][t] = pb[k]; pads_x[k][t] = px[k]; }
+        }
         /* Contact first, on the state after the previous tick (Racer_Update's order). */
         for (int k = 0; k < 2; ++k) {
             sh2z_bc_body_t *c = &bc[k];
@@ -199,6 +279,7 @@ int main(int argc, char **argv) {
                 gone[k] = 1;
             }
         const uint32_t spin_before = b[1].flags & SH2Z_VD_SPINNING, spin_before0 = b[0].flags & SH2Z_VD_SPINNING;
+        const uint32_t flags0_pre = b[0].flags;   /* attacks-5 fix: the KO credit reads the player's state before this tick's steps (the original credits a KO on the tick both spin out) */
         for (int k = 0; k < 2; ++k) {
             const uint16_t btn = (uint16_t)pads_b[k][t];
             sh2z_vd_input_t in;
@@ -214,6 +295,8 @@ int main(int argc, char **argv) {
             if (k == 0) regain = 0;
             const sh2z_vd_body_t pre = b[k];
             const sh2z_vd_contact_t c_in = c;
+            if (!strcmp(mutate, "coast-bias") && (b[k].flags & SH2Z_VD_CRASHED))   /* one Q16 LSB toward zero a tick: a biased damp */
+                for (int j = 0; j < 3; ++j) b[k].vel[j] += b[k].vel[j] > 0 ? -1 : (b[k].vel[j] < 0 ? 1 : 0);
             step(k, &b[k], &rules, &in, &c);
             /* --spin-draws: where the reference drew a spin side on this tick, the native takes the
              * same side at its own draw, inside the step (the step turns by it at once). The native
@@ -230,6 +313,28 @@ int main(int argc, char **argv) {
                     b[k] = alt;
                 }
             }
+            /* Retirement (Racer_RetireRacer, racer.c 963-973): energy 0.0 on the tick the machine crashes (a fall
+             * below the floor, a spin-out's end), unless it had crashed or finished before. */
+            const int retired_now = (b[k].flags & SH2Z_VD_CRASHED) && !(pre.flags & (SH2Z_VD_CRASHED | SH2Z_VD_FINISHED));
+            if (retired_now && strcmp(mutate, "fall-keep-energy") != 0) b[k].energy = 0;
+            /* KO at a fall start (func_80090AFC -> func_8008DBB8(racer, 120), racer.c 3884-3887, 2727-2768): the
+             * opponent leaving the course, not crashed or spinning out before, with the player as its toucher and
+             * an age of at most 120. The original's age has counted this tick when the race clock ran (racer.c
+             * 5217-5223, before the edge test; the runner's since is the age before the tick), not when the spline
+             * locate failed. The player must be able to score, as at a spin-out start. */
+            const int fell_now = (b[k].flags & SH2Z_VD_FALLING) && !(pre.flags & (SH2Z_VD_CRASHED | SH2Z_VD_SPINNING | SH2Z_VD_FALLING));
+            if (k == 1 && fell_now && bc[1].toucher == 0 && bc[1].since != UINT32_MAX &&
+                !(flags0_pre & (SH2Z_VD_FINISHED | SH2Z_VD_CRASHED | SH2Z_VD_SPINNING))) {
+                const uint32_t age = bc[1].since + (b[1].race_ticks != pre.race_ticks ? 1u : 0u);
+                if (age <= (!strcmp(mutate, "fall-age119") ? 119u : 120u)) {
+                    const int wrong = !strcmp(mutate, "fall-wrong");
+                    for (int n = !strcmp(mutate, "fall-twice") ? 2 : 1; n > 0; --n) {   /* fall-twice: a duplicate credit */
+                        ++kos;
+                        if (!wrong) regain += course[0].vehicle.max_energy / 8;
+                        if (lf) fprintf(lf, "K %d 1 %d\n", t, wrong ? 1 : 0);
+                    }
+                }
+            }
         }
         /* The spin-out side is a random draw in the original: take the reference's (--spin-side*). */
         for (int k = 0; k < 2; ++k) {
@@ -239,7 +344,7 @@ int main(int argc, char **argv) {
         }
         /* KO credit at the opponent's spin-out start (contact damage or walls this tick). */
         if (!spin_before && (b[1].flags & SH2Z_VD_SPINNING) && bc[1].toucher == 0 && bc[1].since <= br.credit_window &&
-            !(b[0].flags & (SH2Z_VD_FINISHED | SH2Z_VD_CRASHED | SH2Z_VD_SPINNING))) {
+            !(flags0_pre & (SH2Z_VD_FINISHED | SH2Z_VD_CRASHED | SH2Z_VD_SPINNING))) {
             ++kos;
             regain += course[0].vehicle.max_energy / 8;
             if (lf) fprintf(lf, "K %d 1 %d\n", t, bc[1].toucher);
@@ -259,5 +364,11 @@ int main(int argc, char **argv) {
     }
     if (tf) fclose(tf);
     if (lf) fclose(lf);
+    if (drive && pads_out) {
+        FILE *of = fopen(pads_out, "w");
+        if (!of) die("cannot write the pads");
+        for (int q = from + 1; q <= from + ticks; ++q) fprintf(of, "%d %d %d %d %d\n", q, pads_b[0][q], pads_x[0][q], pads_b[1][q], pads_x[1][q]);
+        fclose(of);
+    }
     return 0;
 }

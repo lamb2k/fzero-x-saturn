@@ -385,11 +385,12 @@ ENG_BAL_FORCE ?= 0
 ENG_BAL_HASH ?= 0
 ENG_BAL_PREWARM ?= $(if $(filter 1,$(E1_CLOSEUP)),1,0)
 # ENG_BAL_SPLIT (needs ENG_BAL_CLOUDS=2; claude/speed-2): the cloud prepare in three parts (setup, the first
-#   half of the fade bands, the second half). The master that holds the clouds publishes the setup and runs
-#   the first half; the slave, once its track and fills are done, claims the second half only while the master
-#   has not (a second try-claim). Never on a slave-bound frame: the master has claimed it long before. The
-#   output is the same on either CPU (stage copied behind the first half). =0 is the whole-job claim as before;
-#   =2 (control) the slave always runs the second half.
+#   half of the fade bands, the second half). The CPU that wins the job's claim runs the setup and the first half
+#   and then claims the second half; the other CPU (the slave once its track and fills are done, the master at
+#   its clouds step) waits for the setup and claims it first when it has the time. A try-claim each (the master
+#   wins a tie); on a frame where the other CPU arrives late the holder already took it. The output is the same on
+#   either CPU (the stage is copied behind the first half). =0 is the whole-job claim as before; =2 (control) the
+#   slave always runs the second half, =3 (control) the master always.
 ENG_BAL_SPLIT ?= $(if $(filter 2,$(ENG_BAL_CLOUDS)),1,0)
 ifneq ($(ENG_BAL_SPLIT),0)
 ifneq ($(ENG_BAL_CLOUDS),2)

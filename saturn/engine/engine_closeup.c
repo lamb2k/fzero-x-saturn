@@ -66,11 +66,6 @@ _Static_assert(FZX_CLOSEUP_META_BYTES == FZX_MACHINE_REBAKE_METADATA_BYTES &&
 static uint32_t meta[PACK_MAX / 4u] __attribute__((aligned(32)));
 static fzx_vehicle_pack_t pack;
 static fzx_vehicle_work_t work __attribute__((aligned(32)));
-#if ENG_LOW_COLD
-/* Also the host of the low work RAM block's load image (engine_low.x .bsshost): written only after
- * engine_low_init() has copied the image down and zeroed it, first thing in main. */
-__attribute__((section(".bss.lowhost.closeup_tables")))
-#endif
 #if defined(ENG_FX) && ENG_FX
 /* Race effects: the body colour changes every frame while the player flashes or flickers. Its
  * palettes go to the player's own table only (both banks, as each is next built); the rivals'
@@ -78,6 +73,11 @@ __attribute__((section(".bss.lowhost.closeup_tables")))
 static uint16_t base_pal[FZX_VEHICLE_PALETTES][16];
 static uint32_t pal_gen, table_gen[2][FZX_CLOSEUP_CARS];
 static bool draw_player;
+#endif
+#if ENG_LOW_COLD
+/* Also the host of the low work RAM block's load image (engine_low.x .bsshost): written only after
+ * engine_low_init() has copied the image down and zeroed it, first thing in main. */
+__attribute__((section(".bss.lowhost.closeup_tables")))
 #endif
 static fzx_vehicle_native_tables_t tables[2][FZX_CLOSEUP_CARS] __attribute__((aligned(32))); /* per bank, per slot */
 static uint8_t *pixels, *shades[2][FZX_CLOSEUP_CARS];

@@ -72,3 +72,12 @@ right); Master is skipped until it is open.
   points and never a record; TA finish is eligible for the TA table; Death Race WIN for the Death Race table; Practice never reaches a
   table or points. Records still ranks the run and makes the one write.
 - Not yet wired: the existing SELECT (`session_edit`) still validates by itself; once Codex's picker agrees, both call `fzx_mode_entry_check`.
+
+## Time Attack ghost (ENG_GHOST=1, needs ENG_MODES=1; default 0)
+- One ghost slot, as in the original: the best Time Attack run, kept as two backup-RAM files (FZXGHO_A / FZXGHO_B) written alternately with a generation, so a power loss or a bad write leaves the older ghost. Records stay in FZXREC_A / FZXREC_B.
+- Format (engine_ghost.h): 44-byte head (magic, version, generation, course, race ms, samples, bytes, CRC, start position Q16) plus a nibble stream of second differences of the position, every second tick, one nibble per axis (0 = escape + 16 bits). Positions are whole units. 12,000 bytes of stream maximum (original racer.c: 16,200); Mute City's best run is 4,692 bytes (3,121 samples).
+- Recording: engine_drive.c `step_once` calls `fzx_ghost_tick` after the physics step while the race clock runs and the player has not finished. The save runs at the Time Attack name-entry commit when the rank is 1.
+- Load: a file is accepted only after magic, version, size, CRC and a full decode of the stream; anything else is refused and the older file is tried. A ghost for another course is not played.
+- Playback: a position per tick (`fzx_ghost_pos`, Q16): even ticks are samples, odd ticks the midpoint. The translucent machine is the renderer's to draw.
+- Counters: `fzx_ghost_report[16]`, `fzx_ghost_store[16]`, controls `fzx_ghost_fault` (1 wrong CRC, 2 half the file), `fzx_ghost_on` (0 = off).
+- Ymir proof (EMULATOR): record then reload then play on Mute City; decoded recording equals the HOST (fzx-phys) positions at all 3,121 samples (9,363 axes, rounded to whole units); the half-file control is refused.

@@ -17,7 +17,7 @@
 #include "engine_closeup.h"
 #ifndef FZX_P3_BASELINE
 #include "title_identity.h"
-#include "engine_load_cards.h"
+#include "cards.h"
 #include "select_art.h"
 #include "machine_tuning.h"
 #endif
@@ -428,7 +428,7 @@ static fzx_session_t demo_return_session;
 
 /* The two menu packs share a cartridge reservation and use the VDP1
  * texture partition in disjoint scene leases. SELECT never reads the CD. */
-uintptr_t fzx_title_cart_limit(void) { return title_cart ? title_cart - SELECT_ART_BYTES : 0; }
+uintptr_t fzx_title_cart_limit(void) { return title_cart ? title_cart - SELECT_ART_BYTES - FZX_CARDS_BYTES : 0; }
 
 static bool title_cache(void) {
     dram_cart_init();
@@ -438,6 +438,8 @@ static bool title_cache(void) {
     return fzx_texture_cd_load("TITLE.PAK", FZX_TITLE_BYTES, FZX_TITLE_HASH,
                                (void *)title_cart, (void *)scratch, 4096u)
         && fzx_texture_cd_load("SELECT.PAK", SELECT_ART_BYTES, SELECT_ART_HASH,
+                               (void *)(title_cart - SELECT_ART_BYTES), (void *)scratch, 4096u)
+        && fzx_texture_cd_load("CARDS.PAK", FZX_CARDS_BYTES, FZX_CARDS_HASH,
                                (void *)fzx_title_cart_limit(), (void *)scratch, 4096u);
 }
 static void title_cancel(void) { title_at = 0; }
@@ -461,7 +463,7 @@ static bool art_preload(uint32_t budget, uintptr_t source, unsigned total) {
 }
 
 static bool title_preload(uint32_t budget) { return art_preload(budget, title_cart, FZX_TITLE_BYTES); }
-static bool select_preload(uint32_t budget) { return art_preload(budget, fzx_title_cart_limit(), SELECT_ART_BYTES); }
+static bool select_preload(uint32_t budget) { return art_preload(budget, title_cart - SELECT_ART_BYTES, SELECT_ART_BYTES); }
 
 static unsigned select_span(vdp1_cmdt_t *span, unsigned capacity) {
     if (!capacity || cursor >= 35u) return 0;
@@ -1103,48 +1105,57 @@ static unsigned card_used;
 /* The course-menu Jack preview is solid RGB(192,64,64). Its baked 128x64
  * one-bit still expands into B1 0x7a000..0x7afff, just below the nameplate.
  * Each 8x8 character has 8 source bytes and 16 destination words. */
-static void card_track(unsigned course) {
+static bool track_shown;
+static void card_track(const uint16_t *card, unsigned map_row) {
     static const uint16_t four_pixels[16] = {
         0,1,0x10,0x11,0x100,0x101,0x110,0x111,
         0x1000,0x1001,0x1010,0x1011,0x1100,0x1101,0x1110,0x1111
     };
     volatile uint16_t *color = (volatile uint16_t *)VDP2_CRAM_MODE_1_OFFSET(0, 0, 977);
-    card_saved_track_color = *color;
-    *color = RGB1555(1, 24, 8, 8).raw;
+    if (!track_shown) card_saved_track_color = *color;
+    track_shown = true;
+    *color = card[1];
+    const uint8_t *mask = (const uint8_t *)(card + 18);
     volatile uint16_t *tiles = (volatile uint16_t *)VDP2_VRAM_ADDR(3, 0x1a000);
-    for (unsigned i = 0; i < sizeof(card_tracks[0]); ++i) {
-        const uint8_t row = card_tracks[course][i];
+    for (unsigned i = 0; i < 1024u; ++i) {
+        const uint8_t row = mask[i];
         tiles[2u*i] = four_pixels[row >> 4];
         tiles[2u*i+1u] = four_pixels[row & 15u];
     }
     volatile uint16_t *map = (volatile uint16_t *)NBG3_MAP;
     for (unsigned i = 0; i < 128u; ++i)
-        map[(5u+i/16u)*64u + 22u+i%16u] = (uint16_t)(0xd000u | (0xd00u+i));
+        map[(map_row+i/16u)*64u + 22u+i%16u] = (uint16_t)(0xd000u | (0xd00u+i));
+}
+static const uint16_t *course_card(unsigned course) {
+    return (const uint16_t *)(fzx_title_cart_limit() + fzx_cards[course].at);
 }
 static void card_show(unsigned course) {
-    if (course >= sizeof(cards)/sizeof(cards[0])) return;
-    const unsigned cols = cards[course].cols;
+    if (course >= sizeof(fzx_cards)/sizeof(fzx_cards[0])) return;
+    const uint16_t *card = course_card(course);
+    const unsigned cols = card[0];
+    const uint16_t *cells = card + 18 + 512;
     volatile uint16_t *tiles = (volatile uint16_t *)VDP2_VRAM_ADDR(3, 0x1b000);
     volatile uint16_t *palette = (volatile uint16_t *)VDP2_CRAM_MODE_1_OFFSET(0, 0, 992);
     for (unsigned i = 0; i < 16u; ++i) {
         card_saved_colors[i] = palette[i];
-        palette[i] = card_colors[i];
+        palette[i] = card[2+i];
     }
     card_used = 32u * cols;
-    for (unsigned i = 0; i < card_used; ++i) tiles[i] = card_cells[cards[course].at+i];
+    for (unsigned i = 0; i < card_used; ++i) tiles[i] = cells[i];
     volatile uint16_t *map = (volatile uint16_t *)NBG3_MAP;
     for (unsigned i = 0; i < 2u*cols; ++i)
         map[(3u+i/cols)*64u + (40u-cols)/2u + i%cols] = (uint16_t)(0xe000u | (0xd80u+i));
-    card_track(course);
+    card_track(card, 5);
 }
 static void card_release(void) {
-    if (!card_used) return;
+    if (!track_shown) return;
     volatile uint16_t *palette = (volatile uint16_t *)VDP2_CRAM_MODE_1_OFFSET(0, 0, 992);
-    for (unsigned i = 0; i < 16u; ++i) palette[i] = card_saved_colors[i];
+    for (unsigned i = 0; i < 16u; ++i) if (card_used) palette[i] = card_saved_colors[i];
     *(volatile uint16_t *)VDP2_CRAM_MODE_1_OFFSET(0, 0, 977) = card_saved_track_color;
     volatile uint16_t *tiles = (volatile uint16_t *)VDP2_VRAM_ADDR(3, 0x1a000);
     for (unsigned i = 0; i < 2048u + card_used; ++i) tiles[i] = 0;
     card_used = 0;
+    track_shown = false;
 }
 
 #endif
@@ -1608,6 +1619,12 @@ static void common_release(void *u, uint32_t s) {
     dbgio_printf("\x1b[H\x1b[2J");
     dbgio_flush();
 }
+static void select_release(void *u, uint32_t s) {
+#ifndef FZX_P3_BASELINE
+    card_release();
+#endif
+    common_release(u, s);
+}
 static void title_release(void *u, uint32_t s) {
     /* TITLE releases the resident race set (SCENES.md section 7). */
     common_release(u, s);
@@ -1617,7 +1634,7 @@ static void title_release(void *u, uint32_t s) {
 static const sh2z_scene_t table[FZX_SCN_COUNT] = {
     [FZX_SCN_BOOT]    = { NULL, boot_enter, boot_tick, common_leave, common_release, NULL, 0 },
     [FZX_SCN_TITLE]   = { menu_preload, title_enter, title_tick, common_leave, title_release, menu_arenas, 1 },
-    [FZX_SCN_SELECT]  = { menu_preload, select_enter, select_tick, common_leave, common_release, menu_arenas, 1 },
+    [FZX_SCN_SELECT]  = { menu_preload, select_enter, select_tick, common_leave, select_release, menu_arenas, 1 },
     [FZX_SCN_LOAD]    = { NULL, load_enter, load_tick, load_leave, common_release, NULL, 0 },
     [FZX_SCN_RACE]    = { NULL, race_enter, race_tick, race_leave, race_release, race_arenas, 1 },
     [FZX_SCN_RESULTS] = { menu_preload, results_enter, results_tick, common_leave, results_release, menu_arenas, 1 },
@@ -1753,7 +1770,15 @@ void fzx_scn_main(void) {
         } else if (sh2z_scene_drawing(&seq)) {
             own_frames = 0;
             if (seq.current == FZX_SCN_RACE) (void)fzx_race_frame();
-            else { const bool printed = text_dirty; draw_current(); text_frame(printed); }
+            else {
+                const bool printed = text_dirty;
+                draw_current();
+                text_frame(printed);
+#ifndef FZX_P3_BASELINE
+                if (seq.current == FZX_SCN_SELECT && printed && course_cursor < sizeof(fzx_cards)/sizeof(fzx_cards[0]))
+                    card_track(course_card(course_cursor), 16);
+#endif
+            }
         } else {
             own_frame();
             ++own_frames;

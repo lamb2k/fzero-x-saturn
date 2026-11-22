@@ -575,7 +575,7 @@ ifeq ($(E1_CLOSEUP),1)
 # assembly reads a file-static table, so both stay out of LTO.
 ifeq ($(ENG_SCENES),1)
 ifeq ($(ENG_P3_UI),1)
-C8_ART_CHECK := $(foreach R,$(ENG_TITLE_ART)/title.receipt course_menu/course_menu.receipt select_art/select_art.receipt,$(shell sh ../../tools/check_receipt.sh $(G)/$(R) >/dev/null 2>&1 || echo $(R)))
+C8_ART_CHECK := $(foreach R,$(ENG_TITLE_ART)/title.receipt c8_cards/cards.receipt select_art/select_art.receipt,$(shell sh ../../tools/check_receipt.sh $(G)/$(R) >/dev/null 2>&1 || echo $(R)))
 ifneq ($(strip $(C8_ART_CHECK)),)
 $(error Missing or stale C8 title/course art: $(C8_ART_CHECK))
 endif
@@ -678,8 +678,8 @@ include $(YAUL_INSTALL_ROOT)/share/build.post.iso-cue.mk
 $(SH_OUTPUT_PATH)/$(SH_PROGRAM).iso: $(GC)/engine_path/ENGPATH.PAK
 ifeq ($(ENG_P3_UI),1)
 ifeq ($(ENG_SCENES),1)
-$(filter %engine_scenes.o,$(SH_OBJS_UNIQ)): $(G)/c8_cards/engine_load_cards.h $(G)/select_art/select_art.h
-$(SH_OUTPUT_PATH)/$(SH_PROGRAM).iso: $(G)/$(ENG_TITLE_ART)/TITLE.PAK $(G)/select_art/SELECT.PAK
+$(filter %engine_scenes.o,$(SH_OBJS_UNIQ)): $(G)/c8_cards/cards.h $(G)/select_art/select_art.h
+$(SH_OUTPUT_PATH)/$(SH_PROGRAM).iso: $(G)/$(ENG_TITLE_ART)/TITLE.PAK $(G)/select_art/SELECT.PAK $(G)/c8_cards/CARDS.PAK
 $(SH_OUTPUT_PATH)/$(SH_PROGRAM).iso: $(GUEST_PLAYER_PACKS)
 endif
 endif
@@ -697,7 +697,7 @@ ifeq ($(FZX_E1_DRIVE),1)
 endif
 ifeq ($(ENG_SCENES),1)
 ifeq ($(ENG_P3_UI),1)
-	cp $(G)/$(ENG_TITLE_ART)/TITLE.PAK $(G)/select_art/SELECT.PAK "$(IMAGE_DIRECTORY)/"
+	cp $(G)/$(ENG_TITLE_ART)/TITLE.PAK $(G)/select_art/SELECT.PAK $(G)/c8_cards/CARDS.PAK "$(IMAGE_DIRECTORY)/"
 	rm -f "$(IMAGE_DIRECTORY)"/MACH3D*.PAK
 	cp $(foreach F,$(ENG_ENTRANT_PACKS),$(G)/mach3d/MACH3D$(F).PAK) "$(IMAGE_DIRECTORY)/"
 	$(if $(GUEST_PLAYER_PACKS),cp $(GUEST_PLAYER_PACKS) "$(IMAGE_DIRECTORY)/",)

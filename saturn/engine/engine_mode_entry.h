@@ -32,10 +32,14 @@ uint32_t fzx_mode_caps(uint32_t menu_mode);
 typedef struct {            /* what the front end proposes (its cursor state) */
     uint8_t menu_mode;      /* ModeSelect ID: GP 0, TA 1, Death Race 2, Practice 5 (the session's IDs, unchanged) */
     uint8_t course;         /* course ID (engine_cup.h catalog) */
-    uint8_t difficulty;     /* the chosen class 0 Novice .. 3 Master; ignored when the mode forces its class */
+    uint8_t difficulty;     /* the chosen class 0 Novice .. 3 Master; a mode that picks the class refuses anything else; ignored when forced */
+    uint8_t cup;            /* the cup (engine_cup.h FZX_CUP_*): carried, validated against the catalog's cups */
+    uint8_t skin;           /* the selected skin; FZX_ENTRY_SKIN_DEFAULT takes the machine's default */
     uint16_t machine_id;
     uint32_t slider_bits;   /* binary32 balance, as SELECT keeps it */
 } fzx_entry_req_t;
+#define FZX_ENTRY_SKIN_DEFAULT 0xFFu
+#define FZX_ENTRY_SKIN_MAX 3u /* a legal skin is 0..3 */
 
 typedef struct {            /* the normalised entry: exactly what the front end copies into fzx_session */
     uint8_t menu_mode, course, difficulty, cup, skin;
@@ -49,7 +53,8 @@ typedef enum {
     FZX_ENTRY_CLOSED,        /* the mode runs but ordinary entry is not open (Death Race) */
     FZX_ENTRY_NO_COURSE,     /* the course is not in the catalog for this mode (avail bit) */
     FZX_ENTRY_NO_MACHINE,    /* the machine is not allowed */
-    FZX_ENTRY_CLASS_LOCKED   /* the class is not open (Master before every cup is cleared on Expert) */
+    FZX_ENTRY_CLASS_LOCKED,  /* the class is not open (Master before every cup is cleared on Expert) */
+    FZX_ENTRY_BAD_CLASS,     /* a chosen class outside 0..3 (refused before any normalisation), a cup or a skin out of range */
 } fzx_entry_status_t;
 
 typedef struct {            /* what the engine knows, passed in so the check stays pure */
@@ -70,7 +75,8 @@ typedef struct {
     uint8_t kind;           /* FZX_OUTCOME_*: FINISH (lap-count finish), WIN (Death Race: all rivals retired), RETIRED, QUIT */
     uint8_t record_table;   /* FZX_MODE_REC_TA / FZX_MODE_REC_DEATH, or FZX_MODE_NO_RECORD: the one table this run may reach */
     uint8_t record_eligible;/* 1: the front end calls fzx_records_commit once for this run (records still ranks it) */
-    uint8_t gp_points;      /* 1: the cup manager scores this race (Grand Prix finish) */
+    uint8_t gp_points;      /* 1: the cup manager scores this race (Grand Prix finish) (a flag, not a count) */
+    uint32_t run_id;        /* the run this outcome belongs to: the one record write is keyed to it (records ignores a repeated run_id) */
 } fzx_outcome_t;
 /* Pure function of the run the engine snapshotted at the end of the race (fzx_scn_result). Practice never yields a record or
  * points; Death Race yields a record only for the WIN; Time Attack only for a finish. Every end still goes to RESULTS in the

@@ -28,7 +28,7 @@ int main(void) {
     const fzx_entry_env_t env = { avail, machine_ok, class_open, false };
     const fzx_entry_env_t env_locked = { avail, machine_ok, class_locked, false };
     const fzx_entry_env_t env_lab = { avail, machine_ok, class_open, true };
-    fzx_entry_req_t q = { FZX_MODE_TA, 0, 2, 3, 0u };
+    fzx_entry_req_t q = { FZX_MODE_TA, 0, 2, 0, FZX_ENTRY_SKIN_DEFAULT, 3, 0u };
 
     /* capabilities */
     check(fzx_mode_caps(FZX_MODE_VS) == 0 && fzx_mode_caps(4) == 0 && fzx_mode_caps(7) == 0, "versus, options and unknown IDs carry no capability");
@@ -41,8 +41,8 @@ int main(void) {
     memset(&session, 0x5A, sizeof(session));
     const fzx_session_t before = session;
     const fzx_entry_req_t bad_reqs[] = {
-        { FZX_MODE_VS, 0, 1, 3, 0u }, { 4, 0, 1, 3, 0u }, { FZX_MODE_DEATH, 0, 3, 3, 0u }, { FZX_MODE_GP, 1, 1, 3, 0u }, { FZX_MODE_TA, 5, 1, 3, 0u },
-        { FZX_MODE_PRACTICE, 0, 1, 99, 0u },
+        { FZX_MODE_VS, 0, 1, 0, FZX_ENTRY_SKIN_DEFAULT, 3, 0u }, { 4, 0, 1, 0, FZX_ENTRY_SKIN_DEFAULT, 3, 0u }, { FZX_MODE_DEATH, 0, 3, 0, FZX_ENTRY_SKIN_DEFAULT, 3, 0u }, { FZX_MODE_GP, 1, 1, 0, FZX_ENTRY_SKIN_DEFAULT, 3, 0u }, { FZX_MODE_TA, 5, 1, 0, FZX_ENTRY_SKIN_DEFAULT, 3, 0u },
+        { FZX_MODE_PRACTICE, 0, 1, 0, FZX_ENTRY_SKIN_DEFAULT, 99, 0u },
     };
     const fzx_entry_status_t want[] = { FZX_ENTRY_NO_MODE, FZX_ENTRY_NO_MODE, FZX_ENTRY_CLOSED, FZX_ENTRY_NO_COURSE, FZX_ENTRY_NO_COURSE, FZX_ENTRY_NO_MACHINE };
     for (unsigned i = 0; i < sizeof(bad_reqs) / sizeof(bad_reqs[0]); ++i) {
@@ -51,10 +51,26 @@ int main(void) {
                bad_reqs[i].menu_mode, bad_reqs[i].course, bad_reqs[i].machine_id, (int)want[i]);
         if (!ok) bad = 1;
     }
-    q = (fzx_entry_req_t){ FZX_MODE_PRACTICE, 0, 3, 3, 0u };
+    q = (fzx_entry_req_t){ FZX_MODE_PRACTICE, 0, 3, 0, FZX_ENTRY_SKIN_DEFAULT, 3, 0u };
     check(confirm(&q, &env_locked) == FZX_ENTRY_CLASS_LOCKED && !memcmp(&session, &before, sizeof(session)), "master chosen while locked: refused, session untouched");
     q.menu_mode = FZX_MODE_GP;
     check(confirm(&q, &env_locked) == FZX_ENTRY_CLASS_LOCKED, "grand prix master while locked: refused");
+    /* out-of-range classes are refused before any masking (a mask with 3 turns 4 into Novice) */
+    {
+        const fzx_session_t keep = session;
+        fzx_entry_req_t b = { FZX_MODE_PRACTICE, 0, 4, 0, FZX_ENTRY_SKIN_DEFAULT, 3, 0u };
+        check(confirm(&b, &env) == FZX_ENTRY_BAD_CLASS && !memcmp(&session, &keep, sizeof(session)), "class 4 refused before normalisation, session untouched");
+        b.difficulty = 255; b.menu_mode = FZX_MODE_GP;
+        check(confirm(&b, &env) == FZX_ENTRY_BAD_CLASS, "class 255 refused (grand prix)");
+        b.menu_mode = FZX_MODE_TA; b.difficulty = 255;
+        check(confirm(&b, &env) == FZX_ENTRY_OK, "a forced class (time attack) ignores the incoming class");
+        b = (fzx_entry_req_t){ FZX_MODE_PRACTICE, 0, 1, 1, FZX_ENTRY_SKIN_DEFAULT, 3, 0u };
+        check(confirm(&b, &env) == FZX_ENTRY_BAD_CLASS, "a cup the catalog does not run is refused");
+        b = (fzx_entry_req_t){ FZX_MODE_PRACTICE, 0, 1, 0, 9, 3, 0u };
+        check(confirm(&b, &env) == FZX_ENTRY_BAD_CLASS, "an illegal skin is refused");
+        b.skin = 2;
+        check(confirm(&b, &env) == FZX_ENTRY_OK && session.skin == 2, "a selected legal skin is kept");
+    }
     q.menu_mode = FZX_MODE_TA;
     check(confirm(&q, &env_locked) == FZX_ENTRY_OK, "time attack ignores the class, so a locked master does not matter");
 
@@ -62,7 +78,7 @@ int main(void) {
     memset(&session, 0x5A, sizeof(session));
     fzx_entry_t e; memset(&e, 0xA5, sizeof(e));
     const fzx_entry_t e0 = e;
-    q = (fzx_entry_req_t){ FZX_MODE_PRACTICE, 0, 2, 3, 0u };
+    q = (fzx_entry_req_t){ FZX_MODE_PRACTICE, 0, 2, 0, FZX_ENTRY_SKIN_DEFAULT, 3, 0u };
     const fzx_session_t s0 = session;
     check(fzx_mode_entry_check(&q, &env, &e) == FZX_ENTRY_OK && !memcmp(&session, &s0, sizeof(session)), "cancel: a passing check leaves the session untouched");
     memset(&e, 0xA5, sizeof(e));
@@ -70,20 +86,20 @@ int main(void) {
     check(fzx_mode_entry_check(&q, &env, &e) == FZX_ENTRY_NO_MODE && !memcmp(&e, &e0, sizeof(e)), "a failing check leaves its output untouched");
 
     memset(&e, 0xA5, sizeof(e));
-    q = (fzx_entry_req_t){ FZX_MODE_PRACTICE, 5, 1, 3, 0u };
+    q = (fzx_entry_req_t){ FZX_MODE_PRACTICE, 5, 1, 0, FZX_ENTRY_SKIN_DEFAULT, 3, 0u };
     check(fzx_mode_entry_check(&q, &env, &e) == FZX_ENTRY_NO_COURSE && !memcmp(&e, &e0, sizeof(e)), "a course refusal leaves the output untouched");
 
     /* accepted entries and their normalisation */
-    q = (fzx_entry_req_t){ FZX_MODE_TA, 0, 2, 3, 0x3F000000u };
+    q = (fzx_entry_req_t){ FZX_MODE_TA, 0, 2, 0, FZX_ENTRY_SKIN_DEFAULT, 3, 0x3F000000u };
     check(confirm(&q, &env) == FZX_ENTRY_OK && session.menu_mode == FZX_MODE_TA && session.difficulty == 0 && session.confirmed && session.skin == 1 && session.slider_bits == 0x3F000000u,
           "time attack accepted; class is the mode's own (0: no field, unused)");
-    q = (fzx_entry_req_t){ FZX_MODE_PRACTICE, 0, 3, 3, 0u };
+    q = (fzx_entry_req_t){ FZX_MODE_PRACTICE, 0, 3, 0, FZX_ENTRY_SKIN_DEFAULT, 3, 0u };
     check(confirm(&q, &env) == FZX_ENTRY_OK && session.difficulty == 3, "practice keeps the chosen class");
-    q = (fzx_entry_req_t){ FZX_MODE_GP, 0, 2, 3, 0u };
+    q = (fzx_entry_req_t){ FZX_MODE_GP, 0, 2, 0, FZX_ENTRY_SKIN_DEFAULT, 3, 0u };
     check(confirm(&q, &env) == FZX_ENTRY_OK && session.difficulty == 2 && session.menu_mode == FZX_MODE_GP, "grand prix keeps the chosen class");
-    q = (fzx_entry_req_t){ FZX_MODE_DEATH, 0, 0, 3, 0u };
+    q = (fzx_entry_req_t){ FZX_MODE_DEATH, 0, 0, 0, FZX_ENTRY_SKIN_DEFAULT, 3, 0u };
     check(confirm(&q, &env_lab) == FZX_ENTRY_OK && session.difficulty == 3 && session.menu_mode == FZX_MODE_DEATH, "death race only through the lab; class forced to Master");
-    q = (fzx_entry_req_t){ FZX_MODE_TA, 0, 0, 3, 0u };
+    q = (fzx_entry_req_t){ FZX_MODE_TA, 0, 0, 0, FZX_ENTRY_SKIN_DEFAULT, 3, 0u };
     q.menu_mode = FZX_MODE_TA;
 
     /* outcomes */
@@ -105,6 +121,8 @@ int main(void) {
     for (unsigned i = 0; i < sizeof(t) / sizeof(t[0]); ++i) {
         memset(&r, 0, sizeof(r)); r.menu_mode = t[i].mode; r.reason = t[i].reason;
         fzx_mode_outcome(&r, &o);
+        r.run_id = 0x1234u + i; fzx_mode_outcome(&r, &o);
+        check(o.run_id == r.run_id, "the outcome carries the run id (the one write is keyed to it)");
         check(o.kind == t[i].kind && o.record_table == t[i].table && o.record_eligible == t[i].elig && o.gp_points == t[i].pts, t[i].what);
     }
     return bad;

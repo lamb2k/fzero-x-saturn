@@ -19,6 +19,8 @@ fzx_entry_status_t fzx_mode_entry_check(const fzx_entry_req_t *req, const fzx_en
     const fzx_mode_rules_t *r = fzx_mode_rules(req->menu_mode);
     if (!r) return FZX_ENTRY_NO_MODE;
     if (!(fzx_mode_caps(req->menu_mode) & FZX_CAP_ENTRY_OPEN) && !env->lab) return FZX_ENTRY_CLOSED;
+    if (r->class_pick && req->difficulty > 3u) return FZX_ENTRY_BAD_CLASS; /* before the class is masked: 4 would become Novice */
+    if (req->cup != 0u || (req->skin != FZX_ENTRY_SKIN_DEFAULT && req->skin > FZX_ENTRY_SKIN_MAX)) return FZX_ENTRY_BAD_CLASS; /* the catalog runs only cup 0 */
     if (!(env->course_avail(req->course) & r->avail)) return FZX_ENTRY_NO_COURSE;
     if (!env->machine_ok(req->machine_id)) return FZX_ENTRY_NO_MACHINE;
     const uint8_t cls = (uint8_t)fzx_mode_class(req->menu_mode, req->difficulty);
@@ -26,9 +28,9 @@ fzx_entry_status_t fzx_mode_entry_check(const fzx_entry_req_t *req, const fzx_en
     out->menu_mode = req->menu_mode;
     out->course = req->course;
     out->difficulty = cls;
-    out->cup = 0; /* FZX_CUP_JACK: the only cup the catalog runs */
+    out->cup = req->cup;
     out->machine_id = req->machine_id;
-    out->skin = req->machine_id >= 33u ? 0u : 1u;
+    out->skin = req->skin != FZX_ENTRY_SKIN_DEFAULT ? req->skin : (req->machine_id >= 33u ? 0u : 1u);
     out->slider_bits = req->slider_bits;
     return FZX_ENTRY_OK;
 }
@@ -36,7 +38,7 @@ fzx_entry_status_t fzx_mode_entry_check(const fzx_entry_req_t *req, const fzx_en
 void fzx_mode_outcome(const fzx_run_result_t *run, fzx_outcome_t *out) {
     const fzx_mode_rules_t *r = fzx_mode_rules(run->menu_mode);
     out->kind = FZX_OUTCOME_NONE; out->record_table = FZX_MODE_NO_RECORD;
-    out->record_eligible = 0; out->gp_points = 0;
+    out->record_eligible = 0; out->gp_points = 0; out->run_id = run->run_id;
     if (!r) return;
     switch (run->reason) {
     case FZX_END_FINISH:

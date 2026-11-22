@@ -126,7 +126,7 @@ class Modes(unittest.TestCase):
         accepted entries, outcomes. Controls: each edit of the rules must fail a named case."""
         rc, out = self.run_entry()
         self.assertEqual(rc, 0, out)
-        self.assertGreaterEqual(out.count('PASS'), 30, out)
+        self.assertGreaterEqual(out.count("PASS"), 40, out)
         self.assertNotIn('FAIL', out)
         for name, f in {
             'death race entry open': lambda t: t.replace('if (!r->win_all_retired) c |= FZX_CAP_ENTRY_OPEN;', 'c |= FZX_CAP_ENTRY_OPEN;'),

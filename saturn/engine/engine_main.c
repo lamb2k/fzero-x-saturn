@@ -229,6 +229,16 @@ static vdp1_vram_partitions_t partitions;
 static void *skyline_vram, *planes_vram, *road_pixels, *road_shades[2];
 static volatile uint32_t video_fields;
 static volatile uint16_t vblank_frt, field_frt;
+#if FZX_E1_DRIVE && ENG_SCENES
+static volatile uint8_t smpc_hold; /* engine_smpc_quiet: vblank_out issues no INTBACK while set */
+volatile uint32_t fzx_smpc_quiet[2]; /* engine_smpc_quiet: [0] sections begun, [1] ended (one open = inside) */
+#if ENG_SMPC_OVERLAP_CONTROL
+/* Control and test arm only: the first 4 sections, 6 words each: [0] hold-wait spins (bit 31: bound reached),
+ * [1] SF-wait spins before the held window, [2] window spins (bit 31: bound reached), [3] window spins that read
+ * SF clear (the SMPC cleared it), [4] SF at the COMREG write, [5] video_fields at the section's begin. */
+volatile uint32_t fzx_smpc_diag[24];
+#endif
+#endif
 
 /* ---- frame table: one row per presented frame, in low work RAM ----------- */
 typedef struct {
@@ -497,7 +507,9 @@ static void vblank_out(void *work) {
     field_frt = (uint16_t)(now - vblank_frt);
     vblank_frt = now;
     ++video_fields;
-#if FZX_E1_DRIVE
+#if FZX_E1_DRIVE && ENG_SCENES
+    if (!smpc_hold) smpc_peripheral_intback_issue();
+#elif FZX_E1_DRIVE
     smpc_peripheral_intback_issue();
 #endif
 #if ENG_SCENES
@@ -505,6 +517,61 @@ static void vblank_out(void *work) {
 #endif
     MAC_RESTORE();
 }
+
+#if FZX_E1_DRIVE && ENG_SCENES
+/* A quiet SMPC for a command from this thread (the backup library's RESDISA/RESENAB, engine_records.c).
+ * vblank_out issues INTBACK every field through smpc_smc_wait(true) (smpc/smc.h: wait for SF clear, set SF, then
+ * the command); smpc_smc_call from this thread does the same, and the two are not atomic. When the vertical blank
+ * lands between this thread's SF set and its COMREG write, the handler waits for an SF that only that command can
+ * clear, and both stop for good (memory lane part 4: the sound-off loop hung in the reboot's records save,
+ * boot_enter -> fzx_records_load -> write_table -> bup_write's RESDISA; the dump's saved main PC is the COMREG
+ * write, and the master spins in smpc_peripheral_intback_issue's SF wait). Yaul has no lock for this, so the
+ * engine keeps the two apart, as user_init does for the sound commands (before smpc_peripheral_init): begin holds
+ * the next issue and waits for one vblank-out to pass without one, so the last INTBACK (issued a field or more
+ * earlier) has ended; end lets the next field issue again. The pads miss one or two fields of input per quiet
+ * section. The wait is bounded in case vertical blank is not running (then nothing issues INTBACK either). */
+void engine_smpc_quiet(bool on) {
+    ++fzx_smpc_quiet[on ? 0 : 1];
+#if ENG_SMPC_OVERLAP_CONTROL
+    const uint32_t k = fzx_smpc_quiet[0] - 1u;
+    volatile uint32_t *const d = on && k < 4u ? &fzx_smpc_diag[k * 6u] : &fzx_smpc_diag[0];
+    const bool rec = on && k < 4u;
+    if (rec) d[5] = video_fields;
+#endif
+#if ENG_SMPC_OVERLAP_CONTROL == 1
+    (void)smpc_hold;
+#else
+    if (!on) { smpc_hold = 0u; return; }
+    smpc_hold = 1u;
+    const uint32_t f = video_fields;
+#if ENG_SMPC_OVERLAP_CONTROL
+    uint32_t spin = 0;
+    for (; video_fields == f && spin < (1u << 22); ++spin) { }
+    if (rec) d[0] = spin | (video_fields == f ? 0x80000000u : 0u);
+#else
+    for (uint32_t spin = 0; video_fields == f && spin < (1u << 22); ++spin) { }
+#endif
+#endif
+#if ENG_SMPC_OVERLAP_CONTROL
+    /* Control and test arm: the race's window held open. Begin issues a RESENAB (the state each backup call
+     * leaves) the way smpc_smc_call does, with SF set across one vblank-out before the COMREG write. 1 (the
+     * control, no hold): the handler meets SF set and the boot stops in its records load. 2 (test arm): the same
+     * after the hold above (the fix from its worst starting point). */
+    if (on) {
+        volatile uint8_t *const sf = (volatile uint8_t *)SMPC(SF);
+        uint32_t w = 0, clear = 0, n = 0;
+        while (*sf & 0x01u) { ++w; }
+        *sf = 0x01u;
+        const uint32_t f0 = video_fields;
+        for (; video_fields == f0 && n < (1u << 22); ++n) { if (!(*sf & 0x01u)) ++clear; }
+        const uint32_t at = *sf;
+        if (rec) { d[1] = w; d[2] = n | (video_fields == f0 ? 0x80000000u : 0u); d[3] = clear; d[4] = at; }
+        MEMORY_WRITE(8, SMPC(COMREG), SMPC_SMC_RESENAB);
+        while (*sf & 0x01u) { }
+    }
+#endif
+}
+#endif
 
 void user_init(void) {
     const unsigned command_reserve = (CMD_CAPACITY + 31u) & ~31u;
@@ -1150,34 +1217,41 @@ static void build(row_t *row, const fzx_engine_cam_t *cam, uint32_t tick, uint16
 }
 
 #if ENG_LOW_COLD
-#include <mm/tlsf.h>
-/* Cold code and data in low work RAM (ENG_LOW_COLD, engine_low.x). The BIN carries .low above ___end, past the
- * user heap's control block that Yaul writes at ___end before main; nothing in .low runs before main (the census
- * that made engine_low_text.ld keeps every function executed before main in high work RAM). This runs first in
- * main: it copies .low down, zeroes .lowbss, then checks that the heap's control block (tlsf_size() and its first
- * block) ended below the load image, so the copy read what the BIN carried. [0] .low bytes, [1] .lowbss bytes,
- * [2] heap control bytes, [3] gap from ___end to the load image. Fault 63 if the control block reached it. */
-extern uint32_t __low_start[], __low_end[], __low_load[], __lowbss_start[], __lowbss_end[], __end[];
+/* Cold code and data in low work RAM (ENG_LOW_COLD, engine_low.x). The BIN carries .low's load image inside
+ * .bsshost (high work RAM buffers between .data and .bss, here engine_closeup.c's tables), which Yaul's start-up
+ * does not zero and nothing touches before main; nothing in .low runs before main or in a running race (the
+ * census that made engine_low_text.ld keeps every function executed then, and all Yaul code, in high work RAM).
+ * This runs first in main: it copies .low down, zeroes .lowbss and .bsshost, then reads .bsshost back. [0] .low
+ * bytes, [1] .lowbss bytes, [2] .bsshost bytes, [3] the first .bsshost word offset found non-zero + 1 (0: all
+ * zero). Fault 63 if .bsshost is not zero after the copy: its owners expect zeroed buffers. */
+extern uint32_t __low_start[], __low_end[], __low_load[], __lowbss_start[], __lowbss_end[];
+extern uint32_t __bsshost_start[], __bsshost_end[];
 volatile uint32_t fzx_low_report[4];
 static void __attribute__((noinline)) engine_low_init(void) {
     /* The linker labels are distinct arrays to C, so the extents are integer address differences and the loops
      * run by word count; no pointer into one label is ordered against another (C-127 finding 5). engine_low.x
      * aligns every label to 16 bytes and asserts the block's limits. */
-    const uintptr_t low = (uintptr_t)__low_start, bss = (uintptr_t)__lowbss_start;
+    const uintptr_t low = (uintptr_t)__low_start, bss = (uintptr_t)__lowbss_start, host = (uintptr_t)__bsshost_start;
     const uint32_t low_words = (uint32_t)(((uintptr_t)__low_end - low) / 4u);
     const uint32_t bss_words = (uint32_t)(((uintptr_t)__lowbss_end - bss) / 4u);
+    const uint32_t host_words = (uint32_t)(((uintptr_t)__bsshost_end - host) / 4u);
     const volatile uint32_t *src = (const volatile uint32_t *)(uintptr_t)__low_load;
     volatile uint32_t *dst = (volatile uint32_t *)low;
     for (uint32_t n = low_words; n; --n) *dst++ = *src++;
     volatile uint32_t *p = (volatile uint32_t *)bss;
     for (uint32_t n = bss_words; n; --n) *p++ = 0u;
+    p = (volatile uint32_t *)host;
+    for (uint32_t n = host_words; n; --n) *p++ = 0u;
     cpu_cache_purge();
-    const uint32_t control = (uint32_t)(tlsf_size() + tlsf_pool_overhead() + tlsf_block_size_min());
+    uint32_t dirty = 0u;
+    const volatile uint32_t *q = (const volatile uint32_t *)host;
+    for (uint32_t n = 0u; n < host_words; ++n)
+        if (q[n] != 0u) { dirty = n + 1u; break; }
     fzx_low_report[0] = (uint32_t)((uintptr_t)__low_end - (uintptr_t)__low_start);
     fzx_low_report[1] = (uint32_t)((uintptr_t)__lowbss_end - (uintptr_t)__lowbss_start);
-    fzx_low_report[2] = control;
-    fzx_low_report[3] = (uint32_t)((uintptr_t)__low_load - (uintptr_t)__end);
-    if (control > fzx_low_report[3]) { fzx_e0_fault = 63u; fzx_e0_status = 63u; for (;;) {} }
+    fzx_low_report[2] = (uint32_t)((uintptr_t)__bsshost_end - (uintptr_t)__bsshost_start);
+    fzx_low_report[3] = dirty;
+    if (dirty) { fzx_e0_fault = 63u; fzx_e0_status = 63u; for (;;) {} }
 }
 #endif
 

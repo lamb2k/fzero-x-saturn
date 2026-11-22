@@ -1,0 +1,10 @@
+# lowpcs phase 214: .low functions reviewed as TITLE / soft-reset entry work (the field in which a soft reset leaves a
+# running race). From the gate4 census (lowpcs-gate4-cov3.txt); a function outside this list fails the census.
+_art_preload          # title_enter's art preload
+_fzx_cup_reset        # soft reset: the cup state back to its start
+_session_defaults     # soft reset: session settings back to defaults
+_sh2z_scene_request   # the scene change request (RACE -> TITLE)
+_title_enter          # TITLE scene entry
+_title_preload        # TITLE preload
+_title_span           # TITLE drawing spans (first TITLE frame)
+_title_tick           # TITLE scene tick

@@ -62,8 +62,25 @@ extern volatile uint32_t fzx_field_report[16];
 
 /* E2 field lane: [0] pack (1 ok, 2 refused, 3 count/length, 4 starts), [1] max node start delta Q8,
  * [2] cars drawn last frame, [3] max drawn, [4] culled behind, [5] culled far, [6] culled off screen,
- * [7] shadows last frame, [8] culled total, [9]..[15] spare. */
+ * [7] shadows last frame, [8] culled total, [9] node 0 offset, [10] zones, [11] dash from,
+ * [12] class raced and [13] its pace rows' sum (ENG_RIVAL_CLASS), [14]..[15] spare. */
 extern volatile uint32_t fzx_e2_report[16];
+#if defined(ENG_RIVAL_CLASS) && ENG_RIVAL_CLASS
+/* line-field-5 (d): the class whose rows a non-scenes image races (0 novice .. 3 master; default 1), read at
+ * fzx_field_load. Scenes images race fzx_session.difficulty. */
+extern volatile uint32_t fzx_field_class;
+#endif
+#if defined(ENG_RIVAL_BEHAVE) && ENG_RIVAL_BEHAVE
+/* line-field-5 events, in tick order (the attacks glue and the KO reward read them): kind FALL (the rival left the
+ * line; by = the vehicle of its last contact incident or -1; tick = the fall tick), KO (its fall was credited to
+ * vehicle `by`, 0 the player; tick = the field tick it was seen), RETIRE (energy exactly 0; by = the credited vehicle
+ * or -1; tick = the retirement tick). fzx_field_event_count counts every event; entries past FZX_FIELD_EVENTS are
+ * dropped. Reset at fzx_field_load. */
+enum { FZX_FIELD_EV_FALL = 1, FZX_FIELD_EV_KO = 2, FZX_FIELD_EV_RETIRE = 3, FZX_FIELD_EVENTS = 96 };
+typedef struct { uint8_t agent, kind; int16_t by; int32_t tick; } fzx_field_event_t;
+extern fzx_field_event_t fzx_field_events[FZX_FIELD_EVENTS];
+extern volatile uint32_t fzx_field_event_count;
+#endif
 #if E2_PACK
 /* Before fzx_field_load: RIVALS.PAK from the disc (size and hash checked). */
 bool fzx_field_pack_load(void *scratch, uint32_t scratch_bytes);

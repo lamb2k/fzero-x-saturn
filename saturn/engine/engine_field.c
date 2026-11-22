@@ -28,6 +28,43 @@
 #error the reference field has fewer vehicles than E1_FIELD + 1
 #endif
 #endif
+#ifndef ENG_RIVAL_CLASS
+#define ENG_RIVAL_CLASS 0
+#endif
+#if ENG_RIVAL_CLASS && !E2_PACK
+#error ENG_RIVAL_CLASS needs E2_PACK=1
+#endif
+#if ENG_RIVAL_CLASS
+/* line-field-5 (d): the field's rows for the class raced (C-097: cpu.c's target tables are course * 4 + gDifficulty).
+ * One row set per class, from the reference GP at that class (tools/rivals_field_header.py --classes), grid column
+ * included (Master's tier grid moves places). Scenes images race fzx_session.difficulty; other images
+ * fzx_field_class (0 novice .. 3 master), read at fzx_field_load. */
+#if defined(ENG_COURSE_SELECT) && ENG_COURSE_SELECT
+#include "course_class.h"
+#define FIELD_ROWS (fzx_course_field_class[fzx_cid - fzx_course_ids][field_class_now])
+#else
+#include "rivals_field_class.h"
+#if FZX_RIVALS_FIELD_CLASS_SEED != FZX_RIVALS_FIELD_SEED
+#error the class rows come from another seed than rivals_field.h
+#endif
+#define FIELD_ROWS (fzx_rivals_field_class[field_class_now])
+#endif
+#if defined(ENG_SCENES) && ENG_SCENES
+#include "engine_scenes.h"
+extern fzx_session_t fzx_session;
+#endif
+volatile uint32_t fzx_field_class = 1u;
+static uint32_t field_class_now = 1u;
+static void field_class_pick(void) {
+#if defined(ENG_SCENES) && ENG_SCENES
+    field_class_now = fzx_session.difficulty & 3u;
+#else
+    field_class_now = fzx_field_class & 3u;
+#endif
+}
+#else
+#define FIELD_ROWS CSEL(field,fzx_rivals_field)
+#endif
 #ifndef ENG_RIVAL_SURFACE
 #define ENG_RIVAL_SURFACE 0
 #endif
@@ -41,6 +78,40 @@ static sh2z_field_zone_t zones[FZX_RIVALS_ZONE_MAX];
 static sh2z_field_surface_t surface;
 #else
 #define RIVAL_TUBES 0
+#endif
+#ifndef ENG_RIVAL_BEHAVE
+#define ENG_RIVAL_BEHAVE 0
+#endif
+#if ENG_RIVAL_BEHAVE && !RIVAL_TUBES
+#error ENG_RIVAL_BEHAVE needs E2_PACK=1 and ENG_RIVAL_SURFACE=1
+#endif
+#if ENG_RIVAL_BEHAVE
+/* line-field-5: the behaviours' tuning, and the fall / retirement / KO-credit events for the attacks glue. */
+static sh2z_field_behave_t behave;
+#if defined(ENG_COURSE_SELECT) && ENG_COURSE_SELECT
+#include "course_drops.h"
+#define DROP_COUNT ((uint32_t)fzx_course_drop_count[fzx_cid - fzx_course_ids])
+#define DROP_ROWS (fzx_course_drops[fzx_cid - fzx_course_ids])
+#elif __has_include("rivals_drops.h")
+#include "rivals_drops.h"
+#define DROP_COUNT FZX_RIVALS_DROP_COUNT
+#define DROP_ROWS fzx_rivals_drops
+#else
+#define DROP_COUNT 0u
+static const uint16_t DROP_ROWS[1][2] = { { 0, 0 } };
+#endif
+static uint16_t prev_flags[FZX_FIELD_CARS];
+static int16_t prev_credit[FZX_FIELD_CARS];
+fzx_field_event_t fzx_field_events[FZX_FIELD_EVENTS];
+volatile uint32_t fzx_field_event_count;
+static void field_event(uint32_t agent, uint32_t kind, int32_t by, int32_t tick) {
+    const uint32_t n = fzx_field_event_count;
+    if (n < FZX_FIELD_EVENTS) {
+        fzx_field_event_t *e = &fzx_field_events[n];
+        e->agent = (uint8_t)agent; e->kind = (uint8_t)kind; e->by = (int16_t)by; e->tick = tick;
+    }
+    fzx_field_event_count = n + 1u; /* counts past the table too: a full table shows as count > FZX_FIELD_EVENTS */
+}
 #endif
 
 volatile uint32_t fzx_field_k = 1, fzx_field_d = 250, fzx_field_margin = 40;
@@ -262,7 +333,7 @@ volatile uint32_t fzx_field_grid_src;
  * the previous finish reversed, the player included. The cup's grid[] is that finish (entrant
  * by place, set at NEXT), so a retry of a round starts from the same grid. */
 static void grid_places(void) {
-    for (uint32_t i = 0; i < FZX_FIELD_CARS; ++i) fzx_field_grid[i] = (uint8_t)CSEL(field,fzx_rivals_field)[i][0];
+    for (uint32_t i = 0; i < FZX_FIELD_CARS; ++i) fzx_field_grid[i] = (uint8_t)FIELD_ROWS[i][0];
     fzx_field_grid_src = 1;
     const fzx_cup_t *c = fzx_cup();
     if ((c->state != FZX_CUP_READY && c->state != FZX_CUP_RACING) || c->round == 0u || c->entrants.count != FZX_FIELD_CARS) return;
@@ -283,6 +354,15 @@ bool fzx_field_load(const sh2z_vd_track_t *track, const sh2z_vd_body_t *player) 
     memset((void *)fzx_field_report, 0, sizeof(fzx_field_report));
     trk = track;
     if (!build_line(track)) { fzx_field_report[0] = 2; return false; }
+#if ENG_RIVAL_CLASS
+    {
+        /* [12] the class raced, [13] a sum over its rows' pace columns (target lap ms, finish ms, chase cap) */
+        field_class_pick();
+        uint32_t sum = 0;
+        for (uint32_t i = 0; i < FZX_FIELD_CARS; ++i) sum = sum * 31u + (uint32_t)FIELD_ROWS[i][1] + (uint32_t)FIELD_ROWS[i][6] * 7u + (uint32_t)FIELD_ROWS[i][7];
+        fzx_e2_report[12] = field_class_now; fzx_e2_report[13] = sum;
+    }
+#endif
 #if E2_PACK
     /* RIVALS.PAK is the HOST bake on course-line-1: the same station count and line length as
      * the line built from the physics course (whose spans' arc lengths are approximate, so the
@@ -312,6 +392,11 @@ bool fzx_field_load(const sh2z_vd_track_t *track, const sh2z_vd_body_t *player) 
             for (int c = 0; c < 3; ++c) { st->pos[c] = pp[i].pos[c] << 12; st->fwd[c] = pp[i].fwd[c]; st->up[c] = pp[i].up[c]; }
         }
         fzx_e2_report[1] = worst; fzx_e2_report[9] = off0;
+#if ENG_RIVAL_BEHAVE
+        /* line-field-5 drops: node flag 0x0200 on the course's drop ranges (tools/rivals_drops.py). */
+        for (uint32_t r = 0; r < DROP_COUNT; ++r)
+            for (uint32_t k = DROP_ROWS[r][0]; k <= DROP_ROWS[r][1] && k < line.count; ++k) nodes[k].flags |= 0x0200u;
+#endif
         if (off0 > 65536u || nodes[0].start != 0) { fzx_field_report[0] = 5; fzx_e2_report[0] = 4; return false; }
     }
 #endif
@@ -353,9 +438,13 @@ bool fzx_field_load(const sh2z_vd_track_t *track, const sh2z_vd_body_t *player) 
     memset(&params, 0, sizeof(params));
     params.pace_gain = 3277; params.pace_max = 81920; params.chase_gain = 655; params.steer_gain = 9830;
     params.margin = U(6); params.avoid_long = U(92); params.avoid_lat = U(69); params.avoid_offset = U(92);
-    params.avoid_ticks = 40; params.pass_hold = 60; params.contact_long = U(46); params.contact_lat = U(40);
+    /* avoid_ticks 0: the source avoids only while the vehicle ahead is within 92 (cpu.c, distanceToRacerAhead < 92),
+     * with no look-ahead for closing speed (field contact frequency, C-108). */
+    params.avoid_ticks = 0; params.pass_hold = 60; params.contact_long = U(46); params.contact_lat = U(40);
     params.bump_keep = 16384; params.hit_energy = 32768; params.side_energy = U(2); params.attack_energy = U(10);
-    params.wall_energy = U(3); params.wall_keep = 62259; params.attack_long = U(184); params.attack_lat = U(92);
+    /* wall_keep 0.998 a tick on the edge: the source wall routine (racer.c ~2880-2936) scales velocity by 0.998 a tick
+     * of contact and charges only the impact, not 5% a tick. */
+    params.wall_energy = U(3); params.wall_keep = 65405; params.attack_long = U(184); params.attack_lat = U(92);
     params.boost_speed = U(6); params.boost_energy = U(10); params.boost_min_share = 19661; params.boost_min_cap = 0;
     params.boost_behind = U(150); params.cruise = U(40); params.rank_lead = U(8);
     params.lod_near[0] = U(3000); params.lod_near[1] = U(8000); params.lod_near[2] = U(16000);
@@ -376,10 +465,10 @@ bool fzx_field_load(const sh2z_vd_track_t *track, const sh2z_vd_body_t *player) 
 #define GRID_PLACE(i, cf) ((uint32_t)(cf)[0])
 #endif
         sh2z_track_state_t ps;
-        sh2z_field_grid_slot(&line, GRID_PLACE(0, CSEL(field,fzx_rivals_field)[0]) - 1u, U(146), U(100), U(50), 4, &ps);
+        sh2z_field_grid_slot(&line, GRID_PLACE(0, FIELD_ROWS[0]) - 1u, U(146), U(100), U(50), 4, &ps);
         const int64_t shift = ((int64_t)veh[0].t.lap * line.length + veh[0].t.dist) - ((int64_t)ps.lap * line.length + ps.dist);
         for (uint32_t i = 0; i < FZX_FIELD_CARS; ++i) {
-            const int32_t *cf = CSEL(field,fzx_rivals_field)[i];
+            const int32_t *cf = FIELD_ROWS[i];
             const int32_t ms = cf[1], chase = cf[2], maxe = cf[3], aggr = cf[4];
             sh2z_track_state_t slot;
             sh2z_field_grid_slot(&line, GRID_PLACE(i, cf) - 1u, U(146), U(100), U(50), 4, &slot);
@@ -433,7 +522,34 @@ bool fzx_field_load(const sh2z_vd_track_t *track, const sh2z_vd_body_t *player) 
         fzx_e2_report[10] = surface.zone_count; fzx_e2_report[11] = (uint32_t)params.dash_from;
     }
 #endif
+#if ENG_RIVAL_BEHAVE
+    {
+        /* line-field-5: the values HOST checked the bands and the C-095 tube judge with (ref/rivals_gp_main.c
+         * --behave 1 --tune boost_energy=0): the source's tube bias pick (1/64 a decision; half hold to an exit,
+         * the rest 20..35 decisions), cylinders hold their angle, pipes settle near their line; air nodes (shape
+         * 0x180), open-edge road (0x000), fall to retirement 95 ticks, KO window 120; drops; free CPU boost. */
+        memset(&behave, 0, sizeof(behave));
+        behave.roll_chance = 1024; behave.roll_latch = 32768; behave.roll_min = 20; behave.roll_span = 16;
+        behave.roll_lead = 26214; behave.hold_lead = 7864; behave.roll_well = 52429;
+        behave.hold_mask = 0x01c0u; behave.hold_value = 0x00c0u; behave.exit_mask = 0x01c0u; behave.exit_value = 0x0080u;
+        behave.roll_exit_ahead = U(3000);
+        behave.lat_accel = 192;
+        behave.air_mask = 0x01c0u; behave.air_value = 0x0180u; behave.open_mask = 0x01c0u; behave.open_value = 0x0000u;
+        behave.air_spread = 2600; behave.fall_margin = U(30); behave.fall_ticks = 95;
+        behave.ko_window = 120; behave.ko_near = U(1500); behave.ko_floor = 26;
+        /* Drops (HOST tuning seeds 1-6 and 101-106, judged on 201-206): launches out of a pipe on a drop node 1 in 16;
+         * beyond 1.8 of the radius round a drop cylinder, 16 / 65536 a step. */
+        behave.drop_mask = 0x0200u; behave.drop_value = 0x0200u; behave.drop_lat = 117965; behave.drop_chance = 16; behave.launch_chance = 4096;
+        behave.contact_norm = 36045; /* racer.c's impact: 1.1 x the closing speed along the line between the two, shared */
+        params.behave = &behave;
+        params.boost_energy = 0;
+        fzx_field_event_count = 0;
+    }
+#endif
     sh2z_field_init(&field, &line, &params, veh, brain, order, slot_of, rank_order, FZX_FIELD_CARS, CSEL(field_seed,FZX_RIVALS_FIELD_SEED));
+#if ENG_RIVAL_BEHAVE
+    for (uint32_t i = 0; i < FZX_FIELD_CARS; ++i) { prev_flags[i] = veh[i].flags; prev_credit[i] = brain[i].ko_credit; }
+#endif
     field.focus = 0;
     memset(is3d, 0, sizeof(is3d)); memset(want_run, 0, sizeof(want_run));
     fzx_field_report[0] = 1;
@@ -476,9 +592,24 @@ void fzx_field_tick(const sh2z_vd_body_t *player) {
     if (fzx_field_report[0] != 1) return;
     player_into_field(player);
     if (!field.started && player->race_time > 0) { sh2z_field_start(&field); fzx_field_report[4] = field.tick; }
-    sh2z_field_step(&field);
+    /* line-field-7: the step for this image's behaviour block (the other is not linked). */
+#if ENG_RIVAL_BEHAVE && E2_PACK
+    sh2z_field_step_behave(&field);
+#else
+    sh2z_field_step_plain(&field);
+#endif
     fzx_field_report[3] = field.tick; fzx_field_report[5] = field.contacts;
     fzx_field_report[11] = field.finished; fzx_field_report[12] = field.retired;
+#if ENG_RIVAL_BEHAVE
+    for (uint32_t i = 1; i < FZX_FIELD_CARS; ++i) {
+        const uint16_t f = veh[i].flags, was = prev_flags[i];
+        const sh2z_field_brain_t *b = &brain[i];
+        if ((f & SH2Z_VEH_FALLING) && !(was & SH2Z_VEH_FALLING)) field_event(i, FZX_FIELD_EV_FALL, b->ko_by, b->fall_tick);
+        if (b->ko_credit != prev_credit[i] && b->ko_credit >= 0) field_event(i, FZX_FIELD_EV_KO, b->ko_credit, (int32_t)field.tick);
+        if ((f & SH2Z_VEH_RETIRED) && !(was & SH2Z_VEH_RETIRED)) field_event(i, FZX_FIELD_EV_RETIRE, b->ko_credit, b->retire_tick);
+        prev_flags[i] = f; prev_credit[i] = b->ko_credit;
+    }
+#endif
 }
 
 #if E2_FASTPOSE

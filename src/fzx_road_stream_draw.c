@@ -349,8 +349,28 @@ static int16_t rs_guard[4]; /* set per frame from the view's clip rectangle */
 #define RS_AX1 RS_GX1
 #define RS_AY1 RS_GY1
 #endif
+#ifndef FZX_ROAD_STREAM_FASTTEST
+#define FZX_ROAD_STREAM_FASTTEST 0
+#endif
+#ifndef FZX_ROAD_STREAM_EMIT32
+#define FZX_ROAD_STREAM_EMIT32 0
+#endif
+typedef uint32_t __attribute__((may_alias)) u32a;
+#define P2(h,l) ((uint32_t)(uint16_t)(h)<<16|(uint16_t)(l))
+/* One command in eight long stores (a 32-byte table entry, big-endian: the first halfword in the high half). */
+static inline void put_cmd32(fzx_road_stream_vdp1_t *c,const fzx_road_stream_vdp1_t *t,unsigned colr,unsigned srca,unsigned size,
+    const sh2z_view_vertex_t *a,const sh2z_view_vertex_t *b,const sh2z_view_vertex_t *cc,const sh2z_view_vertex_t *dd,unsigned grda){
+    u32a *w=(u32a *)(void *)c;
+    w[0]=P2(t->ctrl,t->link);w[1]=P2(t->pmod,colr);w[2]=P2(srca,size);
+    w[3]=P2(a->sx,a->sy);w[4]=P2(b->sx,b->sy);w[5]=P2(cc->sx,cc->sy);w[6]=P2(dd->sx,dd->sy);w[7]=P2(grda,t->reserved);
+}
 /* Inputs to area are clipped to +/-900, bounding the 16-corner sum in int32. */
 static int32_t area(const sh2z_view_vertex_t *const *v,unsigned count){
+#if FZX_ROAD_STREAM_FASTTEST
+    /* FZX_ROAD_STREAM_FASTTEST (default 0): a quad's shoelace sum is the cross product of its diagonals
+     * (x2-x0)(y3-y1) - (x3-x1)(y2-y0): the same integer, two multiplies. */
+    if(count==4u)return ((int32_t)v[2]->sx-v[0]->sx)*((int32_t)v[3]->sy-v[1]->sy)-((int32_t)v[3]->sx-v[1]->sx)*((int32_t)v[2]->sy-v[0]->sy);
+#endif
     int32_t sum=0;for(unsigned i=0;i<count;++i){unsigned j=i+1<count?i+1:0;
         sum+=(int32_t)v[i]->sx*v[j]->sy-(int32_t)v[i]->sy*v[j]->sx;}
     return sum;
@@ -360,6 +380,17 @@ static unsigned classify(const vref_t v[4],bool *safe){
     /* Preserve source order: original quad order for culling, or left-start,
      * right-start, right-end, left-end for textured pieces. Do not rotate the
      * polygon: the first clipped corner anchors the VDP1 texture fan. */
+#if FZX_ROAD_STREAM_FASTTEST
+    {   /* The same tests, unrolled: the band edges once, one unsigned compare per axis. */
+        const int32_t gx0=RS_GX0,gy0=RS_GY0;const uint32_t gw=(uint32_t)(RS_GX1-RS_GX0),gh=(uint32_t)(RS_GY1-RS_GY0);
+        const unsigned o0=v[0]->outcode,o1=v[1]->outcode,o2=v[2]->outcode,o3=v[3]->outcode;
+        const int32_t x0=v[0]->sx,x1=v[1]->sx,x2=v[2]->sx,x3=v[3]->sx,y0=v[0]->sy,y1=v[1]->sy,y2=v[2]->sy,y3=v[3]->sy;
+        *safe=!((o0|o1|o2|o3)&SH2Z_OUT_NEAR)&&
+              (uint32_t)(x0-gx0)<=gw&&(uint32_t)(x1-gx0)<=gw&&(uint32_t)(x2-gx0)<=gw&&(uint32_t)(x3-gx0)<=gw&&
+              (uint32_t)(y0-gy0)<=gh&&(uint32_t)(y1-gy0)<=gh&&(uint32_t)(y2-gy0)<=gh&&(uint32_t)(y3-gy0)<=gh;
+        return 63u&o0&o1&o2&o3;
+    }
+#endif
     unsigned all=63;*safe=true;
     for(unsigned i=0;i<4;++i){all&=v[i]->outcode;
         if((v[i]->outcode&SH2Z_OUT_NEAR)||v[i]->sx< RS_GX0||v[i]->sx>RS_GX1||v[i]->sy< RS_GY0||v[i]->sy>RS_GY1)*safe=false;}
@@ -752,6 +783,12 @@ static bool piece(draw_t *d,const vref_t v[4],unsigned quad,unsigned piece_id,
                 if(at>=d->capacity)return fail(d,FZX_RS_CAPACITY);
 #endif
                 fzx_road_stream_vdp1_t *c=e->commands+at;uint16_t *g=e->shades+at*4u;
+#if FZX_ROAD_STREAM_EMIT32
+                put_cmd32(c,tmpl,colr,(uint16_t)((e->texture_offset+material.pixels+s->k0*stride)>>3),
+                    (uint16_t)((((unsigned)material.width>>3)<<8|s->rows)&0x3fffu),fan[0],fan[1],fan[2],fan[3],
+                    (uint16_t)(((e->shade_offset+at*8u)&0x7ffffu)>>3));
+                ((u32a *)(void *)g)[0]=(uint32_t)shades[s->c[0]]<<16|shades[s->c[1]];((u32a *)(void *)g)[1]=(uint32_t)shades[s->c[2]]<<16|shades[s->c[3]];
+#else
                 c->ctrl=tmpl->ctrl;c->link=tmpl->link;c->pmod=tmpl->pmod;c->reserved=tmpl->reserved;
                 c->srca=(uint16_t)((e->texture_offset+material.pixels+s->k0*stride)>>3);
                 c->size=(uint16_t)((((unsigned)material.width>>3)<<8|s->rows)&0x3fffu);c->colr=colr;
@@ -759,6 +796,7 @@ static bool piece(draw_t *d,const vref_t v[4],unsigned quad,unsigned piece_id,
                 c->xc=fan[2]->sx;c->yc=fan[2]->sy;c->xd=fan[3]->sx;c->yd=fan[3]->sy;
                 g[0]=shades[s->c[0]];g[1]=shades[s->c[1]];g[2]=shades[s->c[2]];g[3]=shades[s->c[3]];
                 c->grda=(uint16_t)(((e->shade_offset+at*8u)&0x7ffffu)>>3);
+#endif
                 d->stats->commands=at+1;
             }
             return true;
@@ -781,6 +819,13 @@ static bool piece(draw_t *d,const vref_t v[4],unsigned quad,unsigned piece_id,
             fzx_road_stream_vdp1_t *c=e->commands+at;uint16_t *g=e->shades+at*4u;
             const unsigned last=first+2<count?first+2:count-1;
             /* Field-wise template copy (a struct copy is a memcpy call). */
+#if FZX_ROAD_STREAM_EMIT32
+            if(solid)put_cmd32(c,tmpl,tmpl->colr,tmpl->srca,tmpl->size,corners[0],corners[first],corners[first+1],corners[last],
+                (uint16_t)(((e->shade_offset+at*8u)&0x7ffffu)>>3));
+            else put_cmd32(c,tmpl,colr,srca,size,corners[0],corners[first],corners[first+1],corners[last],
+                (uint16_t)(((e->shade_offset+at*8u)&0x7ffffu)>>3));
+            ((u32a *)(void *)g)[0]=(uint32_t)shades[0]<<16|shades[first];((u32a *)(void *)g)[1]=(uint32_t)shades[first+1]<<16|shades[last];
+#else
             c->ctrl=tmpl->ctrl;c->link=tmpl->link;c->pmod=tmpl->pmod;c->reserved=tmpl->reserved;
             if(solid){c->colr=tmpl->colr;c->srca=tmpl->srca;c->size=tmpl->size;}
             else {c->srca=srca;c->size=size;c->colr=colr;}
@@ -788,6 +833,7 @@ static bool piece(draw_t *d,const vref_t v[4],unsigned quad,unsigned piece_id,
             c->xc=corners[first+1]->sx;c->yc=corners[first+1]->sy;c->xd=corners[last]->sx;c->yd=corners[last]->sy;
             g[0]=shades[0];g[1]=shades[first];g[2]=shades[first+1];g[3]=shades[last];
             c->grda=(uint16_t)(((e->shade_offset+at*8u)&0x7ffffu)>>3);
+#endif
             d->stats->commands=at+1;
         }
         return true;

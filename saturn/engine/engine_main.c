@@ -1631,6 +1631,13 @@ bool fzx_race_frame(void) {
 #if E2_EARLY
         early_stage(cam);
 #endif
+#if ENG_PACE == 4 && !ENG_PACE_HUD_LEAD
+        {   /* The HUD text is formatted here, in the time the slave's track may hold the master up; counted in phys_ticks. */
+            const uint16_t h1 = cpu_frt_count_get();
+            fzx_drive_hud_prepare();
+            row->phys_ticks = (uint16_t)(row->phys_ticks + (uint16_t)(cpu_frt_count_get() - h1));
+        }
+#endif
 #else
         kick(&path.cams[shown - 1u], shown);
 #endif

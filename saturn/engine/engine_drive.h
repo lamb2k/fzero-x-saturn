@@ -95,4 +95,6 @@ uint8_t fzx_drive_outer(void);
 void fzx_drive_hud(void);
 /* The HUD text only, into the dbgio buffer; the caller flushes it (dbgio_flush). */
 void fzx_drive_hud_text(void);
+/* Formats the HUD text ahead of fzx_drive_hud_text (same strings, same state). */
+void fzx_drive_hud_prepare(void);
 #endif

@@ -1,4 +1,5 @@
 /* Engine line, milestone E1: the drive slice (see engine_drive.h). */
+#include <stdio.h>
 #include <string.h>
 #include <stddef.h>
 #include "engine_drive.h"
@@ -1462,16 +1463,30 @@ void fzx_drive_hud(void) {
     dbgio_flush();
 }
 
-void fzx_drive_hud_text(void) {
+/* The HUD text is formatted before the frame's track wait (fzx_drive_hud_prepare, in the master's idle time on a
+ * frame the slave's track holds up) and written to the dbgio buffer after it (fzx_drive_hud_text), so the previous
+ * frame's flush, which sits in the wait for the present, still sends the previous frame's text. The strings are the
+ * ones dbgio_printf formats, from the same state. */
+static char hud_str[3][48];
+static uint32_t hud_ready;
+void fzx_drive_hud_prepare(void) {
     const uint32_t kmh = (uint32_t)(((int64_t)(body.speed < 0 ? -body.speed : body.speed) * 216) / (65536 * 10));
     const uint32_t ms = body.race_time > 0 ? (uint32_t)body.race_time : 0u;
     const uint32_t laps = (uint32_t)course.track.laps;
     uint32_t lap = (uint32_t)(body.laps_done > 0 ? body.laps_done : 1);
     if (lap > laps) lap = laps;
-    dbgio_printf("\x1b[2;2H%4lu KM/H  LAP %lu/%lu  %lu'%02lu\"%02lu ", (unsigned long)kmh, (unsigned long)lap,
-                 (unsigned long)laps, (unsigned long)(ms / 60000u), (unsigned long)((ms / 1000u) % 60u),
-                 (unsigned long)((ms / 10u) % 100u));
-    if (body.flags & SH2Z_VD_FINISHED) dbgio_printf("\x1b[4;14HFINISH");
-    else if (body.intro > 0) dbgio_printf("\x1b[4;14H%s", body.intro > 180 ? "      " : body.intro > 120 ? "  3   " : body.intro > 60 ? "  2   " : "  1   ");
-    else dbgio_printf("\x1b[4;14H      ");
+    snprintf(hud_str[0], sizeof(hud_str[0]), "[2;2H%4lu KM/H  LAP %lu/%lu  %lu'%02lu\"%02lu ", (unsigned long)kmh, (unsigned long)lap,
+             (unsigned long)laps, (unsigned long)(ms / 60000u), (unsigned long)((ms / 1000u) % 60u),
+             (unsigned long)((ms / 10u) % 100u));
+    if (body.flags & SH2Z_VD_FINISHED) snprintf(hud_str[1], sizeof(hud_str[1]), "[4;14HFINISH");
+    else if (body.intro > 0) snprintf(hud_str[1], sizeof(hud_str[1]), "[4;14H%s", body.intro > 180 ? "      " : body.intro > 120 ? "  3   " : body.intro > 60 ? "  2   " : "  1   ");
+    else snprintf(hud_str[1], sizeof(hud_str[1]), "[4;14H      ");
+    hud_ready = 1u;
+}
+
+void fzx_drive_hud_text(void) {
+    if (!hud_ready) fzx_drive_hud_prepare();
+    hud_ready = 0u;
+    dbgio_puts(hud_str[0]);
+    dbgio_puts(hud_str[1]);
 }

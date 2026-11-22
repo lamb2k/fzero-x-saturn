@@ -1,8 +1,8 @@
 # Engine race modes (ENG_MODES, plan P3 item 3)
 
 DRAFT 1 for Codex (the menus) and the engine integrator. Race side: Opus lane `claude/modes`. Nothing binds until Codex agrees.
-`ENG_MODES=1` (scenes images; default 0 while the lane builds, the merge makes it the default and keeps `0` only as the
-identity arm). Off, every BIN equals `origin/engine`.
+`ENG_MODES` and `ENG_GHOST` are on by default in every scenes image (`ENG_GHOST` follows `ENG_MODES`); `ENG_MODES=0` is the identity arm
+(every BIN then equals the engine's from before the modes, checked: base b573443 f0672796 = this branch with the arm off).
 
 ## Session
 
@@ -29,6 +29,16 @@ Options, unknown) is refused. The table is `engine_modes.c`; `tests/test_modes.p
 - **Death Race:** rivals start at half energy (`racer.c`), the race is won when every rival vehicle is retired
   (`fzx_field_retired_now`), the player's time at that tick is the record, and a player retirement is the loss. Without attacks
   (`ENG_ATTACKS`, not on this line) the kills do not happen: HOST with a passive player retires 1 rival of 29 in ten minutes.
+  **Course 54 (HOST, original code, `fzx-gp-ref --mode death`, passive player):** the rivals do not lose energy. All 29 keep it
+  (half of their machine's) until they retire, by falling: every rival leaves the road at the same place, distance about 19,530
+  (the 15-node air run 312..326 of the baked line, 922 units long), flies 19 or 20 ticks (about 625 units at 33.7 a tick, short of the
+  landing), falls, and `Racer_RetireRacer` (energy 0) follows 122..132 ticks later. Take-off to retirement is 141..151 ticks
+  (mean 146.9), so the retire ticks 738..835 are the take-off ticks 590..686 plus that. The player's win is the last retirement
+  (`gCpuRacersRetired + 1 == gTotalRacers`). The default CPU line (speed 69, lateral 0, `cpu.c` for course indexes 30 and up)
+  never boosts over the gap. The native field has no rule for a flight that is shorter than its air run (its falls are lateral):
+  card line-field-14 (hand-over). With the prototype rule the native field on HOST retires 29 of 29 in 6 seeds, sorted retire
+  ticks within 14 ticks of the reference (band fixed before measuring: 40), and the controls (rule off, reach 40 ticks, fall time 60
+  ticks, one global pace) fail. Per-rival pace comes from the reference's speed before take-off (`tools`-side field header).
 - **Practice rows:** `generated/courses/select/course_practice.c` (tools/course_practice_bundle.py), from four reference runs of the
   original code as Practice per course (`fzx-gp-ref --mode practice`, difficulties 0..3, the shipped field seed). The Grand Prix
   class rows are not touched.
@@ -73,7 +83,7 @@ right); Master is skipped until it is open.
   table or points. Records still ranks the run and makes the one write.
 - Not yet wired: the existing SELECT (`session_edit`) still validates by itself; once Codex's picker agrees, both call `fzx_mode_entry_check`.
 
-## Time Attack ghost (ENG_GHOST=1, needs ENG_MODES=1; default 0)
+## Time Attack ghost (ENG_GHOST, on with ENG_MODES)
 - One ghost slot, as in the original: the best Time Attack run, kept as two backup-RAM files (FZXGHO_A / FZXGHO_B) written alternately with a generation, so a power loss or a bad write leaves the older ghost. Records stay in FZXREC_A / FZXREC_B.
 - Format (engine_ghost.h): 44-byte head (magic, version, generation, course, race ms, samples, bytes, CRC, start position Q16) plus a nibble stream of second differences of the position, every second tick, one nibble per axis (0 = escape + 16 bits). Positions are whole units. 12,000 bytes of stream maximum (original racer.c: 16,200); Mute City's best run is 4,692 bytes (3,121 samples).
 - Recording: engine_drive.c `step_once` calls `fzx_ghost_tick` after the physics step while the race clock runs and the player has not finished. The save runs at the Time Attack name-entry commit when the rank is 1.

@@ -125,7 +125,13 @@ static fzx_rec_result_t write_table(void) {
     dir.language = BUP_LANG_ENGLISH;
     dir.data_size = size;
     engine_smpc_quiet(true);
+#if ENG_GHOST
+    const uint16_t w0 = cpu_frt_count_get();
+#endif
     const bup_status_t s = bup_write(BUP_DEVICE_INTERNAL, &dir, &io, BUP_WRITE_MODE_OVERWRITE);
+#if ENG_GHOST
+    fzx_rec_report[14] = (uint16_t)(cpu_frt_count_get() - w0); /* FRT ticks the write blocked the caller (a menu frame) */
+#endif
     engine_smpc_quiet(false);
     fzx_rec_report[7] = s;
     fzx_rec_report[5] = target + 1u;
@@ -289,7 +295,7 @@ static fzx_ghost_t ghost_io;            /* one file's image; high work RAM, like
 static uint32_t ghost_gen[2];
 volatile uint32_t fzx_ghost_fault;       /* captures: 1 = the next ghost write stores a wrong CRC; 2 = it stores half the file */
 /* [0] last load (1 found, 0 none), [1] generation loaded, [2] file loaded (1 A, 2 B), [3] A valid, [4] B valid, [5] last save result,
- * [6] file written, [7] bup status of the last write, [8] bytes of the last file written, [9] free blocks after it */
+ * [6] file written, [7] bup status of the last write, [8] bytes of the last file written, [9] free blocks after it, [10] FRT ticks the write blocked */
 volatile uint32_t fzx_ghost_store[16];
 
 static bool ghost_read(unsigned i, uint32_t *gen) {
@@ -336,7 +342,9 @@ fzx_rec_result_t fzx_records_ghost_save(const fzx_ghost_t *g) {
     dir.language = BUP_LANG_ENGLISH;
     dir.data_size = size;
     engine_smpc_quiet(true);
+    const uint16_t w0 = cpu_frt_count_get();
     const bup_status_t s = bup_write(BUP_DEVICE_INTERNAL, &dir, &ghost_io, BUP_WRITE_MODE_OVERWRITE);
+    fzx_ghost_store[10] = (uint16_t)(cpu_frt_count_get() - w0); /* FRT ticks the write blocked the caller */
     bup_stat_t st;
     memset(&st, 0, sizeof(st));
     (void)bup_status(BUP_DEVICE_INTERNAL, 0, &st);

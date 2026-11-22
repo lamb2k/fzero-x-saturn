@@ -349,6 +349,9 @@ static vdp1_cmdt_list_t menu_list, bare_list;
 /* Menu hook counters: [0] span refusals, [1] preload deferrals (lease still referenced),
  * [2] preload steps, [3] preload cancels, [4] preloads completed, [5] longest preload (frames). */
 volatile uint32_t fzx_scn_ctl[8];
+#if ENG_GHOST
+volatile uint32_t fzx_scn_commit_ticks; /* the last name commit, FRT ticks (captures) */
+#endif
 static unsigned span_count;
 static bool span_open;
 static fzx_scn_menu_hooks_t hooks[FZX_SCN_COUNT];
@@ -1031,9 +1034,15 @@ static void name_tick(void) {
     const char key = name_keys[results->key];
     if (input.edges & (PAD_A | PAD_START)) {
         if (key == '<') {
+#if ENG_GHOST
+            const uint16_t c0 = cpu_frt_count_get();
+#endif
             results->save = fzx_records_commit(&fzx_scn_result, results->name);
 #if ENG_GHOST
             if (results->rank.place == 1u) { (void)fzx_ghost_race_save(&fzx_scn_result); save_ran = true; }
+#endif
+#if ENG_GHOST
+            fzx_scn_commit_ticks = (uint16_t)(cpu_frt_count_get() - c0); /* FRT ticks the name commit held this menu frame (records, then the ghost) */
 #endif
             results->editing = false;
             sh2z_scene_input_consume(&input);

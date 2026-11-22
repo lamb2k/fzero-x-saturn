@@ -96,15 +96,16 @@ FZX_CUP_DIAG_CATALOG ?= 0
 ENG_SCN_STALL_CONTROL ?= 0
 # ENG_MODES (scenes image; claude/modes, plan P3 item 3): the race modes (engine_modes.c): Time Attack alone, Practice and
 # Death Race without a lap-count finish, Death Race's rivals at half energy, Grand Prix and Practice keeping no times, and
-# the SELECT placeholder's mode walk (C) and the harness probe 0x400. Default 0 while built (off = the engine's BINs).
-ENG_MODES ?= 0
+# the SELECT placeholder's mode walk (C) and the harness probe 0x400. On by default in every scenes image (the owner's mode
+# set ships; no landed-off switch); ENG_MODES=0 is the identity arm: every BIN then equals the engine's from before the modes.
+ENG_MODES ?= $(if $(filter 1,$(ENG_SCENES)),1,0)
 ifeq ($(filter 0 1,$(ENG_MODES)),)
 $(error ENG_MODES must be 0 or 1)
 endif
 # ENG_GHOST (needs ENG_MODES=1; claude/modes step F): the Time Attack ghost (engine_ghost.c, engine_ghost_race.c): the best run is
 # recorded as a compact stream, kept in backup RAM (one slot, two files) and played back as a position in the next Time Attack.
-# Default 0 (off = the BINs without it).
-ENG_GHOST ?= 0
+# On by default with ENG_MODES (ENG_GHOST=0 is the identity arm: the BINs without it).
+ENG_GHOST ?= $(ENG_MODES)
 ifeq ($(filter 0 1,$(ENG_GHOST)),)
 $(error ENG_GHOST must be 0 or 1)
 endif

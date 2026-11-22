@@ -12,8 +12,7 @@ Keep 16 KiB stack, guards, no crashes, road420/vehicle70, legacy default, hygien
 ## Playable extent
 
 Original Time Attack code runs Mute City 1 on the master SH-2 with binary32 soft float.
-Original pad-driven title/main/course/machine/settings screens now reach the race.
-Selected skin 1 / engine 0.5078125 survives the handoff. A separate 7,059-input
+Original pad-driven title/main/course/machine/settings screens now reach the race. Selected skin 1 / engine 0.5078125 survives the handoff. A separate 7,059-input
 native diagnostic replay completes three laps at source time 110,639 ms.
 The original camera, Blue Falcon, road, sky/skyline/floor/cloud and partial HUD render
 behind explicit local flags, including finish/results and records/name entry. Retry,
@@ -34,8 +33,7 @@ audio/effects, ordinary pad-only completion, soak, final look and HARDWARE remai
 
 ## Current cards
 
-C0's frozen legacy-tuning baseline completes 9,907 inputs / three laps at 3.287 fps MODELLED:
-304.215 ms mean presentation interval, p95 433.333 ms, maximum 466.668 ms;
+C0's frozen legacy-tuning baseline completes 9,907 inputs / three laps at 3.287 fps MODELLED: 304.215 ms mean presentation interval, p95 433.333 ms, maximum 466.668 ms;
 34,178 missed fields. This is not physical FPS or a measurement of the new selected replay.
 Clock controls, allocations and profile-off identity pass; baseline stack 5,996 B fails C7.
 
@@ -51,8 +49,7 @@ Historical texture metric: 1 px merge census p99 413 commands / 0.650 px texture
 C3 [native stream](ROAD_STREAM_NATIVE.md) completes selected 7,059 inputs with exact finish/guards;
 road p99 133.143 ms and 3.929 fps MODELLED fail the 16 ms stop gate. Historical ideal-image check failed.
 
-C4 [vehicle rebake](MACHINE_REBAKE.md): 9.273 ms MODELLED, default-off; [shade pin](SH2ZAM_SHADE_ADOPTION.md) HOST-qualified.
-HOST p99 67 / max 112; cost/command gates fail; [fixed orders](C4_OCCLUSION_FEASIBILITY.md) fail held-out views.
+C4 [vehicle rebake](MACHINE_REBAKE.md): 9.273 ms MODELLED, default-off; [shade pin](SH2ZAM_SHADE_ADOPTION.md) HOST-qualified. HOST p99 67 / max 112; cost/command gates fail; [fixed orders](C4_OCCLUSION_FEASIBILITY.md) fail held-out views.
 Its full race matches source at 3.837 fps MODELLED; 2,316 B stack fails C7.
 C5 compact atlas reclaims 128 KiB; [fixed grid](CLOUD_GRID.md) fits both routes but fails cloud appearance.
 C8 [countdown](COUNTDOWN.md): 24 views / 276 commands and full source race pass; sound/look open.
@@ -75,8 +72,8 @@ Final appearance, pad retry and audio remain open; diagnostic text/HUD obscure t
 
 Older hitch/clip-divider/software-road WIP stay local; compare with fixed-input replay (live autopilot follows cadence).
 Engine line E0 (11-19, Ymir): 40.8 fps, 0 over two fields, slave p99 21.8 ms with the owner's stable cap 26; see ENGINE_PLAN §4.
-Finish-menu gates pass. Opus: C3, C4 including visual draw order, simulation, C5 and SH2ZAM
-(claude/c3-c4-perf, claude/c4-perf); Codex: C8 and gate1 merges;
+Engine roster b44cb25 on eae9a96 (EMULATOR): all six course windows held two fields. Minimum unused master/slave stack was 100,248/5,752 B, with zero guard trips. Devil's Forest and Port Town reached 24.68/24.56 ms critical p99 MODELLED, versus 24.14/23.45 ms with standard scenes. Clear both at 24.5 ms or less on the integration image while retaining cadence, memory and control passes. The six existing margin misses remain open.
+Finish-menu gates pass. Opus: C3, C4 including visual draw order, simulation, C5 and SH2ZAM (claude/c3-c4-perf, claude/c4-perf); Codex: C8 and gate1 merges;
 ordinary retry, audio/effects, pad-only race completion and soak remain.
 C3/C4/C5 performance blockers and full combined 60 fps qualification remain.
 No release, retail-derived publication, SD write or physical acceptance occurred.

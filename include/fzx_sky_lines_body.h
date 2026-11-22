@@ -13,6 +13,8 @@
 #include "fzx_sky.h"
 
 typedef struct {uint8_t set[224];int center;} lines_t;
+/* Engine builds only (FZX_ENGINE): the legacy recipes keep their original code, byte for byte. */
+#if defined(FZX_ENGINE) && FZX_ENGINE
 /* C division (truncating) of 32-bit values on the SH-2 64/32 divider; the quotient always fits. */
 static int32_t sky_div(int32_t n,int32_t d) {
 #if defined(__sh__)
@@ -26,6 +28,9 @@ static int32_t sky_div(int32_t n,int32_t d) {
 #endif
     return n/d;
 }
+#else
+#define sky_div(n,d) ((n)/(d))
+#endif
 static uint16_t blend(uint16_t a,uint16_t b,int32_t t) {
     uint16_t out=0x8000;
     for(unsigned shift=0;shift<15;shift+=5) {
@@ -62,6 +67,7 @@ static bool line_emit(void *context,const fzx_sky_polygon_t *p) {
     if(ya>yb)return true;
     int32_t rgb[3],step[3];
     const int32_t span=yb>ya?yb-ya:1;
+#if defined(FZX_ENGINE) && FZX_ENGINE
     for(unsigned k=0;k<3;++k){rgb[k]=((ca>>(k*5))&31)<<16;step[k]=sky_div((((cb>>(k*5))&31)<<16)-rgb[k],span);}
     /* The channels run between the two end colours (steps truncate toward zero, so no value leaves [0,31]): the rows
      * on screen, from the first of them, with the rounding term added once. */
@@ -78,6 +84,17 @@ static bool line_emit(void *context,const fzx_sky_polygon_t *p) {
             }
         }
     }
+#else
+    for(unsigned k=0;k<3;++k){rgb[k]=((ca>>(k*5))&31)<<16;step[k]=((((cb>>(k*5))&31)<<16)-rgb[k])/span;}
+    for(int32_t y=ya;y<=yb;++y) {
+        if(y>=0 && y<224) {
+            uint16_t c=0x8000;
+            for(unsigned k=0;k<3;++k){int32_t v=(rgb[k]+32768)>>16;if(v<0)v=0;if(v>31)v=31;c|=(uint16_t)(v<<(k*5));}
+            SKY_LINES[y]=c;l->set[y]=1;
+        }
+        for(unsigned k=0;k<3;++k)rgb[k]+=step[k];
+    }
+#endif
     return true;
 }
 bool fzx_clouds_sky_lines(const fzx_view_t *view,const RefBackdrop *source) {

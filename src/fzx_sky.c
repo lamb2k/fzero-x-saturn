@@ -1,7 +1,12 @@
 #include "fzx_sky.h"
 #include <limits.h>
 #include <string.h>
+#if defined(FZX_ENGINE) && FZX_ENGINE
+#define FZX_SKY_FAST 1
 #include "fzx_fraction.h"
+#else
+#define FZX_SKY_FAST 0
+#endif
 
 enum { MAX_VERTICES=12 };
 typedef struct { int32_t p[3],s; } vertex_t;
@@ -10,14 +15,28 @@ static uint64_t fraction(int64_t a,int64_t b) {
     uint64_t n=a<0?0u-(uint64_t)a:(uint64_t)a;
     const uint64_t other=b<0?0u-(uint64_t)b:(uint64_t)b;
     if(!other)return UINT64_C(4294967296);
+#if FZX_SKY_FAST
     return fzx_fraction(n,n+other);
+#else
+    const uint64_t d=n+other;
+    uint64_t q=0;
+    for(unsigned i=0;i<32;++i) {
+        q<<=1;
+        if(n>=d-n){n-=d-n;q|=1u;}else n+=n;
+    }
+    return q;
+#endif
 }
 /* The same product, with a 32x32->64 multiply when both factors fit 32 bits (m < 2^32 always; t < 2^32 except the
  * whole-edge fraction 2^32 of fraction()). */
 static int32_t lerp(int32_t a,int32_t b,uint64_t t) {
     const int64_t d=(int64_t)b-a;
     const uint64_t m=(uint64_t)(d<0?-d:d);
+#if FZX_SKY_FAST
     const uint64_t product=((m|t)>>32)?m*t:(uint64_t)(uint32_t)m*(uint32_t)t;
+#else
+    const uint64_t product=m*t;
+#endif
     const int64_t step=(int64_t)(product>>32);
     return (int32_t)((int64_t)a+(d<0?-step:step));
 }
@@ -62,9 +81,18 @@ static vertex_t at_s(const vertex_t *a,const vertex_t *b,int32_t s) {
     /* Authored S is s16 * 2048 and clipping stays inside that range, so
      * this denominator is at most 134,215,680. Keep the exact Q0.32 ratio
      * but avoid doing each division step in two-word arithmetic on SH-2. */
-    const uint32_t n=(uint32_t)((int64_t)s-a->s);
+    uint32_t n=(uint32_t)((int64_t)s-a->s);
     const uint32_t d=(uint32_t)((int64_t)b->s-a->s);
+#if FZX_SKY_FAST
     const uint64_t t=n<d&&d<=0x7fffffffu?fzx_q32_ratio(n,d):fzx_fraction_loop(n,d);
+#else
+    uint32_t q32=0;
+    for(unsigned i=0;i<32;++i) {
+        q32<<=1;
+        if(n>=d-n){n-=d-n;q32|=1u;}else n+=n;
+    }
+    const uint64_t t=q32;
+#endif
     vertex_t q;
     for(unsigned j=0;j<3;++j)q.p[j]=lerp(a->p[j],b->p[j],t);
     q.s=s;return q;

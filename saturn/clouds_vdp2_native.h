@@ -35,6 +35,17 @@ bool fzx_clouds_prepare(vdp1_cmdt_t *commands,unsigned capacity,const fzx_view_t
 void fzx_clouds_commit(void);
 void fzx_clouds_purge_remote(void);
 uint32_t fzx_clouds_stage_hash(uint32_t h);
+#if ENG_BAL_SPLIT
+/* ENG_BAL_SPLIT (claude/speed-2): the prepare in parts (src/fzx_clouds_rbg.h). Master with the job: setup, half0, then
+ * either CPU: split_b (the second half into a stage), then the master: split_purge_remote (when the slave ran it),
+ * split_finish (the stage behind the first half, the status words). split_count: commands so far. */
+bool fzx_clouds_split_setup(vdp1_cmdt_t *commands,unsigned capacity,const fzx_view_t *view,const RefBackdrop *source);
+bool fzx_clouds_split_half0(const fzx_view_t *view,const RefBackdrop *source);
+uint32_t fzx_clouds_split_count(void);
+void fzx_clouds_split_b(const fzx_view_t *view,const RefBackdrop *source);
+void fzx_clouds_split_purge_remote(void);
+bool fzx_clouds_split_finish(uint32_t *count);
+#endif
 #endif
 /* From fzx_floor_present at VBlank: tables, sky lines and band colours.
  * Returns true when it wrote a frame's data. */

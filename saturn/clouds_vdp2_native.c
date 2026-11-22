@@ -329,6 +329,89 @@ void fzx_clouds_commit(void) {
     (void)queue_push(&clouds_queue,clouds_bank,fzx_input_count?fzx_input_count:1u);
     fzx_clouds_pending=fzx_input_count?fzx_input_count:1;
 }
+#if ENG_BAL_SPLIT
+/* ENG_BAL_SPLIT (claude/speed-2): clouds_body in three parts that may run on different SH-2s, see fzx_clouds_rbg.h.
+ * The setup (user clip, borders, parameter B, window, inner band) and the first half of the fade bands run on the
+ * CPU that holds the job (the master, when it claimed it first); the second half runs on whichever CPU claims it
+ * (a second try-claim in engine_main.c), into a stage of its own that fzx_clouds_split_finish copies behind the
+ * first half, so the commands are the whole job's, in the same order, whoever ran what. The part-B CPU writes only
+ * the stage, its own out record and its counters: no status word, no band counter of the other half. The head
+ * (clip and borders) repeats clouds_body's text so that the unsplit images keep their object code. */
+#define SPLIT_B_COMMANDS 48u
+static void purge_cached(void *p,uint32_t bytes);
+typedef struct { submit_t s; unsigned borders; uint32_t ok,fault,count; } clouds_split_state_t;
+static clouds_split_state_t split_a;                                  /* written by the holder only */
+static fzx_clouds_split_t split_sh __attribute__((aligned(16)));      /* the setup's record, read by the part-B CPU */
+static fzx_clouds_rbg_t split_b_out __attribute__((aligned(16)));    /* the part-B CPU's out record (counters only) */
+static vdp1_cmdt_t split_b_cmds[SPLIT_B_COMMANDS] __attribute__((aligned(16)));
+static clouds_split_state_t split_b __attribute__((aligned(16)));
+bool fzx_clouds_split_setup(vdp1_cmdt_t *commands,unsigned capacity,const fzx_view_t *view,const RefBackdrop *source) {
+    if(!commands || capacity<2 || !view || !source)return false;
+    memset(commands,0,sizeof(*commands));vdp1_cmdt_user_clip_coord_set(commands);
+    commands->cmd_xa=view->clip[0];commands->cmd_ya=view->clip[1];commands->cmd_xc=view->clip[2]-1;commands->cmd_yc=view->clip[3]-1;
+    unsigned borders=0;
+    {
+        vdp1_cmdt_t *c=&commands[1+borders++];memset(c,0,sizeof(*c));vdp1_cmdt_polygon_set(c);
+        const vdp1_cmdt_draw_mode_t mode={.end_code_disable=1,.trans_pixel_disable=1};
+        vdp1_cmdt_draw_mode_set(c,mode);c->cmd_colr=0;
+        c->cmd_xa=(int16_t)view->clip[0];c->cmd_ya=(int16_t)view->clip[1];
+        c->cmd_xb=(int16_t)(view->clip[2]-1);c->cmd_yb=(int16_t)view->clip[1];
+        c->cmd_xc=(int16_t)(view->clip[2]-1);c->cmd_yc=(int16_t)(view->clip[3]-1);
+        c->cmd_xd=(int16_t)view->clip[0];c->cmd_yd=(int16_t)(view->clip[3]-1);
+    }
+    const int16_t sides[2][2]={{0,(int16_t)(view->clip[0]-1)},{(int16_t)view->clip[2],319}};
+    for(unsigned i=0;i<2;++i) {
+        if(sides[i][1]<sides[i][0] || borders+2>=capacity)continue;
+        vdp1_cmdt_t *c=&commands[1+borders++];memset(c,0,sizeof(*c));vdp1_cmdt_polygon_set(c);
+        const vdp1_cmdt_draw_mode_t mode={.end_code_disable=1,.trans_pixel_disable=1};
+        vdp1_cmdt_draw_mode_set(c,mode);c->cmd_colr=0x8000u;
+        c->cmd_xa=sides[i][0];c->cmd_ya=0;c->cmd_xb=sides[i][1];c->cmd_yb=0;
+        c->cmd_xc=sides[i][1];c->cmd_yc=223;c->cmd_xd=sides[i][0];c->cmd_yd=223;
+    }
+    split_a.s=(submit_t){commands+1+borders,capacity-1-borders,0};split_a.borders=borders;band_count=0;
+    fzx_plane_busy=1;
+    if(!fzx_clouds_rbg_prepare_part(view,source,&CLOUDS_STAGE,emit,&split_a.s,FZX_CLOUDS_SETUP,&split_sh)) {
+        fzx_plane_stats.fault=CLOUDS_STAGE.fault;fzx_clouds_status=3;return false;
+    }
+    return true;
+}
+bool fzx_clouds_split_half0(const fzx_view_t *view,const RefBackdrop *source) {
+    if(!fzx_clouds_rbg_prepare_part(view,source,&CLOUDS_STAGE,emit,&split_a.s,FZX_CLOUDS_HALF0,&split_sh)) {
+        fzx_plane_stats.fault=CLOUDS_STAGE.fault;fzx_clouds_status=3;return false;
+    }
+    return true;
+}
+/* Commands written so far by the setup and the first half (clip, borders and polygons). */
+uint32_t fzx_clouds_split_count(void) {return split_a.s.count+1u+split_a.borders;}
+/* Part B, on either CPU: the second half into the stage. The inputs (setup record, view, backdrop, sky lines) are in
+ * memory. No other writes; the result is read by fzx_clouds_split_finish. */
+void fzx_clouds_split_b(const fzx_view_t *view,const RefBackdrop *source) {
+    split_b.s=(submit_t){split_b_cmds,SPLIT_B_COMMANDS,0};
+    split_b_out.fault=0;split_b_out.commands=0;
+    const bool ok=fzx_clouds_rbg_prepare_part(view,source,&split_b_out,emit,&split_b.s,FZX_CLOUDS_HALF1,&split_sh);
+    split_b.count=split_b.s.count;split_b.fault=split_b_out.fault;
+    __asm__ volatile("" ::: "memory");
+    split_b.ok=ok?1u:0u;
+}
+/* After part B ran on the other CPU: drop this CPU's cached copies of what it wrote. */
+void fzx_clouds_split_purge_remote(void) {
+    purge_cached(&split_b,sizeof(split_b));
+    purge_cached(split_b_cmds,sizeof(split_b_cmds));
+}
+/* The master, once both halves are done: the stage behind the first half, the job's status words as clouds_body
+ * writes them. *count: the commands of the whole job. False when part B failed. */
+bool fzx_clouds_split_finish(uint32_t *count) {
+    if(!split_b.ok){fzx_plane_stats.fault=split_b.fault?split_b.fault:CLOUDS_STAGE.fault;fzx_clouds_status=3;return false;}
+    if(split_a.s.count+split_b.count>split_a.s.capacity){fzx_plane_stats.fault=5;fzx_clouds_status=3;return false;}
+    memcpy(split_a.s.commands+split_a.s.count,split_b_cmds,split_b.count*sizeof(vdp1_cmdt_t));
+    split_a.s.count+=split_b.count;
+    memset(&fzx_plane_stats,0,sizeof(fzx_plane_stats));
+    fzx_plane_stats.draws=split_a.s.count;fzx_plane_stats.hash=CLOUDS_STAGE.hash;fzx_plane_busy=0;
+    fzx_clouds_degenerate+=CLOUDS_STAGE.degenerate;fzx_clouds_bands=split_a.s.count;
+    *count=split_a.s.count+1u+split_a.borders;
+    return true;
+}
+#endif
 /* After the slave prepared: drop the master's cache lines of what it wrote and the
  * master reads (the bank-0 stage and sky lines in work RAM, which the present copies;
  * the counters). Bank 1 is VDP1 VRAM, read through the cache-through window. */

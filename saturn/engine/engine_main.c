@@ -677,20 +677,52 @@ static volatile uint32_t stage_ready;
 #define BAL_BARRIER() __asm__ volatile("" ::: "memory")
 /* Linked uncached (libyaul .uncached): both CPUs read memory. frame and input are the
  * master's; done, ok, count, ticks and spun the slave's. */
+#if ENG_BAL_SPLIT
+/* adone: the master's setup of the split job is published (the frame); bdone, bticks: the slave's part B. */
+typedef struct { uint32_t frame, input, done, ok, count, ticks, spun, adone, bdone, bticks; } bal_t;
+#else
 typedef struct { uint32_t frame, input, done, ok, count, ticks, spun; } bal_t;
+#endif
 static volatile bal_t bal __uncached;
 #if ENG_BAL_CLOUDS == 2
 #include "sh2zam/dual_claim_experimental.h"
 static sh2z_claim_t bal_claim __uncached; /* tag: the frame number (from 1) */
+#if ENG_BAL_SPLIT
+static sh2z_claim_t bal_claim2 __uncached; /* the second half of the clouds, same tag */
+#endif
 #endif
 /* [0] frames, [1] clouds on the slave, [2] on the master, [3] master claims that waited for
  * the slave's decision, [4] slave cloud ticks max (master FRT units), [5] slave cloud ticks
  * sum, [6] chain hash (ENG_BAL_HASH), [7] slave input waits that spun. */
 volatile uint32_t fzx_bal_report[8];
+#if ENG_BAL_SPLIT
+/* ENG_BAL_SPLIT: [0] second halves run by the slave, [1] by the master, [2] master claims of the second half that
+ * waited for the slave's decision, [3] slave waits for the setup that spun, [4] slave part-B ticks sum (master FRT
+ * units), [5] max, [6] slave claims of the second half lost to the master, [7] frames with a split job. */
+volatile uint32_t fzx_bal_split[8];
+#endif
 /* Per frame row: slave cloud ticks in master FRT units, bit 15 set when the slave ran them. */
 enum { BAL_ROWS = 6144u };
 uint16_t fzx_bal_rows[BAL_ROWS];
 static uint32_t bal_row = BAL_ROWS, bal_ratio;
+
+#if ENG_BAL_SPLIT
+/* Slave, the master holds the clouds: when its setup is out, the second half of the fade bands, unless the master
+ * has claimed it too (it claims it after its own first half). ENG_BAL_SPLIT=2 (control): the slave always runs it. */
+static void bal_slave_half(uint32_t f) {
+    if (bal.adone != f) { ++fzx_bal_split[3]; while (bal.adone != f) {} }
+#if ENG_BAL_SPLIT == 1
+    if (!sh2z_claim_b(&bal_claim2, f)) { ++fzx_bal_split[6]; return; }
+#endif
+    cpu_cache_purge(); /* the setup's record, the view, the backdrop and the sky lines */
+    BAL_BARRIER();
+    const uint16_t t0 = cpu_frt_count_get();
+    fzx_clouds_split_b(&fzx_native_view, &fzx_source_backdrop);
+    bal.bticks = (uint16_t)(cpu_frt_count_get() - t0);
+    BAL_BARRIER(); /* the stage is stored before done */
+    bal.bdone = f;
+}
+#endif
 
 /* Slave, after the track and the fills. */
 static void bal_slave(void) {
@@ -699,7 +731,12 @@ static void bal_slave(void) {
     sh2z_claim_b_decline(&bal_claim, f);
     return;
 #elif ENG_BAL_CLOUDS == 2 && ENG_BAL_FORCE == 0
-    if (!sh2z_claim_b(&bal_claim, f)) return; /* the master claimed first */
+    if (!sh2z_claim_b(&bal_claim, f)) { /* the master claimed first */
+#if ENG_BAL_SPLIT
+        bal_slave_half(f);
+#endif
+        return;
+    }
 #endif
     if (bal.input != f) { bal.spun = f; while (bal.input != f) {} }
     cpu_cache_purge(); /* the backdrop, sky lines and bank the master wrote after the kick */
@@ -1011,8 +1048,34 @@ static void build(row_t *row, const fzx_engine_cam_t *cam, uint32_t tick, uint16
     PROF(4, pt);
     staged += n;
     const bool bal_mine = bal_master_claims(bf);
+#if ENG_BAL_SPLIT
+    bool bal_b_mine = false; /* the second half is the master's (it ran it, or there is nobody else) */
+    if (bal_mine) {
+        /* Setup and the first half here; the second half goes to whichever SH-2 claims it (the slave, once its
+         * track and fills are done and the setup is out, or this one when it gets there first). */
+        ++fzx_bal_split[7];
+        if (!fzx_clouds_split_setup(&commands[CMD_FIRST], FZX_SLAVE_ROAD_RESERVE - 1u, &fzx_native_view, &fzx_source_backdrop))
+            fail(23, "CLOUDS", fzx_clouds_rbg.fault);
+        BAL_BARRIER(); /* the setup's record is stored before it is announced */
+        bal.adone = bf;
+        if (!fzx_clouds_split_half0(&fzx_native_view, &fzx_source_backdrop))
+            fail(23, "CLOUDS", fzx_clouds_rbg.fault);
+        first = fzx_clouds_split_count();
+#if ENG_BAL_SPLIT == 2
+        /* Control: the slave always runs the second half. */
+#else
+        if (bal_claim2.want_b == bf) ++fzx_bal_split[2];
+        bal_b_mine = sh2z_claim_a(&bal_claim2, bf);
+        if (bal_b_mine) {
+            fzx_clouds_split_b(&fzx_native_view, &fzx_source_backdrop);
+            ++fzx_bal_split[1];
+        }
+#endif
+    }
+#else
     if (bal_mine && !fzx_clouds_prepare(&commands[CMD_FIRST], FZX_SLAVE_ROAD_RESERVE - 1u, &fzx_native_view, &fzx_source_backdrop, &first))
         fail(23, "CLOUDS", fzx_clouds_rbg.fault);
+#endif
     PROF(2, pt);
     const uint16_t bal_pre = (uint16_t)(cpu_frt_count_get() - t0);
 #else
@@ -1140,7 +1203,27 @@ static void build(row_t *row, const fzx_engine_cam_t *cam, uint32_t tick, uint16
             ++fzx_bal_report[1]; fzx_bal_report[5] += t;
             if (t > fzx_bal_report[4]) fzx_bal_report[4] = t;
             if (bal.spun == bf) ++fzx_bal_report[7];
-        } else ++fzx_bal_report[2];
+        } else {
+            ++fzx_bal_report[2];
+#if ENG_BAL_SPLIT
+            if (!bal_b_mine) {
+                /* The slave ran the second half (its job, including this, is finished: the track wait above). */
+                if (bal.bdone != bf) fail(46, "BAL CLOUDS B", bal.bdone);
+                BAL_BARRIER();
+                fzx_clouds_split_purge_remote();
+                if (!bal_ratio) { const uint8_t cks = *(volatile uint8_t *)0xfffffe92u & 3u; bal_ratio = cks == 0 ? 16u : cks == 1 ? 4u : 1u; }
+                const uint32_t t = bal.bticks * bal_ratio;
+                slave_clouds = (uint16_t)(0x8000u | (t > 0x7fffu ? 0x7fffu : t));
+                ++fzx_bal_split[0]; fzx_bal_split[4] += t;
+                if (t > fzx_bal_split[5]) fzx_bal_split[5] = t;
+            }
+            {
+                uint32_t whole = 0;
+                if (!fzx_clouds_split_finish(&whole)) fail(23, "CLOUDS", fzx_plane_stats.fault);
+                first = whole;
+            }
+#endif
+        }
         ++fzx_bal_report[0];
         if (bal_row < BAL_ROWS) fzx_bal_rows[bal_row] = slave_clouds;
         if (first + staged >= FZX_SLAVE_ROAD_RESERVE) fail(26, "PRELUDE OVERFLOW", first + staged);

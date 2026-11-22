@@ -1,0 +1,22 @@
+C-132 targeted census rerun: frozen before any evidence run (2026-11-22, claude-mem4 gate lane)
+
+Judge:   tools/census/lowpcs.py (v3) + lowpcs-transition-allow.txt (the 8 symbols). v2 kept as lowpcs-v2.py, v1 as lowpcs-v1.py.
+Fixture: tools/census/c124_host.py (C-124 cases 1-4 plus section 5, c132_cases.py, real reset trace c132_reset_fields.txt): 86 cases.
+Driver:  tools/census/rerun.py (runs loop, loop.2, loop-snd0, reset, reset-snd0, arm-smpc2, census-hot, census-hot-reset from the exact
+         gate6 images, discs, maps and scripts; the scorer checks the BIN hash against gate6's receipt and that each run's PC
+         totals equal the gate6 run's).
+Tracer:  ymir-cov6 (Ymir-linked, GPL, so the source stays outside this repository): <evidence>/host/claude-mem4/harness/ymir-cov6.cpp, built by build6.cmd.
+         Generated from ymir-cov5.cpp by <evidence>/host/claude-mem4/tools/mkcov6.py. Output formats are in the scorer's docstring and the cpp header.
+Reset-accepted marker: no engine change (the images are gate6's). The marker is the existing engine state, read at the instant of
+         each hit: fzx_scn_report[9] (accepted reset requests) +1 together with fzx_scn_report[21] (chord consumed) +1, the sequencer's
+         pending (RUN) or next (LEAVE and later) = TITLE, plus a Q event (the master enters sh2z_scene_request with R5 = TITLE).
+sha256:
+  ymir-cov6.cpp   0d329ff59638601d7b913edb11db98be0cf46b82f4a1babf84d974fa01e4a296
+  ymir-cov6.exe   02e630b6cce11a2fdff4c734f8ba8423898ea3b1fb6dd8494fed41e700ba1792
+  mkcov6.py       9be85417627198e8f6e7c9397d1fc317a4ed58c5e6821d34855d790c3e629172
+Gate6 evidence: <evidence>/host/claude-gate/mem4-final-a21f8f4 (images a21f8f4, base cd7561c), mem4-hotctl5-a21f8f4 (census-hot); <evidence> = $FZX_EVIDENCE, default ~/fzx-evidence.
+
+C-133 amendment (scorer only, frozen before any re-score): the RUN check takes precedence over the reset allowlist. The transition
+exemption starts only after execution has left RUN (the sequencer's actual phase LEAVE or later, next = TITLE) with an accepted
+reset, racedepth 0, master CPU. The acceptance-field exemption for sh2z_scene_request / session_defaults / fzx_cup_reset is gone.
+HOST negative added: field 4835 with a valid accepted request, a post-Q allowlisted PC, RUN, depth 0 fails. The tracer (cov6) is unchanged.

@@ -149,6 +149,36 @@
    "slug": "port-town-1",
    "index": 5,
    "tubes": false
+  },
+  {
+   "slug": "sector-alpha",
+   "index": 6,
+   "tubes": false
+  },
+  {
+   "slug": "red-canyon-1",
+   "index": 7,
+   "tubes": false
+  },
+  {
+   "slug": "devils-forest-2",
+   "index": 8,
+   "tubes": false
+  },
+  {
+   "slug": "mute-city-2",
+   "index": 9,
+   "tubes": false
+  },
+  {
+   "slug": "big-blue-2",
+   "index": 10,
+   "tubes": false
+  },
+  {
+   "slug": "white-land-1",
+   "index": 11,
+   "tubes": false
   }
  ],
  "runs": [

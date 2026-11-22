@@ -80,7 +80,13 @@ static void field_class_pick(void) {
 #if ENG_MODES && defined(ENG_COURSE_SELECT) && ENG_COURSE_SELECT && E2_PACK
 /* Practice races its own rows (tools/course_practice_bundle.py): the same machines, its own grid and pace. */
 #include "course_practice.h"
-#define FIELD_ROWS ((mode_now && mode_now->menu_mode == FZX_MODE_PRACTICE)     ? fzx_course_field_practice[fzx_cid - fzx_course_ids][fzx_session.difficulty & 3u] : FIELD_ROWS_BASE)
+/* The row of the selected course in the bundle's tables. fzx_cid points at the high-RAM copy of the row (engine_courses.c,
+ * ENG_LOW_COLD), so `fzx_cid - fzx_course_ids` is not an index: find the row by course id. */
+static uint32_t practice_row(void) {
+    for (uint32_t i = 0; i < FZX_COURSE_IDS_COUNT; ++i) if (fzx_course_ids[i].id == fzx_cid->id) return i;
+    return 0;
+}
+#define FIELD_ROWS ((mode_now && mode_now->menu_mode == FZX_MODE_PRACTICE)     ? fzx_course_field_practice[practice_row()][fzx_session.difficulty & 3u] : FIELD_ROWS_BASE)
 #else
 #define FIELD_ROWS FIELD_ROWS_BASE
 #endif

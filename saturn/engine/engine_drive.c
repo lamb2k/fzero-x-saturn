@@ -48,7 +48,12 @@
 #define E1_DRIVER_BOOST 0
 #endif
 /* The fixtures' race script: 460 ticks of nothing, then A held for 9,000. */
-enum { RACE_START_TICK = 460u, RACE_END_TICK = 460u + 9000u, CHECKPOINT_EVERY = 256u, CHECKPOINTS = 64u };
+/* The race runs 9,000 ticks after the start by default (the HOST references' length); a course whose finish is later
+ * (Rainbow Road, 10,520 ticks) builds with E1_RACE_TICKS above it, and its HOST reference runs the same count. */
+#ifndef E1_RACE_TICKS
+#define E1_RACE_TICKS 9000u
+#endif
+enum { RACE_START_TICK = 460u, RACE_END_TICK = 460u + E1_RACE_TICKS, CHECKPOINT_EVERY = 256u, CHECKPOINTS = 64u };
 #define N64_A 0x8000u
 #define N64_B 0x4000u
 
@@ -89,10 +94,18 @@ static double dot30(const int32_t a[3], const int32_t b[3]) {
 #ifndef E1_DRIVER_KH
 #define E1_DRIVER_KH 2.5f
 #endif
+/* The lateral gain and the constant lateral target of R01-t (tools/physics_host `--driver kl,kh,0,460,target`);
+ * HOST and test driver only, not game behaviour. The defaults are the nominal driver's. */
+#ifndef E1_DRIVER_KL
+#define E1_DRIVER_KL 0.004f
+#endif
+#ifndef E1_DRIVER_TARGET
+#define E1_DRIVER_TARGET 0.0f
+#endif
 static signed char driver_stick(void) {
     const float lateral = (float)(sh2z_vd_body_lateral(&body) / 65536.0);
     const float heading = (float)dot30(body.body[0], body.road[2]);
-    float steer = 0.004f * (lateral - 0.0f) + E1_DRIVER_KH * heading;
+    float steer = E1_DRIVER_KL * (lateral - E1_DRIVER_TARGET) + E1_DRIVER_KH * heading;
     if (steer > 1.0f) steer = 1.0f;
     if (steer < -1.0f) steer = -1.0f;
     return (signed char)(steer >= 0.0f ? (int)(steer * 63.0f + 0.5f) : -(int)(-steer * 63.0f + 0.5f));
@@ -217,11 +230,13 @@ void fzx_drive_step(uint32_t n) {
 uint32_t fzx_drive_tick(void) { return ticks; }
 #if FZX_PHYS_TUBES
 /* Whether the camera is outside the track surface (the road plan's outer bit; course.c
- * D_800F89D8): inside a pipe span it is not, except over the span's joins, where the
+ * D_800F89D8): inside a pipe or tunnel span it is not, except over the span's joins, where the
  * tube opens into road. Read from the player's located span and t. */
 uint8_t fzx_drive_outer(void) {
     const uint32_t n = body.node < course.track.count ? body.node : 0u;
-    if (course.nodes[n].shape != SH2Z_VD_SHAPE_PIPE) return 1u;
+    /* TRACK_FLAG_INSIDE is set on the pipe and tunnel presets and on no other shape (course.c D_800CF9F0,
+     * D_800CFA10): the half-pipe and the cylinder are seen from outside. */
+    if (course.nodes[n].shape != SH2Z_VD_SHAPE_PIPE && course.nodes[n].shape != SH2Z_VD_SHAPE_TUNNEL) return 1u;
     return (body.t < course.joins[n].prev_end || course.joins[n].next_start < body.t) ? 1u : 0u;
 }
 #endif

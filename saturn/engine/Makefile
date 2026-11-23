@@ -268,13 +268,19 @@ ENG_SND ?= $(if $(filter 1,$(FZX_E1_DRIVE)),$(if $(filter 1,$(ENG_CDDA)),0,1),0)
 # from generated/courses/<ENG_COURSE> for the others; the music defaults to the course's own
 # (race.c D_i2_80106F14). ENG_COURSE=mute-city-1 builds the images it always did.
 ENG_COURSE ?= mute-city-1
-ENG_COURSES := mute-city-1 silence-1 sand-ocean-1 devils-forest-1 big-blue-1 port-town-1
+ENG_COURSES := mute-city-1 silence-1 sand-ocean-1 devils-forest-1 big-blue-1 port-town-1 \n               sector-alpha red-canyon-1 devils-forest-2 mute-city-2 big-blue-2 white-land-1
 COURSE_MUSIC_mute-city-1 := 0
 COURSE_MUSIC_silence-1 := 1
 COURSE_MUSIC_sand-ocean-1 := 2
 COURSE_MUSIC_devils-forest-1 := 5
 COURSE_MUSIC_big-blue-1 := 4
 COURSE_MUSIC_port-town-1 := 3
+COURSE_MUSIC_sector-alpha := 7
+COURSE_MUSIC_red-canyon-1 := 6
+COURSE_MUSIC_devils-forest-2 := 5
+COURSE_MUSIC_mute-city-2 := 0
+COURSE_MUSIC_big-blue-2 := 4
+COURSE_MUSIC_white-land-1 := 8
 ifeq ($(filter $(ENG_COURSE),$(ENG_COURSES)),)
 $(error ENG_COURSE must be one of $(ENG_COURSES))
 endif
@@ -285,6 +291,12 @@ COURSE_INDEX_sand-ocean-1 := 2
 COURSE_INDEX_devils-forest-1 := 3
 COURSE_INDEX_big-blue-1 := 4
 COURSE_INDEX_port-town-1 := 5
+COURSE_INDEX_sector-alpha := 6
+COURSE_INDEX_red-canyon-1 := 7
+COURSE_INDEX_devils-forest-2 := 8
+COURSE_INDEX_mute-city-2 := 9
+COURSE_INDEX_big-blue-2 := 10
+COURSE_INDEX_white-land-1 := 11
 # ENG_COURSE_SELECT=1 (scenes images): one disc carries every bundled course's packs (tools/course_bundle.py,
 # generated/courses/select; the Jack Cup bundles all six) and LOAD takes the set of the course to race
 # (the cup catalog, engine_cup.c, opens the bundled rows), with that course's music (engine_courses.c).
@@ -480,6 +492,9 @@ SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter-out 0,$(ENG_BAL_SPLIT)),s$(ENG_BA
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter 0,$(E0_FLOOR_NEAR0)),-fn0,)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter-out mute-city-1,$(ENG_COURSE)),-$(ENG_COURSE),)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(E1_DRIVER_KH),-kh$(E1_DRIVER_KH),)
+SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(E1_DRIVER_KL),-kl$(E1_DRIVER_KL),)
+SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(E1_RACE_TICKS),-rt$(E1_RACE_TICKS),)
+SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(E1_DRIVER_TARGET),-tg$(E1_DRIVER_TARGET),)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter 1,$(ENG_COURSE_SELECT)),-sel,)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter 1,$(ENG_TUBES)),-tubes,)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter 0,$(ENG_RIVAL_SURFACE)),-rs0,)
@@ -616,7 +631,7 @@ SH_CFLAGS += -DENG_PACE=$(ENG_PACE) $(if $(filter 3,$(ENG_PACE)),-DENG_VDP1_INTE
     -I$(GC)/engine_path -DFZX_SH2_DIVU=1 -O2 -std=c11 -Wall -Wextra \
     -I. -I.. -I../../include -I../../ref -I$(SH2ZAM_ROOT)/saturn/include -DSH2Z_REQUIRE_SH2=1 \
     -ffunction-sections -fdata-sections \
-    -DE0_ISR_MAC_SAVE=$(E0_ISR_MAC_SAVE) -DE0_MAC_PROBE=$(E0_MAC_PROBE) -DFZX_DBANK_QUEUE_ATOMIC=$(E0_QUEUE_ATOMIC) -DE0_QUEUE_STRESS=$(E0_QUEUE_STRESS) -DFZX_DBANK_QUEUE_WIDEN=$(E0_QUEUE_WIDEN) -DFZX_E1_DRIVE=$(FZX_E1_DRIVE) -DE1_DRIVER=$(E1_DRIVER) -DE1_DRIVER_BOOST=$(E1_DRIVER_BOOST) $(if $(E1_DRIVER_KH),-DE1_DRIVER_KH=$(E1_DRIVER_KH)f,) \
+    -DE0_ISR_MAC_SAVE=$(E0_ISR_MAC_SAVE) -DE0_MAC_PROBE=$(E0_MAC_PROBE) -DFZX_DBANK_QUEUE_ATOMIC=$(E0_QUEUE_ATOMIC) -DE0_QUEUE_STRESS=$(E0_QUEUE_STRESS) -DFZX_DBANK_QUEUE_WIDEN=$(E0_QUEUE_WIDEN) -DFZX_E1_DRIVE=$(FZX_E1_DRIVE) -DE1_DRIVER=$(E1_DRIVER) -DE1_DRIVER_BOOST=$(E1_DRIVER_BOOST) $(if $(E1_DRIVER_KH),-DE1_DRIVER_KH=$(E1_DRIVER_KH)f,) $(if $(E1_DRIVER_KL),-DE1_DRIVER_KL=$(E1_DRIVER_KL)f,) $(if $(E1_RACE_TICKS),-DE1_RACE_TICKS=$(E1_RACE_TICKS)u,) $(if $(E1_DRIVER_TARGET),-DE1_DRIVER_TARGET=$(E1_DRIVER_TARGET)f,) \
     $(if $(filter 1,$(FZX_E1_DRIVE)),-I$(GC)/physics -I$(G)/$(E1_SPRITES),)
 ifeq ($(ENG_CDDA),1)
 ifeq ($(wildcard $(G)/cdda/cdda_tracks.h),)
@@ -716,7 +731,7 @@ SH_CFLAGS += -I$(G)/$(E1_REBAKE) -I$(G)/$(E1_VEHICLE)
 endif
 # 16 root files plus MACHAB.PAK: the CD loader reads up to 32 root entries (default 16).
 ifeq ($(ENG_P3_UI),1)
-SH_CFLAGS += $$(if $$(filter %/texture_cd.c,$$<),-DFZX_TEXTURE_CD_ROOT_ENTRIES=$(if $(filter 1,$(ENG_SCENES)),128,32),)
+SH_CFLAGS += $$(if $$(filter %/texture_cd.c,$$<),-DFZX_TEXTURE_CD_ROOT_ENTRIES=$(if $(filter 1,$(ENG_SCENES)),384,32),)
 else
 SH_CFLAGS += $$(if $$(filter %/texture_cd.c,$$<),-DFZX_TEXTURE_CD_ROOT_ENTRIES=$(if $(filter 1,$(ENG_COURSE_SELECT)),96,32),)
 endif
@@ -732,7 +747,7 @@ endif
 # may use a larger track texture budget (tools/road_bake.py --texture-limit; placement checked at load); its
 # sky gradient need not be monotonic in brightness (a sunset), so sky bands pick their colour by distance.
 SH_CFLAGS += $(if $(filter 1,$(FZX_E1_DRIVE)),$(if $(filter 1,$(ENG_TUBES)),-DFZX_PHYS_TUBES=1,),)
-SH_CFLAGS += $(if $(GCREL),-DENG_COURSE_SKYLINE=1 -DFZX_ROAD_STREAM_TEXTURE_LIMIT=240000u -DFZX_SKY_LINEAR_PICK=1 -DENG_COURSE_INDEX=$(COURSE_INDEX_$(ENG_COURSE)),)
+SH_CFLAGS += $(if $(GCREL),-DENG_COURSE_SKYLINE=1 -DFZX_ROAD_STREAM_TEXTURE_LIMIT=240000u -DFZX_ROAD_STREAM_PACK_LIMIT=240000u -DFZX_SKY_LINEAR_PICK=1 -DENG_COURSE_INDEX=$(COURSE_INDEX_$(ENG_COURSE)),)
 ifeq ($(ENG_COURSE_SELECT),1)
 ifneq ($(ENG_SCENES),1)
 $(error ENG_COURSE_SELECT=1 needs ENG_SCENES=1)
@@ -759,7 +774,7 @@ $(error Missing or stale class bundle: run tools/course_class_bundle.py <courses
 endif
 SH_SRCS += $(G)/courses/select/course_class.c
 endif
-SH_CFLAGS += -DENG_COURSE_SELECT=1 -I$(G)/courses/select -DFZX_ROAD_STREAM_TEXTURE_LIMIT=240000u
+SH_CFLAGS += -DENG_COURSE_SELECT=1 -I$(G)/courses/select -DFZX_ROAD_STREAM_HIGH_BYTES=131072u -DFZX_ROAD_STREAM_TEXTURE_LIMIT=262144u -DFZX_ROAD_STREAM_PACK_LIMIT=240000u
 endif
 
 # Course gadget decals (claude/gadgets): the dash plates and the pit, dirt and ice strips the original draws on the road,

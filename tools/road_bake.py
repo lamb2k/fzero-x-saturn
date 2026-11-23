@@ -474,5 +474,8 @@ if __name__ == '__main__':
     # The engine image places the track textures in VDP1 VRAM below the 3D player and the sprite slots and
     # refuses a pack that reaches them at load (engine_main.c fail 35/51); the first course's 150,000 B stays the default.
     parser.add_argument('--texture-limit', type=int, default=TEXTURE_LIMIT, help='texture pack budget in bytes')
+    # The lod pack (ROADLOD.PAK) is read into the 4 MiB cartridge after the road pack; the default stays the first course's budget.
+    parser.add_argument('--pack-limit', type=int, default=PACK_LIMIT, help='lod pack (metadata) budget in bytes')
     args = parser.parse_args()
+    PACK_LIMIT = args.pack_limit
     generate(args.source, args.output, args.pack, args.texture_limit)

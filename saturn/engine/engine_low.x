@@ -134,7 +134,7 @@ SECTIONS
 
 ASSERT (___lowbss_end <= ___low_limit, "engine_low.x: the low work RAM block overruns 0x0028BFE0")
 /* The listed data really moved (engine_low_rodata.ld names generated sections). */
-ASSERT (_fzx_course_ids >= ___low_start && _fzx_course_ids < ___low_end, "engine_low.x: fzx_course_ids is not in .low")
+ASSERT (_fzx_course_index >= ___low_start && _fzx_course_index < ___low_end, "engine_low.x: fzx_course_index is not in .low")
 /* The load image fits inside its host buffers, which lie outside the range start-up zeroes. */
 ASSERT (___low_load_end <= ___bsshost_end, "engine_low.x: .low is larger than its host buffers (.bsshost)")
 ASSERT (___bsshost_end <= ___bss_start, "engine_low.x: .bsshost overlaps the range start-up zeroes")

@@ -473,3 +473,154 @@ start (`road_cd.c`, codex/p3-frontend 374ea5f): it drops such sectors (`fzx_cd_s
 re-read stays as a counted safety net (0 in the cup). Control `FZX_CD_STALE_CONTROL=1` waits after each start's
 selector reset for the stale sector: with the check, 49 met and 49 dropped, 0 re-reads; with `ENG_P3_UI=0` (no
 check) the first load never completes.
+
+## 11. The Queen Cup (lane `claude/courses-queen`, 2026-11-22)
+
+Courses 6..11 (ROM record order: Sector Alpha, Red Canyon 1, Devil's Forest 2, Mute City 2, Big Blue 2, White Land 1)
+go through the per-course pipeline of section 2 (`tools/course_catalog.py` rows, `SHIPPED` = the first six) and are
+selectable on the same disc: the select image carries 12 courses. Tiers: HOST (`fzx-phys`), EMULATOR (Ymir, timing
+MODELLED); HARDWARE not run.
+
+**Bake measurements (HOST).** Chunks / triangles, ROADLTX (VDP1 texels), ROADLOD (cartridge), ROADPREP:
+Sector Alpha 306 / 5,594, 173,992 / 165,968 / 71,740 B; Red Canyon 1 198 / 3,136, 67,000 / 94,984 / 39,504;
+Devil's Forest 2 307 / 5,066, 164,312 / 149,304 / 66,668; Mute City 2 264 / 5,132, 189,992 / 149,688 / 67,696;
+Big Blue 2 274 / 5,076, 164,480 / 150,544 / 67,976; White Land 1 281 / 5,062, 134,624 / 150,152 / 65,868.
+Every course fits the Jack maxima for VDP1 (Silence 236,384 B, 316,768 B limit), the path pack region
+(<= 566,644 of 573,440 B) and the cartridge (about 600 KB free); Sector Alpha has 2,797 quads (Jack max 2,661).
+
+**Tool changes the Queen courses needed** (Jack outputs stay byte-identical):
+- `road_tiles.py` accepts a reshaped source tile: same texel count and same line stride, width differing from the
+  declared texture (Big Blue 2 material D_8002008, 64x32 drawn from a 128x16 texture).
+- `road_bake.py` / `road_prep.py --pack-limit`, `FZX_ROAD_STREAM_PACK_LIMIT` in `src/fzx_road_stream.c`: Sector Alpha's
+  ROADLOD is 165,968 B against the 160,000 B literal. The select and course-specific engine builds use 240,000.
+- `ref/rivals_build.sh` links `-lm` (`fzx-rivals-gp`).
+- CD root list 128 -> 192 entries (`FZX_TEXTURE_CD_ROOT_ENTRIES`, `road_native.c`): 12 courses are 141 files.
+
+**Card: course identity rows on disc.** `fzx_course_ids[]` was 4,172 B a course in `.low` (25 KB for six, 100 KB for 24)
+against 6,448 B of slack in the `.bsshost` buffer that carries `.low`'s load image: a 12-course image did not link.
+`tools/course_bundle.py` now writes each row as a disc file `CIDnn.BIN` (big-endian, `fzx_course_id_t`'s layout built in
+Python, a `_Static_assert` on every field offset in `course_ids.h`) and the image keeps only `fzx_course_index[]`
+(id, size, FNV-1a: 8 B a course). `fzx_course_use()` reads and checks the selected row into `cid_row` (high work RAM) at
+LOAD. The row carries an explicit `row` field; `engine_field.c` uses `fzx_cid->row` instead of
+`fzx_cid - fzx_course_ids`, which was wrong with `ENG_LOW_COLD` (fzx_cid points at `cid_row`, not into the table).
+`.low` is 0x102b0 B for 12 courses against 0x13640 B for six before; `.lowbss` +3.4 KB (root list).
+
+**Gate.** `tools/engine_gate_matrix.json` lists the six courses. A course entry may name its own image and HOST driver:
+White Land 1 retires under the R01 driver (reference and native model alike, 35 kl/kh pairs scanned) and finishes only
+under R03, so it runs on `scenes-drv-r03` (`E1_DRIVER=2`) against `fzx-phys --driver 0.004,2.5 --driver-ahead 0.1`.
+Run one course: `python tools/engine_gate.py --full --only course --courses mute-city-2 --base "" --stage <stage> --jobs 1`.
+
+| Course | HOST finish (R01) | Ymir | Checkpoints | Intervals | Critical path mean / p99 / max | Master p99 | Slave p99 | VDP1 p99 | Cold LOAD |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Sector Alpha | 98,843 ms | equal | 25/25 | 3,102 x 2F, 0 over | 19.79 / 24.95 / 26.51 | 24.69 | 22.20 | 10.71 | 333 fields |
+| Red Canyon 1 | 97,580 ms | equal | 25/25 | 3,064 x 2F, 0 over | 19.41 / 22.77 / 26.98 | 22.30 | 20.19 | 9.33 | 271 |
+| Devil's Forest 2 | 109,503 ms | equal | 28/28 | 3,422 x 2F, 0 over | 21.30 / 24.70 / 25.93 | 23.98 | 22.33 | 11.04 | 325 |
+| Mute City 2 | 97,479 ms | equal | 25/25 | 3,061 x 2F, 0 over | 21.71 / 29.54 / 31.38 | 24.83 | 27.44 | 11.78 | 326 |
+| Big Blue 2 | 80,008 ms | equal | 21/21 | 2,537 x 2F, 0 over | 21.81 / 28.24 / 31.38 | 25.52 | 26.19 | 10.58 | 323 |
+| White Land 1 (R03, `scenes-drv-r03`) | 111,775 ms (R03; R01 retires at tick 4,992) | equal | 28/28 | 3,490 x 2F, 0 over | 21.66 / 28.47 / 29.89 | 27.38 | 24.92 | 9.82 | 321 |
+
+Master stack unused 110,732..110,748 B (109,436 B on the R03 image), slave 5,760 B, guard trips 0 on every course; menus 0 over two. Critical-path
+p99 over the 24.5 ms limit on Sector Alpha, Devil's Forest 2, Mute City 2, Big Blue 2 and White Land 1 (R03's soft-float look-ahead runs on the master): reported, not tuned (the
+Jack courses sit at 24.6 to 29.3 ms in the same gate). The native model's R01 finish is 0.03% (Red Canyon 1) and 0.06%
+(Big Blue 2) from the original code's; Jack is within 0.005%: float noise of about 1e-4 growing into wall contact.
+
+**Open (not baked or not drawn).** Stars on Mute City 2 (the Silence star item); jumps (Mute City 2 one, White Land 1
+four) and air sections (Red Canyon 1, White Land 1) are physics-correct within the bands above but rivals ignore them;
+borderless shapes (Big Blue 2, White Land 1); camera-path packs truncate on Red Canyon 1 (779 ticks), White Land 1
+(1,062) and Big Blue 2 (996), as on Big Blue 1. Rival bands and drops for the Queen courses were not run.
+
+**Re-bake steps after this merges (ROM needed).** `tools/course_catalog.py`, `road_bake.py`, `road_tiles.py`,
+`road_prep.py` and `src/fzx_road_stream.c` are generator inputs, so every stage's road, backdrop and select receipts
+are stale. Per course slug, one course at a time (parallel runs race for the `road` step): the `road` step is
+`road_assets.py --course SLUG`, `road_pack.py`, `road_bake.py` and `road_prep.py` (Queen courses add
+`--texture-limit 240000 --pack-limit 240000`; Jack keeps its defaults); the `back` step is `backdrop_assets.py --course SLUG`,
+`sky_assets.py`, `skyline_assets.py`, `plane_assets.py --cloud-only` and `floor_rbg_assets.py`. The gate also lists every course's `rivals.receipt`
+(`ref/rivals_build.sh` changed: `-lm`) and `course_class.receipt` as stale; the engine build does not read them. Then, for the 12 slugs in catalog order: `course_bundle.py`,
+`course_drops_bundle.py`, `course_class_bundle.py`, `engine_load_cards.py`. Jack outputs come out byte-identical (only
+`road_bake.json` differs: it records the pack limit).
+
+## 12. The King and Joker Cups and Death Race (lane `claude/courses-kj`, 2026-11-22)
+
+Courses 12..23 (ROM record order: Fire Field, Silence 2, Sector Beta, Red Canyon 2, White Land 2, Mute City 3, Rainbow Road,
+Devil's Forest 3, Space Plant, Sand Ocean 2, Port Town 2, Big Hand) bake through section 2's pipeline
+(`tools/course_catalog.py`; slugs `fire-field` ... `big-hand`) and are selectable on the 24-course select image. Death Race
+(course index 54, ROM record 24 `aCourseBattle`, slug `death-race`) bakes (78 chunks) but is not on the disc yet (see Open).
+Tiers: HOST (`fzx-phys`, `fzx-ref`), EMULATOR (Ymir, timing MODELLED); HARDWARE not run.
+
+**Bake measurements (HOST).** Chunks / triangles / ROADLTX (VDP1) / ROADLOD (cartridge) / ROAD.PAK / ROADPREP, bytes:
+Silence 2 378 / 6,048 / 201,976 / 178,896 / 175,552 / 77,852; Sector Beta 343 / 5,654; Red Canyon 2 305 / 5,158;
+White Land 2 310 / 4,960; Mute City 3 274 / 4,384; Rainbow Road 419 / 6,704; Devil's Forest 3 269 / 4,698;
+Space Plant 381 / 7,006 / 243,848 (the largest) / 205,512 / 195,240 / 89,336; Sand Ocean 2 394 / 6,826; Port Town 2 319 / 5,100;
+Big Hand 422 / 6,752 (the largest chunk count; `FZX_EPATH_MAX_CHUNKS` 512). Every course fits VDP1 (headroom 72,920 B against
+316,768 at Space Plant), the path region and the cartridge. Space Plant needs `--texture-limit 262144`.
+
+**Engine changes the courses needed.**
+- `engine_cup.c` catalog rows 12..23 (the select listed 12 courses); CD root list 192 -> 320 entries; `engine_courses.c` rows.
+- The road work arena in high work RAM, `FZX_ROAD_STREAM_HIGH_BYTES` (default 98,304; the select image 131,072): Silence 2 filled
+  the 98,304 B (`fzx_road_stream_high_used` 98,000 at the failure, "TRACK LOAD" 35 with status 2). The extra 32,768 B come out of
+  the free gap between the end of `.bss` and the top of the master stack in high work RAM (the whole image is in high work RAM):
+  that gap is 59,264 B on the select image at the engine pin `cc18a63` (63,456 B at `8d7773e`; the pin bump grew the image by 4,192 B,
+  text and data 4,064, bss 128), and was 92,032 B with the 98,304 B arena. Measured at the end of 24 runs the master stack's
+  untouched part is 53,444..53,464 B (52,184 at Mute City 3 and White Land 1), 33 KB above its 20,480 B floor; after merging engine `b573443` (title, guest and menu art, cid-index) it is 48,484..48,504 B (28 KB above the floor; the merge cost 5 KB of high work RAM), re-run on Mute City 1, Silence 2 and White Land 2 with the same finishes, cadence and arena peaks. The arena peak,
+  `fzx_road_stream_high_used`, is in the table (largest: Big Hand 109,072, Space Plant 108,584, Rainbow Road 108,408, Sand Ocean 2
+  108,208, Silence 2 101,008): 22,000 B of headroom inside the 131,072 B arena at the worst course. The gadget lane's decals share
+  the arena: Mute City needs +3.9 KB on 87,360 B and Devil's Forest more on 88,560 B; both fit, as the arena has 43,712 B and
+  42,512 B free there. Growing the arena past about 33 KB more reaches the master stack floor.
+- `E1_RACE_TICKS` (default 9,000 ticks after the start): Rainbow Road's finish is at 10,520 ticks; the image `scenes-drv-rr` runs
+  12,000 and its HOST reference the same (`host_ticks`).
+- `E1_DRIVER_KL` and `E1_DRIVER_TARGET` (HOST and test driver only): the R01-t driver `kl,kh,0,460,target` of the courses the
+  nominal driver retires on (Fire Field 0.004/2.5/90, Red Canyon 2 0.008/3.5/-30, Space Plant 0.004/3.5/30, Port Town 2
+  0.004/3.5/-90). Mute City 3 runs under R03 (look 0.1) like White Land 1. Big Hand: no R01 or R03 arm finishes it (it leaves
+  the borderless road at segment 9); the gate checks that the engine retires at the HOST's tick, 1,460. The original's
+  attract demo (`game.c` `sTitleDemoCourses`) never plays Big Hand; the demo is the CPU AI driving the player.
+- Tunnel spans take the road plan's outer bit the pipe does (`fzx_drive_outer`): `TRACK_FLAG_INSIDE` is on the pipe and tunnel
+  presets only, so the half-pipe stays 1. Look not checked (no still pair).
+- SH2ZAM `vehicle-dynamics-5` (PR 78): `sh2z_vd_step2` models the half-pipe (White Land 2's trough). R01 native finish against the
+  original code was +5.885% without it and is +0.023% with it.
+- Gate: `host_ticks` per course, matrix images `scenes-drv-ff`, `-rc2`, `-sp`, `-pt2`, `-rr`, rows for courses 12..23.
+
+**Death Race (card D).** The original has no field header for the mode: `Racer_Init` runs the same `Cpu_InitRacer` per racer
+as the Grand Prix (30 racers; `racer.c` 2173-2236, `cpu.c` 474-540). Differences it makes: course 54 is past `COURSE_EDIT_1`, so
+the CPU line is the default (speed 69, lateral 0 at every half segment) and there are no pace tables; every rival's energy and
+maximum energy are halved (`racer.c` 2230); the rival speed ratio `unk_1A8` is random 0..0.2 (`cpu.c` 1097). `fzx-gp-ref --mode death`
+(`ref/rivals_bake.c`: `GAMEMODE_DEATH_RACE`, `gCourseIndex` 54, the original's tables read at the course's own index) builds the
+reference field from the original code: grid 1..30, no lap target, no chase, max energy halved (player 178, rivals 71 to 89),
+30 vehicles. In the HOST run all 29 rivals retire between ticks 738 and 835 after the start and the race ends with the player
+alive (`racer.c` 979: all CPUs retired). `rivals_finish.py` gives no second-lap target for course indexes of 30 and up. HOST
+physics finishes at 36,275 ms equal to the original. Open: the energy drain and retirement of the rivals is a mode (a card),
+not field data, and the native field does not have it; the select disc cannot hold Death Race either:
+`FZX_COURSE_BUNDLE_MASK` is a 32-bit mask and the id is 54.
+
+**Result (EMULATOR, Ymir; timing MODELLED), gate `g24new` at engine pin `cc18a63`, head `0a1e312`.** All 24 courses: HOST finish
+equal to the millisecond and every checkpoint equal (24 of 24; Big Hand and Port Town 1 retire at the HOST's tick), 0 intervals
+over two fields at 23 courses. Fire Field: cadence FAIL, 6 intervals of 3F+ (worst 4F, critical max 68.59 ms), card open in the
+SH2ZAM locate-hint lane (the airborne locate search), not fixed here. The margin check (critical p99 x 1.36 against 33.3 ms)
+fails at 17 of 24 courses and passes at 7 (reported, not tuned); the Jack and Queen six are in that count. White Land 2 on the
+real pin: 82,335 ms equal to HOST (+5.885% before the half-pipe).
+
+| Course | Host: finish vs HOST (checkpoints) | Intervals 1F/2F/3F+ | Critical mean / p99 / max ms | Master p99 | Slave p99 | VDP1 p99 | Cold LOAD fields | p99 x 1.36 ms (limit 33.3) | Stack unused B | Road arena peak B |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| fire-field | finish 100521 ms, HOST 100521 (checkpoints 26/26 equal) | 0/3142/6 FAIL | 20.11 / 25.19 / 68.59 | 24.5 | 21.52 | 14.61 | 314 | 34.2579 FAIL | 53,444 | 82,560 |
+| silence-2 | finish 117586 ms, HOST 117586 (checkpoints 30/30 equal) | 0/3664/0 | 20.82 / 25.53 / 26.79 | 25.07 | 22.69 | 13.07 | 349 | 34.7256 FAIL | 53,464 | 101,008 |
+| sector-beta | finish 125856 ms, HOST 125856 (checkpoints 32/32 equal) | 0/3912/0 | 20.77 / 26.17 / 28.53 | 24.56 | 24.06 | 8.91 | 352 | 35.5880 FAIL | 53,464 | 95,000 |
+| red-canyon-2 | finish 117720 ms, HOST 117720 (checkpoints 30/30 equal) | 0/3668/0 | 20.6 / 25.11 / 26.94 | 24.7 | 22.67 | 10.29 | 341 | 34.1508 FAIL | 53,464 | 88,712 |
+| white-land-2 | finish 82335 ms, HOST 82335 (checkpoints 22/22 equal) | 0/2607/0 | 21.14 / 25.11 / 27.24 | 24.49 | 22.69 | 9.62 | 321 | 34.1508 FAIL | 53,444 | 87,536 |
+| mute-city-3 | finish 133428 ms, HOST 133428 (checkpoints 33/33 equal) | 0/4139/0 | 21.04 / 24.49 / 26.66 | 23.99 | 20.84 | 12.53 | 316 | 33.3038 FAIL | 52,184 | 81,456 |
+| rainbow-road | finish 167651 ms, HOST 167651 (checkpoints 42/42 equal) | 0/5166/0 | 20.81 / 23.97 / 25.42 | 23.56 | 21.08 | 8.57 | 355 | 32.5969 PASS | 53,464 | 108,408 |
+| devils-forest-3 | finish 97137 ms, HOST 97137 (checkpoints 25/25 equal) | 0/3051/0 | 20.1 / 25.31 / 28.36 | 24.17 | 22.67 | 10.21 | 324 | 34.4229 FAIL | 53,444 | 83,720 |
+| space-plant | finish 144276 ms, HOST 144276 (checkpoints 36/36 equal) | 0/4465/0 | 20.47 / 24.7 / 27.2 | 24.02 | 22.2 | 9.1 | 379 | 33.5953 FAIL | 53,444 | 108,584 |
+| sand-ocean-2 | finish 120334 ms, HOST 120334 (checkpoints 30/30 equal) | 0/3747/0 | 20.38 / 25.26 / 27.28 | 24.63 | 22.43 | 12.7 | 360 | 34.3497 FAIL | 53,464 | 108,208 |
+| port-town-2 | finish 131043 ms, HOST 131043 (checkpoints 33/33 equal) | 0/4068/0 | 20.25 / 23.88 / 24.84 | 23.59 | 21.48 | 10.08 | 315 | 32.4752 PASS | 53,464 | 89,336 |
+| big-hand | retires as HOST (tick 1460) (checkpoints 6/6 equal) | 0/657/0 | 20.01 / 24.08 / 24.7 | 23.19 | 21.37 | 8.92 | 359 | 32.7531 PASS | 53,464 | 109,072 |
+| mute-city-1 | finish 104040 ms, HOST 104040 (checkpoints 27/27 equal) | 0/3258/0 | 21.33 / 25.03 / 27.26 | 24.58 | 22.49 | 12.21 | 322 | 34.0389 FAIL | 53,464 | 87,360 |
+| silence-1 | finish 90563 ms, HOST 90563 (checkpoints 23/23 equal) | 0/2853/0 | 20.42 / 24.93 / 25.74 | 24.81 | 21.87 | 8.79 | 323 | 33.9060 FAIL | 53,464 | 73,472 |
+| sand-ocean-1 | finish 92553 ms, HOST 92553 (checkpoints 24/24 equal) | 0/2913/0 | 21.46 / 26.57 / 27.97 | 25.57 | 24.56 | 10.95 | 330 | 36.1345 FAIL | 53,464 | 82,184 |
+| devils-forest-1 | finish 108038 ms, HOST 108038 (checkpoints 28/28 equal) | 0/3378/0 | 20.77 / 24.35 / 25.41 | 23.9 | 21.72 | 15.13 | 317 | 33.1186 PASS | 53,464 | 88,560 |
+| big-blue-1 | finish 126928 ms, HOST 126928 (checkpoints 32/32 equal) | 0/3944/0 | 20.13 / 23.48 / 25.08 | 23.09 | 20.91 | 8.66 | 325 | 31.9351 PASS | 53,464 | 82,712 |
+| port-town-1 | retires as HOST (tick 6328) (checkpoints 25/25 equal) | 0/3091/0 | 20.09 / 23.52 / 25.28 | 23.08 | 21.2 | 13.53 | 334 | 31.9867 PASS | 53,464 | 91,600 |
+| sector-alpha | finish 98843 ms, HOST 98843 (checkpoints 25/25 equal) | 0/3102/0 | 19.78 / 24.92 / 26.52 | 24.68 | 22.2 | 10.76 | 334 | 33.8980 FAIL | 53,444 | 92,848 |
+| red-canyon-1 | finish 97580 ms, HOST 97580 (checkpoints 25/25 equal) | 0/3064/0 | 19.41 / 22.78 / 26.98 | 22.28 | 20.19 | 9.35 | 272 | 30.9777 PASS | 53,464 | 65,808 |
+| devils-forest-2 | finish 109503 ms, HOST 109503 (checkpoints 28/28 equal) | 0/3422/0 | 21.29 / 24.69 / 25.92 | 23.97 | 22.32 | 11.04 | 327 | 33.5799 FAIL | 53,464 | 88,824 |
+| mute-city-2 | finish 97479 ms, HOST 97479 (checkpoints 25/25 equal) | 0/3061/0 | 21.7 / 29.53 / 31.38 | 24.79 | 27.44 | 11.79 | 328 | 40.1600 FAIL | 53,464 | 86,720 |
+| big-blue-2 | finish 80008 ms, HOST 80008 (checkpoints 21/21 equal) | 0/2537/0 | 21.8 / 28.24 / 31.36 | 25.52 | 26.19 | 10.57 | 324 | 38.4060 FAIL | 53,464 | 86,992 |
+| white-land-1 | finish 111775 ms, HOST 111775 (checkpoints 28/28 equal) | 0/3490/0 | 21.65 / 28.44 / 29.87 | 27.37 | 24.9 | 9.82 | 322 | 38.6814 FAIL | 52,184 | 86,952 |

@@ -199,6 +199,7 @@ ENG_PACE_LEAD ?= 1
 # Control (diagnostic only, ENG_PACE=4): 1 presents VDP2 a field before the framebuffer change
 #   on short draws; the submit's mirror check must stop the image (status 45).
 ENG_PACE_EARLY_CONTROL ?= 0
+ENG_CADENCE_STALL_CONTROL ?= 0
 # Control (diagnostic only, ENG_PACE=4): 1 keeps the old HUD path (text flushed right after the
 #   build, a frame ahead of its picture); 0 flushes each frame's HUD text in the blank of its present.
 ENG_PACE_HUD_LEAD ?= 0
@@ -216,6 +217,13 @@ E0_CHUNK_CAP ?= 26
 E0_LEAN_CLIP ?= 1
 # Exact fog early-out: pieces wholly before the first fog threshold reuse one shading result per image.
 E0_FOG_EARLY ?= 1
+# Road-slave cuts (claude/road-cuts), exact and on by default; 0 is the identity control (the BIN equals engine's before the cuts).
+# E0_FASTTEST 1: a quad's winding as the diagonals' cross product and the classify tests unrolled (same integers, same decisions);
+# E0_EMIT32 1: each road command and its Gouraud words in long stores (same bytes).
+# E0_ROAD_HASH 1 (verification builds only): hashes each frame's road commands and Gouraud words into fzx_e0_rhash.
+E0_FASTTEST ?= 1
+E0_EMIT32 ?= 1
+E0_ROAD_HASH ?= 0
 # Hardware disc only: on-screen presented-frame counters, looping flythrough.
 E0_HW_COUNTER ?= 0
 # Diagnostics: VDP2 register/CRAM capture for the map; low-RAM sentinel overwrite control.
@@ -244,13 +252,19 @@ ENG_SND ?= $(if $(filter 1,$(FZX_E1_DRIVE)),$(if $(filter 1,$(ENG_CDDA)),0,1),0)
 # from generated/courses/<ENG_COURSE> for the others; the music defaults to the course's own
 # (race.c D_i2_80106F14). ENG_COURSE=mute-city-1 builds the images it always did.
 ENG_COURSE ?= mute-city-1
-ENG_COURSES := mute-city-1 silence-1 sand-ocean-1 devils-forest-1 big-blue-1 port-town-1
+ENG_COURSES := mute-city-1 silence-1 sand-ocean-1 devils-forest-1 big-blue-1 port-town-1 \n               sector-alpha red-canyon-1 devils-forest-2 mute-city-2 big-blue-2 white-land-1
 COURSE_MUSIC_mute-city-1 := 0
 COURSE_MUSIC_silence-1 := 1
 COURSE_MUSIC_sand-ocean-1 := 2
 COURSE_MUSIC_devils-forest-1 := 5
 COURSE_MUSIC_big-blue-1 := 4
 COURSE_MUSIC_port-town-1 := 3
+COURSE_MUSIC_sector-alpha := 7
+COURSE_MUSIC_red-canyon-1 := 6
+COURSE_MUSIC_devils-forest-2 := 5
+COURSE_MUSIC_mute-city-2 := 0
+COURSE_MUSIC_big-blue-2 := 4
+COURSE_MUSIC_white-land-1 := 8
 ifeq ($(filter $(ENG_COURSE),$(ENG_COURSES)),)
 $(error ENG_COURSE must be one of $(ENG_COURSES))
 endif
@@ -261,6 +275,12 @@ COURSE_INDEX_sand-ocean-1 := 2
 COURSE_INDEX_devils-forest-1 := 3
 COURSE_INDEX_big-blue-1 := 4
 COURSE_INDEX_port-town-1 := 5
+COURSE_INDEX_sector-alpha := 6
+COURSE_INDEX_red-canyon-1 := 7
+COURSE_INDEX_devils-forest-2 := 8
+COURSE_INDEX_mute-city-2 := 9
+COURSE_INDEX_big-blue-2 := 10
+COURSE_INDEX_white-land-1 := 11
 # ENG_COURSE_SELECT=1 (scenes images): one disc carries every bundled course's packs (tools/course_bundle.py,
 # generated/courses/select; the Jack Cup bundles all six) and LOAD takes the set of the course to race
 # (the cup catalog, engine_cup.c, opens the bundled rows), with that course's music (engine_courses.c).
@@ -276,6 +296,15 @@ ENG_TUBES ?= $(if $(filter sand-ocean-1 big-blue-1,$(ENG_COURSE)),1,$(if $(filte
 ifeq ($(filter 0 1,$(ENG_TUBES)),)
 $(error ENG_TUBES must be 0 or 1)
 endif
+# ENG_LOCATE_FAR / ENG_LOCATE_FAR_RUN (E1 drive images; SH2ZAM vehicle-dynamics-6, SH2Z_VD_LOCATE_FAR): the
+# closest-point search of the player's physics stops when its residual stays above FAR units for RUN passes in
+# a row. A body over a gap (Fire Field's big jump, 380 units off the line) has no closest point and the search ran
+# all 99 passes every tick (about 20 ms on the master). On for every course; the default 128 units and 8 passes
+# stop no search on the other 23 courses (host counter 0). ENG_LOCATE_FAR=0 builds the earlier search (the
+# control that shows the cost), ENG_LOCATE_FAR=3 with ENG_LOCATE_FAR_RUN=1 the stop that changes a normal course.
+ENG_LOCATE_FAR ?= 128
+ENG_LOCATE_FAR_RUN ?= 8
+
 # ENG_RIVAL_SURFACE (field images with the rival pack, E2_PACK=1): the rivals meet the course's surface
 # (SH2ZAM line-field-4): its zones (plates, low grip, rough ground, recharge strips), its pipes and cylinders
 # as tubes (no edge, the lateral wraps round; the cars drawn round the tube), and the final dash on the
@@ -407,6 +436,9 @@ SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter 0,$(E0_QUEUE_ATOMIC)),-qrace,)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter 1,$(E0_QUEUE_STRESS)),-qstress,)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter-out 0,$(E0_QUEUE_WIDEN)),-qw$(E0_QUEUE_WIDEN),)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter 1,$(E0_PHASES)),-phases,)
+SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter 0,$(E0_FASTTEST)),-noft,)
+SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter 0,$(E0_EMIT32)),-noe32,)
+SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter 1,$(E0_ROAD_HASH)),-rh,)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter 0,$(E0_PRELUDE_SHARE)),-ps0,)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter 0,$(E0_PRELUDE_WINDOW)),-pw0,)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter 0,$(E0_PRELUDE_DIV)),-pd0,)
@@ -431,18 +463,50 @@ ENG_BAL_EARLY ?= $(BAL_FIELD_ON)
 ENG_BAL_FORCE ?= 0
 ENG_BAL_HASH ?= 0
 ENG_BAL_PREWARM ?= $(if $(filter 1,$(E1_CLOSEUP)),1,0)
+# ENG_BAL_SPLIT (needs ENG_BAL_CLOUDS=2; claude/speed-2): the cloud prepare in three parts (setup, the first
+#   half of the fade bands, the second half). The CPU that wins the job's claim runs the setup and the first half
+#   and then claims the second half; the other CPU (the slave once its track and fills are done, the master at
+#   its clouds step) waits for the setup and claims it first when it has the time. A try-claim each (the master
+#   wins a tie); on a frame where the other CPU arrives late the holder already took it. The output is the same on
+#   either CPU (the stage is copied behind the first half). =0 is the whole-job claim as before; =2 (control) the
+#   slave always runs the second half, =3 (control) the master always.
+ENG_BAL_SPLIT ?= $(if $(filter 2,$(ENG_BAL_CLOUDS)),1,0)
+ifneq ($(ENG_BAL_SPLIT),0)
+ifneq ($(ENG_BAL_CLOUDS),2)
+$(error ENG_BAL_SPLIT needs ENG_BAL_CLOUDS=2)
+endif
+endif
 BAL_SWITCHES := $(ENG_BAL_CLOUDS)$(ENG_BAL_EARLY)$(ENG_BAL_FORCE)$(ENG_BAL_HASH)$(ENG_BAL_PREWARM)
 EMIT_SWITCHES := $(E2_EMIT_PROF)$(E2_EMIT_HINT)$(E2_EMIT_CMD)$(E2_EMIT_SHADOW)$(E2_EMIT_POSE)$(E2_EMIT_SETUP)$(E2_EMIT_LINK)$(E2_EMIT_CULL)$(E2_EMIT_YAW)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter-out 0,$(subst 0,,$(EMIT_SWITCHES))),-em$(EMIT_SWITCHES),)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter-out 00000,$(BAL_SWITCHES)),-bal$(BAL_SWITCHES),)
+SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter-out 0,$(ENG_BAL_SPLIT)),s$(ENG_BAL_SPLIT),)
+# ENG_PHYS_AHEAD (claude/speed-5): the next frame's physics ticks are computed in the master's idle time at the end of the
+# frame (engine_drive.c); the step takes them when the tick count, the start and the pad word agree. 0: steps in the frame.
+ENG_PHYS_AHEAD ?= 1
+SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter 1,$(ENG_PHYS_AHEAD)),-ahd,)
+# ENG_PICK_AHEAD (claude/speed-6): the slave picks the next frame's track in the master's idle time as well, from the camera of the
+# state the physics prediction ends in; the road job then skips its pick when the step took the prediction (engine_pick_body.h).
+# Drive images with ENG_PHYS_AHEAD only; 0 (or an image without the drive) builds the code as it was.
+ENG_PICK_AHEAD ?= $(if $(filter 1,$(ENG_PHYS_AHEAD)),$(if $(filter 1,$(FZX_E1_DRIVE)),1,0),0)
+SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter 1,$(ENG_PICK_AHEAD)),-pka,)
+# Controls (diagnostic only): 1 declares every third early pick unused (the undo path; the picture must equal the default's), 2 gives
+# the early pick the camera of the state before the prediction (a stale view; the picture must differ).
+ENG_PICK_AHEAD_CONTROL ?= 0
+SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter-out 0,$(ENG_PICK_AHEAD_CONTROL)),-pkc$(ENG_PICK_AHEAD_CONTROL),)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter 0,$(E0_FLOOR_NEAR0)),-fn0,)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter-out mute-city-1,$(ENG_COURSE)),-$(ENG_COURSE),)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(E1_DRIVER_KH),-kh$(E1_DRIVER_KH),)
+SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(E1_DRIVER_KL),-kl$(E1_DRIVER_KL),)
+SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(E1_RACE_TICKS),-rt$(E1_RACE_TICKS),)
+SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(E1_DRIVER_TARGET),-tg$(E1_DRIVER_TARGET),)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter 1,$(ENG_COURSE_SELECT)),-sel,)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter 1,$(ENG_TUBES)),-tubes,)
+SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter-out 128,$(ENG_LOCATE_FAR)),-lf$(ENG_LOCATE_FAR),)$(if $(filter-out 8,$(ENG_LOCATE_FAR_RUN)),-lr$(ENG_LOCATE_FAR_RUN),)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter 0,$(ENG_RIVAL_SURFACE)),-rs0,)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter 1,$(ENG_RIVAL_BEHAVE)),-beh,)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter 1,$(ENG_RIVAL_CLASS)),-cls,)
+SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter 1,$(ENG_CADENCE_STALL_CONTROL)),-cadstall,)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter 1,$(ENG_SCN_STALL_CONTROL)),-stallctl,)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter-out 0,$(ENG_SMPC_OVERLAP_CONTROL)),-smpcctl$(ENG_SMPC_OVERLAP_CONTROL),)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter 1,$(ENG_LOW_HOT_CONTROL)),-hotctl,)
@@ -459,6 +523,9 @@ ENG_LOW_COLD ?= $(ENG_SCENES)
 ifeq ($(ENG_SCENES):$(ENG_LOW_COLD),1:0)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)-low0
 endif
+# Course gadget decals (claude/gadgets, ENG_GADGETS below): the scenes images that carry them get their own directory.
+ENG_GADGETS ?= 1
+SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(and $(filter 1,$(ENG_GADGETS)),$(filter 1,$(ENG_SCENES))),-gad,)
 SH_BUILD_DIR := $(SH_OUTPUT_DIR)/yaul
 IMAGE_DIRECTORY := $(SH_OUTPUT_DIR)/cd
 IMAGE_1ST_READ_BIN := A.BIN
@@ -554,10 +621,11 @@ endif
 SH_CFLAGS += -DENG_DSP_BANDS=$(ENG_DSP_BANDS) -DENG_DSP_BANDS_CHECK=$(ENG_DSP_BANDS_CHECK) -DENG_DSP_BANDS_CORRUPT=$(ENG_DSP_BANDS_CORRUPT)
 endif
 
-SH_CFLAGS += -DENG_BAL_CLOUDS=$(ENG_BAL_CLOUDS) -DENG_BAL_EARLY=$(ENG_BAL_EARLY) -DENG_BAL_FORCE=$(ENG_BAL_FORCE) -DENG_BAL_HASH=$(ENG_BAL_HASH) -DENG_BAL_PREWARM=$(ENG_BAL_PREWARM)
+SH_CFLAGS += -DENG_BAL_CLOUDS=$(ENG_BAL_CLOUDS) -DENG_BAL_EARLY=$(ENG_BAL_EARLY) -DENG_BAL_FORCE=$(ENG_BAL_FORCE) -DENG_BAL_HASH=$(ENG_BAL_HASH) -DENG_BAL_PREWARM=$(ENG_BAL_PREWARM) -DENG_BAL_SPLIT=$(ENG_BAL_SPLIT) -DENG_PHYS_AHEAD=$(ENG_PHYS_AHEAD) -DENG_PICK_AHEAD=$(ENG_PICK_AHEAD) -DENG_PICK_AHEAD_CONTROL=$(ENG_PICK_AHEAD_CONTROL)
+SH_CFLAGS += -DENG_CADENCE_STALL_CONTROL=$(ENG_CADENCE_STALL_CONTROL)
 SH_CFLAGS += -DENG_PACE=$(ENG_PACE) $(if $(filter 3,$(ENG_PACE)),-DENG_VDP1_INTERVAL=$(ENG_VDP1_INTERVAL),) $(if $(filter 4,$(ENG_PACE)),-DENG_PACE_LEAD=$(ENG_PACE_LEAD) -DENG_PACE_EARLY_CONTROL=$(ENG_PACE_EARLY_CONTROL) -DENG_PACE_HUD_LEAD=$(ENG_PACE_HUD_LEAD),) -DFZX_ENGINE=1 -DFZX_FRAME_PROFILE=1 -DFZX_VDP1_DBANK=$(FZX_VDP1_DBANK) \
     -DFZX_VDP1_DBANK_STALE=$(FZX_VDP1_DBANK_STALE) -DFZX_ROAD_STREAM_CLUT_ALIGN=$(ENG_CLUT_ALIGN) -DENG_CLUT_ALIGN=$(ENG_CLUT_ALIGN) -DENG_CLUT_RACE_CONTROL=$(ENG_CLUT_RACE_CONTROL) -DFZX_ROAD_STREAM_GUARD_MARGIN=$(E0_GUARD_MARGIN) -DFZX_ROAD_STREAM_LINE_START=$(E0_LINE_START) -DFZX_RBG_NEAR0=$(E0_FLOOR_NEAR0) \
-    -DFZX_ROAD_STREAM_PHASES=$(E0_PHASES) -DFZX_SCENE_PHASES=$(E0_PHASES) -DFZX_ROAD_STREAM_FAST_CULL=$(E0_FAST_CULL) -DFZX_ROAD_STREAM_LOD_SHIFT=$(E0_LOD_SHIFT) -DFZX_ROAD_STREAM_FAN_FIX=$(E0_FAN_FIX) -DFZX_RBG_LEAN=$(E0_RBG_LEAN) -DFZX_RBG_SHARE=$(E0_PRELUDE_SHARE) -DFZX_RBG_WINDOW=$(E0_PRELUDE_WINDOW) -DFZX_RBG_DIV=$(E0_PRELUDE_DIV) \
+    -DFZX_ROAD_STREAM_PHASES=$(E0_PHASES) -DFZX_ROAD_STREAM_FASTTEST=$(E0_FASTTEST) -DFZX_ROAD_STREAM_EMIT32=$(E0_EMIT32) -DE0_ROAD_HASH=$(E0_ROAD_HASH) -DFZX_SCENE_PHASES=$(E0_PHASES) -DFZX_ROAD_STREAM_FAST_CULL=$(E0_FAST_CULL) -DFZX_ROAD_STREAM_LOD_SHIFT=$(E0_LOD_SHIFT) -DFZX_ROAD_STREAM_FAN_FIX=$(E0_FAN_FIX) -DFZX_RBG_LEAN=$(E0_RBG_LEAN) -DFZX_RBG_SHARE=$(E0_PRELUDE_SHARE) -DFZX_RBG_WINDOW=$(E0_PRELUDE_WINDOW) -DFZX_RBG_DIV=$(E0_PRELUDE_DIV) \
     -DFZX_ROAD_STREAM_CLUSTERS=$(E0_CLUSTERS) -DFZX_ROAD_STREAM_CLUSTER_AUDIT=$(E0_CLUSTER_AUDIT) -I$(GC)/road_cluster -DFZX_ROAD_STREAM_WORK_HIGH=$(E0_WORK_HIGH) -DE0_CHUNK_CAP=$(E0_CHUNK_CAP) -DFZX_ROAD_STREAM_LEAN_CLIP=$(E0_LEAN_CLIP) -DFZX_ROAD_STREAM_FOG_EARLY=$(E0_FOG_EARLY) -DE0_HW_COUNTER=$(E0_HW_COUNTER) -DE0_VDP2_MAP=$(E0_VDP2_MAP) -DE0_SENTINEL_CONTROL=$(E0_SENTINEL_CONTROL) -DE0_POP_LOG=$(E0_POP_LOG) -DE0_CAP_STABLE=$(E0_CAP_STABLE) \
     -DFZX_SOURCE_SKY=1 -I$(GC)/sky -DFZX_SKY_SIMPLIFY=1 -DFZX_SOURCE_SKYLINE=1 -I$(GC)/skyline -DFZX_SKYLINE_CD=1 \
     -DFZX_SOURCE_PLANES=1 -I$(GC)/planes_cloud -DFZX_PLANE_CLOUD_ONLY=1 -DFZX_PLANES_DEGENERATE_UV=1 \
@@ -568,7 +636,7 @@ SH_CFLAGS += -DENG_PACE=$(ENG_PACE) $(if $(filter 3,$(ENG_PACE)),-DENG_VDP1_INTE
     -I$(GC)/engine_path -DFZX_SH2_DIVU=1 -O2 -std=c11 -Wall -Wextra \
     -I. -I.. -I../../include -I../../ref -I$(SH2ZAM_ROOT)/saturn/include -DSH2Z_REQUIRE_SH2=1 \
     -ffunction-sections -fdata-sections \
-    -DE0_ISR_MAC_SAVE=$(E0_ISR_MAC_SAVE) -DE0_MAC_PROBE=$(E0_MAC_PROBE) -DFZX_DBANK_QUEUE_ATOMIC=$(E0_QUEUE_ATOMIC) -DE0_QUEUE_STRESS=$(E0_QUEUE_STRESS) -DFZX_DBANK_QUEUE_WIDEN=$(E0_QUEUE_WIDEN) -DFZX_E1_DRIVE=$(FZX_E1_DRIVE) -DE1_DRIVER=$(E1_DRIVER) -DE1_DRIVER_BOOST=$(E1_DRIVER_BOOST) $(if $(E1_DRIVER_KH),-DE1_DRIVER_KH=$(E1_DRIVER_KH)f,) \
+    -DE0_ISR_MAC_SAVE=$(E0_ISR_MAC_SAVE) -DE0_MAC_PROBE=$(E0_MAC_PROBE) -DFZX_DBANK_QUEUE_ATOMIC=$(E0_QUEUE_ATOMIC) -DE0_QUEUE_STRESS=$(E0_QUEUE_STRESS) -DFZX_DBANK_QUEUE_WIDEN=$(E0_QUEUE_WIDEN) -DFZX_E1_DRIVE=$(FZX_E1_DRIVE) -DE1_DRIVER=$(E1_DRIVER) -DE1_DRIVER_BOOST=$(E1_DRIVER_BOOST) $(if $(E1_DRIVER_KH),-DE1_DRIVER_KH=$(E1_DRIVER_KH)f,) $(if $(E1_DRIVER_KL),-DE1_DRIVER_KL=$(E1_DRIVER_KL)f,) $(if $(E1_RACE_TICKS),-DE1_RACE_TICKS=$(E1_RACE_TICKS)u,) $(if $(E1_DRIVER_TARGET),-DE1_DRIVER_TARGET=$(E1_DRIVER_TARGET)f,) \
     $(if $(filter 1,$(FZX_E1_DRIVE)),-I$(GC)/physics -I$(G)/$(E1_SPRITES),)
 ifeq ($(ENG_CDDA),1)
 ifeq ($(wildcard $(G)/cdda/cdda_tracks.h),)
@@ -655,7 +723,7 @@ SH_CFLAGS += -I$(G)/$(E1_REBAKE) -I$(G)/$(E1_VEHICLE)
 endif
 # 16 root files plus MACHAB.PAK: the CD loader reads up to 32 root entries (default 16).
 ifeq ($(ENG_P3_UI),1)
-SH_CFLAGS += $$(if $$(filter %/texture_cd.c,$$<),-DFZX_TEXTURE_CD_ROOT_ENTRIES=$(if $(filter 1,$(ENG_SCENES)),128,32),)
+SH_CFLAGS += $$(if $$(filter %/texture_cd.c,$$<),-DFZX_TEXTURE_CD_ROOT_ENTRIES=$(if $(filter 1,$(ENG_SCENES)),384,32),)
 else
 SH_CFLAGS += $$(if $$(filter %/texture_cd.c,$$<),-DFZX_TEXTURE_CD_ROOT_ENTRIES=$(if $(filter 1,$(ENG_COURSE_SELECT)),96,32),)
 endif
@@ -671,7 +739,9 @@ endif
 # may use a larger track texture budget (tools/road_bake.py --texture-limit; placement checked at load); its
 # sky gradient need not be monotonic in brightness (a sunset), so sky bands pick their colour by distance.
 SH_CFLAGS += $(if $(filter 1,$(FZX_E1_DRIVE)),$(if $(filter 1,$(ENG_TUBES)),-DFZX_PHYS_TUBES=1,),)
-SH_CFLAGS += $(if $(GCREL),-DENG_COURSE_SKYLINE=1 -DFZX_ROAD_STREAM_TEXTURE_LIMIT=240000u -DFZX_SKY_LINEAR_PICK=1 -DENG_COURSE_INDEX=$(COURSE_INDEX_$(ENG_COURSE)),)
+SH_CFLAGS += $(if $(filter 1,$(FZX_E1_DRIVE)),$(if $(filter-out 0,$(ENG_LOCATE_FAR)),-DSH2Z_VD_LOCATE_FAR=$(ENG_LOCATE_FAR) -DSH2Z_VD_LOCATE_FAR_RUN=$(ENG_LOCATE_FAR_RUN),),)
+SH_CFLAGS += $(if $(E4_PROW_ROWS),-DE0_PROW_ROWS=$(E4_PROW_ROWS)u,)
+SH_CFLAGS += $(if $(GCREL),-DENG_COURSE_SKYLINE=1 -DFZX_ROAD_STREAM_TEXTURE_LIMIT=240000u -DFZX_ROAD_STREAM_PACK_LIMIT=240000u -DFZX_SKY_LINEAR_PICK=1 -DENG_COURSE_INDEX=$(COURSE_INDEX_$(ENG_COURSE)),)
 ifeq ($(ENG_COURSE_SELECT),1)
 ifneq ($(ENG_SCENES),1)
 $(error ENG_COURSE_SELECT=1 needs ENG_SCENES=1)
@@ -698,7 +768,31 @@ $(error Missing or stale class bundle: run tools/course_class_bundle.py <courses
 endif
 SH_SRCS += $(G)/courses/select/course_class.c
 endif
-SH_CFLAGS += -DENG_COURSE_SELECT=1 -I$(G)/courses/select -DFZX_ROAD_STREAM_TEXTURE_LIMIT=240000u
+SH_CFLAGS += -DENG_COURSE_SELECT=1 -I$(G)/courses/select -DFZX_ROAD_STREAM_HIGH_BYTES=131072u -DFZX_ROAD_STREAM_TEXTURE_LIMIT=262144u -DFZX_ROAD_STREAM_PACK_LIMIT=240000u
+endif
+
+# Course gadget decals (claude/gadgets): the dash plates and the pit, dirt and ice strips the original draws on the road,
+# baked per course (tools/gadget_bake.py -> ROADGAD.PAK) and drawn through the road's VDP1 path after their chunk's road
+# quads. On by default; the scenes images carry the decals (the E0, drive and field images have no course pack to load). 0 is the identity
+# control only (byte-identical to an engine without the decals). The one-disc image needs its bundle made
+# with tools/course_gadget_bundle.py (a separate bundle next to course_ids; course_bundle.py is untouched).
+# (ENG_GADGETS ?= 1 is set with the output directory name, above.)
+# Smallest decal quad drawn: a quad whose screen area is 64 pixels or less (this value is twice that) is left out. Measured on Devil's Forest
+# (the 111-quad course): 128 takes the critical path p99 cost from +0.38 to +0.21 ms with no visible change; 0 draws every non-empty quad.
+ENG_GADGET_MIN_AREA ?= 128
+ifeq ($(and $(filter 1,$(ENG_GADGETS)),$(filter 1,$(ENG_SCENES))),1)
+GADGET_RECEIPT_CHECK := $(foreach R,$(GCREL)road_gadget/road_gadget.receipt,$(shell sh ../../tools/check_receipt.sh $(G)/$(R) >/dev/null 2>&1 || echo $(R)))
+ifneq ($(strip $(GADGET_RECEIPT_CHECK)),)
+$(error Missing or stale decal pack: $(GADGET_RECEIPT_CHECK) (tools/gadget_bake.py --course $(ENG_COURSE)))
+endif
+SH_CFLAGS += -DFZX_ROAD_GADGETS=1 -DFZX_ROAD_GADGET_MIN_AREA=$(ENG_GADGET_MIN_AREA) -I$(GC)/road_gadget
+ifeq ($(ENG_COURSE_SELECT),1)
+GADGETS_RECEIPT_CHECK := $(shell sh ../../tools/check_receipt.sh $(G)/courses/select/course_gadgets.receipt >/dev/null 2>&1 || echo stale)
+ifneq ($(strip $(GADGETS_RECEIPT_CHECK)),)
+$(error Missing or stale decal bundle: run tools/course_gadget_bundle.py <courses>)
+endif
+SH_SRCS += $(G)/courses/select/course_gadgets.c
+endif
 endif
 
 SH_LDFLAGS += -Wl,--defsym=_sat_stub_data_end=0x0028C000 -Wl,--defsym=_fzx_input_log=0x0028D000
@@ -772,6 +866,7 @@ else
 endif
 	$(if $(filter 1,$(ENG_ROSTER)),cp $(G)/roster/ROSTERZ.PAK "$(IMAGE_DIRECTORY)/",rm -f "$(IMAGE_DIRECTORY)/ROSTERZ.PAK")
 	cp $(GC)/road_prep/ROADPREP.PAK "$(IMAGE_DIRECTORY)/"
+	$(if $(and $(filter 1,$(ENG_GADGETS)),$(filter-out 1,$(ENG_COURSE_SELECT))),cp $(GC)/road_gadget/ROADGAD.PAK "$(IMAGE_DIRECTORY)/",)
 else ifeq ($(E1_CLOSEUP),1)
 	cp $(G)/$(E1_VEHICLE)/MACHAB.PAK "$(IMAGE_DIRECTORY)/"
 endif
@@ -780,6 +875,7 @@ ifeq ($(E2_PACK),1)
 endif
 ifeq ($(ENG_COURSE_SELECT),1)
 	while read -r src name; do cp "$(G)/$$src" "$(IMAGE_DIRECTORY)/$$name"; done < $(G)/courses/select/files.txt
+	$(if $(filter 1,$(ENG_GADGETS)),while read -r src name; do cp "$(G)/$$src" "$(IMAGE_DIRECTORY)/$$name"; done < $(G)/courses/select/gadget_files.txt,)
 endif
 ifeq ($(E2_ROSTER),1)
 	cp $(G)/roster/ROSTER.PAK "$(IMAGE_DIRECTORY)/"

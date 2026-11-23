@@ -282,10 +282,30 @@ static bool polygon(const int32_t xy[10][2],unsigned count,unsigned band,
 static void clear_window(fzx_clouds_rbg_t *out) {
     for(unsigned y=0;y<224;++y){out->window[y][0]=640;out->window[y][1]=0;}
 }
+#if ENG_BAL_SPLIT
+#if !FZX_RBG_LEAN
+#error ENG_BAL_SPLIT needs FZX_RBG_LEAN=1 (the whole-job hash is not split)
+#endif
+bool fzx_clouds_rbg_prepare_part(const fzx_view_t *view,const RefBackdrop *source,
+                                 fzx_clouds_rbg_t *out,fzx_floor_emit_fn emit,void *context,
+                                 unsigned parts,fzx_clouds_split_t *sh) {
+#else
 bool fzx_clouds_rbg_prepare(const fzx_view_t *view,const RefBackdrop *source,
                             fzx_clouds_rbg_t *out,fzx_floor_emit_fn emit,void *context) {
+#endif
     if(!out)return false;
     FZX_SCP_BEGIN(FZX_SCP_CLOUDS);
+#if ENG_BAL_SPLIT
+    int32_t positions[8][3],outer[4][3],xy[10][2];unsigned count;int32_t inner;unsigned inner_band;
+    if(!(parts&FZX_CLOUDS_SETUP)) {
+        /* A later part: the bands from the setup's record. */
+        if(!sh->bands){FZX_SCP_END();return true;}
+        memcpy(positions,sh->positions,sizeof(positions));inner=sh->inner;
+        inner_band=(unsigned)(inner*7+127)/255;
+        goto bands;
+    }
+    sh->bands=0;
+#endif
     memset(out,0,sizeof(*out));out->hash=2166136261u;clear_window(out);
     if(!view || !source || !emit || source->faults || source->count!=20 ||
        view->near_plane<=0 || view->far_plane<=view->near_plane ||
@@ -295,7 +315,11 @@ bool fzx_clouds_rbg_prepare(const fzx_view_t *view,const RefBackdrop *source,
     const RefBackdropVertex *c=&source->vertices[12];
     /* Source alpha: 255 at the outer edges, the same inner value on all four
      * inner vertices; 255 means invisible. */
+#if ENG_BAL_SPLIT
+    inner=c[2].color[3];
+#else
     const int32_t inner=c[2].color[3];
+#endif
     for(unsigned i=0;i<8;++i) {
         if(c[i].position[1]!=c[0].position[1])return fail(out,1);
         if(c[i].color[3]!=((i<2 || i>=6)?255:inner))return fail(out,1);
@@ -305,7 +329,9 @@ bool fzx_clouds_rbg_prepare(const fzx_view_t *view,const RefBackdrop *source,
     const int64_t det=(int64_t)(c[1].uv[0]-c[0].uv[0])*(c[2].uv[1]-c[0].uv[1])-
                       (int64_t)(c[2].uv[0]-c[0].uv[0])*(c[1].uv[1]-c[0].uv[1]);
     if(!det){++out->degenerate;FZX_SCP_END();return true;}
+#if !ENG_BAL_SPLIT
     int32_t positions[8][3],outer[4][3],xy[10][2];unsigned count;
+#endif
     FZX_SCP(TRANSFORM);
     for(unsigned i=0;i<8;++i) {
         int32_t p[3];for(unsigned j=0;j<3;++j)p[j]=(int32_t)c[i].position[j]*4096;
@@ -335,17 +361,31 @@ bool fzx_clouds_rbg_prepare(const fzx_view_t *view,const RefBackdrop *source,
     FZX_SCP(BANDS);
     out->active=1;
     /* The whole inner span sits at the inner alpha. */
+#if ENG_BAL_SPLIT
+    inner_band=(unsigned)(inner*7+127)/255;
+#else
     const unsigned inner_band=(unsigned)(inner*7+127)/255;
+#endif
     if(inner_band) {
         static const unsigned middle[4]={2,3,5,4};
         for(unsigned i=0;i<4;++i)memcpy(outer[i],positions[middle[i]],12);
         if(!BAND_PROJECTED(view,(const int32_t (*)[3])outer,xy,&count))return fail(out,2);
         if(!polygon((const int32_t (*)[2])xy,count,inner_band,out,emit,context))return false;
     }
+#if ENG_BAL_SPLIT
+    memcpy(sh->positions,positions,sizeof(positions));sh->inner=inner;sh->bands=1;
+    if(!(parts&(FZX_CLOUDS_HALF0|FZX_CLOUDS_HALF1))){FZX_SCP_END();return true;}
+bands:
+    FZX_SCP(BANDS);
+#endif
 #if FZX_RBG_LEAN && FZX_RBG_SHARE
     band_edge_t edges[16];unsigned edge_count=0;
 #endif
+#if ENG_BAL_SPLIT
+    for(unsigned half=(parts&FZX_CLOUDS_HALF0)?0u:1u;half<((parts&FZX_CLOUDS_HALF1)?2u:1u);++half)for(unsigned band=1;band<8;++band) {
+#else
     for(unsigned half=0;half<2;++half)for(unsigned band=1;band<8;++band) {
+#endif
         /* Band b covers source alpha [(2b-1)/14,(2b+1)/14] of 255 (band 7 to the
          * edge), mapped onto this half's inner(alpha=inner)->edge(255) ramp. */
         const int32_t alpha_low=(int32_t)(2*band-1)*255/14,alpha_high=band==7?255:(int32_t)(2*band+1)*255/14;
@@ -396,3 +436,11 @@ bool fzx_clouds_rbg_prepare(const fzx_view_t *view,const RefBackdrop *source,
     FZX_SCP_END();
     return true;
 }
+#if ENG_BAL_SPLIT
+/* The whole job (the slave's whole claim, the non-balanced callers): all parts in order. */
+bool fzx_clouds_rbg_prepare(const fzx_view_t *view,const RefBackdrop *source,
+                            fzx_clouds_rbg_t *out,fzx_floor_emit_fn emit,void *context) {
+    fzx_clouds_split_t sh;
+    return fzx_clouds_rbg_prepare_part(view,source,out,emit,context,FZX_CLOUDS_ALL,&sh);
+}
+#endif

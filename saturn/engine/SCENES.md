@@ -131,13 +131,15 @@ typedef struct {
 
   ```sh
   python3 tools/machine_tuning.py --rom "$FZX_TEST_ROM"
-  python3 tools/guest_machine_packs.py "$GUEST_KIT/player-3d"
+  python3 tools/guest_machine_packs.py "$GUEST_MODEL_KIT/packs"
   python3 tools/engine_select_art.py "$PLAYER_SPRITE_SETS" generated/select_art --guest-ui "$GUEST_KIT/ui"
   python3 tools/engine_load_cards.py generated/course_menu generated/c8_cards --catalog-upstream upstream/G-Diffuser
   python3 tools/engine_menu_pages.py upstream/G-Diffuser/decomp generated/menu_pages --guest-ui "$GUEST_KIT/ui"
   ```
 
-  `GUEST_KIT` is the private hybrid-guests directory. `PLAYER_SPRITE_SETS` contains the
+  `GUEST_KIT` is the private hybrid-guests directory. Set `GUEST_MODEL_KIT` to the
+  shipping kit containing `masters/`, `packs/`, `export.py` and `convert.py`.
+  `PLAYER_SPRITE_SETS` contains the
   checked player-profile folders `c00s1` through `c29s1`. The loading-card generator
   also reads the sibling `generated/course_menu_preview` pack. Stage the approved uppercase packs with
   `python3 tools/stage_guest_titles.py "$FZX_EVIDENCE"` in the build checkout.
@@ -628,3 +630,13 @@ One static in low work RAM, next to the session: scene arenas never hold cup sta
   - RESULTS doesn't keep the race backdrop.
   - The records service and the sound queue's driver aren't linked.
   - TITLE, SELECT, RESULTS and RECORDS are placeholders until the C8 screens bind.
+
+The private Blender shipping kit retains both masters and the export and conversion scripts. From the repository root, rebuild into an empty work directory and verify the approved packs and named exhaust rows together:
+
+```sh
+"$BLENDER" -b --factory-startup --python-exit-code 1 --python "$GUEST_MODEL_KIT/export.py" -- "$WORK"
+python3 "$GUEST_MODEL_KIT/convert.py" "$WORK" "$PWD" "$DECOMP"
+python3 tools/guest_machine_packs.py "$WORK/packs"
+```
+
+The guest baker also writes `generated/fx/guest_boosters.json` from the two approved socket binaries. Run the FX baker after staging these rows so its generated tables and receipt include both guests.

@@ -1,4 +1,5 @@
 /* Engine line, milestone E1: the drive slice (see engine_drive.h). */
+#include <stdio.h>
 #include <string.h>
 #include <stddef.h>
 #include "engine_drive.h"
@@ -41,7 +42,12 @@
 #define E1_DRIVER_BOOST 0
 #endif
 /* The fixtures' race script: 460 ticks of nothing, then A held for 9,000. */
-enum { RACE_START_TICK = 460u, RACE_END_TICK = 460u + 9000u, CHECKPOINT_EVERY = 256u, CHECKPOINTS = 64u };
+/* The race runs 9,000 ticks after the start by default (the HOST references' length); a course whose finish is later
+ * (Rainbow Road, 10,520 ticks) builds with E1_RACE_TICKS above it, and its HOST reference runs the same count. */
+#ifndef E1_RACE_TICKS
+#define E1_RACE_TICKS 9000u
+#endif
+enum { RACE_START_TICK = 460u, RACE_END_TICK = 460u + E1_RACE_TICKS, CHECKPOINT_EVERY = 256u, CHECKPOINTS = 64u };
 #define N64_A 0x8000u
 #define N64_B 0x4000u
 
@@ -82,15 +88,36 @@ static double dot30(const int32_t a[3], const int32_t b[3]) {
 #ifndef E1_DRIVER_KH
 #define E1_DRIVER_KH 2.5f
 #endif
+/* The lateral gain and the constant lateral target of R01-t (tools/physics_host `--driver kl,kh,0,460,target`);
+ * HOST and test driver only, not game behaviour. The defaults are the nominal driver's. */
+#ifndef E1_DRIVER_KL
+#define E1_DRIVER_KL 0.004f
+#endif
+#ifndef E1_DRIVER_TARGET
+#define E1_DRIVER_TARGET 0.0f
+#endif
+#if ENG_PHYS_AHEAD
+static signed char driver_stick_of(const sh2z_vd_body_t *b) {
+    const float lateral = (float)(sh2z_vd_body_lateral(b) / 65536.0);
+    const float heading = (float)dot30(b->body[0], b->road[2]);
+    float steer = E1_DRIVER_KL * (lateral - E1_DRIVER_TARGET) + E1_DRIVER_KH * heading;
+    if (steer > 1.0f) steer = 1.0f;
+    if (steer < -1.0f) steer = -1.0f;
+    return (signed char)(steer >= 0.0f ? (int)(steer * 63.0f + 0.5f) : -(int)(-steer * 63.0f + 0.5f));
+}
+static signed char driver_stick(void) { return driver_stick_of(&body); }
+
+#else
 static signed char driver_stick(void) {
     const float lateral = (float)(sh2z_vd_body_lateral(&body) / 65536.0);
     const float heading = (float)dot30(body.body[0], body.road[2]);
-    float steer = 0.004f * (lateral - 0.0f) + E1_DRIVER_KH * heading;
+    float steer = E1_DRIVER_KL * (lateral - E1_DRIVER_TARGET) + E1_DRIVER_KH * heading;
     if (steer > 1.0f) steer = 1.0f;
     if (steer < -1.0f) steer = -1.0f;
     return (signed char)(steer >= 0.0f ? (int)(steer * 63.0f + 0.5f) : -(int)(-steer * 63.0f + 0.5f));
 }
 
+#endif
 #if E1_FIELD
 /* Close-up 3D-N: the rival field steps after the player, every tick (FRT time summed for the frame row). */
 volatile uint32_t fzx_field_sim_ticks;
@@ -118,6 +145,50 @@ void fzx_drive_field_run(void) {}
 void (*volatile fzx_drive_finish_hook)(uint32_t timer, uint32_t tick);
 static uint32_t finish_timer;
 #endif
+#if ENG_PHYS_AHEAD
+/* Everything after the physics of one tick: the sound's read, the field's copy, the count, the finish hook and the checkpoint. */
+static void after_step(void) {
+#if ENG_SND
+    engine_snd_tick(&body, &course.vehicle, course.track.laps); /* reads the state only */
+#endif
+#if E1_FIELD && ENG_BAL_EARLY
+    /* The field steps after the kick (fzx_drive_field_run) on this tick's player state. */
+    if (field_pending >= FIELD_PENDING_MAX) fzx_drive_field_run();
+    field_bodies[field_pending++] = body;
+#elif E1_FIELD
+    {
+        const uint16_t f0 = cpu_frt_count_get();
+        fzx_field_tick(&body);
+        fzx_field_sim_ticks += (uint16_t)(cpu_frt_count_get() - f0);
+    }
+#endif
+    ++ticks;
+#if defined(ENG_SCENES) && ENG_SCENES
+    /* The timer restarts with every race, cold load or retry: it runs only while finished. */
+    if (!(body.flags & SH2Z_VD_FINISHED)) finish_timer = 0;
+    else if (finish_timer < 0xFFFFu) {
+        ++finish_timer;
+        if (fzx_drive_finish_hook) {
+#if E1_FIELD && ENG_BAL_EARLY
+            fzx_drive_field_run(); /* the hook reads the field: step it to this tick first */
+#endif
+            fzx_drive_finish_hook(finish_timer, ticks);
+        }
+    }
+#endif
+    if (ticks % CHECKPOINT_EVERY == 0u && ticks / CHECKPOINT_EVERY <= CHECKPOINTS) {
+        const uint64_t h = fnv64_body(&body);
+        fzx_e1_checkpoints[ticks / CHECKPOINT_EVERY - 1u][0] = (uint32_t)(h >> 32);
+        fzx_e1_checkpoints[ticks / CHECKPOINT_EVERY - 1u][1] = (uint32_t)h;
+        fzx_e1_report[8] = ticks / CHECKPOINT_EVERY;
+    }
+}
+static void step_once(sh2z_vd_input_t *in) {
+    fzx_phys_step(&course, &body, &fzx_phys_rules, in);
+    after_step();
+}
+
+#else
 static void step_once(sh2z_vd_input_t *in) {
     fzx_phys_step(&course, &body, &fzx_phys_rules, in);
 #if ENG_SND
@@ -156,6 +227,159 @@ static void step_once(sh2z_vd_input_t *in) {
     }
 }
 
+#endif
+#if ENG_PHYS_AHEAD
+/* The pad word of this frame (the override the scripts poke, else the Saturn pad). */
+static uint16_t pad_read(void) {
+    uint16_t pad = 0;
+    const uint32_t o = fzx_e1_pad_override;
+    if (o & 0x10000u) pad = (uint16_t)o;
+    else {
+        smpc_peripheral_digital_t d = {0};
+        smpc_peripheral_process();
+        smpc_peripheral_digital_port(1, &d);
+        if (d.connected) pad = d.pressed.raw; /* Yaul: "pressed" is the current state */
+    }
+    return pad;
+}
+
+#if ENG_PHYS_AHEAD
+/* ENG_PHYS_AHEAD (claude/speed-5): the next frame's physics ticks are computed in the master's idle time at the end of
+ * this frame (fzx_drive_ahead_prepare, called by the loop while VDP1's previous frame is still being drawn) on a copy of the
+ * player's state, and the next fzx_drive_step takes them instead of stepping: the player's state, the tick count, the sound's
+ * read, the field's copy, the finish hook and the checkpoints all happen there, in the same order and on the same states as
+ * before, so nothing else sees a state ahead of the picture. A step that finds the prediction wrong (another tick count, the
+ * race restarted, another pad word) throws the copy away and steps as before; the pad is read again at the step, so a held
+ * button is never older than before. */
+enum { AHEAD_MAX = 4u };
+static struct {
+    uint32_t valid, req, n, from_ticks;
+    uint16_t pad;
+    FzxPadState pad_after;
+    uint16_t prev_after[AHEAD_MAX];
+    sh2z_vd_body_t after[AHEAD_MAX];
+#if ENG_PICK_AHEAD
+    /* ENG_PICK_AHEAD: the camera of the state the prediction ends in, computed with the lens and orbit named here, and the
+     * tick and outer bit the next frame will show; view = a camera was computed, kept = the step took the prediction. */
+    fzx_engine_cam_t cam;
+    uint32_t view, kept, limited, orbit_key, tick_after, outer_after;
+    int32_t lens_key[3];
+#endif
+} ahead;
+/* [0] prepared, [1] taken, [2] pad word differed, [3] tick count or start differed, [4] master FRT units spent preparing,
+ * [5] the longest prepare (FRT units), [6] frames the loop did not prepare (VDP1 idle). */
+volatile uint32_t fzx_e1_ahead[8];
+void fzx_drive_ahead_prepare(uint32_t req) {
+    ahead.valid = 0;
+#if ENG_PICK_AHEAD
+    ahead.view = 0; ahead.kept = 0;
+#endif
+    if (!req || req > AHEAD_MAX) return;
+    sh2z_vd_body_t b = body;
+    uint16_t pv = prev_n64;
+    uint32_t k = 0, t = ticks;
+    if (fzx_e1_driver) {
+        for (; k < req && t < RACE_END_TICK; ++k, ++t) {
+            uint16_t button = t >= RACE_START_TICK ? N64_A : 0u;
+            signed char sx = 0;
+            if (b.intro == 0) {
+#if E1_DRIVER == 2
+                sx = fzx_e1_driver == 2u ? fzx_drive_ahead(&course.track, &b, 0.1f, &button) : driver_stick_of(&b);
+#else
+                sx = driver_stick_of(&b);
+#endif
+                if (E1_DRIVER_BOOST > 0 && t % E1_DRIVER_BOOST == 0u) button |= N64_B;
+            }
+            sh2z_vd_input_t in;
+            in.held = fzx_phys_buttons_n64(button);
+            in.pressed = fzx_phys_buttons_n64((uint16_t)((pv ^ button) & button));
+            in.released = fzx_phys_buttons_n64((uint16_t)((pv ^ button) & pv));
+            in.stick_x = sx; in.stick_y = 0;
+            pv = button;
+            fzx_phys_step(&course, &b, &fzx_phys_rules, &in);
+            ahead.after[k] = b; ahead.prev_after[k] = pv;
+        }
+    } else {
+        FzxPadState ps = pad_state;
+        sh2z_vd_input_t in;
+        ahead.pad = pad_read();
+        fzx_phys_pad(&ps, ahead.pad, &in);
+        for (; k < req; ++k) {
+            fzx_phys_step(&course, &b, &fzx_phys_rules, &in);
+            ahead.after[k] = b;
+            in.pressed = 0; in.released = 0;
+        }
+        ahead.pad_after = ps;
+    }
+    ahead.req = req; ahead.n = k; ahead.from_ticks = ticks; ahead.valid = 1;
+    ++fzx_e1_ahead[0];
+}
+#endif
+
+void fzx_drive_step(uint32_t n) {
+#if ENG_PHYS_AHEAD
+    bool taken = false;
+    if (ahead.valid) {
+        const bool same = ahead.from_ticks == ticks && ahead.req == n;
+        ahead.valid = 0;
+        if (!same) ++fzx_e1_ahead[3];
+        else if (!fzx_e1_driver && pad_read() != ahead.pad) ++fzx_e1_ahead[2];
+        else {
+            if (!fzx_e1_driver) pad_state = ahead.pad_after;
+            for (uint32_t k = 0; k < ahead.n; ++k) {
+                body = ahead.after[k];
+                if (fzx_e1_driver) prev_n64 = ahead.prev_after[k];
+                after_step();
+                if (fzx_e1_driver && ticks == RACE_END_TICK) {
+                    const uint64_t h = fnv64_body(&body);
+                    fzx_e1_report[5] = ticks; fzx_e1_report[6] = (uint32_t)(h >> 32); fzx_e1_report[7] = (uint32_t)h;
+                }
+            }
+            ++fzx_e1_ahead[1];
+            taken = true;
+#if ENG_PICK_AHEAD
+            ahead.kept = 1;
+#endif
+        }
+    }
+    if (!taken)
+#endif
+    {
+    if (fzx_e1_driver) {
+        for (uint32_t k = 0; k < n && ticks < RACE_END_TICK; ++k) {
+            uint16_t button = ticks >= RACE_START_TICK ? N64_A : 0u;
+            signed char sx = 0;
+            if (body.intro == 0) {
+#if E1_DRIVER == 2
+                sx = fzx_e1_driver == 2u ? fzx_drive_ahead(&course.track, &body, 0.1f, &button) : driver_stick();
+#else
+                sx = driver_stick();
+#endif
+                if (E1_DRIVER_BOOST > 0 && ticks % E1_DRIVER_BOOST == 0u) button |= N64_B;
+            }
+            sh2z_vd_input_t in;
+            in.held = fzx_phys_buttons_n64(button);
+            in.pressed = fzx_phys_buttons_n64((uint16_t)((prev_n64 ^ button) & button));
+            in.released = fzx_phys_buttons_n64((uint16_t)((prev_n64 ^ button) & prev_n64));
+            in.stick_x = sx; in.stick_y = 0;
+            prev_n64 = button;
+            step_once(&in);
+            if (ticks == RACE_END_TICK) {
+                const uint64_t h = fnv64_body(&body);
+                fzx_e1_report[5] = ticks; fzx_e1_report[6] = (uint32_t)(h >> 32); fzx_e1_report[7] = (uint32_t)h;
+            }
+        }
+    } else if (n) {
+        const uint16_t pad = pad_read();
+        sh2z_vd_input_t in;
+        fzx_phys_pad(&pad_state, pad, &in);
+        for (uint32_t k = 0; k < n; ++k) {
+            step_once(&in);
+            in.pressed = 0; in.released = 0; /* one edge per press: the later ticks hold */
+        }
+    }
+    }
+#else
 void fzx_drive_step(uint32_t n) {
     if (fzx_e1_driver) {
         for (uint32_t k = 0; k < n && ticks < RACE_END_TICK; ++k) {
@@ -198,6 +422,7 @@ void fzx_drive_step(uint32_t n) {
             in.pressed = 0; in.released = 0; /* one edge per press: the later ticks hold */
         }
     }
+#endif
     fzx_e1_report[0] = ticks; fzx_e1_report[1] = (uint32_t)body.laps_done; fzx_e1_report[2] = (uint32_t)body.race_time;
     fzx_e1_report[3] = (body.flags & SH2Z_VD_FINISHED) ? 1u : 0u; fzx_e1_report[4] = (uint32_t)body.speed;
     fzx_e1_report[13] = (uint32_t)body.lap_times[0]; fzx_e1_report[14] = (uint32_t)body.lap_times[1];
@@ -207,11 +432,13 @@ void fzx_drive_step(uint32_t n) {
 uint32_t fzx_drive_tick(void) { return ticks; }
 #if FZX_PHYS_TUBES
 /* Whether the camera is outside the track surface (the road plan's outer bit; course.c
- * D_800F89D8): inside a pipe span it is not, except over the span's joins, where the
+ * D_800F89D8): inside a pipe or tunnel span it is not, except over the span's joins, where the
  * tube opens into road. Read from the player's located span and t. */
 uint8_t fzx_drive_outer(void) {
     const uint32_t n = body.node < course.track.count ? body.node : 0u;
-    if (course.nodes[n].shape != SH2Z_VD_SHAPE_PIPE) return 1u;
+    /* TRACK_FLAG_INSIDE is set on the pipe and tunnel presets and on no other shape (course.c D_800CF9F0,
+     * D_800CFA10): the half-pipe and the cylinder are seen from outside. */
+    if (course.nodes[n].shape != SH2Z_VD_SHAPE_PIPE && course.nodes[n].shape != SH2Z_VD_SHAPE_TUNNEL) return 1u;
     return (body.t < course.joins[n].prev_end || course.joins[n].next_start < body.t) ? 1u : 0u;
 }
 #endif
@@ -248,23 +475,32 @@ static uint32_t isqrt64(uint64_t v) {
     return (uint32_t)r;
 }
 
+#if ENG_PICK_AHEAD
+/* ENG_PICK_AHEAD: the camera of any body (the ahead stage computes the next frame's); BP is the body it reads. */
+static void camera_of(fzx_engine_cam_t *cam, const fzx_engine_cam_t *lens, const sh2z_vd_body_t *cam_body, uint32_t *roll_limited) {
+#define BP cam_body
+#define ROLL_LIMITED_INC (++*roll_limited)
+#else
 void fzx_drive_camera(fzx_engine_cam_t *cam, const fzx_engine_cam_t *lens) {
+#define BP (&body)
+#define ROLL_LIMITED_INC (++fzx_e1_roll_limited)
+#endif
 #if E1_CLOSEUP == 1
     /* Stills only: fzx_e1_cam_orbit 1 swings the chase camera 135 degrees around the car's
      * up axis (a front three-quarter view), 2 by 90 degrees (side); 0 is the chase camera. */
     int32_t orbit_f[3];
-    const int32_t *f = body.body[0], *u = body.body[1];
+    const int32_t *f = BP->body[0], *u = BP->body[1];
     if (fzx_e1_cam_orbit == 1u || fzx_e1_cam_orbit == 2u) {
         const int32_t oc = fzx_e1_cam_orbit == 1u ? -759250125 : 0, os = fzx_e1_cam_orbit == 1u ? 759250125 : 1073741824;
-        for (unsigned i = 0; i < 3u; ++i) orbit_f[i] = mul30(oc, f[i]) + mul30(os, body.body[2][i]);
+        for (unsigned i = 0; i < 3u; ++i) orbit_f[i] = mul30(oc, f[i]) + mul30(os, BP->body[2][i]);
         f = orbit_f;
     }
 #else
-    const int32_t *f = body.body[0], *u = body.body[1];
+    const int32_t *f = BP->body[0], *u = BP->body[1];
 #endif
     int32_t cf[3], cu[3], r0[3];
     for (unsigned i = 0; i < 3u; ++i) {
-        cam->eye[i] = body.pos[i] + mul30(EYE_F, f[i]) + mul30(EYE_U, u[i]);
+        cam->eye[i] = BP->pos[i] + mul30(EYE_F, f[i]) + mul30(EYE_U, u[i]);
         cf[i] = mul30(PITCH_C, f[i]) - mul30(PITCH_S, u[i]);
         cu[i] = mul30(PITCH_S, f[i]) + mul30(PITCH_C, u[i]);
     }
@@ -293,7 +529,7 @@ void fzx_drive_camera(fzx_engine_cam_t *cam, const fzx_engine_cam_t *lens) {
                 cu[0] = (int32_t)(((int64_t)r0[1] * cf[2] - (int64_t)r0[2] * cf[1]) >> 30);
                 cu[1] = (int32_t)(((int64_t)r0[2] * cf[0] - (int64_t)r0[0] * cf[2]) >> 30);
                 cu[2] = (int32_t)(((int64_t)r0[0] * cf[1] - (int64_t)r0[1] * cf[0]) >> 30);
-                ++fzx_e1_roll_limited;
+                ROLL_LIMITED_INC;
             }
         }
     }
@@ -310,6 +546,76 @@ void fzx_drive_camera(fzx_engine_cam_t *cam, const fzx_engine_cam_t *lens) {
         cam->xzn[1] = (int32_t)(((int64_t)cf[2] << 30) / (int64_t)n);
     } else { cam->xzn[0] = 1 << 30; cam->xzn[1] = 0; }
 }
+#undef ROLL_LIMITED_INC
+#undef BP
+#if ENG_PICK_AHEAD
+void fzx_drive_camera(fzx_engine_cam_t *cam, const fzx_engine_cam_t *lens) {
+    uint32_t limited = 0;
+    camera_of(cam, lens, &body, &limited);
+    fzx_e1_roll_limited += limited;
+}
+#endif
+#if ENG_PICK_AHEAD
+#if !ENG_PHYS_AHEAD
+#error ENG_PICK_AHEAD needs ENG_PHYS_AHEAD
+#endif
+/* The next frame's camera, tick and outer bit from the state the prediction ends in. False when there is no prediction. */
+bool fzx_drive_ahead_view(const fzx_engine_cam_t *lens, const fzx_engine_cam_t **cam, uint32_t *tick, uint32_t *outer) {
+    if (!ahead.valid || !ahead.n) return false;
+    const sh2z_vd_body_t *b = &ahead.after[ahead.n - 1u];
+#if ENG_PICK_AHEAD_CONTROL == 2
+    b = &body; /* control (diagnostic only): the camera of the state before the prediction, used as if it were the predicted one:
+                * the pick sees a stale view and the picture must differ */
+#endif
+    uint32_t limited = 0;
+    camera_of(&ahead.cam, lens, b, &limited);
+    ahead.limited = limited;
+    ahead.lens_key[0] = lens->focal[0]; ahead.lens_key[1] = lens->focal[1]; ahead.lens_key[2] = lens->tan_half;
+#if E1_CLOSEUP == 1
+    ahead.orbit_key = fzx_e1_cam_orbit;
+#else
+    ahead.orbit_key = 0;
+#endif
+    ahead.tick_after = ahead.from_ticks + ahead.n;
+    ahead.tick_after = ahead.tick_after ? ahead.tick_after : 1u;
+#if FZX_PHYS_TUBES
+    {   /* fzx_drive_outer() on the predicted state */
+        const uint32_t n = b->node < course.track.count ? b->node : 0u;
+        uint32_t o = 1u;
+        if (course.nodes[n].shape == SH2Z_VD_SHAPE_PIPE || course.nodes[n].shape == SH2Z_VD_SHAPE_TUNNEL)
+            o = (b->t < course.joins[n].prev_end || course.joins[n].next_start < b->t) ? 1u : 0u;
+        ahead.outer_after = o;
+    }
+#else
+    ahead.outer_after = 1u;
+#endif
+    ahead.view = 1;
+    *cam = &ahead.cam; *tick = ahead.tick_after; *outer = ahead.outer_after;
+    return true;
+}
+/* This frame's camera: the prediction's when the step took it (so the state is the one it was computed from) and the lens and
+ * orbit are the same; else computed now. True: the camera, tick and outer bit are the ones the early pick used. */
+bool fzx_drive_camera_ahead(fzx_engine_cam_t *cam, const fzx_engine_cam_t *lens) {
+    const bool use = ahead.kept && ahead.view && ahead.lens_key[0] == lens->focal[0] && ahead.lens_key[1] == lens->focal[1] &&
+                     ahead.lens_key[2] == lens->tan_half &&
+#if E1_CLOSEUP == 1
+                     ahead.orbit_key == fzx_e1_cam_orbit &&
+#endif
+                     ahead.tick_after == (ticks ? ticks : 1u);
+    ahead.kept = 0; ahead.view = 0;
+#if ENG_PICK_AHEAD_CONTROL == 1
+    /* control (diagnostic only): every third early pick is declared unused, so the road job undoes it and picks again; the
+     * picture must equal the default's */
+    static uint32_t control_n;
+    if (use && ++control_n % 3u == 0u) { fzx_drive_camera(cam, lens); return false; }
+#endif
+    if (!use) { fzx_drive_camera(cam, lens); return false; }
+    *cam = ahead.cam; /* focal and tan_half are the lens's: the key matched */
+    fzx_e1_roll_limited += ahead.limited;
+    return true;
+}
+#endif
+
 
 /* ---- player sprite (claude/racer-sprites 45b74b7 draw16 path, through the slot cache) --
  * SPRITE-RACERS-PLAN.md section 9.4 (SH2ZAM sprite-cache-1):
@@ -400,6 +706,12 @@ bool fzx_drive_load(void *scratch, uint32_t scratch_bytes) {
 #endif
 #endif
     body = course.start; prev_n64 = 0; ticks = 0;
+#if ENG_PHYS_AHEAD
+    ahead.valid = 0;
+#if ENG_PICK_AHEAD
+    ahead.view = 0; ahead.kept = 0;
+#endif
+#endif
     memset(&pad_state, 0, sizeof(pad_state));
 #if E1_FIELD
 #if E2_PACK
@@ -483,6 +795,12 @@ static void field_state_reset(void);
 #endif
 void fzx_drive_reset(void) {
     body = course.start; prev_n64 = 0; ticks = 0; finish_timer = 0;
+#if ENG_PHYS_AHEAD
+    ahead.valid = 0;
+#if ENG_PICK_AHEAD
+    ahead.view = 0; ahead.kept = 0;
+#endif
+#endif
 #if E1_FIELD && ENG_BAL_EARLY
     field_pending = 0; /* player states a left race never handed to the field */
 #endif
@@ -1453,16 +1771,30 @@ void fzx_drive_hud(void) {
     dbgio_flush();
 }
 
-void fzx_drive_hud_text(void) {
+/* The HUD text is formatted before the frame's track wait (fzx_drive_hud_prepare, in the master's idle time on a
+ * frame the slave's track holds up) and written to the dbgio buffer after it (fzx_drive_hud_text), so the previous
+ * frame's flush, which sits in the wait for the present, still sends the previous frame's text. The strings are the
+ * ones dbgio_printf formats, from the same state. */
+static char hud_str[3][48];
+static uint32_t hud_ready;
+void fzx_drive_hud_prepare(void) {
     const uint32_t kmh = (uint32_t)(((int64_t)(body.speed < 0 ? -body.speed : body.speed) * 216) / (65536 * 10));
     const uint32_t ms = body.race_time > 0 ? (uint32_t)body.race_time : 0u;
     const uint32_t laps = (uint32_t)course.track.laps;
     uint32_t lap = (uint32_t)(body.laps_done > 0 ? body.laps_done : 1);
     if (lap > laps) lap = laps;
-    dbgio_printf("\x1b[2;2H%4lu KM/H  LAP %lu/%lu  %lu'%02lu\"%02lu ", (unsigned long)kmh, (unsigned long)lap,
-                 (unsigned long)laps, (unsigned long)(ms / 60000u), (unsigned long)((ms / 1000u) % 60u),
-                 (unsigned long)((ms / 10u) % 100u));
-    if (body.flags & SH2Z_VD_FINISHED) dbgio_printf("\x1b[4;14HFINISH");
-    else if (body.intro > 0) dbgio_printf("\x1b[4;14H%s", body.intro > 180 ? "      " : body.intro > 120 ? "  3   " : body.intro > 60 ? "  2   " : "  1   ");
-    else dbgio_printf("\x1b[4;14H      ");
+    snprintf(hud_str[0], sizeof(hud_str[0]), "[2;2H%4lu KM/H  LAP %lu/%lu  %lu'%02lu\"%02lu ", (unsigned long)kmh, (unsigned long)lap,
+             (unsigned long)laps, (unsigned long)(ms / 60000u), (unsigned long)((ms / 1000u) % 60u),
+             (unsigned long)((ms / 10u) % 100u));
+    if (body.flags & SH2Z_VD_FINISHED) snprintf(hud_str[1], sizeof(hud_str[1]), "[4;14HFINISH");
+    else if (body.intro > 0) snprintf(hud_str[1], sizeof(hud_str[1]), "[4;14H%s", body.intro > 180 ? "      " : body.intro > 120 ? "  3   " : body.intro > 60 ? "  2   " : "  1   ");
+    else snprintf(hud_str[1], sizeof(hud_str[1]), "[4;14H      ");
+    hud_ready = 1u;
+}
+
+void fzx_drive_hud_text(void) {
+    if (!hud_ready) fzx_drive_hud_prepare();
+    hud_ready = 0u;
+    dbgio_puts(hud_str[0]);
+    dbgio_puts(hud_str[1]);
 }

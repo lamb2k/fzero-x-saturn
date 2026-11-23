@@ -330,8 +330,33 @@ static int16_t rs_guard[4]; /* set per frame from the view's clip rectangle */
 #define RS_GX1 900
 #define RS_GY1 900
 #endif
+#ifndef FZX_ROAD_STREAM_FASTTEST
+#define FZX_ROAD_STREAM_FASTTEST 0
+#endif
+#ifndef FZX_ROAD_STREAM_EMIT32
+#define FZX_ROAD_STREAM_EMIT32 0
+#endif
+#if FZX_ROAD_STREAM_EMIT32
+#if !defined(__BYTE_ORDER__)||__BYTE_ORDER__!=__ORDER_BIG_ENDIAN__
+#error FZX_ROAD_STREAM_EMIT32 writes big-endian words: SH-2 builds only
+#endif
+typedef uint32_t __attribute__((may_alias)) u32a;
+#define P2(h,l) ((uint32_t)(uint16_t)(h)<<16|(uint16_t)(l))
+/* One command in eight long stores (a 32-byte table entry, big-endian: the first halfword in the high half). */
+static inline void put_cmd32(fzx_road_stream_vdp1_t *c,const fzx_road_stream_vdp1_t *t,unsigned colr,unsigned srca,unsigned size,
+    const sh2z_view_vertex_t *a,const sh2z_view_vertex_t *b,const sh2z_view_vertex_t *cc,const sh2z_view_vertex_t *dd,unsigned grda){
+    u32a *w=(u32a *)(void *)c;
+    w[0]=P2(t->ctrl,t->link);w[1]=P2(t->pmod,colr);w[2]=P2(srca,size);
+    w[3]=P2(a->sx,a->sy);w[4]=P2(b->sx,b->sy);w[5]=P2(cc->sx,cc->sy);w[6]=P2(dd->sx,dd->sy);w[7]=P2(grda,t->reserved);
+}
+#endif
 /* Inputs to area are clipped to +/-900, bounding the 16-corner sum in int32. */
 static int32_t area(const sh2z_view_vertex_t *const *v,unsigned count){
+#if FZX_ROAD_STREAM_FASTTEST
+    /* FZX_ROAD_STREAM_FASTTEST (default 0 here; the engine Makefile sets E0_FASTTEST ?= 1): a quad's shoelace sum is the cross product of its diagonals
+     * (x2-x0)(y3-y1) - (x3-x1)(y2-y0): the same integer, two multiplies. */
+    if(count==4u)return ((int32_t)v[2]->sx-v[0]->sx)*((int32_t)v[3]->sy-v[1]->sy)-((int32_t)v[3]->sx-v[1]->sx)*((int32_t)v[2]->sy-v[0]->sy);
+#endif
     int32_t sum=0;for(unsigned i=0;i<count;++i){unsigned j=i+1<count?i+1:0;
         sum+=(int32_t)v[i]->sx*v[j]->sy-(int32_t)v[i]->sy*v[j]->sx;}
     return sum;
@@ -341,6 +366,17 @@ static unsigned classify(const vref_t v[4],bool *safe){
     /* Preserve source order: original quad order for culling, or left-start,
      * right-start, right-end, left-end for textured pieces. Do not rotate the
      * polygon: the first clipped corner anchors the VDP1 texture fan. */
+#if FZX_ROAD_STREAM_FASTTEST
+    {   /* The same tests, unrolled: the band edges once, one unsigned compare per axis. */
+        const int32_t gx0=RS_GX0,gy0=RS_GY0;const uint32_t gw=(uint32_t)(RS_GX1-RS_GX0),gh=(uint32_t)(RS_GY1-RS_GY0);
+        const unsigned o0=v[0]->outcode,o1=v[1]->outcode,o2=v[2]->outcode,o3=v[3]->outcode;
+        const int32_t x0=v[0]->sx,x1=v[1]->sx,x2=v[2]->sx,x3=v[3]->sx,y0=v[0]->sy,y1=v[1]->sy,y2=v[2]->sy,y3=v[3]->sy;
+        *safe=!((o0|o1|o2|o3)&SH2Z_OUT_NEAR)&&
+              (uint32_t)(x0-gx0)<=gw&&(uint32_t)(x1-gx0)<=gw&&(uint32_t)(x2-gx0)<=gw&&(uint32_t)(x3-gx0)<=gw&&
+              (uint32_t)(y0-gy0)<=gh&&(uint32_t)(y1-gy0)<=gh&&(uint32_t)(y2-gy0)<=gh&&(uint32_t)(y3-gy0)<=gh;
+        return 63u&o0&o1&o2&o3;
+    }
+#endif
     unsigned all=63;*safe=true;
     for(unsigned i=0;i<4;++i){all&=v[i]->outcode;
         if((v[i]->outcode&SH2Z_OUT_NEAR)||v[i]->sx< RS_GX0||v[i]->sx>RS_GX1||v[i]->sy< RS_GY0||v[i]->sy>RS_GY1)*safe=false;}
@@ -515,6 +551,13 @@ static bool piece(draw_t *d,const vref_t v[4],unsigned quad,unsigned piece_id,
             fzx_road_stream_vdp1_t *c=e->commands+at;uint16_t *g=e->shades+at*4u;
             const unsigned last=first+2<count?first+2:count-1;
             /* Field-wise template copy (a struct copy is a memcpy call). */
+#if FZX_ROAD_STREAM_EMIT32
+            if(solid)put_cmd32(c,tmpl,tmpl->colr,tmpl->srca,tmpl->size,corners[0],corners[first],corners[first+1],corners[last],
+                (uint16_t)(((e->shade_offset+at*8u)&0x7ffffu)>>3));
+            else put_cmd32(c,tmpl,colr,srca,size,corners[0],corners[first],corners[first+1],corners[last],
+                (uint16_t)(((e->shade_offset+at*8u)&0x7ffffu)>>3));
+            ((u32a *)(void *)g)[0]=(uint32_t)shades[0]<<16|shades[first];((u32a *)(void *)g)[1]=(uint32_t)shades[first+1]<<16|shades[last];
+#else
             c->ctrl=tmpl->ctrl;c->link=tmpl->link;c->pmod=tmpl->pmod;c->reserved=tmpl->reserved;
             if(solid){c->colr=tmpl->colr;c->srca=tmpl->srca;c->size=tmpl->size;}
             else {c->srca=srca;c->size=size;c->colr=colr;}
@@ -522,6 +565,7 @@ static bool piece(draw_t *d,const vref_t v[4],unsigned quad,unsigned piece_id,
             c->xc=corners[first+1]->sx;c->yc=corners[first+1]->sy;c->xd=corners[last]->sx;c->yd=corners[last]->sy;
             g[0]=shades[0];g[1]=shades[first];g[2]=shades[first+1];g[3]=shades[last];
             c->grda=(uint16_t)(((e->shade_offset+at*8u)&0x7ffffu)>>3);
+#endif
             d->stats->commands=at+1;
         }
         return true;
@@ -752,7 +796,98 @@ culled_ok:
 /* Native frame: each group's chunks form at most two contiguous index runs
  * (the course wraps once); each run is one batch over its position range.
  * Chunks are then visited in the source order, as the pack path visits them. */
-typedef struct {uint32_t first,last;int32_t offset;} run_t;
+typedef struct {uint32_t first,last;int32_t offset;
+#if FZX_ROAD_GADGETS
+    int32_t goffset;bool gdone;   /* decal corner i of quad q is projected[goffset+4q+i]; gdone: this run's decals are projected */
+#endif
+} run_t;
+#if FZX_ROAD_GADGETS
+#ifndef FZX_ROAD_GADGET_MIN_AREA
+#define FZX_ROAD_GADGET_MIN_AREA 0   /* decal quads whose screen area (x2, pixels) is at most this are left out; 0 leaves out only the empty ones */
+#endif
+/* The decals of one run's chunks: one more projected batch, after the run's road positions. A run that does not fit
+ * leaves its decals out (counted), never the road. */
+static bool gadget_run(draw_t *d,run_t *r){
+    fzx_road_stream_draw_work_t *w=d->work;
+    r->gdone=false;
+    if(!w->gfirst)return true;
+    const uint32_t q0=w->gfirst[r->first],q1=w->gfirst[r->last+1u];
+    if(q1<=q0)return true;
+    const uint32_t used=d->stats->positions,n=(q1-q0)*4u;
+    if(n>w->vertex_capacity-used){d->stats->decal_dropped+=q1-q0;return true;}
+    if(!sh2z_view_batch_center_divu(w->projected+used,&d->view,w->gpos+q0*4u,sizeof(*w->gpos),n))return fail(d,FZX_RS_PROJECT);
+    r->goffset=(int32_t)used-(int32_t)(q0*4u);r->gdone=true;
+    d->stats->positions=used+n;d->stats->decal_corners+=n;return true;
+}
+/* VDP1 maps a quad's bitmap along straight lines between corresponding points of two opposite edges, with no perspective. A decal
+ * that is big on screen and runs far into the depth (a plate seen from just behind it, a strip's nearest quad) therefore shades wrongly
+ * and the two halves of a plate do not meet (the original's N64 texturing is perspective correct). The cure is more, smaller quads:
+ * every new corner is a point on an edge of the projected quad, taken in view space (where an edge is straight) and projected like
+ * any corner, so its place and depth are exact, and each piece then maps its own rows of the same bitmap. */
+static void lerp_view(sh2z_view_vertex_t *o,const sh2z_view_vertex_t *a,const sh2z_view_vertex_t *b,uint32_t f){
+    o->x=a->x+(int32_t)((((int64_t)b->x-a->x)*f)>>16);
+    o->y=a->y+(int32_t)((((int64_t)b->y-a->y)*f)>>16);
+    o->z=a->z+(int32_t)((((int64_t)b->z-a->z)*f)>>16);
+}
+/* How much the affine mapping is off for this quad: 0 none worth a command, 1 some (two bands), 2 a lot (four bands). The measure is
+ * m = sqrt(screen area) * (zmax - zmin) / (zmax + zmin), in pixels about twice the worst displacement; m < 3.5 is left, m < 12 gets two
+ * bands, more gets four (displacement falls as the square of the bands). A quad the guard would clip gets the most. */
+static unsigned decal_level(const vref_t v[4],bool safe){
+    if(!safe)return 2;
+    int32_t zmin=v[0]->z,zmax=zmin;
+    for(unsigned i=1;i<4;++i){if(v[i]->z<zmin)zmin=v[i]->z;if(v[i]->z>zmax)zmax=v[i]->z;}
+    int32_t a=area(v,4);if(a<0)a=-a;
+    const int64_t dz=((int64_t)zmax-zmin)>>12,sz=((int64_t)zmax+zmin)>>12;
+    const int64_t m=(int64_t)a*dz*dz,s2=sz*sz;     /* m^2 = a * dz^2 / (2 * sz^2) */
+    return m<24*s2?0u:m<288*s2?1u:2u;
+}
+/* A strip (rows run along the road: corners A B C D, A->D and B->C along it) cut into bands of equal rows. */
+static bool decal_bands(draw_t *d,const vref_t v[4],unsigned q,unsigned image,unsigned bands){
+    const unsigned height=d->work->images[image].variant[0].height;
+    if(height%bands)return piece(d,v,q,0,image,image,0,height,0,false);
+    sh2z_view_vertex_t p[10];
+    for(unsigned k=0;k<=bands;++k){const uint32_t f=(uint32_t)(k*65536u/bands);
+        lerp_view(&p[2*k],v[0],v[3],f);lerp_view(&p[2*k+1],v[1],v[2],f);}
+    if(!sh2z_view_project_center_divu(p,&d->view,p,2u*(bands+1u)))return fail(d,FZX_RS_PROJECT);
+    const unsigned rows=height/bands;
+    for(unsigned k=0;k<bands;++k){const vref_t part[4]={&p[2*k],&p[2*k+1],&p[2*k+3],&p[2*k+2]};
+        if(!piece(d,part,q,k,image,image,k*rows,rows,0,false))return false;}
+    return true;
+}
+/* A dash half as strips between the lines of equal texture row (record layout in tools/gadget_bake.py): the plate's colour depends on
+ * that row only, so across a strip there is nothing for the affine mapping to get wrong. */
+static bool decal_fine(draw_t *d,const vref_t v[4],unsigned q,const uint8_t *r){
+    sh2z_view_vertex_t p[12];
+    const unsigned strips=r[0],points=r[1],image=d->work->pack->count[FZX_RLD_IMAGES]+((unsigned)r[2]<<8|r[3]);
+    if(strips>6||points>12)return fail(d,FZX_RS_INVALID);
+    for(unsigned i=0;i<points;++i){const unsigned e=r[4+i];
+        lerp_view(&p[i],v[e],v[(e+1u)&3u],(uint32_t)r[16+2*i]<<8|r[17+2*i]);}
+    if(!sh2z_view_project_center_divu(p,&d->view,p,points))return fail(d,FZX_RS_PROJECT);
+    for(unsigned k=0;k<strips;++k){const uint8_t *s=r+40+6*k;
+        const vref_t part[4]={&p[s[0]],&p[s[1]],&p[s[2]],&p[s[3]]};
+        if(!piece(d,part,q,k,image,image,s[4],s[5],0,false))return false;}
+    return true;
+}
+/* One decal quad: culled like a road quad (outcode, winding), then its own bitmap through the road's piece builder
+ * (fog variant, shading, guard clip, VDP1 command). Corners are baked in the road's winding. */
+static bool decal_quad(draw_t *d,const sh2z_view_vertex_t *base,unsigned q){
+    fzx_road_stream_draw_work_t *w=d->work;
+    const vref_t v[4]={base,base+1,base+2,base+3};bool safe;
+    ++d->stats->decals;
+    if(classify(v,&safe)){++d->stats->culled;return true;}
+    /* The original draws these gadgets two-sided (aSetupCourseEffectTextureDL clears G_CULL_BACK) and lets its depth buffer hide them,
+     * so there is no winding test: a decal seen from its back face draws, its bitmap mapped by the corners' own texture coordinates
+     * exactly as the original's per-vertex coordinates would show it. A quad under the size floor (twice its screen area in pixels) is left out. */
+    if(safe){int32_t a=area(v,4);if(a<0)a=-a;
+        if(a<=(int32_t)FZX_ROAD_GADGET_MIN_AREA){++d->stats->culled;++d->stats->decal_small;return true;}}
+    const unsigned image=w->pack->count[FZX_RLD_IMAGES]+w->gquad[q*2u],flags=w->gquad[q*2u+1u];
+    if(flags&6u){const unsigned level=decal_level(v,safe);
+        if(level){
+            if(flags&4u)return decal_fine(d,v,q,w->gfine+(flags>>8)*76u);
+            return decal_bands(d,v,q,image,level>1u?4u:2u);}}
+    return piece(d,v,q,0,image,image,0,w->images[image].variant[0].height,0,false);
+}
+#endif
 static bool project_run(draw_t *d,run_t *r,unsigned first,unsigned last){
     fzx_road_stream_draw_work_t *w=d->work;
     const uint32_t from=w->nchunks[first].vertex_first,to=w->nchunks[last].vertex_end,used=d->stats->positions;
@@ -760,7 +895,12 @@ static bool project_run(draw_t *d,run_t *r,unsigned first,unsigned last){
     if(to<from||to-from>w->vertex_capacity-used)return fail(d,FZX_RS_GATHER);
     if(to>from&&!sh2z_view_batch_center_divu(w->projected+used,&d->view,w->npos+from,sizeof(*w->npos),to-from))
         return fail(d,FZX_RS_PROJECT);
-    d->stats->positions=used+(to-from);return true;
+    d->stats->positions=used+(to-from);
+#if FZX_ROAD_GADGETS
+    return gadget_run(d,r);
+#else
+    return true;
+#endif
 }
 static bool native_frame(draw_t *d){
     fzx_road_stream_draw_work_t *w=d->work;const RefRoadPlan *plan=d->plan;
@@ -804,6 +944,10 @@ static bool native_frame(draw_t *d){
             }
 #else
             for(unsigned i=c->quad_first,e=i+c->quad_count;i<e;++i)if(!native_quad(d,i,base))return false;
+#endif
+#if FZX_ROAD_GADGETS
+            if(r->gdone)for(unsigned q=w->gfirst[index],e=w->gfirst[index+1u];q<e;++q)
+                if(!decal_quad(d,w->projected+(r->goffset+(int32_t)q*4),q))return false;
 #endif
             if(group->direction==1){if(index==start)break;index=index?index-1:chunks-1;}
             else {index=index+1<chunks?index+1:0;if(index==end)break;}

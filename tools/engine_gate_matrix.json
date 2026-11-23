@@ -84,6 +84,85 @@
    "note": "scenes, driver; sound on",
    "sound": true
   },
+  "scenes-drv-r03": {
+   "vars": [
+    "FZX_E1_DRIVE=1",
+    "ENG_SCENES=1",
+    "E1_DRIVER=2"
+   ],
+   "kind": "scenes",
+   "note": "scenes, R03 look-ahead driver (White Land 1 retires under R01); sound on",
+   "sound": true
+  },
+  "scenes-drv-r03": {
+   "vars": [
+    "FZX_E1_DRIVE=1",
+    "ENG_SCENES=1",
+    "E1_DRIVER=2"
+   ],
+   "kind": "scenes",
+   "note": "scenes, R03 look-ahead driver (White Land 1 retires under R01); sound on",
+   "sound": true
+  },
+  "scenes-drv-ff": {
+   "vars": [
+    "FZX_E1_DRIVE=1",
+    "ENG_SCENES=1",
+    "E1_DRIVER=1",
+    "E1_DRIVER_TARGET=90.0"
+   ],
+   "kind": "scenes",
+   "note": "scenes, R01-t driver, lateral target 90 (Fire Field retires under R01); sound on",
+   "sound": true
+  },
+  "scenes-drv-rc2": {
+   "vars": [
+    "FZX_E1_DRIVE=1",
+    "ENG_SCENES=1",
+    "E1_DRIVER=1",
+    "E1_DRIVER_KL=0.008",
+    "E1_DRIVER_KH=3.5",
+    "E1_DRIVER_TARGET=-30.0"
+   ],
+   "kind": "scenes",
+   "note": "scenes, R01-t driver kl 0.008 kh 3.5 target -30 (Red Canyon 2); sound on",
+   "sound": true
+  },
+  "scenes-drv-sp": {
+   "vars": [
+    "FZX_E1_DRIVE=1",
+    "ENG_SCENES=1",
+    "E1_DRIVER=1",
+    "E1_DRIVER_KH=3.5",
+    "E1_DRIVER_TARGET=30.0"
+   ],
+   "kind": "scenes",
+   "note": "scenes, R01-t driver kh 3.5 target 30 (Space Plant); sound on",
+   "sound": true
+  },
+  "scenes-drv-pt2": {
+   "vars": [
+    "FZX_E1_DRIVE=1",
+    "ENG_SCENES=1",
+    "E1_DRIVER=1",
+    "E1_DRIVER_KH=3.5",
+    "E1_DRIVER_TARGET=-90.0"
+   ],
+   "kind": "scenes",
+   "note": "scenes, R01-t driver kh 3.5 target -90 (Port Town 2); sound on",
+   "sound": true
+  },
+  "scenes-drv-rr": {
+   "vars": [
+    "FZX_E1_DRIVE=1",
+    "ENG_SCENES=1",
+    "E1_DRIVER=1",
+    "E1_RACE_TICKS=12000"
+   ],
+   "kind": "scenes",
+   "note": "scenes, driver, race run to 12,000 ticks after the start (Rainbow Road finishes at 10,520); sound on",
+   "sound": true
+  },
   "scenes-drv-snd0": {
    "vars": [
     "FZX_E1_DRIVE=1",
@@ -149,6 +228,112 @@
   {
    "slug": "port-town-1",
    "index": 5,
+   "tubes": false
+  },
+  {
+   "slug": "sector-alpha",
+   "index": 6,
+   "tubes": false
+  },
+  {
+   "slug": "red-canyon-1",
+   "index": 7,
+   "tubes": false
+  },
+  {
+   "slug": "devils-forest-2",
+   "index": 8,
+   "tubes": false
+  },
+  {
+   "slug": "mute-city-2",
+   "index": 9,
+   "tubes": false
+  },
+  {
+   "slug": "big-blue-2",
+   "index": 10,
+   "tubes": false
+  },
+  {
+   "slug": "white-land-1",
+   "index": 11,
+   "tubes": false,
+   "image": "scenes-drv-r03",
+   "host_driver": "0.004,2.5",
+   "host_ahead": 0.1
+  },
+  {
+   "slug": "fire-field",
+   "index": 12,
+   "tubes": false,
+   "image": "scenes-drv-ff",
+   "host_driver": "0.004,2.5,0,460,90.0"
+  },
+  {
+   "slug": "silence-2",
+   "index": 13,
+   "tubes": false
+  },
+  {
+   "slug": "sector-beta",
+   "index": 14,
+   "tubes": false
+  },
+  {
+   "slug": "red-canyon-2",
+   "index": 15,
+   "tubes": false,
+   "image": "scenes-drv-rc2",
+   "host_driver": "0.008,3.5,0,460,-30.0"
+  },
+  {
+   "slug": "white-land-2",
+   "index": 16,
+   "tubes": true
+  },
+  {
+   "slug": "mute-city-3",
+   "index": 17,
+   "tubes": false,
+   "image": "scenes-drv-r03",
+   "host_driver": "0.004,2.5",
+   "host_ahead": 0.1
+  },
+  {
+   "slug": "rainbow-road",
+   "index": 18,
+   "tubes": false,
+   "image": "scenes-drv-rr",
+   "host_ticks": 12000
+  },
+  {
+   "slug": "devils-forest-3",
+   "index": 19,
+   "tubes": true
+  },
+  {
+   "slug": "space-plant",
+   "index": 20,
+   "tubes": true,
+   "image": "scenes-drv-sp",
+   "host_driver": "0.004,3.5,0,460,30.0"
+  },
+  {
+   "slug": "sand-ocean-2",
+   "index": 21,
+   "tubes": false
+  },
+  {
+   "slug": "port-town-2",
+   "index": 22,
+   "tubes": false,
+   "image": "scenes-drv-pt2",
+   "host_driver": "0.004,3.5,0,460,-90.0"
+  },
+  {
+   "slug": "big-hand",
+   "index": 23,
    "tubes": false
   }
  ],
@@ -290,27 +475,25 @@
   {
    "name": "ctl-cadence",
    "check": "cadence",
-   "how": "field image with chunk cap and balance disabled, retaining the candidate road implementation",
+   "how": "Shipping field image with one real four-VBlank stall before frame submission at recorded row 512",
    "image": "field",
    "vars": [
-    "E0_CAP_STABLE=0",
-    "E0_CHUNK_CAP=0",
-    "ENG_BAL_CLOUDS=0",
-    "ENG_BAL_EARLY=0",
-    "ENG_BAL_PREWARM=0"
+    "ENG_CADENCE_STALL_CONTROL=1"
    ],
    "kind": "race",
-   "course": "mute-city-1"
+   "course": "mute-city-1",
+   "stall_row": 512
   },
   {
    "name": "ctl-margin",
    "check": "margin",
-   "how": "field image with the balance off (ENG_BAL_CLOUDS=0 ENG_BAL_EARLY=0 ENG_BAL_PREWARM=0)",
+   "how": "field image with the balance off and the physics look-ahead off (ENG_BAL_CLOUDS=0 ENG_BAL_EARLY=0 ENG_BAL_PREWARM=0 ENG_PHYS_AHEAD=0)",
    "image": "field",
    "vars": [
     "ENG_BAL_CLOUDS=0",
     "ENG_BAL_EARLY=0",
-    "ENG_BAL_PREWARM=0"
+    "ENG_BAL_PREWARM=0",
+    "ENG_PHYS_AHEAD=0"
    ],
    "kind": "race",
    "course": "mute-city-1"
@@ -490,32 +673,92 @@
   },
   {
    "receipt": "generated/road_prep/road_prep.receipt",
-   "cmd": "python3 tools/road_prep.py --sh2zam ../lib-{engine_pin} --bake generated/road_bake --output generated/road_prep",
+   "cmd": "sh {view_regen} .",
+   "rom": false
+  },
+  {
+   "receipt": "generated/engine_path/engine_path.receipt",
+   "cmd": "sh {view_regen} .",
+   "rom": false
+  },
+  {
+   "receipt": "generated/engine_path_ranges/engine_path_ranges.receipt",
+   "cmd": "sh {view_regen} .",
    "rom": false
   },
   {
    "receipt": "generated/courses/silence-1/road_prep/road_prep.receipt",
-   "cmd": "python3 tools/road_prep.py --sh2zam ../lib-{engine_pin} --bake generated/courses/silence-1/road_bake --output generated/courses/silence-1/road_prep --texture-limit 240000",
+   "cmd": "sh {view_regen} silence-1",
+   "rom": false
+  },
+  {
+   "receipt": "generated/courses/silence-1/engine_path/engine_path.receipt",
+   "cmd": "sh {view_regen} silence-1",
+   "rom": false
+  },
+  {
+   "receipt": "generated/courses/silence-1/engine_path_ranges/engine_path_ranges.receipt",
+   "cmd": "sh {view_regen} silence-1",
    "rom": false
   },
   {
    "receipt": "generated/courses/sand-ocean-1/road_prep/road_prep.receipt",
-   "cmd": "python3 tools/road_prep.py --sh2zam ../lib-{engine_pin} --bake generated/courses/sand-ocean-1/road_bake --output generated/courses/sand-ocean-1/road_prep --texture-limit 240000",
+   "cmd": "sh {view_regen} sand-ocean-1",
+   "rom": false
+  },
+  {
+   "receipt": "generated/courses/sand-ocean-1/engine_path/engine_path.receipt",
+   "cmd": "sh {view_regen} sand-ocean-1",
+   "rom": false
+  },
+  {
+   "receipt": "generated/courses/sand-ocean-1/engine_path_ranges/engine_path_ranges.receipt",
+   "cmd": "sh {view_regen} sand-ocean-1",
    "rom": false
   },
   {
    "receipt": "generated/courses/devils-forest-1/road_prep/road_prep.receipt",
-   "cmd": "python3 tools/road_prep.py --sh2zam ../lib-{engine_pin} --bake generated/courses/devils-forest-1/road_bake --output generated/courses/devils-forest-1/road_prep --texture-limit 240000",
+   "cmd": "sh {view_regen} devils-forest-1",
+   "rom": false
+  },
+  {
+   "receipt": "generated/courses/devils-forest-1/engine_path/engine_path.receipt",
+   "cmd": "sh {view_regen} devils-forest-1",
+   "rom": false
+  },
+  {
+   "receipt": "generated/courses/devils-forest-1/engine_path_ranges/engine_path_ranges.receipt",
+   "cmd": "sh {view_regen} devils-forest-1",
    "rom": false
   },
   {
    "receipt": "generated/courses/big-blue-1/road_prep/road_prep.receipt",
-   "cmd": "python3 tools/road_prep.py --sh2zam ../lib-{engine_pin} --bake generated/courses/big-blue-1/road_bake --output generated/courses/big-blue-1/road_prep --texture-limit 240000",
+   "cmd": "sh {view_regen} big-blue-1",
+   "rom": false
+  },
+  {
+   "receipt": "generated/courses/big-blue-1/engine_path/engine_path.receipt",
+   "cmd": "sh {view_regen} big-blue-1",
+   "rom": false
+  },
+  {
+   "receipt": "generated/courses/big-blue-1/engine_path_ranges/engine_path_ranges.receipt",
+   "cmd": "sh {view_regen} big-blue-1",
    "rom": false
   },
   {
    "receipt": "generated/courses/port-town-1/road_prep/road_prep.receipt",
-   "cmd": "python3 tools/road_prep.py --sh2zam ../lib-{engine_pin} --bake generated/courses/port-town-1/road_bake --output generated/courses/port-town-1/road_prep --texture-limit 240000",
+   "cmd": "sh {view_regen} port-town-1",
+   "rom": false
+  },
+  {
+   "receipt": "generated/courses/port-town-1/engine_path/engine_path.receipt",
+   "cmd": "sh {view_regen} port-town-1",
+   "rom": false
+  },
+  {
+   "receipt": "generated/courses/port-town-1/engine_path_ranges/engine_path_ranges.receipt",
+   "cmd": "sh {view_regen} port-town-1",
    "rom": false
   }
  ],

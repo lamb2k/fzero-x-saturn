@@ -99,7 +99,10 @@ volatile uint32_t fzx_e0_rsp_counts[FZX_RSPC_COUNTERS];
 /* and one record per frame row (diagnostic builds only, in the free high work
  * RAM): the 16 phase times (slave timer units, saturated), the 19 counters,
  * then quads, chunks, positions, culled, clipped, tiers 0..3 and commands. */
-enum { E0_PROW_ROWS = 4608u, E0_PROW_WORDS = 45u };
+#ifndef E0_PROW_ROWS
+#define E0_PROW_ROWS 4608u /* E4_PROW_ROWS (Makefile): fewer rows for a diagnostic image that has to fit the phase table beside a big course */
+#endif
+enum { E0_PROW_WORDS = 45u };
 uint16_t fzx_e0_prow[E0_PROW_ROWS][E0_PROW_WORDS];
 static void prow_fill(uint32_t index) {
     if (index >= E0_PROW_ROWS) return;
@@ -117,6 +120,13 @@ static void prow_fill(uint32_t index) {
     x[9] = (uint16_t)st->commands;
 }
 _Static_assert(FZX_RSP_PHASES + FZX_RSPC_COUNTERS + 10u == E0_PROW_WORDS, "per-frame record layout");
+#endif
+#ifndef E0_ROAD_HASH
+#define E0_ROAD_HASH 0
+#endif
+#if E0_ROAD_HASH
+uint32_t fzx_e0_rhash[4608u];
+static void *hash_shades; /* the Gouraud words of the job in flight */
 #endif
 #ifndef FZX_VDP1_DBANK
 #define FZX_VDP1_DBANK 0
@@ -273,7 +283,12 @@ static volatile uint32_t pending_row; /* index + 1 of the frame VDP1 is drawing 
 
 /* VDP1's end-of-draw interrupt: stamp the free-running timer, then run Yaul's
  * own handler with the interrupt frame untouched (the jump reads r0 before
- * its delay slot restores it). */
+ * its delay slot restores it).
+ * The timer is read as two bytes (Yaul's cpu_frt_count_get reads FRCH, then FRCL). A byte read of FRCH loads the
+ * low byte into the chip's one TEMP register and FRCL returns TEMP, so this handler, running between the two reads
+ * of the code it interrupts, would hand that code its own low byte (a 16-bit timestamp wrong by up to +-255 ticks, a
+ * frame-row interval of about 65,500 ticks: one false 93 ms frame in a Sand Ocean race). The handler therefore saves
+ * TEMP (an FRCL read does not change it) and loads it back with a write to FRCH. */
 volatile uint32_t fzx_e0_draw_end_frt __attribute__((used));
 void (*volatile fzx_e0_draw_end_next)(void) __attribute__((used));
 void fzx_e0_draw_end(void);
@@ -285,17 +300,22 @@ __asm__(
     "    mov.l r0,@-r15\n"
     "    mov.l r1,@-r15\n"
     "    mov.l r2,@-r15\n"
+    "    mov.l r3,@-r15\n"
     "    mov.l 1f,r1\n"
+    "    mov.b @(1,r1),r0\n"       /* FRCL returns TEMP: the low byte an interrupted FRCH read left pending */
+    "    extu.b r0,r3\n"
     "    mov.b @r1,r0\n"
     "    extu.b r0,r2\n"
     "    shll8 r2\n"
     "    mov.b @(1,r1),r0\n"
     "    extu.b r0,r0\n"
     "    or r2,r0\n"
+    "    mov.b r3,@r1\n"           /* a write to FRCH only loads TEMP: hand the interrupted reader its low byte back */
     "    mov.l 2f,r1\n"
     "    mov.l r0,@r1\n"
     "    mov.l 3f,r0\n"
     "    mov.l @r0,r0\n"
+    "    mov.l @r15+,r3\n"
     "    mov.l @r15+,r2\n"
     "    mov.l @r15+,r1\n"
     "    jmp @r0\n"
@@ -670,20 +690,95 @@ static volatile uint32_t stage_ready;
 #define BAL_BARRIER() __asm__ volatile("" ::: "memory")
 /* Linked uncached (libyaul .uncached): both CPUs read memory. frame and input are the
  * master's; done, ok, count, ticks and spun the slave's. */
+#if ENG_BAL_SPLIT == 3 && !(E1_FIELD && E2_EARLY)
+#error ENG_BAL_SPLIT=3 needs the field with E2_EARLY (the master takes the second half as the other CPU)
+#endif
+#if ENG_BAL_SPLIT == 2 && ENG_BAL_FORCE == 1
+#error ENG_BAL_SPLIT=2 with ENG_BAL_FORCE=1: nobody would run the second half
+#endif
+#if ENG_BAL_SPLIT
+/* adone: the master's setup of the split job is published (the frame); bdone, bticks: the slave's part B. */
+typedef struct { uint32_t frame, input, done, ok, count, ticks, spun, adone, bdone, bticks; } bal_t;
+#else
 typedef struct { uint32_t frame, input, done, ok, count, ticks, spun; } bal_t;
+#endif
 static volatile bal_t bal __uncached;
 #if ENG_BAL_CLOUDS == 2
 #include "sh2zam/dual_claim_experimental.h"
 static sh2z_claim_t bal_claim __uncached; /* tag: the frame number (from 1) */
+#if ENG_BAL_SPLIT
+static sh2z_claim_t bal_claim2 __uncached; /* the second half of the clouds, same tag */
+#endif
 #endif
 /* [0] frames, [1] clouds on the slave, [2] on the master, [3] master claims that waited for
  * the slave's decision, [4] slave cloud ticks max (master FRT units), [5] slave cloud ticks
  * sum, [6] chain hash (ENG_BAL_HASH), [7] slave input waits that spun. */
 volatile uint32_t fzx_bal_report[8];
+#if ENG_BAL_SPLIT
+/* ENG_BAL_SPLIT: [0] second halves run by the slave, [1] by the master, [2] master claims of the second half that
+ * waited for the slave's decision, [3] slave waits for the setup that spun, [4] slave part-B ticks sum (master FRT
+ * units), [5] max, [6] slave claims of the second half lost to the master, [7] frames with a split job, [8] master
+ * setup ticks sum, [9] master first-half ticks sum, [10] master second-half ticks sum (when it ran it), [11] frames
+ * the master ran the setup and the first half (the divisor of [8] and [9]), [12] frames the slave held the job
+ * (it claimed the whole first), [13] of those, second halves the master took (it arrived while the slave was still at
+ * its first half), [14] times the master waited for the slave's setup, [15] second halves the slave ran in its own
+ * job. Ticks are master FRT units (field_frt per field). */
+volatile uint32_t fzx_bal_split[16];
+#endif
 /* Per frame row: slave cloud ticks in master FRT units, bit 15 set when the slave ran them. */
 enum { BAL_ROWS = 6144u };
 uint16_t fzx_bal_rows[BAL_ROWS];
 static uint32_t bal_row = BAL_ROWS, bal_ratio;
+
+#if ENG_BAL_SPLIT
+/* The second half of the fade bands is claimed by whichever SH-2 gets to it first once the setup is out (the
+ * try-claim bal_claim2; the master wins a tie). ENG_BAL_SPLIT=1 that; =2 (control) the slave always runs it; =3
+ * (control) the master always does. The job's holder (the CPU that won bal_claim) runs the setup and the first half
+ * and then claims the second half; the other CPU, when it has nothing else to do, waits for the setup and claims it. */
+/* Slave as the other CPU (the master holds the job): wait for its setup, then the second half if it is ours. */
+static void bal_slave_half(uint32_t f) {
+#if ENG_BAL_SPLIT != 3
+    if (bal.adone != f) { ++fzx_bal_split[3]; while (bal.adone != f) {} }
+#if ENG_BAL_SPLIT == 1
+    if (!sh2z_claim_b(&bal_claim2, f)) { ++fzx_bal_split[6]; return; }
+#endif
+    cpu_cache_purge(); /* the setup's record, the view, the backdrop and the sky lines */
+    BAL_BARRIER();
+    const uint16_t t0 = cpu_frt_count_get();
+    fzx_clouds_split_b(&fzx_native_view, &fzx_source_backdrop);
+    bal.bticks = (uint16_t)(cpu_frt_count_get() - t0);
+    BAL_BARRIER(); /* the stage is stored before done */
+    bal.bdone = f;
+#else
+    (void)f;
+#endif
+}
+/* Slave as the holder: the whole job in its three parts, the second half when it claims (or is given) it. */
+static void bal_slave_own(uint32_t f) {
+    if (bal.input != f) { bal.spun = f; while (bal.input != f) {} }
+    cpu_cache_purge(); /* the backdrop, sky lines and bank the master wrote after the kick */
+    BAL_BARRIER();
+    const uint16_t t0 = cpu_frt_count_get();
+    bool ok = fzx_clouds_split_setup(&commands_buf[CMD_FIRST], FZX_SLAVE_ROAD_RESERVE - 1u, &fzx_native_view, &fzx_source_backdrop);
+    BAL_BARRIER();
+    bal.ok = ok ? 1u : 0u;
+    bal.adone = f; /* the setup is out (also when it failed: the master stops on bal.ok) */
+    if (ok) ok = fzx_clouds_split_half0(&fzx_native_view, &fzx_source_backdrop);
+    const uint32_t n = fzx_clouds_split_count();
+#if ENG_BAL_SPLIT != 3
+#if ENG_BAL_SPLIT == 1
+    const bool run_b = ok && sh2z_claim_b(&bal_claim2, f);
+#else
+    const bool run_b = ok;
+#endif
+    if (run_b) { fzx_clouds_split_b(&fzx_native_view, &fzx_source_backdrop); bal.bdone = f; ++fzx_bal_split[15]; }
+#endif
+    const uint16_t t = (uint16_t)(cpu_frt_count_get() - t0);
+    bal.count = n; bal.ok = ok ? 1u : 0u; bal.ticks = t;
+    BAL_BARRIER(); /* the commands and the stage are stored before done */
+    bal.done = f;
+}
+#endif
 
 /* Slave, after the track and the fills. */
 static void bal_slave(void) {
@@ -692,8 +787,16 @@ static void bal_slave(void) {
     sh2z_claim_b_decline(&bal_claim, f);
     return;
 #elif ENG_BAL_CLOUDS == 2 && ENG_BAL_FORCE == 0
-    if (!sh2z_claim_b(&bal_claim, f)) return; /* the master claimed first */
+    if (!sh2z_claim_b(&bal_claim, f)) { /* the master claimed first */
+#if ENG_BAL_SPLIT
+        bal_slave_half(f);
 #endif
+        return;
+    }
+#endif
+#if ENG_BAL_SPLIT
+    bal_slave_own(f);
+#else
     if (bal.input != f) { bal.spun = f; while (bal.input != f) {} }
     cpu_cache_purge(); /* the backdrop, sky lines and bank the master wrote after the kick */
     BAL_BARRIER();
@@ -705,6 +808,7 @@ static void bal_slave(void) {
     bal.count = n; bal.ok = ok ? 1u : 0u; bal.ticks = t;
     BAL_BARRIER(); /* the commands and the stage are stored before done */
     bal.done = f;
+#endif
 }
 
 /* Master, at its clouds: true when it prepares them itself. */
@@ -853,10 +957,17 @@ static void before_master(void) {
 #ifndef E0_QUEUE_STRESS
 #define E0_QUEUE_STRESS 0
 #endif
+#if ENG_PICK_AHEAD
+static void kick(const fzx_engine_cam_t *cam, uint32_t tick, bool pre) {
+#else
 static void kick(const fzx_engine_cam_t *cam, uint32_t tick) {
+#endif
     vdp1_cmdt_t *const commands = commands_buf;
     const fzx_engine_consts_t *k = &path.consts;
     fzx_engine_view(&fzx_native_view, cam, k);
+#if ENG_PICK_AHEAD
+    fzx_slave_road_pick_wait(); /* an early pick still reads job_cam, job_tick and job_outer */
+#endif
     job_cam = cam; job_tick = tick;
 #if FZX_PHYS_TUBES
     job_outer = fzx_drive_outer();
@@ -868,10 +979,16 @@ static void kick(const fzx_engine_cam_t *cam, uint32_t tick) {
     job.capacity = SCENE_CAPACITY - FZX_SLAVE_ROAD_RESERVE;
     job.view = &fzx_native_view; job.plan = &fzx_source_road_plan;
     job.pixels = road_pixels;
+#if ENG_PICK_AHEAD
+    job.pre = pre ? 1u : 0u; /* the road job uses the early pick's plan (or undoes it and picks again) */
+#endif
 #if FZX_VDP1_DBANK
     job.shades = road_shades[sh2z_vdp1_banks_bank(&fzx_dbank_banks)];
 #else
     job.shades = road_shades[0];
+#endif
+#if E0_ROAD_HASH
+    hash_shades = job.shades;
 #endif
 #if ENG_BAL_CLOUDS
     bal.frame = bal.frame + 1u; /* before the job: the slave reads it after its track */
@@ -1001,8 +1118,60 @@ static void build(row_t *row, const fzx_engine_cam_t *cam, uint32_t tick, uint16
     PROF(4, pt);
     staged += n;
     const bool bal_mine = bal_master_claims(bf);
+#if ENG_BAL_SPLIT
+    bool bal_b_mine = false; /* the second half is the master's (it ran it) */
+    if (bal_mine) {
+        /* Setup and the first half here; the second half goes to whichever SH-2 claims it (the slave, once its
+         * track and fills are done and the setup is out, or this one when it gets there first). */
+        ++fzx_bal_split[7];
+        const uint16_t sp0 = cpu_frt_count_get();
+        if (!fzx_clouds_split_setup(&commands[CMD_FIRST], FZX_SLAVE_ROAD_RESERVE - 1u, &fzx_native_view, &fzx_source_backdrop))
+            fail(23, "CLOUDS", fzx_clouds_rbg.fault);
+        BAL_BARRIER(); /* the setup's record is stored before it is announced */
+        bal.adone = bf;
+        const uint16_t sp1 = cpu_frt_count_get();
+        if (!fzx_clouds_split_half0(&fzx_native_view, &fzx_source_backdrop))
+            fail(23, "CLOUDS", fzx_clouds_rbg.fault);
+        first = fzx_clouds_split_count();
+        const uint16_t sp2 = cpu_frt_count_get();
+        fzx_bal_split[8] += (uint16_t)(sp1 - sp0); fzx_bal_split[9] += (uint16_t)(sp2 - sp1); ++fzx_bal_split[11];
+#if ENG_BAL_SPLIT == 1
+        if (bal_claim2.want_b == bf) ++fzx_bal_split[2];
+        bal_b_mine = sh2z_claim_a(&bal_claim2, bf);
+#elif ENG_BAL_SPLIT == 3
+        bal_b_mine = true; /* control: the master always */
+#endif
+        if (bal_b_mine) {
+            fzx_clouds_split_b(&fzx_native_view, &fzx_source_backdrop);
+            fzx_bal_split[10] += (uint16_t)(cpu_frt_count_get() - sp2);
+            ++fzx_bal_split[1];
+        }
+    }
+#if E1_FIELD && E2_EARLY && ENG_BAL_SPLIT != 2
+    else {
+        /* The slave holds the job and the master has nothing left before the track wait: it takes the second half
+         * of the fade bands, once the slave's setup is out, unless the slave claims it first. */
+        const uint16_t th0 = cpu_frt_count_get();
+        if (bal.adone != bf) { ++fzx_bal_split[14]; while (bal.adone != bf) {} }
+        if (bal.ok) {
+#if ENG_BAL_SPLIT == 1
+            if (bal_claim2.want_b == bf) ++fzx_bal_split[2];
+            bal_b_mine = sh2z_claim_a(&bal_claim2, bf);
+#else
+            bal_b_mine = true;
+#endif
+        }
+        if (bal_b_mine) {
+            fzx_clouds_split_b(&fzx_native_view, &fzx_source_backdrop);
+            fzx_bal_split[10] += (uint16_t)(cpu_frt_count_get() - th0);
+            ++fzx_bal_split[1]; ++fzx_bal_split[13];
+        }
+    }
+#endif
+#else
     if (bal_mine && !fzx_clouds_prepare(&commands[CMD_FIRST], FZX_SLAVE_ROAD_RESERVE - 1u, &fzx_native_view, &fzx_source_backdrop, &first))
         fail(23, "CLOUDS", fzx_clouds_rbg.fault);
+#endif
     PROF(2, pt);
     const uint16_t bal_pre = (uint16_t)(cpu_frt_count_get() - t0);
 #else
@@ -1101,6 +1270,17 @@ static void build(row_t *row, const fzx_engine_cam_t *cam, uint32_t tick, uint16
         fail(27, "TRACK", fzx_road_stream_stats.fault * 100u + fzx_slave_road_status);
 #endif
     row->wait_road_ticks = (uint16_t)(cpu_frt_count_get() - t1);
+#if E0_ROAD_HASH
+    /* Verification builds only: FNV over this frame's road commands (the user clip first) and Gouraud words, per frame row. */
+    if (row >= rows && (uint32_t)(row - rows) < row_capacity && (uint32_t)(row - rows) < 4608u) {
+        const volatile uint32_t *cw = (const volatile uint32_t *)((uintptr_t)&commands[CMD_FIRST + FZX_SLAVE_ROAD_RESERVE] | CPU_CACHE_THROUGH);
+        uint32_t h = 2166136261u ^ road_count;
+        for (uint32_t i = 0; i < road_count * (uint32_t)(sizeof(vdp1_cmdt_t) / 4u); ++i) h = (h ^ cw[i]) * 16777619u;
+        const volatile uint32_t *sw = (const volatile uint32_t *)((uintptr_t)hash_shades | CPU_CACHE_THROUGH);
+        for (uint32_t i = 0; i < (road_count ? road_count - 1u : 0u) * 2u; ++i) h = (h ^ sw[i]) * 16777619u;
+        fzx_e0_rhash[row - rows] = h;
+    }
+#endif
 #if ENG_BAL_CLOUDS
     {
         /* The slave's job (track, fills, then its clouds) is done: the clouds' count, then the
@@ -1119,7 +1299,39 @@ static void build(row_t *row, const fzx_engine_cam_t *cam, uint32_t tick, uint16
             ++fzx_bal_report[1]; fzx_bal_report[5] += t;
             if (t > fzx_bal_report[4]) fzx_bal_report[4] = t;
             if (bal.spun == bf) ++fzx_bal_report[7];
-        } else ++fzx_bal_report[2];
+#if ENG_BAL_SPLIT
+            ++fzx_bal_split[12];
+            /* The second half: the slave ran it in its job (bal.bdone) or the master did, as the thief. */
+            if (!bal_b_mine && bal.bdone != bf) fail(46, "BAL CLOUDS B", bal.bdone);
+            BAL_BARRIER();
+            fzx_clouds_split_purge_remote();
+            {
+                uint32_t whole = 0;
+                if (!fzx_clouds_split_finish(&whole)) fail(23, "CLOUDS", fzx_plane_stats.fault);
+                first = whole;
+            }
+#endif
+        } else {
+            ++fzx_bal_report[2];
+#if ENG_BAL_SPLIT
+            if (!bal_b_mine) {
+                /* The slave ran the second half (its job, including this, is finished: the track wait above). */
+                if (bal.bdone != bf) fail(46, "BAL CLOUDS B", bal.bdone);
+                BAL_BARRIER();
+                fzx_clouds_split_purge_remote();
+                if (!bal_ratio) { const uint8_t cks = *(volatile uint8_t *)0xfffffe92u & 3u; bal_ratio = cks == 0 ? 16u : cks == 1 ? 4u : 1u; }
+                const uint32_t t = bal.bticks * bal_ratio;
+                slave_clouds = (uint16_t)(0x8000u | (t > 0x7fffu ? 0x7fffu : t));
+                ++fzx_bal_split[0]; fzx_bal_split[4] += t;
+                if (t > fzx_bal_split[5]) fzx_bal_split[5] = t;
+            }
+            {
+                uint32_t whole = 0;
+                if (!fzx_clouds_split_finish(&whole)) fail(23, "CLOUDS", fzx_plane_stats.fault);
+                first = whole;
+            }
+#endif
+        }
         ++fzx_bal_report[0];
         if (bal_row < BAL_ROWS) fzx_bal_rows[bal_row] = slave_clouds;
         if (first + staged >= FZX_SLAVE_ROAD_RESERVE) fail(26, "PRELUDE OVERFLOW", first + staged);
@@ -1134,7 +1346,7 @@ static void build(row_t *row, const fzx_engine_cam_t *cam, uint32_t tick, uint16
                                                           (const volatile void *)((uintptr_t)&commands[CMD_FIRST] | CPU_CACHE_THROUGH), (first + 1u) * sizeof(vdp1_cmdt_t)));
 #endif
         fzx_clouds_commit();
-        row->master_ticks = (uint16_t)(bal_pre + (uint16_t)(cpu_frt_count_get() - b0));
+        row->master_ticks = (uint16_t)(bal_pre + (uint16_t)(cpu_frt_count_get() - b0)); /* bal_pre covers the thief's ticks */
     }
 #endif
 #if FZX_ROAD_STREAM_PHASES
@@ -1365,6 +1577,9 @@ void fzx_race_load(void) {
     if (offset + CSEL(lod_tex_bytes,FZX_ROAD_LOD_TEXTURE_BYTES) + FZX_ROAD_STREAM_SHADE_BYTES > partitions.texture_size || !fzx_road_stream_load(road_pixels))
         fail(35, "TRACK LOAD", fzx_road_stream_status);
     offset += CSEL(lod_tex_bytes,FZX_ROAD_LOD_TEXTURE_BYTES) + FZX_ROAD_STREAM_SHADE_BYTES;
+#if FZX_ROAD_GADGETS
+    offset += fzx_road_gadget_extent;   /* the course's decal bitmaps, behind the shade tables */
+#endif
 #if FZX_ROAD_STREAM_CLUT_ALIGN
     {
         /* The track's lookup tables at 32-byte VDP1 addresses (VDP1 ignores CMDCOLR's two low bits). */
@@ -1576,7 +1791,11 @@ bool fzx_race_frame(void) {
         tick = fzx_drive_tick() ? fzx_drive_tick() : 1u;
         if (fzx_e1_driver && fzx_e1_report[5]) { fzx_e0_done = 1; fzx_e0_status = 2; }
         const uint32_t shown = tick;
+#if ENG_PICK_AHEAD
+        const bool pre_pick = fzx_drive_camera_ahead(&drive_cam, lens);
+#else
         fzx_drive_camera(&drive_cam, lens);
+#endif
         const fzx_engine_cam_t *const cam = &drive_cam;
 #else
         tick += advance;
@@ -1617,7 +1836,11 @@ bool fzx_race_frame(void) {
 #endif
         const uint16_t kicked = cpu_frt_count_get();
 #if FZX_E1_DRIVE
+#if ENG_PICK_AHEAD
+        kick(cam, shown, pre_pick);
+#else
         kick(cam, shown);
+#endif
 #if ENG_BAL_EARLY
         {   /* The rival field on this frame's player ticks, now that the slave has its track. */
             const uint16_t r0 = cpu_frt_count_get();
@@ -1631,8 +1854,19 @@ bool fzx_race_frame(void) {
 #if E2_EARLY
         early_stage(cam);
 #endif
+#if ENG_PACE == 4 && !ENG_PACE_HUD_LEAD
+        {   /* The HUD text is formatted here, in the time the slave's track may hold the master up; counted in phys_ticks. */
+            const uint16_t h1 = cpu_frt_count_get();
+            fzx_drive_hud_prepare();
+            row->phys_ticks = (uint16_t)(row->phys_ticks + (uint16_t)(cpu_frt_count_get() - h1));
+        }
+#endif
+#else
+#if ENG_PICK_AHEAD
+        kick(&path.cams[shown - 1u], shown, false);
 #else
         kick(&path.cams[shown - 1u], shown);
+#endif
 #endif
         const uint16_t w1 = cpu_frt_count_get();
         before_master();
@@ -1656,6 +1890,32 @@ bool fzx_race_frame(void) {
         build(row, cam, shown, kicked);
 #else
         build(row, &path.cams[shown - 1u], shown, kicked);
+#endif
+#if ENG_PHYS_AHEAD && FZX_E1_DRIVE
+        /* The next frame's physics, in the time this frame would wait for VDP1 (the previous frame is still being drawn):
+         * the step at the top of the loop takes the result (engine_drive.c). Nothing reads the player's state through it. */
+        if (!fzx_e0_done && vdp1_sync_busy()) {
+            const uint16_t a0 = cpu_frt_count_get();
+            fzx_drive_ahead_prepare(2u);
+#if ENG_PICK_AHEAD
+            {   /* The slave picks the predicted frame's track now, while it and the master wait for the present. */
+                const fzx_engine_cam_t *pc; uint32_t pt, po;
+                if (fzx_drive_ahead_view(lens, &pc, &pt, &po)) {
+                    job_cam = pc; job_tick = pt;
+#if FZX_PHYS_TUBES
+                    job_outer = (uint8_t)po;
+#else
+                    (void)po;
+#endif
+                    fzx_slave_road_pick_start();
+                    ++fzx_e1_ahead[7];
+                }
+            }
+#endif
+            const uint16_t at = (uint16_t)(cpu_frt_count_get() - a0);
+            fzx_e1_ahead[4] += at;
+            if (at > fzx_e1_ahead[5]) fzx_e1_ahead[5] = at;
+        } else ++fzx_e1_ahead[6];
 #endif
 #if FZX_VDP1_DBANK
         {
@@ -1740,6 +2000,14 @@ bool fzx_race_frame(void) {
             volatile row_t *const last = &rows[row_index - 2u];
             while (!last->present_field) {}
             if (video_fields < last->present_field + 2u) { ++fzx_pace_holds; while (video_fields < last->present_field + 2u) {} }
+        }
+#endif
+#if ENG_CADENCE_STALL_CONTROL
+        /* Let the real display clock advance before submitting this one list.
+         * The present path and its timestamp collection run unchanged. */
+        if (row != &scratch_row && row_index == 512u) {
+            const uint32_t start = video_fields;
+            while ((uint32_t)(video_fields - start) < 4u) { }
         }
 #endif
         row->submit_frt = cpu_frt_count_get();

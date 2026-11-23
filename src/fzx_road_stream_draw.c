@@ -1116,7 +1116,7 @@ bool fzx_road_stream_draw_guarded(fzx_road_stream_draw_work_t *w,const sh2z_view
 
 #if FZX_ROAD_STREAM_SPLIT
 #ifndef FZX_ROAD_STREAM_STEAL_GAP
-#define FZX_ROAD_STREAM_STEAL_GAP 2
+#define FZX_ROAD_STREAM_STEAL_GAP 1
 #endif
 bool fzx_road_stream_steal(const fzx_road_stream_draw_work_t *cw,const sh2z_view_center_t *view,const RefRoadPlan *plan,
     const fzx_road_stream_emit_t *emit,unsigned flags,uint32_t tag,fzx_road_thief_t *t){

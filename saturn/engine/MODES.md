@@ -105,8 +105,11 @@ right); Master is skipped until it is open.
   `gap_reach_ticks 19`, `fall_ticks 127`, set in `engine_field.c` for the mode. The Death rows are in every class of the course row and in `PR54.BIN`.
 - **No distance LOD** in the mode: with it five of the 29 ran past the first air run and retired on lap 2 (EMULATOR, tick 1400, HOST 834).
 - **Open: retirement timing.** On the scenes image the 29 rivals do retire by the fall and the win is the 29th retirement, one records commit, cadence
-  30 fps with 0 intervals over two, master stack 25 KB unused (EMULATOR, MODELLED timing). But the retirement ticks are about 355 ticks after
-  the reference's (rival 5: HOST 737, engine 1100 in HOST ticks; the SH2ZAM line field run in the HOST harness with the same rows, pack, length and
-  seed lands within -11..+16 ticks of the reference). The same with an idle player (no driver), so it is not the player; laps 3 against 99 and the
-  LOD made no difference to the timing. The rivals fall at the second air run (about 18,000 units) where the HOST harness falls at the first
-  (about 8,000). Not yet found: compare agent positions at tick 300 between the engine and the harness.
+  30 fps with 0 intervals over two, master stack 25 KB unused (EMULATOR, MODELLED timing). But the retirement ticks differ from the reference's:
+  counted from the race start (the field's `retire_tick`) the engine retires at 680..764 and the reference at 317..414 (reference tick minus its
+  race start 420), constant offset about 355 +- 20. The SH2ZAM line field run in the HOST harness with the same rows, pack, length and seed lands
+  within -11..+16 ticks of the reference (that is the qualification, which is only about the harness). The same with an idle player (no
+  driver), and with 3 laps instead of 99 or with the LOD back on (then five rivals also run past the first air run): so not the player, the lap
+  count or the LOD. The engine rivals fall at about 18,000 units where the harness falls at about 8,000, which reads as a start gating difference
+  (a constant delay) rather than a pace difference. Not found yet: dump agent positions at field tick 300 from the engine and from the harness
+  and compare; the gate row `death-natural` fails on this until it is closed (the check adds the 420 the reference's ticks carry).

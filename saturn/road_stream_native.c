@@ -440,7 +440,7 @@ void fzx_road_stream_split_arm(uint32_t tag){
 void fzx_road_stream_steal_run(const fzx_view_t *view,const int32_t eye[3],const RefRoadPlan *plan,void *pixels,void *shades,
     vdp1_cmdt_t *commands,unsigned capacity,bool (*slave_done)(void)){
     const uint32_t tag=split_rec.tag;
-    thief.first=REF_ROAD_GROUPS;thief.ngroups=0;thief.commands=0;thief.chunks=0;thief.fault=0;
+    thief.first=FZX_ROAD_SPLIT_UNITS;thief.ngroups=0;thief.commands=0;thief.chunks=0;thief.fault=0;
     if(!work||!thief.hot||!tag)return;
     ++fzx_road_steal_report[0];
     const uint16_t t0=cpu_frt_count_get();
@@ -469,7 +469,7 @@ bool fzx_road_stream_steal_merge_job(const RefRoadPlan *plan,vdp1_cmdt_t *comman
     if(!count||!*count)return false;
     /* The slave's stats are purged by its finish; the plan by the steal. */
     uint32_t added=0;
-    const bool ok=fzx_road_stream_steal_merge(&thief,plan,fzx_road_stream_stats.chunks,*count-1u,
+    const bool ok=fzx_road_stream_steal_merge(&thief,&split_rec,plan,fzx_road_stream_stats.chunks,*count-1u,
         FZX_ROAD_STREAM_BUDGET_COMMANDS-1u,(fzx_road_stream_vdp1_t *)(void *)(commands+1),(uint16_t *)shades,thief.shade_offset,&added);
     if(ok)*count+=added;else ++fzx_road_steal_report[4];
     fzx_road_steal_report[6]+=(uint16_t)(cpu_frt_count_get()-t0);

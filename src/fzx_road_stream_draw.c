@@ -871,22 +871,69 @@ static bool native_group(draw_t *d,unsigned g){
     }
     return true;
 }
+#if FZX_ROAD_STREAM_SPLIT
+/* The claim units of a plan: each group's chunk visits in slices of at most FZX_ROAD_SPLIT_UNIT_CHUNKS, never across the
+ * course's wrap (so a unit's chunks are consecutive indices and one projection batch covers them). False: too many. */
+static bool units_build(fzx_road_split_t *s,const RefRoadPlan *plan,unsigned chunks){
+    unsigned u=0;
+    for(unsigned g=0;g<plan->count;++g){const RefRoadGroup *group=plan->groups+g;
+        const unsigned start=(unsigned)group->start,end=(unsigned)group->end;
+        if(start>=chunks||end>=chunks||(group->direction!=1&&group->direction!=-1))return false;
+        const unsigned length=start<end?end-start:chunks-start+end;
+        unsigned k=0;
+        while(k<length){
+            const unsigned idx=group->direction==1?(unsigned)(((int)(end?end-1:chunks-1)-(int)k+(int)chunks)%(int)chunks):(start+k)%chunks;
+            unsigned n=1;
+            while(n<FZX_ROAD_SPLIT_UNIT_CHUNKS&&k+n<length){
+                const unsigned nx=group->direction==1?(idx+chunks-n)%chunks:(idx+n)%chunks; /* the next visit */
+                if(group->direction==1?(nx>idx):(nx<idx))break; /* crossed the wrap */
+                ++n;}
+            if(u>=FZX_ROAD_SPLIT_UNITS)return false;
+            s->ugroup[u]=(uint8_t)g;s->ufirst[u]=(uint8_t)k;s->ucount[u]=(uint8_t)n;++u;k+=n;
+        }
+    }
+    s->units=u;return true;
+}
+/* One unit: its chunks projected in one batch, then visited in the plan's order (the group's direction). */
+static bool native_unit(draw_t *d,const fzx_road_split_t *s,unsigned u){
+    fzx_road_stream_draw_work_t *w=d->work;
+    const RefRoadGroup *group=d->plan->groups+s->ugroup[u];
+    const unsigned chunks=w->pack->count[FZX_RLD_CHUNKS],start=(unsigned)group->start,end=(unsigned)group->end;
+    const unsigned k0=s->ufirst[u],n=s->ucount[u];
+    const unsigned first=group->direction==1?(unsigned)(((int)(end?end-1:chunks-1)-(int)k0+(int)chunks)%(int)chunks):(start+k0)%chunks;
+    const unsigned last=group->direction==1?first-(n-1):first+(n-1);
+    const unsigned lo=group->direction==1?last:first,hi=group->direction==1?first:last;
+    run_t run={0,0,0};
+    FZX_RSP(BATCH);
+    if(!project_run(d,&run,lo,hi))return false;
+    FZX_RSP(QFETCH);
+    unsigned index=first;
+    for(unsigned v=0;v<n;++v){
+        ++d->stats->chunks;
+        const fzx_road_stream_nchunk_t *c=w->nchunks+index;
+        const sh2z_view_vertex_t *base=d->proj+(run.offset+(int32_t)c->vertex_first);
+        for(unsigned i=c->quad_first,e=i+c->quad_count;i<e;++i)if(!native_quad(d,i,base))return false;
+        index=group->direction==1?index-1:index+1;
+    }
+    return true;
+}
+#endif
 static bool native_frame(draw_t *d){
     const RefRoadPlan *plan=d->plan;
 #if FZX_ROAD_STREAM_SPLIT
     fzx_road_split_t *const s=d->work->split;
-    if(s){
-        /* Split build: publish the setup, then claim the groups in order until the thief has the rest. */
-        const uint32_t tag=s->tag;
+    if(s&&units_build(s,plan,d->work->pack->count[FZX_RLD_CHUNKS])){
+        /* Split build: publish the table and the setup, then claim the units in order until the thief has the rest. */
+        const uint32_t tag=s->tag,units=s->units;
         s->front=0;
         __asm__ volatile("":::"memory");
         s->ready=tag;
-        for(unsigned g=0;g<plan->count;++g){
-            s->front=g;
-            if(!sh2z_claim_b(&s->claim[g],tag))break;
-            if(!native_group(d,g))return false;
+        for(unsigned u=0;u<units;++u){
+            s->front=u;
+            if(!sh2z_claim_b(&s->claim[u],tag))break;
+            if(!native_unit(d,s,u))return false;
         }
-        s->front=REF_ROAD_GROUPS;
+        s->front=FZX_ROAD_SPLIT_UNITS;
         return true; /* the visited chunks are counted with the thief's at the merge */
     }
 #endif
@@ -1122,7 +1169,7 @@ bool fzx_road_stream_steal(const fzx_road_stream_draw_work_t *cw,const sh2z_view
     const fzx_road_stream_emit_t *emit,unsigned flags,uint32_t tag,fzx_road_thief_t *t){
     fzx_road_stream_draw_work_t *w=(fzx_road_stream_draw_work_t *)(void *)cw;
     fzx_road_split_t *const s=w->split;
-    t->first=plan->count;t->ngroups=0;t->commands=0;t->chunks=0;t->fault=0;
+    t->first=FZX_ROAD_SPLIT_UNITS;t->ngroups=0;t->commands=0;t->chunks=0;t->fault=0;
     if(!s||s->ready!=tag||!t->hot||!t->proj||!t->vcap||!t->cmds||!t->shades||!t->ccap||!emit||plan->faults||plan->count>REF_ROAD_GROUPS||
        !w->native||!w->fog_valid||!w->ramp_valid)return true;
     fzx_road_stream_draw_stats_t st={0};
@@ -1144,21 +1191,22 @@ bool fzx_road_stream_steal(const fzx_road_stream_draw_work_t *cw,const sh2z_view
     memset(d.fog0_valid,0,sizeof(d.fog0_valid));
     d.fog0=w->fog.depth[1]>(uint32_t)INT32_MAX?INT32_MAX:(int32_t)w->fog.depth[1];
 #endif
-    unsigned g=plan->count;
+    const unsigned units=s->units;
+    unsigned g=units;
     while(g>0){
         const unsigned cand=g-1;
         if(cand<s->front+FZX_ROAD_STREAM_STEAL_GAP)break;
         if(!sh2z_claim_a(&s->claim[cand],tag))break;
         const uint32_t c0=st.commands;
-        if(!native_group(&d,cand)){t->fault=st.fault?st.fault:1;t->first=g;t->ngroups=plan->count-cand;return false;}
+        if(!native_unit(&d,s,cand)){t->fault=st.fault?st.fault:1;t->first=g;t->ngroups=units-cand;return false;}
         t->seg_start[cand]=c0;t->seg_count[cand]=st.commands-c0;
         g=cand;
     }
-    t->first=g;t->ngroups=plan->count-g;t->commands=st.commands;t->chunks=st.chunks;
+    t->first=g;t->ngroups=units-g;t->commands=st.commands;t->chunks=st.chunks;
     return true;
 }
 typedef uint32_t __attribute__((may_alias)) u32m;
-bool fzx_road_stream_steal_merge(const fzx_road_thief_t *t,const RefRoadPlan *plan,uint32_t slave_chunks,uint32_t n,uint32_t limit,
+bool fzx_road_stream_steal_merge(const fzx_road_thief_t *t,const fzx_road_split_t *sp,const RefRoadPlan *plan,uint32_t slave_chunks,uint32_t n,uint32_t limit,
     fzx_road_stream_vdp1_t *dest,uint16_t *dest_shades,uint32_t shade_offset,uint32_t *added){
     *added=0;
     if(t->fault)return false;
@@ -1166,7 +1214,7 @@ bool fzx_road_stream_steal_merge(const fzx_road_thief_t *t,const RefRoadPlan *pl
     if(slave_chunks+t->chunks!=plan->visible_chunks||n+t->commands>limit||
        (uint64_t)shade_offset+(uint64_t)(n+t->commands)*8u>0x80000u)return false;
     uint32_t at=n;
-    for(unsigned g=t->first;g<plan->count;++g){
+    for(unsigned g=t->first;g<sp->units;++g){
         const uint32_t cnt=t->seg_count[g],from=t->seg_start[g];
         const uint32_t add=(uint32_t)((int32_t)at-(int32_t)from)<<16;
         const u32m *src=(const u32m *)(const void *)(t->cmds+from*32u);

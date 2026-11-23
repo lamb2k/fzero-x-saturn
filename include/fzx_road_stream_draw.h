@@ -103,8 +103,14 @@ typedef struct {
  * with the frame; whichever side loses a group's claim stops. The thief builds into its own scratch (fzx_road_thief_t)
  * and the owner of the list merges its groups after the slave's, so the commands and Gouraud words equal the single-CPU
  * build's. The record lives in the uncached section (both CPUs read and write it). */
+#ifndef FZX_ROAD_SPLIT_UNIT_CHUNKS
+#define FZX_ROAD_SPLIT_UNIT_CHUNKS 2 /* chunks a claim covers at most (a unit never crosses a group or the course's wrap) */
+#endif
+enum {FZX_ROAD_SPLIT_UNITS=96};
 typedef struct {
-    sh2z_claim_t claim[REF_ROAD_GROUPS];
+    sh2z_claim_t claim[FZX_ROAD_SPLIT_UNITS]; /* one job per unit: a slice of one group's chunks, in the plan's order */
+    uint8_t ugroup[FZX_ROAD_SPLIT_UNITS],ufirst[FZX_ROAD_SPLIT_UNITS],ucount[FZX_ROAD_SPLIT_UNITS]; /* the slave's table: group, first visit, visits */
+    volatile uint32_t units; /* the slave: its length (set before ready) */
     volatile uint32_t ready; /* the slave: the tag of the frame whose plan, fog and ramps it has published */
     volatile uint32_t front; /* the slave: the group it is about to claim or has claimed last */
     volatile uint32_t tag;   /* the master: this frame's tag (set before the slave is started) */
@@ -116,8 +122,8 @@ typedef struct {
     fzx_road_stream_hot_t *hot;
     sh2z_view_vertex_t *proj; uint32_t vcap;
     uint8_t *cmds; uint16_t *shades; uint32_t ccap;       /* final-format commands (32 B) and Gouraud words (8 B) per command */
-    uint32_t seg_start[REF_ROAD_GROUPS],seg_count[REF_ROAD_GROUPS];
-    uint32_t first,ngroups,commands,chunks;               /* it owns groups first .. plan->count-1; its commands and chunks */
+    uint32_t seg_start[FZX_ROAD_SPLIT_UNITS],seg_count[FZX_ROAD_SPLIT_UNITS];
+    uint32_t first,ngroups,commands,chunks;               /* it owns units first .. units-1 (ngroups of them); its commands and chunks */
     uint32_t fault;                                       /* nonzero: its build failed, the caller must redo the frame whole */
     uint32_t shade_offset;                                /* its emit target's VRAM offset of shades[0] (for the merge) */
     sh2z_shade_ramp_t mix; bool mix_ok;                   /* its own MIX ramp (the work's is the slave's) */
@@ -268,7 +274,7 @@ bool fzx_road_stream_steal(const fzx_road_stream_draw_work_t *,const sh2z_view_c
 /* After the slave's job is finished: append the thief's groups after the slave's n commands (dest: its first command,
  * dest_shades: the Gouraud table in VDP1 VRAM), numbering them on. Fails (nothing usable) when the chunk counts do not add
  * up to the plan's or the total passes limit. *added is the commands appended. */
-bool fzx_road_stream_steal_merge(const fzx_road_thief_t *,const RefRoadPlan *,uint32_t slave_chunks,uint32_t n,uint32_t limit,
+bool fzx_road_stream_steal_merge(const fzx_road_thief_t *,const fzx_road_split_t *,const RefRoadPlan *,uint32_t slave_chunks,uint32_t n,uint32_t limit,
     fzx_road_stream_vdp1_t *dest,uint16_t *dest_shades,uint32_t shade_offset,uint32_t *added);
 #endif
 #endif

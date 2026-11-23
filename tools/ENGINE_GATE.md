@@ -62,7 +62,8 @@ with the base's receipt.
 | `audio` | INFO: audio peak, non-zero samples and hash of each sound-on run | yes | yes |
 | `receipts` | INFO: stale generated receipts; the regenerated ROM-free outputs and whether they moved | yes | yes |
 
-**Courses (claude/modes, ENG_MODES on by default).** The `course-*` rows are Practice / Standard rows: a Time Attack race is solo and
+**Practice (claude/modes, ENG_MODES on by default).** The `practice-*` rows (kind `practice`, `course_pr.txt`, the six Jack Cup courses; run
+names `practice-<slug>`, so they never clash with the engine's 24-course `course-<slug>` rows) are Practice / Standard rows: a Time Attack race is solo and
 lighter than a field, so each course is entered through SELECT as Practice (probe `0x451`, then the course probe `0x2nn`, the
 order matters: a mode probe after the course probe can reset the course) and raced against the full 29-opponent field. The window is
 the tick-420 window to an explicit end mark (`results`, drive tick 3780: the Practice race in the harness ends by itself between drive
@@ -90,6 +91,14 @@ Controls, all failing `fixture` or `host` as they must: `ctl-pr-course`, `ctl-pr
 `ctl-pr-noarchive`; and for `host` `ctl-pr-nohost`, `-hostlack`, `-subset`, `-short`. The Practice bundle comes from
 `tools/modes_practice_regen.sh` (run it in a clean stage after `tools/course_bundle.py`). Grand Prix cost is C-138's six live Jack
 rounds; Time Attack cost is the standalone rows.
+
+**24 courses (the `course-*` rows, kind `course`, `course.txt`, `courses: all`).** Every one of the 24 courses is raced from the shipped scenes
+image (default modes on) against its own HOST reference, and the matrix still lists the six Practice rows under the distinct name `practice-*`.
+The `memory` row's note prints `road arena peak`: the largest `fzx_road_stream_high_used` of the run, against the arena
+`FZX_ROAD_STREAM_HIGH_BYTES` (114,688 B on the modes image; 131,072 B on the engine's: the 24-course image with the modes
+needed 16,384 B of the gap, saturn/engine/MODES.md). A course whose peak passes the arena fails the run (TRACK LOAD).
+A modes-versus-`ENG_MODES=0` comparison of the 24 rows is run with two matrix copies (the second adds `ENG_MODES=0` to the images'
+`vars`, stage `claude-gate-modes7id`); the rule is that no course's critical p99 grows by more than 0.30 ms.
 
 **Courses.** All six Jack Cup courses are raced from the shipped scenes image, chosen in SELECT with probe
 `0x2nn`. Two are tube courses: Sand Ocean and Big Blue. Each course is judged against its own HOST reference, which

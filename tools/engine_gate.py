@@ -1148,7 +1148,7 @@ class Gate:
                 for c in courses:
                     if isinstance(r.get('courses'), list) and c['slug'] not in r['courses']:
                         continue   # a row that names its courses (the Practice rows: the Jack Cup, whose HOST rows are frozen)
-                    rr = dict(r, name='course-%s' % c['slug'], course=c['slug'], image=c.get('image', r['image']))
+                    rr = dict(r, name='%s-%s' % (r['kind'], c['slug']), course=c['slug'], image=c.get('image', r['image']))
                     jobs.append((rr, 'script', self.script_for(r['script'], c['index'])))
             elif r['kind'] == 'race':
                 jobs.append((r, 'race', '-'))

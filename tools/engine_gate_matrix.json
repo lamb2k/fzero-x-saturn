@@ -443,6 +443,16 @@
   {
    "name": "course-*",
    "image": "scenes-drv",
+   "kind": "course",
+   "script": "course.txt",
+   "courses": "all",
+   "modes": [
+    "full"
+   ]
+  },
+  {
+   "name": "practice-*",
+   "image": "scenes-drv",
    "kind": "practice",
    "script": "course_pr.txt",
    "courses": [
@@ -696,7 +706,7 @@
    "image": "scenes-drv",
    "kind": "practice",
    "course": "mute-city-1",
-   "reuse": "course-mute-city-1",
+   "reuse": "practice-mute-city-1",
    "mutate": "roster"
   },
   {
@@ -706,7 +716,7 @@
    "image": "scenes-drv",
    "kind": "practice",
    "course": "mute-city-1",
-   "reuse": "course-mute-city-1",
+   "reuse": "practice-mute-city-1",
    "mutate": "energy"
   },
   {
@@ -716,7 +726,7 @@
    "image": "scenes-drv",
    "kind": "practice",
    "course": "mute-city-1",
-   "reuse": "course-mute-city-1",
+   "reuse": "practice-mute-city-1",
    "mutate": "chase"
   },
   {
@@ -726,7 +736,7 @@
    "image": "scenes-drv",
    "kind": "practice",
    "course": "mute-city-1",
-   "reuse": "course-mute-city-1",
+   "reuse": "practice-mute-city-1",
    "mutate": "standing"
   },
   {
@@ -736,7 +746,7 @@
    "image": "scenes-drv",
    "kind": "practice",
    "course": "mute-city-1",
-   "reuse": "course-mute-city-1",
+   "reuse": "practice-mute-city-1",
    "mutate": "entrants"
   },
   {
@@ -746,7 +756,7 @@
    "image": "scenes-drv",
    "kind": "practice",
    "course": "mute-city-1",
-   "reuse": "course-mute-city-1",
+   "reuse": "practice-mute-city-1",
    "mutate": "grid"
   },
   {
@@ -756,7 +766,7 @@
    "image": "scenes-drv",
    "kind": "practice",
    "course": "mute-city-1",
-   "reuse": "course-mute-city-1",
+   "reuse": "practice-mute-city-1",
    "mutate": "gridsrc"
   },
   {
@@ -766,7 +776,7 @@
    "image": "scenes-drv",
    "kind": "practice",
    "course": "mute-city-1",
-   "reuse": "course-mute-city-1",
+   "reuse": "practice-mute-city-1",
    "mutate": "seed"
   },
   {
@@ -776,7 +786,7 @@
    "image": "scenes-drv",
    "kind": "practice",
    "course": "mute-city-1",
-   "reuse": "course-mute-city-1",
+   "reuse": "practice-mute-city-1",
    "mutate": "count"
   },
   {
@@ -786,7 +796,7 @@
    "image": "scenes-drv",
    "kind": "practice",
    "course": "mute-city-1",
-   "reuse": "course-mute-city-1",
+   "reuse": "practice-mute-city-1",
    "mutate": "bundle"
   },
   {
@@ -796,7 +806,7 @@
    "image": "scenes-drv",
    "kind": "practice",
    "course": "mute-city-1",
-   "reuse": "course-mute-city-1",
+   "reuse": "practice-mute-city-1",
    "mutate": "noarchive"
   },
   {
@@ -806,7 +816,7 @@
    "image": "scenes-drv",
    "kind": "practice",
    "course": "mute-city-1",
-   "reuse": "course-mute-city-1",
+   "reuse": "practice-mute-city-1",
    "practice_host": "no-host"
   },
   {
@@ -816,7 +826,7 @@
    "image": "scenes-drv",
    "kind": "practice",
    "course": "mute-city-1",
-   "reuse": "course-mute-city-1",
+   "reuse": "practice-mute-city-1",
    "practice_host": "host-lacks"
   },
   {
@@ -826,7 +836,7 @@
    "image": "scenes-drv",
    "kind": "practice",
    "course": "mute-city-1",
-   "reuse": "course-mute-city-1",
+   "reuse": "practice-mute-city-1",
    "practice_host": "subset"
   },
   {
@@ -836,7 +846,7 @@
    "image": "scenes-drv",
    "kind": "practice",
    "course": "mute-city-1",
-   "reuse": "course-mute-city-1",
+   "reuse": "practice-mute-city-1",
    "practice_host": "late"
   },
   {

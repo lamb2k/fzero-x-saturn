@@ -1,0 +1,19 @@
+# Death Race, natural end (claude/modes C-169 item 4): cold boot, mode DEATH RACE (probe 0x423: the course cursor moves to the mode's own course,
+# 54, and the class is forced to Master), race with no poke: the 29 rivals leave the air run and are retired by the fall, the win is the 29th retirement.
+until 1 1 2000
+mark title
+wait 220
+pad 0800 2
+until 2 1 600
+wait 4
+pad 0040 3
+wait 6
+poke _fzx_scn_probe 0x423
+wait 3
+mark select
+pad 0400 2
+until 4 1 4000
+mark race_start
+until 5 1 6000
+wait 4
+mark results

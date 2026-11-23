@@ -13,7 +13,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#define FZX_GHOST_STREAM_MAX 12000u
+#define FZX_GHOST_STREAM_MAX 8192u   /* no course passes 5.8 KB; three buffers of this size are work RAM the master stack needs (12000 left 13.7 KB of it unused) */
 #define FZX_GHOST_MAGIC 0x465A5847u /* "FZXG" */
 typedef struct {
     uint32_t magic, version, generation, course, race_ms, samples, bytes, crc; /* crc over everything after it */

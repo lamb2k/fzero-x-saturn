@@ -22,7 +22,8 @@ def sha(data):
     return hashlib.sha256(data).hexdigest()
 
 
-def stage(source, output):
+def stage(source, output, fx_output):
+    output_location(fx_output)
     output_location(output)
     output.mkdir(parents=True, exist_ok=True)
     receipt = ["# fzx generation receipt v1",
@@ -66,6 +67,8 @@ def stage(source, output):
     for name, data in files.items():
         (output / name).write_bytes(data)
         receipt.append(f"output {sha(data)} {name}")
+    fx_output.mkdir(parents=True, exist_ok=True)
+    (fx_output / "guest_boosters.json").write_bytes(files["guest_boosters.json"])
     (output / "guest_machines.receipt").write_bytes(("\n".join(receipt) + "\n").encode())
 
 
@@ -73,5 +76,6 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("source", type=Path, help="private hybrid-guests/blender-shipping/packs directory")
     parser.add_argument("--output", type=Path, default=ROOT / "generated/guest_mach3d")
+    parser.add_argument("--fx-output", type=Path, default=ROOT / "generated/fx")
     args = parser.parse_args()
-    stage(args.source, args.output)
+    stage(args.source, args.output, args.fx_output)

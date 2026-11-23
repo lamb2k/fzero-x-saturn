@@ -116,6 +116,19 @@
    "note": "scenes, R01-t driver, lateral target 90 (Fire Field retires under R01); sound on",
    "sound": true
   },
+  "scenes-drv-ffh": {
+   "vars": [
+    "FZX_E1_DRIVE=1",
+    "ENG_SCENES=1",
+    "E1_DRIVER=1",
+    "E1_DRIVER_KL=0.0044",
+    "E1_DRIVER_KH=2.75",
+    "E1_DRIVER_TARGET=100.0"
+   ],
+   "kind": "scenes",
+   "note": "scenes, Fire Field human-line driver kl 0.0044 kh 2.75 target 100 (ff-gap lane: a line with five 99-pass closest-point searches in a row at the jump); sound on",
+   "sound": true
+  },
   "scenes-drv-rc2": {
    "vars": [
     "FZX_E1_DRIVE=1",
@@ -270,6 +283,14 @@
    "tubes": false,
    "image": "scenes-drv-ff",
    "host_driver": "0.004,2.5,0,460,90.0"
+  },
+  {
+   "slug": "fire-field",
+   "row": "fire-field-h",
+   "index": 12,
+   "tubes": false,
+   "image": "scenes-drv-ffh",
+   "host_driver": "0.0044,2.75,0,460,100.0"
   },
   {
    "slug": "silence-2",

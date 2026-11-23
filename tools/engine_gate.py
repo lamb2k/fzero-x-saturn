@@ -669,9 +669,9 @@ class Gate:
             want = set(a.only.split(','))
             runs = [r for r in runs if r['name'] in want or r['kind'] in want]
         if a.courses:
-            courses = [c for c in m['courses'] if c['slug'] in a.courses.split(',')]
+            courses = [c for c in m['courses'] if c.get('row', c['slug']) in a.courses.split(',')]
         else:
-            courses = m['courses'] if mode == 'full' else [c for c in m['courses'] if c['slug'] == 'mute-city-1']
+            courses = m['courses'] if mode == 'full' else [c for c in m['courses'] if c.get('row', c['slug']) == 'mute-city-1']
         ident = list(m['identity'][mode])
         # A course may name its own image (the R03 look-ahead driver, tools/engine_gate_matrix.json) and HOST driver.
         course_images = [c['image'] for c in courses if c.get('image')] if any(r['kind'] == 'course' for r in runs) else []
@@ -744,12 +744,12 @@ class Gate:
         hdir = self.ev / 'host'
         slugs = set(r['course'] for r in runs if r.get('course'))
         if any(r['kind'] == 'course' for r in runs):
-            slugs |= set(c['slug'] for c in courses)
+            slugs |= set(c.get('row', c['slug']) for c in courses)
         if a.controls:
             slugs |= {'mute-city-1'}
-        by_slug = {c['slug']: c for c in m['courses']}
+        by_slug = {c.get('row', c['slug']): c for c in m['courses']}   # a course entry may have its own row name (a second driver on one course)
         for slug in sorted(slugs):
-            hosts[slug] = self.host(hdir, slug, by_slug.get(slug, {}).get('host_driver', '0.004,2.5'), by_slug.get(slug, {}).get('host_ahead'), by_slug.get(slug, {}).get('host_ticks'))
+            hosts[slug] = self.host(hdir, by_slug.get(slug, {}).get('slug', slug), by_slug.get(slug, {}).get('host_driver', '0.004,2.5'), by_slug.get(slug, {}).get('host_ahead'), by_slug.get(slug, {}).get('host_ticks'))
 
         # Harness runs.
         t0 = time.time()
@@ -759,7 +759,7 @@ class Gate:
                 continue
             if r['kind'] == 'course':
                 for c in courses:
-                    rr = dict(r, name='course-%s' % c['slug'], course=c['slug'], image=c.get('image', r['image']))
+                    rr = dict(r, name='course-%s' % c.get('row', c['slug']), course=c.get('row', c['slug']), image=c.get('image', r['image']))
                     jobs.append((rr, 'script', self.script_for(r['script'], c['index'])))
             elif r['kind'] == 'race':
                 jobs.append((r, 'race', '-'))

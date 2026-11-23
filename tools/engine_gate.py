@@ -423,7 +423,26 @@ class Gate:
         if host is not None:
             self.host_check(name, kv, chk, host, full_final=True, sink=sink)
         self.memory_checks(name, mem, kv, sink)
+        self.countdown_checks(name, mem, run, sink)
         return fr
+
+    def countdown_checks(self, name, mem, run, sink=None):
+        """The race countdown sign (ENG_COUNTDOWN, saturn/engine/engine_countdown.h): on an image that carries it the sign loaded,
+        was built for the whole start delay (first timer drawn near 460, last at the end), drew commands on the frames it is in
+        view, was never refused or short of list room, and never needed more commands than its buffer holds."""
+        if not self.m['images'][run['image']].get('countdown'):
+            return
+        if not mem.has('fzx_cdn_report'):
+            self.add('countdown', name, False, 'no countdown report in the image', 'the image was built without ENG_COUNTDOWN', sink=sink)
+            return
+        r = mem.words('fzx_cdn_report', 16)
+        lim = self.lim['countdown']
+        ok = (r[0] == 1 and r[1] >= lim['drawn_min'] and r[4] == 0 and r[6] == 0 and 0 < r[3] <= lim['commands_max']
+              and r[14] >= lim['first_min'] and 0 < r[15] <= lim['last_max'])
+        self.add('countdown', name, ok, 'status %d, %d frames drawn (max %d commands), refused %d, dropped %d, timers %d..%d, '
+                 'build max %d FRT ticks' % (r[0], r[1], r[3], r[4], r[6], r[14], r[15], r[8]),
+                 'sign status 1, drawn >= %d, refused 0, dropped 0, commands <= %d, first timer >= %d, last <= %d' % (
+                     lim['drawn_min'], lim['commands_max'], lim['first_min'], lim['last_max']), sink=sink)
 
     def cadence_checks(self, name, fr, sink=None, margin=True):
         self.add('cadence', name, fr['over_two'] <= self.lim['over_two'],

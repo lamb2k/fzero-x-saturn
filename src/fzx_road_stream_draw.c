@@ -802,6 +802,9 @@ typedef struct {uint32_t first,last;int32_t offset;
 #endif
 } run_t;
 #if FZX_ROAD_GADGETS
+#ifndef FZX_ROAD_GADGET_BANDS
+#define FZX_ROAD_GADGET_BANDS 4   /* bands of a strip that is big on screen (level 2); 2 is the cheaper arm (look to be approved) */
+#endif
 #ifndef FZX_ROAD_GADGET_MIN_AREA
 #define FZX_ROAD_GADGET_MIN_AREA 0   /* decal quads whose screen area (x2, pixels) is at most this are left out; 0 leaves out only the empty ones */
 #endif
@@ -885,7 +888,7 @@ static bool decal_quad(draw_t *d,const sh2z_view_vertex_t *base,unsigned q){
     if(flags&6u){const unsigned level=decal_level(v,safe);
         if(level){FZX_RSP_COUNT(DECAL_SPLIT,1);
             if(flags&4u)return decal_fine(d,v,q,w->gfine+(flags>>8)*76u);
-            return decal_bands(d,v,q,image,level>1u?4u:2u);}}
+            return decal_bands(d,v,q,image,level>1u?FZX_ROAD_GADGET_BANDS:2u);}}
     return piece(d,v,q,0,image,image,0,w->images[image].variant[0].height,0,false);
 }
 #endif

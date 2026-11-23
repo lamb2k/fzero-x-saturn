@@ -237,12 +237,23 @@ def _swap(a, i, j):
     return a
 
 
+def _swap_diff(a):
+    a = list(a)
+    for i in range(1, len(a)):
+        for j in range(i + 1, len(a)):
+            if a[i] != a[j]:
+                a[i], a[j] = a[j], a[i]
+                return a
+    a[1] = 99   # all equal: one target changed instead
+    return a
+
+
 # Practice fixture controls: each edits a copy of what the image reported (the expected rows are never touched).
 PR_OBS_MUT = {
     'roster': lambda o: dict(o, machine=_swap(o['machine'], 1, 2)),                   # two rivals' machines swapped: still 29 distinct machines
     'entrants': lambda o: dict(o, machine=_swap(o['machine'], 3, 4)),
     'energy': lambda o: dict(o, energy=_swap(o['energy'], 5, 6)),                     # two rivals' energy ceilings swapped
-    'chase': lambda o: dict(o, chase=_swap(o['chase'], 7, 8)),
+    'chase': lambda o: dict(o, chase=_swap_diff(o['chase'])),                          # two rivals with different chase targets swapped
     'standing': lambda o: dict(o, dist=_swap(o['dist'], 3, 4)),                       # two vehicles' start positions swapped: places differ
     'grid': lambda o: dict(o, grid=_swap(o['grid'], 3, 4)),                           # still places 1..30, wrong order
     'gridsrc': lambda o: dict(o, src=2),                                               # the right grid from the wrong source
@@ -846,7 +857,7 @@ class Gate:
 
     def ghost_observed(self, run_dir, build_dir, mk, sym):
         mem = Mem(run_dir, 'saved1', sym)
-        m2 = Mem(run_dir, 'race2_start', sym)
+        m2 = Mem(run_dir, 'race2_t2000', sym)   # the ghost is read at the race's own begin, after the scene's first frame
         log = list(mem.words('fzx_bup_log', 61))
         entries = [log[1 + 5 * n:6 + 5 * n] for n in range(min(log[0], 12))]   # [fields in, fields out, bytes, kind (1 records, 2 ghost), FRT in<<16|out]
         return dict(store=list(mem.words('fzx_ghost_store', 16)), rec=list(mem.words('fzx_rec_report', 16)), log=entries, nlog=log[0],
@@ -877,13 +888,13 @@ class Gate:
         if fault == 0:
             if not (rl[0] == 1 and rl[1] == 1 and rp[7] == race1_ms and race1_ms > 0):
                 why.append('after the reset: ghost found %d, generation %d, race ms %d (want 1, 1, %d)' % (rl[0], rl[1], rp[7], race1_ms))
-            if st[5] != 1:
-                why.append('save result %d' % st[5])
+            if st[5] != 0:   # FZX_REC_OK
+                why.append('save result %d (want OK, 0)' % st[5])
         else:
             if not (rl[0] == 0 and rp[7] == 0 and rl[3] == 0 and rl[4] == 0):
                 why.append('after the reset a ghost was accepted from a %s save (found %d, valid %d/%d)' % ('wrong-CRC' if fault == 1 else 'half', rl[0], rl[3], rl[4]))
-            if st[5] != 2:
-                why.append('the faulted save returned %d, want FAILED (2)' % st[5])
+            if st[5] != 3:
+                why.append('the faulted save returned %d, want FAILED (3)' % st[5])
         if obs['rec2'][0] != 0:
             why.append('records not loaded after the reset (result %d)' % obs['rec2'][0])
         self.add('ghost', name, not why, ('%s; fault %d' % ('; '.join(why), fault)) if why else
@@ -894,7 +905,7 @@ class Gate:
 
     def score_ghost(self, run, run_dir, build_dir, lines, mk, sym, host, sink):
         name = run['name']
-        ok = result_kv(lines)[0].get('exit') == 'ok' and all(m in mk for m in ('results1', 'saved1', 'race2_start', 'results2'))   # 'exit' as the other script rows
+        ok = result_kv(lines)[0].get('exit') == 'ok' and all(m in mk for m in ('results1', 'saved1', 'race2_t2000', 'results2'))   # 'exit' as the other script rows
         self.add('script', name, ok, '%d marks, %s fields' % (len(mk), result_kv(lines)[0].get('fields', '-')), error_text(run_dir), sink=sink)
         if not ok:
             return

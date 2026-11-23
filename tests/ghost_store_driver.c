@@ -24,7 +24,8 @@ bup_status_t bup_read(int dev, const char *name, void *buf) {
 }
 int bup_dir(int dev, const char *name, int n, bup_directory_t *d) {
     (void)dev; (void)n;
-    for (int i = 0; i < NFILES; ++i) if (files[i].used && !strcmp(files[i].name, name)) { d->data_size = files[i].size; return 1; }
+    /* The backup library lists by the beginning of a name (BUP_Dir): the first file whose name begins with `name`, in write order. */
+    for (int i = 0; i < NFILES; ++i) if (files[i].used && !strncmp(files[i].name, name, strlen(name))) { d->data_size = files[i].size; return 1; }
     return 0;
 }
 bup_status_t bup_write(int dev, const bup_directory_t *dir, const void *buf, int mode) {
@@ -143,7 +144,7 @@ int main(void) {
         ok_ = fzx_records_ghost_load(&got) && got.generation == 3u;
     });
     SCENARIO("control: a chunk file of the newest slot one byte short: that slot is refused, the other (older) ghost is loaded", {
-        for (int i = 0; i < NFILES; ++i) if (files[i].used && !strcmp(files[i].name, "FZXGHO_A02")) files[i].size -= 1u;
+        for (int i = 0; i < NFILES; ++i) if (files[i].used && !strcmp(files[i].name, "FZXGH_CA02")) files[i].size -= 1u;
         ok_ = fzx_records_ghost_load(&got) && got.generation == 2u && fzx_ghost_store[3] == 0u;
     });
     SCENARIO("a second save begun while one is queued finishes the first (one buffer)", {

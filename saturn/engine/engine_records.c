@@ -309,8 +309,8 @@ fzx_rec_result_t fzx_records_credits_seen(void) {
 
 #if ENG_GHOST
 /* The Time Attack ghost: one slot kept as two slots (A, B), written alternately with a generation, as the records are.
- * A slot is a head file (FZXGHO_A: the first GH_CHUNK bytes of the ghost image, the 44-byte header and the start of the stream) and
- * its chunk files (FZXGHO_A01, ...02: GH_CHUNK bytes each, the last the remainder). A backup-RAM write blocks its caller for as long
+ * A slot is a head file (FZXGH_HA: the first GH_CHUNK bytes of the ghost image, the 44-byte header and the start of the stream) and
+ * its chunk files (FZXGH_CA01, ...02: GH_CHUNK bytes each, the last the remainder). A backup-RAM write blocks its caller for as long
  * as it takes (about half a field for 1 KB on the emulator), so the save is a queue: fzx_records_ghost_save_begin stamps the image, and
  * fzx_records_ghost_pump writes one chunk file per menu frame (RESULTS keeps presenting every two fields); the head file goes last and
  * is the commit. Until it is written the target slot is not a valid ghost (a stale head with new chunks fails the whole-image CRC and
@@ -318,7 +318,10 @@ fzx_rec_result_t fzx_records_credits_seen(void) {
  * is read as one piece. */
 #define GH_CHUNK 1024u
 #define GH_MAX_CHUNKS ((FZX_GHOST_HEAD_BYTES + FZX_GHOST_STREAM_MAX + GH_CHUNK - 1u) / GH_CHUNK)
-static const char *const ghost_file[2] = { "FZXGHO_A", "FZXGHO_B" };
+/* The backup library finds files by the beginning of their name (BUP_Dir), so no file name may begin with another file's: head FZXGH_HA, chunks
+ * FZXGH_CA01...; the first format's single file (FZXGHO_A / _B, never chunked) is still read. */
+static const char *const ghost_file[2] = { "FZXGH_HA", "FZXGH_HB" };
+static const char *const ghost_legacy[2] = { "FZXGHO_A", "FZXGHO_B" };
 static fzx_ghost_t ghost_io;            /* one image; high work RAM, like `io` */
 static uint32_t ghost_gen[2];
 volatile uint32_t fzx_ghost_fault;       /* captures: 1 = the next ghost write stores a wrong CRC; 2 = it stops half way (no head file) */
@@ -332,16 +335,16 @@ static struct { bool active; unsigned slot, n, next; uint32_t gen, size; bool ha
 static void ghost_name(char out[12], unsigned slot, unsigned k) {
     static const char hex[] = "0123456789abcdef";
     strcpy(out, ghost_file[slot]);
-    if (k) { out[8] = hex[(k >> 4) & 15u]; out[9] = hex[k & 15u]; out[10] = 0; }
+    if (k) { out[6] = 'C'; out[8] = hex[(k >> 4) & 15u]; out[9] = hex[k & 15u]; out[10] = 0; }
 }
 
-static bool ghost_read(unsigned i, uint32_t *gen) {
+static bool ghost_read_as(const char *hname, unsigned i, uint32_t *gen) {
     bup_directory_t d[1];
     memset(&d[0], 0, sizeof(d[0]));
-    if (bup_dir(BUP_DEVICE_INTERNAL, ghost_file[i], 1, d) <= 0 || d[0].data_size > sizeof(ghost_io) || d[0].data_size < FZX_GHOST_HEAD_BYTES) return false;
+    if (bup_dir(BUP_DEVICE_INTERNAL, hname, 1, d) <= 0 || d[0].data_size > sizeof(ghost_io) || d[0].data_size < FZX_GHOST_HEAD_BYTES) return false;
     const uint32_t head = d[0].data_size;
     memset(&ghost_io, 0, FZX_GHOST_HEAD_BYTES);
-    if (bup_read(BUP_DEVICE_INTERNAL, ghost_file[i], &ghost_io) != BUP_OK) return false;
+    if (bup_read(BUP_DEVICE_INTERNAL, hname, &ghost_io) != BUP_OK) return false;
     if (ghost_io.bytes > FZX_GHOST_STREAM_MAX) return false;
     const uint32_t total = FZX_GHOST_FILE_BYTES(&ghost_io);
     if (head < total) {   /* chunked: the head is one chunk, the rest are the slot's chunk files */
@@ -360,6 +363,7 @@ static bool ghost_read(unsigned i, uint32_t *gen) {
     *gen = ghost_io.generation;
     return true;
 }
+static bool ghost_read(unsigned i, uint32_t *gen) { return ghost_read_as(ghost_file[i], i, gen) || ghost_read_as(ghost_legacy[i], i, gen); }
 
 bool fzx_records_ghost_load(fzx_ghost_t *dst) {
     ensure_bup();

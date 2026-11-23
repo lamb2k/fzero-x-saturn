@@ -612,17 +612,18 @@ class Gate:
         doc['bundle'] = {n: (hashlib.sha256(t.encode()).hexdigest() if t is not None else None) for n, t in texts.items()}
         diffs = []
         rows = self.parse_practice_rows(texts['course_practice.c'] or '')
-        n = len(self.m['courses'])
-        if len(rows) != n * self.PR_CLASSES * 30 * 8:
-            diffs.append('the stage bundle has %d values, want %d' % (len(rows), n * self.PR_CLASSES * 30 * 8))
+        want_courses = [c for c in self.m['courses'] if c['slug'] in exp['courses']]   # the courses the expected rows cover (the Jack Cup)
+        per = self.PR_CLASSES * 30 * 8
+        if not rows or len(rows) % per or len(rows) // per <= max(c['index'] for c in want_courses):
+            diffs.append('the stage bundle has %d values: not whole course rows covering the expected courses' % len(rows))
         else:
-            for c in self.m['courses']:
+            for c in want_courses:
                 for k in range(self.PR_CLASSES):
-                    e = exp['courses'].get(c['slug'], {}).get(str(k))
+                    e = exp['courses'][c['slug']].get(str(k))
                     if e is None:
                         diffs.append('%s class %d: not in the expected rows' % (c['slug'], k))
                         continue
-                    base = (c['index'] * self.PR_CLASSES + k) * 240
+                    base = (c['index'] * self.PR_CLASSES + k) * 240   # the bundle's row of a course is its position in course_ids (0..5 for the Jack Cup)
                     vr = [rows[base + 8 * i:base + 8 * i + 8] for i in range(30)]
                     got = dict(grid=[v[0] for v in vr], energy=[v[3] for v in vr], machine=[v[5] for v in vr])
                     for key in ('grid', 'energy', 'machine'):

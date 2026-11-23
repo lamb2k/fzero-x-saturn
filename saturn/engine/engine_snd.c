@@ -474,6 +474,48 @@ void engine_snd_frame(void) {
     sh2z_snd_frame(&snd);
 }
 
+#if ENG_SND_MENU
+/* ---- Menu audio (docs/MENU_AUDIO.md): code, state and tables live in low work RAM (the master's high work RAM
+ * has about 1.3 KB of stack headroom on the lowest course rows): functions in .text.fzx_snd_menu and the state in
+ * .bss.lowcold.snd_menu, linked into .low / .lowbss by engine_low_rodata.ld and engine_low_bss.ld. Nothing here runs in
+ * a race scene, except menu_reset, which is high-work-RAM code called by engine_snd_leave (the census forbids .low
+ * code in a race scene's phases). ---- */
+#define MENU_TEXT __attribute__((section(".text.fzx_snd_menu"), noinline))
+#define MENU_BSS __attribute__((section(".bss.lowcold.snd_menu")))
+#define MENU_HOLD_FADE 6u      /* frames: a disc hold's fade to the pause */
+#define MENU_SWITCH_FADE 8u    /* frames: a track change's fade */
+#define MENU_RING 8u
+enum { M_STOPPED = 0, M_PLAYING, M_PAUSING, M_PAUSED };
+_Static_assert(SND_MENU_BASE >= SND_RACE_FREE_BASE, "the menu pack starts inside the race map's free region");
+_Static_assert(SND_MENU_END <= 0x80000u, "the menu pack ends inside sound RAM");
+
+typedef struct {
+    uint8_t music_ok, se_ok, hold, mode, ring_n;   /* a failed pack or TOC leaves the other half working, and acquire granting */
+    uint8_t want, cur;                  /* music ids (ENG_SND_BGM_NONE: none) */
+    uint8_t ring[MENU_RING];            /* queued effects (table index) */
+    uint32_t saved_fad;                 /* where the pause left the track */
+    uint32_t end_field[ENG_SND_MENU_SLOTS];
+    sh2z_snd_clip_t clip[SND_MENU_COUNT];
+    uint32_t toc[102];
+} menu_t;
+static menu_t menu MENU_BSS;
+/* [0] status (1 ok, 2 pack load failed, 3 TOC failed), [1] effects posted, [2] played, [3] dropped, [4] music requests,
+ * [5] music starts, [6] resumes after a hold, [7] holds acquired. */
+volatile uint32_t engine_snd_menu_report[16] MENU_BSS;   /* [8] mode, [9] saved FAD, [10] last FAD, [11] cur, [12] want, [13] hold */
+/* LOAD and race leave: the music state starts again from nothing (the fade itself is engine_snd_leave's); a looping
+ * effect (the refusal buzz) must not outlive the screen: a blocking load does no ageing. */
+static inline void menu_reset(void) {
+    menu.want = menu.cur = ENG_SND_BGM_NONE;
+    menu.mode = M_STOPPED;
+    menu.hold = 0u;
+    menu.ring_n = 0u;
+    for (unsigned k = 0; k < ENG_SND_MENU_SLOTS; ++k) {
+        const uint32_t s = ENG_SND_MENU_SLOT0 + k;
+        if (snd.voice[s].clip && snd.voice[s].clip->loop) sh2z_snd_stop(&snd, s);
+    }
+}
+#endif
+
 void engine_snd_leave(uint32_t frames) {
 #if defined(FZX_CD_STREAM) && FZX_CD_STREAM
     fzx_road_stream_invalidate();   /* the fade ends in a pause: the data reader starts a new stream */
@@ -495,7 +537,7 @@ void engine_snd_leave(uint32_t frames) {
 #endif
         sh2z_snd_stop(&snd, s);
     }
-    engine_snd_menu_reset();
+    menu_reset();
 #else
     for (uint32_t s = 0; s < SH2Z_SND_SLOTS; ++s) if (s != 16u && s != 17u) sh2z_snd_stop(&snd, s);
 #endif
@@ -530,32 +572,7 @@ void engine_snd_disc_read(void) {
 }
 
 #if ENG_SND_MENU
-/* ---- Menu audio (docs/MENU_AUDIO.md): code, state and tables live in low work RAM (the master's high work RAM
- * has about 1.3 KB of stack headroom on the lowest course rows): functions in .text.fzx_snd_menu and the state in
- * .bss.lowcold.snd_menu, both linked into .low / .lowbss by engine_low_rodata.ld and engine_low_bss.ld. None of it
- * runs during a race. ---- */
-#define MENU_TEXT __attribute__((section(".text.fzx_snd_menu"), noinline))
-#define MENU_BSS __attribute__((section(".bss.lowcold.snd_menu")))
-#define MENU_HOLD_FADE 6u      /* frames: a disc hold's fade to the pause */
-#define MENU_SWITCH_FADE 8u    /* frames: a track change's fade */
-#define MENU_RING 8u
-enum { M_STOPPED = 0, M_PLAYING, M_PAUSING, M_PAUSED };
-_Static_assert(SND_MENU_BASE >= SND_RACE_FREE_BASE, "the menu pack starts inside the race map's free region");
-_Static_assert(SND_MENU_END <= 0x80000u, "the menu pack ends inside sound RAM");
-
-typedef struct {
-    uint8_t music_ok, se_ok, hold, mode, ring_n;   /* a failed pack or TOC leaves the other half working, and acquire granting */
-    uint8_t want, cur;                  /* music ids (ENG_SND_BGM_NONE: none) */
-    uint8_t ring[MENU_RING];            /* queued effects (table index) */
-    uint32_t saved_fad;                 /* where the pause left the track */
-    uint32_t end_field[ENG_SND_MENU_SLOTS];
-    sh2z_snd_clip_t clip[SND_MENU_COUNT];
-    uint32_t toc[102];
-} menu_t;
-static menu_t menu MENU_BSS;
-/* [0] status (1 ok, 2 pack load failed, 3 TOC failed), [1] effects posted, [2] played, [3] dropped, [4] music requests,
- * [5] music starts, [6] resumes after a hold, [7] holds acquired. */
-volatile uint32_t engine_snd_menu_report[16] MENU_BSS;   /* [8] mode, [9] saved FAD, [10] last FAD, [11] cur, [12] want, [13] hold */
+/* Menu audio, continued: the API and the per-frame service (low work RAM; see the block before engine_snd_leave). */
 extern uint32_t video_fields_get(void);
 
 MENU_TEXT bool engine_snd_menu_load(void *scratch, uint32_t scratch_bytes) {
@@ -684,16 +701,4 @@ MENU_TEXT void engine_snd_menu_frame(void) {
     if (menu.want != ENG_SND_BGM_NONE) menu_begin(menu.want, false);
 }
 
-/* LOAD and race leave: the music state starts again from nothing (the fade itself is engine_snd_leave's). */
-MENU_TEXT void engine_snd_menu_reset(void) {
-    menu.want = menu.cur = ENG_SND_BGM_NONE;
-    menu.mode = M_STOPPED;
-    menu.hold = 0u;
-    menu.ring_n = 0u;
-    /* A looping effect (the refusal buzz) must not outlive the screen: the blocking load does no ageing. */
-    for (unsigned k = 0; k < ENG_SND_MENU_SLOTS; ++k) {
-        const uint32_t s = ENG_SND_MENU_SLOT0 + k;
-        if (snd.voice[s].clip && snd.voice[s].clip->loop) sh2z_snd_stop(&snd, s);
-    }
-}
 #endif

@@ -79,6 +79,5 @@ void engine_snd_menu_se(uint32_t na_se_id);
 bool engine_snd_disc_acquire(void);
 void engine_snd_disc_release(void);
 void engine_snd_menu_frame(void);
-void engine_snd_menu_reset(void);
 #endif
 #endif

@@ -38,9 +38,15 @@ enum {
     FZX_RS_INVALID=1,FZX_RS_GATHER,FZX_RS_PROJECT,FZX_RS_CLIP,
     FZX_RS_CAPACITY,FZX_RS_TEXTURE_ALIGNMENT,FZX_RS_STEP
 };
+#ifndef FZX_ROAD_GADGETS
+#define FZX_ROAD_GADGETS 0
+#endif
 typedef struct {
     uint32_t commands,positions,quads,chunks,culled,clipped,tiers[4];
     uint32_t unaligned,fog_updates,fog_error,fault,error_quad;
+#if FZX_ROAD_GADGETS
+    uint32_t decals,decal_corners,decal_dropped,decal_small;   /* decal quads fetched, corners projected, quads dropped for room, quads under the size floor */
+#endif
 } fzx_road_stream_draw_stats_t;
 
 /* Native road layout (opt-in, built once by prepare from the admitted pack).
@@ -130,6 +136,17 @@ typedef struct {
     uint32_t npos_capacity,npos_count;
     bool native;
     uint16_t nunit[256];
+#if FZX_ROAD_GADGETS
+    /* Course gadget decals (ROADGAD.PAK, tools/gadget_bake.py): quads in chunk order, gfirst[c]..gfirst[c+1] the
+     * decal quads of road chunk c (chunks + 1 entries), gpos four world corners per quad (A B C D), gquad an
+     * (image slot, flags) pair per quad (flags: 1 dash half, 2 strip, 4 refinement record number in bits 8..15; see tools/gadget_bake.py): the image is images[pack.count[IMAGES] + slot]. The projected array holds
+     * the decal corners after the road's (vertex_capacity covers both). NULL gfirst: no decals. */
+    const uint16_t *gfirst;
+    const sh2z_pos16_t *gpos;
+    const uint16_t *gquad;
+    const uint8_t *gfine;   /* the dash halves' refinement records, after gquads pairs in the same table */
+    uint32_t gquads;
+#endif
 #if FZX_ROAD_STREAM_CLUSTERS
     /* Bind before prepare to select cluster culling (native layout only). */
     const fzx_road_stream_clusters_t *clusters;

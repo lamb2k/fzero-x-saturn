@@ -12,22 +12,11 @@ volatile uint32_t fzx_cdn_report[20];
 
 typedef int64_t i64;
 
-/* What the last build was made from: the pose inputs, the view and the panel state. A frame with all of them unchanged (the
- * sign stands still in front of a car and a camera that do not move, from the end of the swoop to GO) reuses its commands. */
-typedef struct {
-    int32_t pos[3], up[3], fwd[3], height, camback[3], distance;
-    fzx_view_t view;
-    uint32_t count;
-    fzx_countdown_phase_t phase;
-    bool valid;
-} built_t;
-
 typedef struct {
     fzx_countdown_pack_t pack;
     fzx_countdown_native_work_t work;
     fzx_countdown_native_stats_t stats;
     fzx_countdown_phase_t phase;
-    built_t built;
     RefCountdown state;
     vdp1_cmdt_t cmds[FZX_CDN_COMMANDS] __attribute__((aligned(32)));
     sh2z_pos16_t box[8]; /* the model's bounding box: a frame whose box is wholly outside one view plane has nothing to draw */
@@ -152,36 +141,8 @@ unsigned fzx_cdn_stage(const fzx_view_t *view, const fzx_engine_cam_t *cam, cons
     ++fzx_cdn_report[13];
     if (!fzx_cdn_report[14]) fzx_cdn_report[14] = (uint32_t)timer;
     fzx_cdn_report[15] = (uint32_t)timer;
-    built_t *const k = &s->built;
     fzx_countdown_phase_t phase;
     if (!fzx_countdown_phase(timer, &phase)) { ++fzx_cdn_report[4]; return 0; }
-    /* Same pose inputs, view and panel state as the last build: its commands stand. */
-    built_t now;
-    memset(&now, 0, sizeof(now));
-    for (unsigned i = 0; i < 3u; ++i) {
-        now.pos[i] = body->pos[i]; now.up[i] = body->body[1][i]; now.fwd[i] = body->body[0][i]; now.camback[i] = cam->rotation[2][i];
-    }
-    now.height = body->height; now.distance = sign_distance(timer); now.view = *view; now.phase = phase; now.count = 0; now.valid = true;
-    if (k->valid && memcmp(&now, k, offsetof(built_t, count)) == 0 && now.phase.visible == k->phase.visible &&
-        now.phase.mouth_open == k->phase.mouth_open && now.phase.panel == k->phase.panel) {
-        ++fzx_cdn_report[18];
-        const uint32_t t = (uint16_t)(cpu_frt_count_get() - t0);
-        fzx_cdn_report[7] = t; if (t > fzx_cdn_report[8]) fzx_cdn_report[8] = t;
-        if (k->count) { ++fzx_cdn_report[1]; fzx_cdn_report[2] = k->count; }
-        return k->count;
-    }
-    if (k->valid && timer <= 220 && timer > 40) {   /* which part of the key moved in the steady stretch (bit set: pos, up, fwd, height, camera, distance, view, panel) */
-        unsigned m = 0;
-        if (memcmp(now.pos, k->pos, sizeof(now.pos))) m |= 1u;
-        if (memcmp(now.up, k->up, sizeof(now.up))) m |= 2u;
-        if (memcmp(now.fwd, k->fwd, sizeof(now.fwd))) m |= 4u;
-        if (now.height != k->height) m |= 8u;
-        if (memcmp(now.camback, k->camback, sizeof(now.camback))) m |= 16u;
-        if (now.distance != k->distance) m |= 32u;
-        if (memcmp(&now.view, &k->view, sizeof(now.view))) m |= 64u;
-        if (now.phase.visible != k->phase.visible || now.phase.mouth_open != k->phase.mouth_open || now.phase.panel != k->phase.panel) m |= 128u;
-        fzx_cdn_report[19] |= m;
-    }
     memset(&s->state, 0, sizeof(s->state));
     s->state.timer = timer;
     uint32_t count = 0;
@@ -210,7 +171,6 @@ unsigned fzx_cdn_stage(const fzx_view_t *view, const fzx_engine_cam_t *cam, cons
         ++fzx_cdn_report[1]; fzx_cdn_report[2] = count;
         if (count > fzx_cdn_report[3]) fzx_cdn_report[3] = count;
     }
-    if (ok) { *k = now; k->count = count; } else k->valid = false;
     const uint32_t t = (uint16_t)(cpu_frt_count_get() - t0);
     fzx_cdn_report[7] = t; if (t > fzx_cdn_report[8]) fzx_cdn_report[8] = t;
     return count;

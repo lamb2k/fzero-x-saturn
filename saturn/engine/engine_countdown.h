@@ -21,7 +21,7 @@
  * [6] commands dropped for lack of list room (expected 0), [7] FRT ticks of the last build, [8] most FRT ticks of a build,
  * [9] texture bank VRAM address (19 bits), [10] texture bank bytes, [11] low RAM start, [12] low RAM end,
  * [13] frames with the timer in 1..460, [14] first timer drawn, [15] last timer drawn, [16] most FRT ticks the pose took,
- * [17] most FRT ticks the drawing took, [18] frames that reused the last build's commands. */
+ * [17] most FRT ticks the drawing took, [18], [19] spare. */
 extern volatile uint32_t fzx_cdn_report[20];
 
 /* Race load: the pack from the disc into low RAM (metadata and work, from LOW_BASE) and VDP1 VRAM (the texture bank just below CEILING,

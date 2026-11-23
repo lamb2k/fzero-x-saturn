@@ -110,6 +110,8 @@ void fzx_slave_road_start(const fzx_slave_road_args_t *args){
     cpu_dual_slave_notify();
 }
 
+bool fzx_slave_road_done(void){return job.done==job.seq;}
+
 bool fzx_slave_road_finish(const volatile uint32_t *video_fields,uint32_t *count){
     const uint32_t seq=job.seq,f0=*video_fields;
     const uint16_t w0=cpu_frt_count_get();

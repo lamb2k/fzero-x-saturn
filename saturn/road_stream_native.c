@@ -33,6 +33,20 @@ volatile uint32_t fzx_road_stream_budget_dropped,fzx_road_stream_budget_last,fzx
 static fzx_road_stream_pack_t pack;
 static fzx_road_stream_draw_work_t *work;
 static fzx_road_stream_command_t *packets;
+#if FZX_ROAD_STREAM_SPLIT
+#if FZX_ROAD_STREAM_PHASES
+#error FZX_ROAD_STREAM_SPLIT does not run with the phase diagnostic (its totals are the slave's alone)
+#endif
+#if !FZX_ROAD_LOD||!FZX_ROAD_STREAM_BUDGET||!FZX_ROAD_STREAM_EMIT||!FZX_ROAD_STREAM_NATIVE_LAYOUT
+#error FZX_ROAD_STREAM_SPLIT is built for the engine's draw (native layout, direct emit, budget guard, simplified far road)
+#endif
+/* Linked at 0x2xxxxxxx (libyaul .uncached): both CPUs read and write it. */
+static fzx_road_split_t split_rec __uncached;
+static fzx_road_thief_t thief;
+volatile uint32_t fzx_road_steal_report[8];
+/* The thief's scratch (a part of the road arena): 288 projected vertices, 160 commands with their Gouraud words. */
+enum {THIEF_VERTICES=288,THIEF_COMMANDS=160};
+#endif
 #ifndef FZX_ROAD_STREAM_EMIT
 #define FZX_ROAD_STREAM_EMIT 0
 #endif
@@ -182,6 +196,17 @@ bool fzx_road_stream_load(void *vram){
     if(!work->npos||!work->nquads||!work->nspans||!work->nchunks){work=NULL;return false;}
 #endif
     if(!work->remap||!work->positions||!work->projected||!work->images||!packets){work=NULL;return false;}
+#if FZX_ROAD_STREAM_SPLIT
+    /* The thief's scratch from the same arena; any missing piece leaves it disabled (no steal). */
+    memset(&thief,0,sizeof(thief));thief.seen_gen=0xffffffffu;
+    {   fzx_road_stream_hot_t *h=RESERVE_HOT(&at,1,sizeof(*h));
+        sh2z_view_vertex_t *pj=RESERVE_HOT(&at,THIEF_VERTICES,sizeof(*pj));
+        uint8_t *cm=RESERVE_HOT(&at,THIEF_COMMANDS,32u);
+        uint16_t *sh=RESERVE_HOT(&at,THIEF_COMMANDS,8u);
+        if(h&&pj&&cm&&sh){thief.hot=h;thief.proj=pj;thief.vcap=THIEF_VERTICES;thief.cmds=cm;thief.shades=sh;thief.ccap=THIEF_COMMANDS;}
+    }
+    work->split=NULL;split_rec.tag=0;split_rec.ready=0;split_rec.gen=0;split_rec.abort=0;split_rec.front=0;
+#endif
 #if FZX_ROAD_STREAM_CLUSTERS
     {   void *cl=reserve(&at,FZX_ROAD_CLUSTER_BYTES,1);
         if(!cl||!fzx_texture_cd_load("ROADCL.PAK",FZX_ROAD_CLUSTER_BYTES,FZX_ROAD_CLUSTER_FILE_HASH,cl,(void *)scratch,log-32u-scratch)||
@@ -313,9 +338,14 @@ static void line_start(vdp1_cmdt_t *commands,uint32_t n,const int16_t clip[4]){
     }
 }
 #endif
-bool fzx_road_stream_native(vdp1_cmdt_t *commands,unsigned capacity,const fzx_view_t *view,
+static bool native_run(bool split,vdp1_cmdt_t *commands,unsigned capacity,const fzx_view_t *view,
     const int32_t eye[3],const RefRoadPlan *plan,int32_t pa,int32_t pb,void *pixels,void *shades,uint32_t *count){
     if(count)*count=0;
+#if FZX_ROAD_STREAM_SPLIT
+    if(work)work->split=split&&split_rec.tag?&split_rec:NULL;
+#else
+    (void)split;
+#endif
     FZX_RSP(REPORT);
     fzx_road_stream_report[4]=0;fzx_road_stream_report[5]=0;fzx_road_stream_report[6]=0;
     if(!commands||capacity<2||!view||!eye||!plan||!count||fzx_road_stream_status!=1)return false;
@@ -392,3 +422,57 @@ bool fzx_road_stream_native(vdp1_cmdt_t *commands,unsigned capacity,const fzx_vi
 #endif
     fzx_road_stream_busy=0;return true;
 }
+bool fzx_road_stream_native(vdp1_cmdt_t *commands,unsigned capacity,const fzx_view_t *view,
+    const int32_t eye[3],const RefRoadPlan *plan,int32_t pa,int32_t pb,void *pixels,void *shades,uint32_t *count){
+    return native_run(true,commands,capacity,view,eye,plan,pa,pb,pixels,shades,count);
+}
+#if FZX_ROAD_STREAM_SPLIT
+/* The same build on the calling CPU with no claims: the slave must be idle (the frame is redone whole). The caller's
+ * cache may hold older copies of the work's tables: purged first. */
+bool fzx_road_stream_native_whole(vdp1_cmdt_t *commands,unsigned capacity,const fzx_view_t *view,
+    const int32_t eye[3],const RefRoadPlan *plan,int32_t pa,int32_t pb,void *pixels,void *shades,uint32_t *count){
+    if(work)cpu_cache_area_purge(work,sizeof(*work));
+    return native_run(false,commands,capacity,view,eye,plan,pa,pb,pixels,shades,count);
+}
+void fzx_road_stream_split_arm(uint32_t tag){
+    split_rec.abort=0;split_rec.tag=tag;
+}
+void fzx_road_stream_steal_run(const fzx_view_t *view,const int32_t eye[3],const RefRoadPlan *plan,void *pixels,void *shades,
+    vdp1_cmdt_t *commands,unsigned capacity,bool (*slave_done)(void)){
+    const uint32_t tag=split_rec.tag;
+    thief.first=REF_ROAD_GROUPS;thief.ngroups=0;thief.commands=0;thief.chunks=0;thief.fault=0;
+    if(!work||!thief.hot||!tag)return;
+    ++fzx_road_steal_report[0];
+    const uint16_t t0=cpu_frt_count_get();
+    /* The slave's setup (plan, fog, ramps) is published at split_rec.ready; a slave that ends first has nothing left to claim. */
+    while(split_rec.ready!=tag){if(slave_done())return;}
+    /* Stale lines: the plan (written by the slave's pick), the colour key, and the tables when it rebuilt them. */
+    cpu_cache_area_purge((void *)plan,sizeof(*plan));
+    if(thief.seen_gen!=split_rec.gen){
+        thief.seen_gen=split_rec.gen;
+        cpu_cache_area_purge(&work->fog,(size_t)((uintptr_t)(&work->mix_valid+1)-(uintptr_t)&work->fog));
+    } else cpu_cache_area_purge(work->ramp_key,sizeof(work->ramp_key));
+    sh2z_view_center_t center;fzx_road_stream_emit_t emit;
+    if(!fzx_view16_from_source_center(&center,view,eye)||
+       !fzx_road_stream_emit_setup(&emit,commands+1,capacity-1,pixels,CSEL(lod_tex_bytes,FZX_ROAD_LOD_TEXTURE_BYTES),
+          shades,FZX_ROAD_STREAM_SHADE_BYTES)){thief.fault=1;++fzx_road_steal_report[4];return;}
+    thief.shade_offset=emit.shade_offset;
+    emit.commands=(fzx_road_stream_vdp1_t *)(void *)thief.cmds;emit.shades=thief.shades;
+    if(!fzx_road_stream_steal(work,&center,plan,&emit,FZX_RS_COARSE,tag,&thief)){++fzx_road_steal_report[4];return;}
+    if(thief.ngroups){++fzx_road_steal_report[1];fzx_road_steal_report[2]+=thief.ngroups;fzx_road_steal_report[3]+=thief.commands;}
+    fzx_road_steal_report[5]+=(uint16_t)(cpu_frt_count_get()-t0);
+}
+bool fzx_road_stream_steal_merge_job(const RefRoadPlan *plan,vdp1_cmdt_t *commands,void *shades,uint32_t *count){
+    if(!thief.ngroups&&!thief.fault)return true;
+    const uint16_t t0=cpu_frt_count_get();
+    if(split_rec.abort){++fzx_road_steal_report[7];return true;} /* the slave drew the whole frame again: the thief's groups are dropped */
+    if(!count||!*count)return false;
+    /* The slave's stats are purged by its finish; the plan by the steal. */
+    uint32_t added=0;
+    const bool ok=fzx_road_stream_steal_merge(&thief,plan,fzx_road_stream_stats.chunks,*count-1u,
+        FZX_ROAD_STREAM_BUDGET_COMMANDS-1u,(fzx_road_stream_vdp1_t *)(void *)(commands+1),(uint16_t *)shades,thief.shade_offset,&added);
+    if(ok)*count+=added;else ++fzx_road_steal_report[4];
+    fzx_road_steal_report[6]+=(uint16_t)(cpu_frt_count_get()-t0);
+    return ok;
+}
+#endif

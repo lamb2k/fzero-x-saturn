@@ -30,6 +30,8 @@ extern volatile uint32_t fzx_slave_road_guard_trips,fzx_slave_road_guard_first_j
 void fzx_slave_road_init(void);
 /* Master: hand this frame's road to the slave (VDP1 must be idle). */
 void fzx_slave_road_start(const fzx_slave_road_args_t *args);
+/* Master: whether the slave's job (road, fills, clouds) is finished (the job record is uncached). */
+bool fzx_slave_road_done(void);
 /* Master: bounded wait; returns the slave's result and road count. The
  * slave's own road ticks go to fzx_slave_road_busy_*. video_fields is the
  * master's field counter. */

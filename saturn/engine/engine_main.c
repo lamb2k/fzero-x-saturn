@@ -99,7 +99,10 @@ volatile uint32_t fzx_e0_rsp_counts[FZX_RSPC_COUNTERS];
 /* and one record per frame row (diagnostic builds only, in the free high work
  * RAM): the 16 phase times (slave timer units, saturated), the 19 counters,
  * then quads, chunks, positions, culled, clipped, tiers 0..3 and commands. */
-enum { E0_PROW_ROWS = 4608u, E0_PROW_WORDS = 45u };
+#ifndef E0_PROW_ROWS
+#define E0_PROW_ROWS 4608u /* E4_PROW_ROWS (Makefile): fewer rows for a diagnostic image that has to fit the phase table beside a big course */
+#endif
+enum { E0_PROW_WORDS = 45u };
 uint16_t fzx_e0_prow[E0_PROW_ROWS][E0_PROW_WORDS];
 static void prow_fill(uint32_t index) {
     if (index >= E0_PROW_ROWS) return;
@@ -954,6 +957,18 @@ static void before_master(void) {
 #ifndef E0_QUEUE_STRESS
 #define E0_QUEUE_STRESS 0
 #endif
+#ifndef ENG_ROAD_STEAL
+#define ENG_ROAD_STEAL 0
+#endif
+#if ENG_ROAD_STEAL
+#if !ENG_BAL_CLOUDS
+#error ENG_ROAD_STEAL needs the balance (ENG_BAL_CLOUDS): its master ticks carry the steal
+#endif
+/* ENG_ROAD_STEAL: the master, once its own work is done, builds the track's last groups while the slave is still on the
+ * earlier ones (road_stream_native.h). The job as handed over is kept for the master's side. */
+static fzx_slave_road_args_t steal_job;
+static uint32_t steal_tag;
+#endif
 static void kick(const fzx_engine_cam_t *cam, uint32_t tick) {
     vdp1_cmdt_t *const commands = commands_buf;
     const fzx_engine_consts_t *k = &path.consts;
@@ -983,6 +998,11 @@ static void kick(const fzx_engine_cam_t *cam, uint32_t tick) {
 #if E0_QUEUE_STRESS
     (void)job; /* control: no track, so every frame fits one field */
 #else
+#if ENG_ROAD_STEAL
+    steal_job = job;
+    steal_tag = steal_tag + 1u < 0x7fffffffu ? steal_tag + 1u : 1u;
+    fzx_road_stream_split_arm(steal_tag);
+#endif
     fzx_slave_road_start(&job);
 #endif
 }
@@ -1249,6 +1269,16 @@ static void build(row_t *row, const fzx_engine_cam_t *cam, uint32_t tick, uint16
 #endif
 #endif
 
+#if ENG_ROAD_STEAL && !E0_QUEUE_STRESS
+    /* The master's work is done: build the track groups the slave has not reached (counted as master work). */
+    uint16_t steal_ticks;
+    {
+        const uint16_t st0 = cpu_frt_count_get();
+        fzx_road_stream_steal_run(steal_job.view, steal_job.eye, steal_job.plan, steal_job.pixels, steal_job.shades,
+                                  steal_job.commands, steal_job.capacity, fzx_slave_road_done);
+        steal_ticks = (uint16_t)(cpu_frt_count_get() - st0);
+    }
+#endif
     const uint16_t t1 = cpu_frt_count_get();
 #if E0_QUEUE_STRESS
     road_count = 0;
@@ -1257,6 +1287,19 @@ static void build(row_t *row, const fzx_engine_cam_t *cam, uint32_t tick, uint16
         fail(27, "TRACK", fzx_road_stream_stats.fault * 100u + fzx_slave_road_status);
 #endif
     row->wait_road_ticks = (uint16_t)(cpu_frt_count_get() - t1);
+#if ENG_ROAD_STEAL && !E0_QUEUE_STRESS
+    {   /* The slave is done: append the groups the master built, or redo the frame whole (never expected). */
+        const uint16_t m0 = cpu_frt_count_get();
+        if (!fzx_road_stream_steal_merge_job(steal_job.plan, steal_job.commands, steal_job.shades, &road_count)) {
+            uint32_t whole = 0;
+            if (!fzx_road_stream_native_whole(steal_job.commands, steal_job.capacity, steal_job.view, steal_job.eye, steal_job.plan,
+                                              steal_job.pa, steal_job.pb, steal_job.pixels, steal_job.shades, &whole))
+                fail(27, "TRACK", fzx_road_stream_stats.fault * 100u + 90u);
+            road_count = whole;
+        }
+        steal_ticks = (uint16_t)(steal_ticks + (uint16_t)(cpu_frt_count_get() - m0));
+    }
+#endif
 #if E0_ROAD_HASH
     /* Verification builds only: FNV over this frame's road commands (the user clip first) and Gouraud words, per frame row. */
     if (row >= rows && (uint32_t)(row - rows) < row_capacity && (uint32_t)(row - rows) < 4608u) {
@@ -1334,6 +1377,9 @@ static void build(row_t *row, const fzx_engine_cam_t *cam, uint32_t tick, uint16
 #endif
         fzx_clouds_commit();
         row->master_ticks = (uint16_t)(bal_pre + (uint16_t)(cpu_frt_count_get() - b0)); /* bal_pre covers the thief's ticks */
+#if ENG_ROAD_STEAL && !E0_QUEUE_STRESS
+        row->master_ticks = (uint16_t)(row->master_ticks + steal_ticks); /* the track groups the master built */
+#endif
     }
 #endif
 #if FZX_ROAD_STREAM_PHASES

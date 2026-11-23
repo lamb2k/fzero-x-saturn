@@ -211,11 +211,17 @@ static FZX_RS_COLD void fog_rebuild(fzx_road_stream_draw_work_t *w,const sh2z_vi
      * thresholds, shade-2 prepares them for the fused per-piece kernel. */
     const int32_t fm=128000/(1000-plan->fog_start),fo=(500-plan->fog_start)*256/(1000-plan->fog_start);
     w->fogp_ok=false;
+#if FZX_ROAD_STREAM_SPLIT
+    if(w->split)++w->split->gen;
+#endif
     if(!sh2z_shade_fog_build(&w->fog,fm,fo,pa,pb,view->far_z)){w->fog_valid=false;stats->fog_error=1;return;}
     w->fogp_ok=sh2z_shade_fogp_prepare(&w->fogp,&w->fog);
     w->fog_pa=pa;w->fog_pb=pb;w->fog_start=plan->fog_start;
     w->fog_near=view->near_z;w->fog_far=view->far_z;w->fog_valid=true;
     stats->fog_updates=1;
+#if FZX_ROAD_STREAM_SPLIT
+    if(w->split)++w->split->gen;
+#endif
 }
 static void fog_prepare(fzx_road_stream_draw_work_t *w,const sh2z_view_t *view,
     const RefRoadPlan *plan,int32_t pa,int32_t pb,fzx_road_stream_draw_stats_t *stats){
@@ -245,12 +251,14 @@ static void ramp_prepare(fzx_road_stream_draw_work_t *w,const RefRoadPlan *plan)
     if(w->ramp_valid&&!memcmp(key,w->ramp_key,6))return;
     static const uint8_t level[3]={0,128,255};
     /* Live and base fog colours in RGB5 (<= 31), so the ramp always builds. */
+#if FZX_ROAD_STREAM_SPLIT
+    if(w->split)++w->split->gen;
+#endif
     w->ramp_valid=sh2z_shade_ramp_offset(&w->ramp_offset,key,key+3,level,ramp_threshold);
     memcpy(w->ramp_key,key,6);
-}
-static FZX_RS_COLD bool mix_prepare(fzx_road_stream_draw_work_t *w){
-    w->mix_valid=sh2z_shade_ramp_mix(&w->ramp_mix,w->ramp_key+6,w->ramp_key+9,ramp_threshold);
-    return w->mix_valid;
+#if FZX_ROAD_STREAM_SPLIT
+    if(w->split)++w->split->gen;
+#endif
 }
 typedef struct {
     fzx_road_stream_draw_work_t *work;const RefRoadPlan *plan;sh2z_view_center_t view;
@@ -259,6 +267,9 @@ typedef struct {
     fzx_road_stream_draw_stats_t *stats;
     const fzx_road_stream_emit_t *emit;   /* direct VDP1 target, or NULL for packets */
     fzx_road_stream_hot_t *hot;
+    /* This build's projected vertices and the MIX ramp it builds on first use: the work's, or the thief's own. */
+    sh2z_view_vertex_t *proj;uint32_t vcap;
+    sh2z_shade_ramp_t *mix;bool *mix_ok;
 #if FZX_ROAD_STREAM_BUDGET
     /* Budget guard (draw_*_budget only): drop the first skip commands, in
      * emission order (far first), and with over non-NULL count commands past
@@ -281,6 +292,10 @@ typedef struct {
     uint32_t live;             /* the current chunk's classes that may draw */
 #endif
 } draw_t;
+static FZX_RS_COLD bool mix_prepare(draw_t *d){
+    const fzx_road_stream_draw_work_t *w=d->work;
+    return *d->mix_ok=sh2z_shade_ramp_mix(d->mix,w->ramp_key+6,w->ramp_key+9,ramp_threshold);
+}
 /* One more command from the current piece: false to drop it, or a capacity
  * fault. Default draws have skip 0 and no over counter. */
 #if FZX_ROAD_STREAM_BUDGET
@@ -491,7 +506,7 @@ static bool piece(draw_t *d,const vref_t v[4],unsigned quad,unsigned piece_id,
     /* SH2ZAM shade-2: fade and 5:5:5 colour of every corner in one call; the
      * return is the colour variant ([mean fade >= 64] + [mean fade >= 192]). */
     int variant;
-    if(solid&&!w->mix_valid&&!mix_prepare(w))return fail(d,FZX_RS_INVALID);
+    if(solid&&!*d->mix_ok&&!mix_prepare(d))return fail(d,FZX_RS_INVALID);
 #if FZX_ROAD_STREAM_FOG_EARLY
     /* FZX_ROAD_STREAM_FOG_EARLY (default 0): when every corner's fade is 0
      * (z below the first fog threshold), each corner gets the same word and
@@ -505,7 +520,7 @@ static bool piece(draw_t *d,const vref_t v[4],unsigned quad,unsigned piece_id,
     if(early){
         if(!d->fog0_valid[slot]){
             const int v=sh2z_shade_fog_gouraud_refs(&d->fog0_word[slot],(const void *const *)corners,
-                offsetof(sh2z_view_vertex_t,z),1,&w->fogp,solid?&w->ramp_mix:&w->ramp_offset,w->images[base_image].mean);
+                offsetof(sh2z_view_vertex_t,z),1,&w->fogp,solid?d->mix:&w->ramp_offset,w->images[base_image].mean);
             if(v<0)return fail(d,FZX_RS_INVALID);
             d->fog0_variant[slot]=(int8_t)v;d->fog0_valid[slot]=1;}
         for(unsigned i=0;i<count;++i)shades[i]=d->fog0_word[slot];
@@ -513,7 +528,7 @@ static bool piece(draw_t *d,const vref_t v[4],unsigned quad,unsigned piece_id,
     } else
 #endif
     if(w->fogp_ok)variant=sh2z_shade_fog_gouraud_refs(shades,(const void *const *)corners,
-        offsetof(sh2z_view_vertex_t,z),count,&w->fogp,solid?&w->ramp_mix:&w->ramp_offset,
+        offsetof(sh2z_view_vertex_t,z),count,&w->fogp,solid?d->mix:&w->ramp_offset,
         w->images[base_image].mean);
     else variant=fallback_shades(d,shades,corners,count,base_image,solid);
     if(variant<0)return fail(d,FZX_RS_INVALID);
@@ -801,15 +816,16 @@ static bool project_run(draw_t *d,run_t *r,unsigned first,unsigned last){
     fzx_road_stream_draw_work_t *w=d->work;
     const uint32_t from=w->nchunks[first].vertex_first,to=w->nchunks[last].vertex_end,used=d->stats->positions;
     r->first=first;r->last=last;r->offset=(int32_t)used-(int32_t)from;
-    if(to<from||to-from>w->vertex_capacity-used)return fail(d,FZX_RS_GATHER);
-    if(to>from&&!sh2z_view_batch_center_divu(w->projected+used,&d->view,w->npos+from,sizeof(*w->npos),to-from))
+    if(to<from||to-from>d->vcap-used)return fail(d,FZX_RS_GATHER);
+    if(to>from&&!sh2z_view_batch_center_divu(d->proj+used,&d->view,w->npos+from,sizeof(*w->npos),to-from))
         return fail(d,FZX_RS_PROJECT);
     d->stats->positions=used+(to-from);return true;
 }
-static bool native_frame(draw_t *d){
+/* One group of the plan: its chunk runs are projected, then its chunks visited in the source order. */
+static bool native_group(draw_t *d,unsigned g){
     fzx_road_stream_draw_work_t *w=d->work;const RefRoadPlan *plan=d->plan;
-    const unsigned chunks=w->pack->count[FZX_RLD_CHUNKS];uint32_t visited_total=0;
-    for(unsigned g=0;g<plan->count;++g){const RefRoadGroup *group=plan->groups+g;
+    const unsigned chunks=w->pack->count[FZX_RLD_CHUNKS];
+    {const RefRoadGroup *group=plan->groups+g;
         const unsigned start=(unsigned)group->start,end=(unsigned)group->end;
         if(start>=chunks||end>=chunks||(group->direction!=1&&group->direction!=-1))
             return fail(d,FZX_RS_GATHER);
@@ -820,10 +836,10 @@ static bool native_frame(draw_t *d){
             if(end&&!project_run(d,runs+1,0,end-1))return false;}
         FZX_RSP(QFETCH);
         unsigned index=group->direction==1?(end?end-1:chunks-1):start,visited=0;
-        do {if(visited++==chunks)return fail(d,FZX_RS_INVALID);++d->stats->chunks;++visited_total;
+        do {if(visited++==chunks)return fail(d,FZX_RS_INVALID);++d->stats->chunks;
             const fzx_road_stream_nchunk_t *c=w->nchunks+index;
             const run_t *r=index>=runs[0].first&&index<=runs[0].last?runs:runs+1;
-            const sh2z_view_vertex_t *base=w->projected+(r->offset+(int32_t)c->vertex_first);
+            const sh2z_view_vertex_t *base=d->proj+(r->offset+(int32_t)c->vertex_first);
 #if FZX_ROAD_STREAM_CLUSTERS
             if(w->clusters){const uint8_t *e=w->clusters->chunks+index*2u;
                 const uint32_t first=(uint32_t)e[0]<<8|e[1],count=((uint32_t)e[2]<<8|e[3])-first;
@@ -853,7 +869,29 @@ static bool native_frame(draw_t *d){
             else {index=index+1<chunks?index+1:0;if(index==end)break;}
         }while(true);
     }
-    if(visited_total!=plan->visible_chunks)return fail(d,FZX_RS_GATHER);
+    return true;
+}
+static bool native_frame(draw_t *d){
+    const RefRoadPlan *plan=d->plan;
+#if FZX_ROAD_STREAM_SPLIT
+    fzx_road_split_t *const s=d->work->split;
+    if(s){
+        /* Split build: publish the setup, then claim the groups in order until the thief has the rest. */
+        const uint32_t tag=s->tag;
+        s->front=0;
+        __asm__ volatile("":::"memory");
+        s->ready=tag;
+        for(unsigned g=0;g<plan->count;++g){
+            s->front=g;
+            if(!sh2z_claim_b(&s->claim[g],tag))break;
+            if(!native_group(d,g))return false;
+        }
+        s->front=REF_ROAD_GROUPS;
+        return true; /* the visited chunks are counted with the thief's at the merge */
+    }
+#endif
+    for(unsigned g=0;g<plan->count;++g)if(!native_group(d,g))return false;
+    if(d->stats->chunks!=plan->visible_chunks)return fail(d,FZX_RS_GATHER);
     return true;
 }
 /* view is the centre view (inclusive clip), from the source view and a
@@ -874,7 +912,7 @@ static bool draw_any(fzx_road_stream_draw_work_t *w,const sh2z_view_center_t *vi
        plan->count>REF_ROAD_GROUPS||plan->outer>1||plan->fog_start<0||plan->fog_start>996||pb>0||
        view->view.clip[0]<-900||view->view.clip[1]<-900||view->view.clip[2]>900||view->view.clip[3]>900)return false;
     draw_t d={.work=w,.plan=plan,.view=*view,.commands=commands,.capacity=capacity,.flags=flags,.stats=stats,.emit=emit,
-        .hot=w->hot?w->hot:&w->local
+        .hot=w->hot?w->hot:&w->local,.proj=w->projected,.vcap=w->vertex_capacity,.mix=&w->ramp_mix,.mix_ok=&w->mix_valid
 #if FZX_ROAD_STREAM_BUDGET
         ,.skip=skip,.dropped=0,.over=over
 #endif
@@ -1042,6 +1080,9 @@ static bool guarded(fzx_road_stream_draw_work_t *w,const sh2z_view_center_t *vie
     if(!draw_any(w,view,plan,pa,pb,flags|FZX_RS_COARSE,commands,emit,budget,count,stats,0,&over,NULL))return false;
     info->full=*count+over;
     if(!over)return true;
+#if FZX_ROAD_STREAM_SPLIT
+    if(w->split){w->split->abort=1;w->split=NULL;} /* the drop pass builds the whole frame alone; the thief's groups are discarded */
+#endif
 #if FZX_ROAD_LOD
     info->passes=2;
 #else
@@ -1071,4 +1112,76 @@ bool fzx_road_stream_draw_guarded(fzx_road_stream_draw_work_t *w,const sh2z_view
     return guarded(w,view,plan,pa,pb,flags,commands,NULL,budget,count,info,stats);
 }
 #endif
+#endif
+
+#if FZX_ROAD_STREAM_SPLIT
+#ifndef FZX_ROAD_STREAM_STEAL_GAP
+#define FZX_ROAD_STREAM_STEAL_GAP 2
+#endif
+bool fzx_road_stream_steal(const fzx_road_stream_draw_work_t *cw,const sh2z_view_center_t *view,const RefRoadPlan *plan,
+    const fzx_road_stream_emit_t *emit,unsigned flags,uint32_t tag,fzx_road_thief_t *t){
+    fzx_road_stream_draw_work_t *w=(fzx_road_stream_draw_work_t *)(void *)cw;
+    fzx_road_split_t *const s=w->split;
+    t->first=plan->count;t->ngroups=0;t->commands=0;t->chunks=0;t->fault=0;
+    if(!s||s->ready!=tag||!t->hot||!t->proj||!t->vcap||!t->cmds||!t->shades||!t->ccap||!emit||plan->faults||plan->count>REF_ROAD_GROUPS||
+       !w->native||!w->fog_valid||!w->ramp_valid)return true;
+    fzx_road_stream_draw_stats_t st={0};
+    t->mix_ok=false;
+    draw_t d={.work=w,.plan=plan,.view=*view,.commands=NULL,.capacity=t->ccap,.flags=flags,.stats=&st,.emit=emit,
+        .hot=t->hot,.proj=t->proj,.vcap=t->vcap,.mix=&t->mix,.mix_ok=&t->mix_ok
+#if FZX_ROAD_STREAM_BUDGET
+        ,.skip=0,.dropped=0,.over=NULL
+#endif
+        };
+#if FZX_ROAD_STREAM_GUARD_MARGIN
+    {   const int32_t m=FZX_ROAD_STREAM_GUARD_MARGIN;
+        const int32_t g[4]={view->view.clip[0]-m,view->view.clip[1]-m,view->view.clip[2]+m,view->view.clip[3]+m};
+        for(unsigned i=0;i<4;++i)rs_guard[i]=(int16_t)(g[i]<-900?-900:g[i]>900?900:g[i]);
+    }
+#endif
+    if(!sh2z_view_rails_prepare(&d.rails,&d.view)){t->fault=1;return false;}
+#if FZX_ROAD_STREAM_FOG_EARLY
+    memset(d.fog0_valid,0,sizeof(d.fog0_valid));
+    d.fog0=w->fog.depth[1]>(uint32_t)INT32_MAX?INT32_MAX:(int32_t)w->fog.depth[1];
+#endif
+    unsigned g=plan->count;
+    while(g>0){
+        const unsigned cand=g-1;
+        if(cand<s->front+FZX_ROAD_STREAM_STEAL_GAP)break;
+        if(!sh2z_claim_a(&s->claim[cand],tag))break;
+        const uint32_t c0=st.commands;
+        if(!native_group(&d,cand)){t->fault=st.fault?st.fault:1;t->first=g;t->ngroups=plan->count-cand;return false;}
+        t->seg_start[cand]=c0;t->seg_count[cand]=st.commands-c0;
+        g=cand;
+    }
+    t->first=g;t->ngroups=plan->count-g;t->commands=st.commands;t->chunks=st.chunks;
+    return true;
+}
+typedef uint32_t __attribute__((may_alias)) u32m;
+bool fzx_road_stream_steal_merge(const fzx_road_thief_t *t,const RefRoadPlan *plan,uint32_t slave_chunks,uint32_t n,uint32_t limit,
+    fzx_road_stream_vdp1_t *dest,uint16_t *dest_shades,uint32_t shade_offset,uint32_t *added){
+    *added=0;
+    if(t->fault)return false;
+    if(!t->ngroups)return true;
+    if(slave_chunks+t->chunks!=plan->visible_chunks||n+t->commands>limit||
+       (uint64_t)shade_offset+(uint64_t)(n+t->commands)*8u>0x80000u)return false;
+    uint32_t at=n;
+    for(unsigned g=t->first;g<plan->count;++g){
+        const uint32_t cnt=t->seg_count[g],from=t->seg_start[g];
+        const uint32_t add=(uint32_t)((int32_t)at-(int32_t)from)<<16;
+        const u32m *src=(const u32m *)(const void *)(t->cmds+from*32u);
+        u32m *dst=(u32m *)(void *)(dest+at);
+        for(uint32_t i=0;i<cnt;++i){
+            dst[0]=src[0];dst[1]=src[1];dst[2]=src[2];dst[3]=src[3];dst[4]=src[4];dst[5]=src[5];dst[6]=src[6];
+            dst[7]=src[7]+add; /* CMDGRDA (high half): its place in the table moves from the thief's numbering to the list's */
+            src+=8;dst+=8;
+        }
+        const u32m *gs=(const u32m *)(const void *)(t->shades+from*4u);
+        u32m *gd=(u32m *)(void *)(dest_shades+at*4u);
+        for(uint32_t i=0;i<cnt*2u;++i)gd[i]=gs[i];
+        at+=cnt;
+    }
+    *added=at-n;
+    return true;
+}
 #endif

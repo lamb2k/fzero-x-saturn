@@ -32,4 +32,22 @@ void fzx_road_stream_clut_touch(void);
 #endif
 bool fzx_road_stream_native(vdp1_cmdt_t *,unsigned,const fzx_view_t *,const int32_t eye[3],
     const RefRoadPlan *,int32_t,int32_t,void *,void *,uint32_t *);
+#if FZX_ROAD_STREAM_SPLIT
+/* Two-CPU road build (ENG_ROAD_STEAL): the slave claims the plan's groups from the first, the master from the last
+ * (fzx_road_stream_steal in fzx_road_stream_draw.c). The master calls, in order:
+ *   arm(tag)       before the slave is started: a new nonzero tag below 2^31 for every frame;
+ *   steal_run(...) when its own work is done and before it waits for the slave: builds the groups it can claim;
+ *   merge_job(...) after the slave's job is finished: appends them after the slave's; false = redo the frame whole
+ *                  (fzx_road_stream_native_whole) with the slave idle.
+ * fzx_road_steal_report: [0] frames tried, [1] frames that stole, [2] groups stolen, [3] commands stolen, [4] faults and
+ * merge refusals (frames redone whole), [5] master ticks in steal_run (sum), [6] in merge_job (sum), [7] frames the slave
+ * drew again whole (over budget). */
+extern volatile uint32_t fzx_road_steal_report[8];
+void fzx_road_stream_split_arm(uint32_t tag);
+void fzx_road_stream_steal_run(const fzx_view_t *view,const int32_t eye[3],const RefRoadPlan *plan,void *pixels,void *shades,
+    vdp1_cmdt_t *commands,unsigned capacity,bool (*slave_done)(void));
+bool fzx_road_stream_steal_merge_job(const RefRoadPlan *plan,vdp1_cmdt_t *commands,void *shades,uint32_t *count);
+bool fzx_road_stream_native_whole(vdp1_cmdt_t *,unsigned,const fzx_view_t *,const int32_t eye[3],
+    const RefRoadPlan *,int32_t,int32_t,void *,void *,uint32_t *);
+#endif
 #endif

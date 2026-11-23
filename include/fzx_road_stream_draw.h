@@ -93,6 +93,38 @@ typedef struct {
     uint8_t runs[64];
 } fzx_road_stream_hot_t;
 
+#ifndef FZX_ROAD_STREAM_SPLIT
+#define FZX_ROAD_STREAM_SPLIT 0
+#endif
+#if FZX_ROAD_STREAM_SPLIT
+#include "sh2zam/dual_claim_experimental.h"
+/* FZX_ROAD_STREAM_SPLIT (the engine's ENG_ROAD_STEAL): the build's groups are claimed one by one, the slave from the
+ * first group on and the other CPU (the thief) from the last backward, each claim an SH2ZAM dual-claim-1 job tagged
+ * with the frame; whichever side loses a group's claim stops. The thief builds into its own scratch (fzx_road_thief_t)
+ * and the owner of the list merges its groups after the slave's, so the commands and Gouraud words equal the single-CPU
+ * build's. The record lives in the uncached section (both CPUs read and write it). */
+typedef struct {
+    sh2z_claim_t claim[REF_ROAD_GROUPS];
+    volatile uint32_t ready; /* the slave: the tag of the frame whose plan, fog and ramps it has published */
+    volatile uint32_t front; /* the slave: the group it is about to claim or has claimed last */
+    volatile uint32_t tag;   /* the master: this frame's tag (set before the slave is started) */
+    volatile uint32_t gen;   /* the slave: bumped when it rebuilds the fog tables or the colour ramps (the thief's cached copies go stale) */
+    volatile uint32_t abort; /* the slave: the frame was drawn again whole (over budget): the thief's groups are not to be merged */
+} fzx_road_split_t;
+/* The thief's scratch and result. Caller binds the pointers and capacities, then zeroes ngroups. */
+typedef struct {
+    fzx_road_stream_hot_t *hot;
+    sh2z_view_vertex_t *proj; uint32_t vcap;
+    uint8_t *cmds; uint16_t *shades; uint32_t ccap;       /* final-format commands (32 B) and Gouraud words (8 B) per command */
+    uint32_t seg_start[REF_ROAD_GROUPS],seg_count[REF_ROAD_GROUPS];
+    uint32_t first,ngroups,commands,chunks;               /* it owns groups first .. plan->count-1; its commands and chunks */
+    uint32_t fault;                                       /* nonzero: its build failed, the caller must redo the frame whole */
+    uint32_t shade_offset;                                /* its emit target's VRAM offset of shades[0] (for the merge) */
+    sh2z_shade_ramp_t mix; bool mix_ok;                   /* its own MIX ramp (the work's is the slave's) */
+    uint32_t seen_gen;                                    /* the split record's gen its cache was last purged for */
+} fzx_road_thief_t;
+#endif
+
 /* Caller owns all storage, disjoint from immutable packs and output commands.
  * Zero work initially, then bind the pointers/capacities before prepare().
  * Images need pack.count[IMAGES] entries; remap needs pack.count[VERTICES].
@@ -128,6 +160,9 @@ typedef struct {
     fzx_road_stream_nspan_t *nspans;
     fzx_road_stream_nchunk_t *nchunks;
     uint32_t npos_capacity,npos_count;
+#if FZX_ROAD_STREAM_SPLIT
+    fzx_road_split_t *split; /* non-NULL: this build claims its groups (the slave's); the thief reads the rest of the work only */
+#endif
     bool native;
     uint16_t nunit[256];
 #if FZX_ROAD_STREAM_CLUSTERS
@@ -222,5 +257,18 @@ bool fzx_road_stream_draw_guarded(fzx_road_stream_draw_work_t *,const sh2z_view_
 /* SH2ZAM view-camera-1 centre view of the source camera (basis, Q20.12 eye,
  * fov), with the centre, depth planes and clip of the source view. */
 bool fzx_road_stream_camera_view(sh2z_view_center_t *,const RefCamera *,const fzx_view_t *);
+#endif
+#if FZX_ROAD_STREAM_SPLIT
+/* The thief (the other CPU): after the slave has published its setup (split->ready == tag), claim groups from the last
+ * backward while the slave is at least 2 groups behind, build them into t (final-format commands numbered from 0, Gouraud
+ * words in RAM), and stop at the first lost claim. Reads the work, plan and pack only. view is the centre view the slave
+ * drew with, emit a target whose shade_offset is the slave's. On a fault t->fault is set. */
+bool fzx_road_stream_steal(const fzx_road_stream_draw_work_t *,const sh2z_view_center_t *,const RefRoadPlan *,
+    const fzx_road_stream_emit_t *,unsigned flags,uint32_t tag,fzx_road_thief_t *);
+/* After the slave's job is finished: append the thief's groups after the slave's n commands (dest: its first command,
+ * dest_shades: the Gouraud table in VDP1 VRAM), numbering them on. Fails (nothing usable) when the chunk counts do not add
+ * up to the plan's or the total passes limit. *added is the commands appended. */
+bool fzx_road_stream_steal_merge(const fzx_road_thief_t *,const RefRoadPlan *,uint32_t slave_chunks,uint32_t n,uint32_t limit,
+    fzx_road_stream_vdp1_t *dest,uint16_t *dest_shades,uint32_t shade_offset,uint32_t *added);
 #endif
 #endif

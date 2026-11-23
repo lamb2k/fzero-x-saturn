@@ -42,7 +42,8 @@ bool fzx_road_stream_native(vdp1_cmdt_t *,unsigned,const fzx_view_t *,const int3
  * fzx_road_steal_report: [0] frames tried, [1] frames that stole, [2] groups stolen, [3] commands stolen, [4] faults and
  * merge refusals (frames redone whole), [5] master ticks in steal_run (sum), [6] in merge_job (sum), [7] frames the slave
  * drew again whole (over budget). */
-extern volatile uint32_t fzx_road_steal_report[8];
+extern volatile uint32_t fzx_road_steal_report[16];
+/* [8] units left behind the slave's current one when the master arrives (sum), [9] frames with any, [10] most, [11] units (sum). */
 void fzx_road_stream_split_arm(uint32_t tag);
 void fzx_road_stream_steal_run(const fzx_view_t *view,const int32_t eye[3],const RefRoadPlan *plan,void *pixels,void *shades,
     vdp1_cmdt_t *commands,unsigned capacity,bool (*slave_done)(void));

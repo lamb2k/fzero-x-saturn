@@ -43,7 +43,7 @@ static fzx_road_stream_command_t *packets;
 /* Linked at 0x2xxxxxxx (libyaul .uncached): both CPUs read and write it. */
 static fzx_road_split_t split_rec __uncached;
 static fzx_road_thief_t thief;
-volatile uint32_t fzx_road_steal_report[8];
+volatile uint32_t fzx_road_steal_report[16];
 /* The thief's scratch (a part of the road arena): 288 projected vertices, 160 commands with their Gouraud words. */
 enum {THIEF_VERTICES=288,THIEF_COMMANDS=160};
 #endif
@@ -446,6 +446,11 @@ void fzx_road_stream_steal_run(const fzx_view_t *view,const int32_t eye[3],const
     const uint16_t t0=cpu_frt_count_get();
     /* The slave's setup (plan, fog, ramps) is published at split_rec.ready; a slave that ends first has nothing left to claim. */
     while(split_rec.ready!=tag){if(slave_done()||(uint16_t)(cpu_frt_count_get()-t0)>50000u)return;} /* bounded: the finish has its own timeout */
+    {   /* Diagnostic: how many units the slave has left when the master arrives. */
+        const uint32_t f=split_rec.front,u=split_rec.units,left=f<u?u-f-1u:0u;
+        fzx_road_steal_report[8]+=left;if(left)++fzx_road_steal_report[9];if(left>fzx_road_steal_report[10])fzx_road_steal_report[10]=left;
+        fzx_road_steal_report[11]+=u;
+    }
     /* Stale lines: the plan (written by the slave's pick), the colour key, and the tables when it rebuilt them. */
     cpu_cache_area_purge((void *)plan,sizeof(*plan));
     if(thief.seen_gen!=split_rec.gen){

@@ -880,16 +880,17 @@ static bool units_build(fzx_road_split_t *s,const RefRoadPlan *plan,unsigned chu
         const unsigned start=(unsigned)group->start,end=(unsigned)group->end;
         if(start>=chunks||end>=chunks||(group->direction!=1&&group->direction!=-1))return false;
         const unsigned length=start<end?end-start:chunks-start+end;
-        unsigned k=0;
+        unsigned idx=group->direction==1?(end?end-1:chunks-1):start,k=0;
         while(k<length){
-            const unsigned idx=group->direction==1?(unsigned)(((int)(end?end-1:chunks-1)-(int)k+(int)chunks)%(int)chunks):(start+k)%chunks;
-            unsigned n=1;
+            /* idx is the visit k's chunk; a unit takes visits while the index keeps stepping the same way (no wrap). */
+            unsigned n=1,at=idx;
             while(n<FZX_ROAD_SPLIT_UNIT_CHUNKS&&k+n<length){
-                const unsigned nx=group->direction==1?(idx+chunks-n)%chunks:(idx+n)%chunks; /* the next visit */
-                if(group->direction==1?(nx>idx):(nx<idx))break; /* crossed the wrap */
+                if(group->direction==1){if(at==0)break;--at;}else{if(at+1>=chunks)break;++at;}
                 ++n;}
             if(u>=FZX_ROAD_SPLIT_UNITS)return false;
             s->ugroup[u]=(uint8_t)g;s->ufirst[u]=(uint8_t)k;s->ucount[u]=(uint8_t)n;++u;k+=n;
+            if(k<length){ /* the first visit of the next unit: one step past this unit's last, wrapping */
+                if(group->direction==1)idx=at?at-1:chunks-1;else idx=at+1<chunks?at+1:0;}
         }
     }
     s->units=u;return true;
@@ -900,7 +901,9 @@ static bool native_unit(draw_t *d,const fzx_road_split_t *s,unsigned u){
     const RefRoadGroup *group=d->plan->groups+s->ugroup[u];
     const unsigned chunks=w->pack->count[FZX_RLD_CHUNKS],start=(unsigned)group->start,end=(unsigned)group->end;
     const unsigned k0=s->ufirst[u],n=s->ucount[u];
-    const unsigned first=group->direction==1?(unsigned)(((int)(end?end-1:chunks-1)-(int)k0+(int)chunks)%(int)chunks):(start+k0)%chunks;
+    int fi=group->direction==1?(int)(end?end-1:chunks-1)-(int)k0:(int)start+(int)k0; /* the unit's first visit; one wrap at most */
+    if(fi<0)fi+=(int)chunks;else if(fi>=(int)chunks)fi-=(int)chunks;
+    const unsigned first=(unsigned)fi;
     const unsigned last=group->direction==1?first-(n-1):first+(n-1);
     const unsigned lo=group->direction==1?last:first,hi=group->direction==1?first:last;
     run_t run={0,0,0};

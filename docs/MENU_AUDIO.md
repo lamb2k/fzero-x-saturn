@@ -107,3 +107,20 @@ was not quiet.
 
 Boot: `engine_snd_menu_load` after `title_cache`. Title enter: music 14; Start: effect 62. Mode, select enter: music 15.
 Select: cursor moves 30, balance tenth 22, accept 62 then 33, refused accept 32, back 16.
+
+## Race-side countdown sounds (scope addition from the countdown lane; costed, not built)
+
+Read from the decomp (racer.c 8085-8150) and the sound font, no sound data shown here:
+- NA_SE_47 (intro timer 220), NA_SE_9 (160), NA_SE_10 (100): system effects on channel 1, one note each of instruments 28, 29, 30. Those
+  three clips are already in the race clip pack (`one_shot inst 28 / 29 / 30`), so the sound-RAM cost is 0.
+- NA_SE_11 (timer 40, the go cue): instrument 31 (also already packed, a looping clip, 2 notes). It needs a gated loop like NA_SE_32
+  (about 30 fields) and also arms the original's engine-sound state; the engine already starts its engine voices at race frame 8.
+- Cost of adding them: `tools/sfx_pack.py` EVENTS gains four rows (generator hash changes: every stage's `generated/snd` must be
+  regenerated with the ROM, and every race image's BIN changes), `ev_clip`/`ev_level` grow by about 250 B of high work RAM (the
+  master-stack headroom is 23.4 KB on the lowest course rows after this lane, floor 20.5 KB), and `engine_snd_tick` posts them when
+  `body->intro` equals 220, 160, 100, 40 (not paused). No change to race timing: the events go through the existing epoch queue and
+  deliver at the next present.
+- The demo fanfare (BGM_DEMO, music id 28, played at intro timer 460 by Audio_StartDemo) is not on the disc: `bgm_cdda.py` renders
+  music ids 0 to 24 only. It needs a new CD track (about 8 s) in `disc_cdda.py`'s manifest, so every music receipt and the disc layout
+  change. Today the engine starts the course music at race frame 8; the original plays the fanfare through the countdown and starts the
+  course music at timer 1. Deciding the music start belongs with that track.

@@ -487,12 +487,13 @@
   {
    "name": "ctl-margin",
    "check": "margin",
-   "how": "field image with the balance off (ENG_BAL_CLOUDS=0 ENG_BAL_EARLY=0 ENG_BAL_PREWARM=0)",
+   "how": "field image with the balance off and the physics look-ahead off (ENG_BAL_CLOUDS=0 ENG_BAL_EARLY=0 ENG_BAL_PREWARM=0 ENG_PHYS_AHEAD=0)",
    "image": "field",
    "vars": [
     "ENG_BAL_CLOUDS=0",
     "ENG_BAL_EARLY=0",
-    "ENG_BAL_PREWARM=0"
+    "ENG_BAL_PREWARM=0",
+    "ENG_PHYS_AHEAD=0"
    ],
    "kind": "race",
    "course": "mute-city-1"

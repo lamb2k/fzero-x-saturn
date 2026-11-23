@@ -34,6 +34,7 @@ DEF_RECEIPTS = local('FZX_GATE_RECEIPTS', 'receipts', EV_ROOT / 'host' / 'gate-r
 DEF_HARNESS = local('FZX_GATE_HARNESS', 'harness', HARNESS_DIR / 'ymir-gate.exe')
 DEF_BIOS = local('FZX_GATE_BIOS', 'bios', HARNESS_DIR / 'bios.bin')
 DEF_SH2ZAM = local('FZX_GATE_SH2ZAM', 'sh2zam', REPO.parent / 'SH2ZAM')
+DEF_DEATH = local('FZX_GATE_DEATH', 'death_ref', EV_ROOT / 'host' / 'death-ref' / 'death-s1.json')
 DEF_PRACTICE = local('FZX_GATE_PRACTICE', 'practice_expected', EV_ROOT / 'host' / 'practice-expected' / 'practice-expected.json')
 DEF_MUSIC = local('FZX_GATE_MUSIC', 'music', EV_ROOT / 'host' / 'claude-snd' / 'music-all')
 DISTRO = os.environ.get('FZX_GATE_DISTRO', 'Ubuntu-24.04')
@@ -573,6 +574,8 @@ class Gate:
             self.score_practice(run, run_dir, build_dir, lines, mk, sym, host, host_label, sink)
         elif kind == 'ghost':
             self.score_ghost(run, run_dir, build_dir, lines, mk, sym, host, sink)
+        elif kind == 'death':
+            self.score_death(run, run_dir, build_dir, lines, mk, sym, sink)
         elif kind == 'course':
             if 'results' in mk:
                 mkv, mchk = result_kv(lines, 'results')
@@ -903,6 +906,71 @@ class Gate:
         self.ghost_check(name, run['fault'], obs, race1_ms, sink)
         self.menus_check(name, lines, sink=sink)   # RESULTS keeps presenting through the name commit: 0 menu intervals over two
 
+    # -- Death Race (claude/modes C-169 item 4) -----------------------------------------------------------------------------
+    DR_SORTED_BAND, DR_ID_BAND, DR_ID_MIN = 40, 60, 24   # tools/modes_dr_check.py: the qualification band, fixed before the first native run
+
+    def death_observed(self, run_dir, build_dir, sym):
+        mem = Mem(run_dir, 'results', sym)
+        n = mem.words('fzx_field_event_count', 1)[0]
+        raw = mem.raw(sym['_fzx_field_events'], 8 * 96)
+        ev = [struct.unpack('>BBhi', raw[8 * i:8 * i + 8]) for i in range(min(n, 96))]   # agent, kind, by, tick
+        return dict(events=ev, event_count=n, field=list(mem.words('fzx_field_report', 16)), rec=list(mem.words('fzx_rec_report', 16)),
+                    scn=list(mem.words('fzx_scn_report', 32)), script_pokes=0)
+
+    def death_check(self, name, obs, ref, script_text, sink):
+        """The natural Death Race on the integrated image: no poke in the script, the race ends by the 29th retirement (end reason FINISH,
+        29 rivals retired, the player alive), one records commit, and the rivals' retirement ticks against the original code's reference (HOST,
+        seed 1) inside the qualification band (sorted ticks within 40, at least 24 of 29 by id within 60)."""
+        why = []
+        rt = {r['id']: r['retire_tick'] for r in ref['racers'] if r['id']}
+        start = ref['race_start_tick']
+        nt = {e[0]: e[3] + start for e in obs['events'] if e[1] == 3 and e[0]}
+        if 'poke _veh' in script_text or 'poke _fzx_scn_force_end' in script_text:
+            why.append('the script forces retirements or the end (it must run the race as it is)')
+        if obs['event_count'] > 96:
+            why.append('event table overflowed (%d events)' % obs['event_count'])
+        if len(nt) != 29:
+            why.append('%d rivals retired in the event log (want 29)' % len(nt))
+        if obs['field'][12] < 29:
+            why.append('field reports %d retired (want 29)' % obs['field'][12])
+        if obs['scn'][13] != 1:
+            why.append('end reason %d (want FINISH, 1)' % obs['scn'][13])
+        if obs['rec'][10] != 1 or obs['rec'][11] != 0:
+            why.append('records: %d commits, %d already-recorded (want 1 and 0)' % (obs['rec'][10], obs['rec'][11]))
+        dev = nid = worst_id = 0
+        if len(nt) == 29 and len(rt) == 29:
+            ns, rs = sorted(nt.values()), sorted(rt.values())
+            dev = max(abs(a - b) for a, b in zip(ns, rs))
+            nid = sum(1 for i in rt if abs(nt[i] - rt[i]) <= self.DR_ID_BAND)
+            worst_id = max(abs(nt[i] - rt[i]) for i in rt)
+            if dev > self.DR_SORTED_BAND or nid < self.DR_ID_MIN:
+                why.append('retirement ticks: sorted max deviation %d (band %d), %d of 29 within %d by id (min %d)' % (
+                    dev, self.DR_SORTED_BAND, nid, self.DR_ID_BAND, self.DR_ID_MIN))
+        last = max(nt.values()) if nt else 0
+        self.add('death', name, not why, '; '.join(why) if why else
+                 '29 of 29 rivals retired by the fall (ticks %d..%d, HOST %d..%d), win at the 29th (tick %d, HOST %d); sorted max deviation %d, %d of 29 by id within %d (worst %d); '
+                 '1 records commit' % (min(nt.values()), last, min(rt.values()), max(rt.values()), last, max(rt.values()), dev, nid, self.DR_ID_BAND, worst_id),
+                 'EMULATOR vs HOST (fzx-gp-ref --mode death, seed 1, %s); bands from tools/modes_dr_check.py' % ref.get('role', ''), sink=sink)
+
+    def score_death(self, run, run_dir, build_dir, lines, mk, sym, sink):
+        name = run['name']
+        ok = result_kv(lines)[0].get('exit') == 'ok' and all(m in mk for m in ('race_start', 'results'))
+        self.add('script', name, ok, '%d marks, %s fields' % (len(mk), result_kv(lines)[0].get('fields', '-')), error_text(run_dir), sink=sink)
+        if not ok:
+            return
+        try:
+            ref = json.loads(Path(self.a.death_ref).read_text())
+        except (OSError, ValueError) as e:
+            self.add('death', name, False, 'no Death Race HOST reference (fails closed): %s' % e, sink=sink)
+            return
+        obs = self.death_observed(run_dir, build_dir, sym)
+        text = (self.ev / 'scripts' / ('x-%s' % run['script'])).read_text() if (self.ev / 'scripts' / ('x-%s' % run['script'])).is_file() else ''
+        self.death_check(name, obs, ref, text, sink)
+        self.menus_check(name, lines, sink=sink)
+        mem = Mem(run_dir, 'results', sym)
+        self.cadence_checks(name, frame_rows(Mem(run_dir, 'results', sym), self.lim['race_window_tick']), sink)
+        self.memory_checks(name, mem, result_kv(lines, 'results')[0], sink=sink)
+
     def determinism(self, name, dir_a, dir_b, dumps, sink=None, build_dir=None):
         """Two runs: per-field ticks and pixel hashes, work RAM, VRAM and stills identical. The matrix's
         determinism_mask (symbol, bytes) is cleared in work RAM first: the SMPC OREG buffer holds the RTC, which
@@ -1054,6 +1122,8 @@ class Gate:
                 jobs.append((r, 'race', '-'))
                 if r.get('determinism'):
                     jobs.append((dict(r, name=r['name'] + '.2', repeat=True), 'race', '-'))
+            elif r['kind'] == 'death':
+                jobs.append((r, 'script', self.script_for(r['script'])))
             elif r['kind'] == 'ghost':
                 jobs.append((r, 'script', self.script_for(r['script'], next(c['index'] for c in m['courses'] if c['slug'] == r['course']))))
             else:
@@ -1250,6 +1320,24 @@ class Gate:
                     bd = str(tmp)
                 self.practice_fixture(name, rd, bd, lines, marks(lines), sym, dict(slug=cc['slug'], index=cc['index'], row=cc['index'], mode=5, cls=1), mutate=mut, sink=sink,
                                       mutate_arch=PR_ARCH_MUT.get(c['mutate']))
+            elif chk == 'death' and c.get('reuse'):
+                rd = self.ev / 'runs' / c['reuse']
+                bd = builds[c['image']]['dir']
+                obs = copy.deepcopy(self.death_observed(rd, bd, load_syms(Path(bd) / 'fzs-engine.sym')))
+                ref = json.loads(Path(self.a.death_ref).read_text()) if c['mutate'] != 'noref' else None
+                text = (self.ev / 'scripts' / ('x-%s' % 'death_nat.txt')).read_text()
+                if c['mutate'] == 'ticks':
+                    obs['events'] = [(e[0], e[1], e[2], e[3] + 60 if e[1] == 3 else e[3]) for e in obs['events']]
+                elif c['mutate'] == 'short':
+                    k = next(i for i, e in enumerate(obs['events']) if e[1] == 3)
+                    del obs['events'][k]
+                elif c['mutate'] == 'commits': obs['rec'][10] = 2
+                elif c['mutate'] == 'reason': obs['scn'][13] = 2
+                elif c['mutate'] == 'poke': text += chr(10) + 'poke _veh+120 0x01000002' + chr(10)
+                if ref is None:
+                    self.add('death', name, False, 'no Death Race HOST reference (fails closed)', sink=sink)
+                else:
+                    self.death_check(name, obs, ref, text, sink)
             elif chk == 'ghost' and c.get('reuse'):
                 rd = self.ev / 'runs' / c['reuse']
                 bd = builds[c['image']]['dir']
@@ -1459,6 +1547,7 @@ def main():
     ap.add_argument('--harness', default=str(DEF_HARNESS))
     ap.add_argument('--bios', default=str(DEF_BIOS))
     ap.add_argument('--sh2zam', default=str(DEF_SH2ZAM))
+    ap.add_argument('--death-ref', default=str(DEF_DEATH), help='the Death Race HOST reference report (fzx-gp-ref --mode death, seed 1; tools/modes_death_regen.sh)')
     ap.add_argument('--practice-expected', default=str(DEF_PRACTICE), help='the Practice fixture\'s expected rows (tools/practice_expected.py over the HOST reports)')
     ap.add_argument('--music', default=str(DEF_MUSIC),
                     help='bgm_cdda.py output (local, ROM-derived) for the shipping mixed-mode discs')

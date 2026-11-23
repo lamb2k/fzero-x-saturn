@@ -489,6 +489,15 @@
    "modes": [
     "full"
    ]
+  },
+  {
+   "name": "death-natural",
+   "image": "scenes-drv",
+   "kind": "death",
+   "script": "death_nat.txt",
+   "modes": [
+    "full"
+   ]
   }
  ],
  "controls": [
@@ -909,6 +918,60 @@
    "reuse": "ghost-f2",
    "fault": 2,
    "mutate": "accepted"
+  },
+  {
+   "name": "ctl-dr-ticks",
+   "check": "death",
+   "how": "every rival retires 60 ticks later than it did (the table or the fall rule off): the retirement band check fails",
+   "image": "scenes-drv",
+   "kind": "death",
+   "reuse": "death-natural",
+   "mutate": "ticks"
+  },
+  {
+   "name": "ctl-dr-short",
+   "check": "death",
+   "how": "one rival never retires in the event log (28 of 29): the 29-retired check fails",
+   "image": "scenes-drv",
+   "kind": "death",
+   "reuse": "death-natural",
+   "mutate": "short"
+  },
+  {
+   "name": "ctl-dr-commits",
+   "check": "death",
+   "how": "two records commits for the one win: the exactly-one-commit check fails",
+   "image": "scenes-drv",
+   "kind": "death",
+   "reuse": "death-natural",
+   "mutate": "commits"
+  },
+  {
+   "name": "ctl-dr-reason",
+   "check": "death",
+   "how": "the race ended with a retire, not the win: the end-reason check fails",
+   "image": "scenes-drv",
+   "kind": "death",
+   "reuse": "death-natural",
+   "mutate": "reason"
+  },
+  {
+   "name": "ctl-dr-poke",
+   "check": "death",
+   "how": "the script forces the retirements by poking the vehicles: the natural-end check fails",
+   "image": "scenes-drv",
+   "kind": "death",
+   "reuse": "death-natural",
+   "mutate": "poke"
+  },
+  {
+   "name": "ctl-dr-noref",
+   "check": "death",
+   "how": "no HOST reference file: the check fails closed",
+   "image": "scenes-drv",
+   "kind": "death",
+   "reuse": "death-natural",
+   "mutate": "noref"
   }
  ],
  "regenerate": [

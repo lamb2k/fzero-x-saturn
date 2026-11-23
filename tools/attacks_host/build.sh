@@ -26,6 +26,12 @@ LOCATE_FAR_RUN=${LOCATE_FAR_RUN:-8}
 if [ "$LOCATE_FAR" != 0 ]; then
     EXTRA+=(-DSH2Z_VD_LOCATE_FAR="$LOCATE_FAR" -DSH2Z_VD_LOCATE_FAR_RUN="$LOCATE_FAR_RUN")
 fi
+# SH2ZAM vehicle-dynamics-7 (saturn/engine/Makefile ENG_LOCATE_DAMP / ENG_LOCATE_FLIP): the same two search changes as the engine;
+# LOCATE_DAMP=0 LOCATE_FLIP=0 is the earlier search. The HOST attack references need them on, as the engine has them.
+LOCATE_DAMP=${LOCATE_DAMP:-8}
+LOCATE_FLIP=${LOCATE_FLIP:-3}
+if [ "$LOCATE_DAMP" != 0 ]; then EXTRA+=(-DSH2Z_VD_LOCATE_DAMP="$LOCATE_DAMP"); fi
+if [ "$LOCATE_FLIP" != 0 ]; then EXTRA+=(-DSH2Z_VD_LOCATE_FLIP="$LOCATE_FLIP"); fi
 if [ "$TUBES" = 1 ]; then
     EXTRA+=("$S/src/sh2zam_vehicle_dynamics2.c" "$S/src/sh2zam_vehicle_contact2.c")
 fi

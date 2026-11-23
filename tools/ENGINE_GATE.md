@@ -83,7 +83,7 @@ table says so.
 | ctl-identity | identity | field BIN built with `E0_FOG_EARLY=0` |
 | ctl-legacy | legacy | the OFF BIN against the recipe hash |
 | ctl-cadence | cadence | field with `ENG_PACE_LEAD=2` |
-| ctl-margin | margin | field with the balance off |
+| ctl-margin | margin | field with the balance and the physics look-ahead off |
 | ctl-host | host | the field race against HOST driven at heading gain 2.6 |
 | ctl-determinism | determinism | the field race against the balance-off race |
 | ctl-stack | memory | a word written into the painted master stack 4 KB above its floor at tick 600 |

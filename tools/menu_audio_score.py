@@ -127,6 +127,20 @@ def checks(ev, build):
     g = lambda r: (r.word('c_race2', 'fzx_scn_ctl', 7), r.word('c_race2', 'fzx_scn_ctl', 6))
     add('cadence', g(on)[0] == 0 and g(on)[1] <= 2 and g(on) == g(off),
         'menu gaps over two %d, worst gap %d fields (menu audio off: %d, %d)' % (g(on) + g(off)))
+
+    # failed boot assets: navigation continues (the run reaches the race), the other half keeps working
+    p = Run(ev, 'fail-pack', 'menu-test3')
+    add('fail-pack', p.word('x_race2', 'engine_snd_menu_report', 0) == 2 and p.rms(p.marks['x_title'] - 40, p.marks['x_title']) > 200 and
+        p.word('x_race2', 'engine_snd_menu_report', 2) == 0 and p.word('x_race2', 'fzx_menu_test', 3) == 1,
+        'no effect pack: status %d, music rms %.0f, effects played %d of %d posted, the hold read ok, race reached at field %d' % (
+            p.word('x_race2', 'engine_snd_menu_report', 0), p.rms(p.marks['x_title'] - 40, p.marks['x_title']),
+            p.word('x_race2', 'engine_snd_menu_report', 2), p.word('x_race2', 'engine_snd_menu_report', 1), p.marks['x_race2']))
+    t = Run(ev, 'fail-toc', 'menu-test4')
+    add('fail-toc', t.word('x_race2', 'engine_snd_menu_report', 0) == 3 and t.rms(t.marks['x_title'] - 40, t.marks['x_title']) < 1.0 and
+        t.word('x_read', 'fzx_menu_test', 4) == 0 and t.word('x_read', 'fzx_menu_test', 3) == 1 and t.word('x_race2', 'engine_snd_menu_report', 2) >= 1,
+        'no TOC: status %d, silent title (rms %.1f), the hold was granted after %d frames and the read was ok, effects played %d, race reached at field %d' % (
+            t.word('x_race2', 'engine_snd_menu_report', 0), t.rms(t.marks['x_title'] - 40, t.marks['x_title']), t.word('x_read', 'fzx_menu_test', 4),
+            t.word('x_race2', 'engine_snd_menu_report', 2), t.marks['x_race2']))
     return out
 
 

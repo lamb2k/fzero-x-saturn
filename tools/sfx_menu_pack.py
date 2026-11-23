@@ -11,7 +11,8 @@ Writes, to --output (generated/snd_menu, git-ignored):
 - SNDMENU.PAK: the sound-RAM image, loaded to SND_MENU_BASE by the CD loader;
 - snd_menu.h: the effect table (NA_SE id, address, length, OCT/FNS, TL, level, one-shot frames) and the map;
 - snd_menu.json: the same for tools; snd_menu.receipt: generators and output hashes (tools/check_receipt.sh).
-Fails if the pack does not fit the free region, or an effect loops (a looping effect needs a gate; not in v1).
+Fails if the pack does not fit the free region. A looping effect (NA_SE_32, the refusal buzz) is keyed off by the
+engine after --gate-fields fields.
 """
 from pathlib import Path
 import argparse

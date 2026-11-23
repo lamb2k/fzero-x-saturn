@@ -70,12 +70,20 @@ static uint32_t crc32(const uint8_t *p, uint32_t n) {
 #if ENG_MODES
 #define REC_V1_BYTES ((uint32_t)offsetof(fzx_records_t, progress))
 #endif
+#if ENG_MODES
 static uint32_t body_crc_n(const fzx_records_t *r, uint32_t bytes) {
     const uint8_t *p = (const uint8_t *)r;
     const uint32_t skip = (uint32_t)offsetof(fzx_records_t, crc) + 4u;
     return crc32(p + skip, bytes - skip);
 }
 static uint32_t body_crc(const fzx_records_t *r) { return body_crc_n(r, (uint32_t)sizeof(*r)); }
+#else
+static uint32_t body_crc(const fzx_records_t *r) {
+    const uint8_t *p = (const uint8_t *)r;
+    const uint32_t skip = (uint32_t)offsetof(fzx_records_t, crc) + 4u;
+    return crc32(p + skip, (uint32_t)sizeof(*r) - skip);
+}
+#endif
 
 static void empty_time(fzx_rec_time_t *t) {
     memset(t, 0, sizeof(*t));
@@ -223,19 +231,28 @@ static unsigned place_for(const fzx_rec_course_t *c, uint32_t ms) {
     return 0;
 }
 
+#if ENG_MODES
 /* Death Race's one course is 54, past the 24 course slots: its single time is slot 0 of death_race[] (the other slots stay empty). */
 static unsigned death_slot(const fzx_run_result_t *run) { return run->course < FZX_REC_COURSES ? run->course : 0u; }
+#define DEATH_SLOT(run) death_slot(run)
+#else
+#define DEATH_SLOT(run) ((run)->course)
+#endif
 void fzx_records_rank(const fzx_run_result_t *run, fzx_rank_t *out) {
     memset(out, 0, sizeof(*out));
-    if (!run || run->reason != FZX_END_FINISH || (run->course >= FZX_REC_COURSES && run->menu_mode != 2u)) return;
 #if ENG_MODES
+    if (!run || run->reason != FZX_END_FINISH || (run->course >= FZX_REC_COURSES && run->menu_mode != 2u)) return;
     if (!fzx_mode_keeps_times(run->menu_mode)) return; /* Grand Prix and Practice keep no times */
+#else
+    if (!run || run->reason != FZX_END_FINISH || run->course >= FZX_REC_COURSES) return;
 #endif
     if (run->menu_mode == 2u) { /* Death Race: its own single time */
-        out->place = run->race_ms < table.death_race[death_slot(run)].ms ? 1u : 0u;
+        out->place = run->race_ms < table.death_race[DEATH_SLOT(run)].ms ? 1u : 0u;
         return;
     }
+#if ENG_MODES
     if (run->course >= FZX_REC_COURSES) return;
+#endif
     const fzx_rec_course_t *c = &table.ta[run->course];
     out->place = (uint8_t)place_for(c, run->race_ms);
     if (run->best_lap_ms && run->best_lap_ms < c->best_lap.ms) { out->best_lap = 1; out->best_lap_index = run->best_lap_index; }
@@ -256,7 +273,7 @@ fzx_rec_result_t fzx_records_commit(const fzx_run_result_t *run, const char name
     fzx_rank_t rk;
     fzx_records_rank(run, &rk);
     if (run->menu_mode == 2u) {
-        if (rk.place) fill_time(&table.death_race[death_slot(run)], run->race_ms, run, name);
+        if (rk.place) fill_time(&table.death_race[DEATH_SLOT(run)], run->race_ms, run, name);
     } else if (run->course < FZX_REC_COURSES) {
         fzx_rec_course_t *c = &table.ta[run->course];
         if (rk.place) {

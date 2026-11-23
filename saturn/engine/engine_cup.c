@@ -18,9 +18,13 @@
 #endif
 #if ENG_COURSE_SELECT
 #include "course_ids.h"
+#if ENG_MODES
 #define AV(c) ((((FZX_COURSE_BUNDLE_MASK) >> (c)) & 1ull) ? (FZX_AVAIL_TA | FZX_AVAIL_GP) : 0u)
 /* Death Race's course 54 is past the 64-bit-safe shift of a 32-bit mask: the bundle mask is 64-bit, and the course takes only the Death bit. */
 #define AVD(c) ((((FZX_COURSE_BUNDLE_MASK) >> (c)) & 1ull) ? FZX_AVAIL_DEATH : 0u)
+#else
+#define AV(c) ((((FZX_COURSE_BUNDLE_MASK) >> (c)) & 1u) ? (FZX_AVAIL_TA | FZX_AVAIL_GP) : 0u)
+#endif
 static const fzx_course_row_t catalog[] = {
     { 0u, 0u, AV(0), 0u }, { 1u, 1u, AV(1), 0u }, { 2u, 2u, AV(2), 0u },
     { 3u, 3u, AV(3), 0u }, { 4u, 4u, AV(4), 0u }, { 5u, 5u, AV(5), 0u },
@@ -30,7 +34,9 @@ static const fzx_course_row_t catalog[] = {
     { 15u, 15u, AV(15), 0u }, { 16u, 16u, AV(16), 0u }, { 17u, 17u, AV(17), 0u },
     { 18u, 18u, AV(18), 0u }, { 19u, 19u, AV(19), 0u }, { 20u, 20u, AV(20), 0u },
     { 21u, 21u, AV(21), 0u }, { 22u, 22u, AV(22), 0u }, { 23u, 23u, AV(23), 0u },
+#if ENG_MODES
     { 54u, 54u, AVD(54), 0u },
+#endif
 };
 #else
 #define AV(c) ((c) == ENG_COURSE_INDEX ? FZX_AVAIL_TA : 0u)

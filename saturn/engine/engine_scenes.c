@@ -984,7 +984,11 @@ static void records_draw(void) {
         else dbgio_printf(" MAX SPEED  --\n");
     } else {
         dbgio_printf(" BEST TIME\n ");
+#if ENG_MODES
         records_line(&fzx_records_get()->death_race[course < 24u ? course : 0u]);
+#else
+        records_line(&fzx_records_get()->death_race[course]);
+#endif
     }
     dbgio_printf("\n LEFT/RIGHT COURSE   C MODE   B BACK\n");
 #else

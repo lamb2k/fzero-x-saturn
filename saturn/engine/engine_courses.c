@@ -32,8 +32,10 @@ const fzx_course_info_t fzx_course_info[] = {
     ROW(21, 3, 2, "SAND OCEAN 2"),
     ROW(22, 4, 3, "PORT TOWN 2"),
     ROW(23, 5, 8, "BIG HAND"),
+#if ENG_MODES
     /* Death Race (course id 54, ROM record 24): sector venue, Sector's music */
     ROW(54, 0, 7, "DEATH RACE"),
+#endif
 };
 #undef ROW
 const uint32_t fzx_course_info_count = sizeof(fzx_course_info) / sizeof(fzx_course_info[0]);
@@ -79,6 +81,22 @@ static int32_t practice_loaded = -1;
 volatile uint32_t fzx_practice_load[4];   /* [0] loads, [1] last course id, [2] last result (1 ok), [3] cd retries seen (gate) */
 #endif
 
+#if !ENG_MODES
+bool fzx_course_use(uint32_t id) {
+    const fzx_course_index_t *x = course_index_row(id);
+    if (!x) return false;
+    if (cid_loaded == (int32_t)id) return true;
+    cid_loaded = -1;
+    if (x->bytes != FZX_COURSE_ROW_BYTES || id > 99u) return false;
+    char name[12] = { 'C', 'I', 'D', (char)('0' + id / 10u), (char)('0' + id % 10u), '.', 'B', 'I', 'N', 0, 0, 0 };
+    const uintptr_t scratch = ((uintptr_t)sat_stub_data_end + 31u) & ~(uintptr_t)31u;
+    if (!fzx_texture_cd_load(name, FZX_COURSE_ROW_BYTES, x->hash, &cid_row, (void *)scratch, 4096u)) return false;
+    if (cid_row.id != id || cid_row.row != (uint32_t)(x - fzx_course_index)) return false; /* the file is not this course's row */
+    cid_loaded = (int32_t)id;
+    fzx_cid_index = cid_row.row;
+    return true;
+}
+#else
 bool fzx_course_use(uint32_t id) {
     const fzx_course_index_t *x = course_index_row(id);
     if (!x) return false;
@@ -93,7 +111,6 @@ bool fzx_course_use(uint32_t id) {
         cid_loaded = (int32_t)id;
         fzx_cid_index = cid_row.row;
     }
-#if ENG_MODES
     if (practice_loaded != (int32_t)id) {
         practice_loaded = -1;
         char name[12] = { 'P', 'R', (char)('0' + id / 10u), (char)('0' + id % 10u), '.', 'B', 'I', 'N', 0, 0, 0, 0 };
@@ -102,9 +119,9 @@ bool fzx_course_use(uint32_t id) {
         if (!ok) return false;
         practice_loaded = (int32_t)id;
     }
-#endif
     return true;
 }
+#endif
 #endif
 
 const fzx_course_info_t *fzx_course_selected(void) {

@@ -42,8 +42,8 @@ extern volatile uint32_t fzx_fx_demand[2];
 #define ENG_FX_PROF 0
 #endif
 #if ENG_FX_PROF
-/* Diagnostic (ENG_FX_PROF=1): per frame row, five halfwords: [0] fzx_fx_stage and [1] job 0, [2] job 1 (master FRT units),
- * [3] commands out | who ran job 0 (1 master, 2 slave) << 7 | who ran job 1 << 9 | rivals staged << 11, [4] a fold of the collected commands (to compare two emitters). */
+/* Diagnostic (ENG_FX_PROF=1): per frame row, five halfwords: [0] fzx_fx_stage, [1] the master's jobs and [2] the slave's jobs (master FRT units),
+ * [3] commands out | slave job mask << 7 (4 bits) | rivals staged << 11, [4] a fold of the collected commands (to compare two emitters). */
 enum { FZX_FX_PROF_ROWS = 4200u };
 extern uint16_t fzx_fx_prof[FZX_FX_PROF_ROWS][5];
 extern uint32_t fzx_fx_prof_row;
@@ -66,9 +66,10 @@ void fzx_fx_tick(const sh2z_vd_body_t *player, int32_t max_energy, bool accel_pr
  * to emit. */
 bool fzx_fx_stage(const fzx_view_t *view, const fzx_engine_cam_t *cam, const fzx_field_car_t *cars, unsigned n,
                   uint32_t player_machine);
-/* The staged frame is emitted as two jobs (0: the player's boosters, the sparks and the nearest rivals; 1: the other
- * rivals), each on either SH-2 (engine_main.c, SH2ZAM dual-claim-1), and the master merges their far-to-near lists. */
-#define FZX_FX_JOBS 2u
+/* The staged frame is emitted as four jobs of about equal cost (0: the player's boosters, the sparks and the nearest
+ * rivals; then the next rivals in turn), each on either SH-2 (engine_main.c, SH2ZAM dual-claim-1: the slave takes
+ * the first free job, the master the last), and the master merges their far-to-near lists. */
+#define FZX_FX_JOBS 4u
 void fzx_fx_job(unsigned job);
 /* On the master once both jobs are done (slave_mask bit j: job j ran on the slave): the commands, far to near,
  * into dst, at most capacity. Returns the count. */

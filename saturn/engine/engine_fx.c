@@ -297,7 +297,7 @@ static bool snap_ok;
  * is emitted as two jobs (player, sparks and the nearest rivals; then the rest) so the two SH-2s can share it.
  * The jobs' items are in the original emit order (player, sparks, rivals nearest first), job 0 then job 1. */
 static uint8_t snap_rank[CARS];
-static unsigned snap_m, snap_k;
+static unsigned snap_m, snap_end[FZX_FX_JOBS + 1u];   /* job j takes the rivals snap_end[j] .. snap_end[j + 1] (nearest first) */
 /* Each job's results, written by its SH-2 and read by the master through the cache-through window. */
 typedef struct { uint32_t n, demand, dropped, boost, live, ticks;
 #if ENG_FX_PROF
@@ -431,16 +431,25 @@ bool fzx_fx_stage(const fzx_view_t *view, const fzx_engine_cam_t *cam, const fzx
         sh2z_ep_sort(co, cd, m);
         unsigned total = wp + snap_sp_n * 5u;
         for (unsigned t = 0; t < m; ++t) { snap_rank[t] = ck[co[m - 1u - t]]; total += snap_boost_weight(&snap_b[snap_rank[t]]); }
+        /* the jobs cut the cost (player and sparks to job 0, then the rivals nearest first) into equal parts */
         unsigned acc = wp + snap_sp_n * 5u, kk = 0;
-        while (kk < m && acc * 2u < total) acc += snap_boost_weight(&snap_b[snap_rank[kk++]]);
-        snap_m = m; snap_k = kk;
+        snap_end[0] = 0;
+        for (unsigned j = 1; j < FZX_FX_JOBS; ++j) {
+            while (kk < m && acc * FZX_FX_JOBS < total * j) acc += snap_boost_weight(&snap_b[snap_rank[kk++]]);
+            snap_end[j] = kk;
+        }
+        snap_end[FZX_FX_JOBS] = m;
+        snap_m = m;
     }
     SPH(3);
     snap_ok = true;
 #if ENG_FX_PROF
     ++fzx_fx_sagg[4];
     FXP(0, cpu_frt_count_get() - st0);
-    if (fzx_fx_prof_row < FZX_FX_PROF_ROWS) fzx_fx_prof[fzx_fx_prof_row][3] = (uint16_t)(snap_n << 11);
+    if (fzx_fx_prof_row < FZX_FX_PROF_ROWS) {
+        fzx_fx_prof[fzx_fx_prof_row][1] = 0; fzx_fx_prof[fzx_fx_prof_row][2] = 0;
+        fzx_fx_prof[fzx_fx_prof_row][3] = (uint16_t)(snap_n << 11);
+    }
 #endif
     return true;
 }
@@ -513,7 +522,7 @@ void fzx_fx_job(unsigned job) {
         PHASE(1);
     }
     {
-        const unsigned lo = job == 0u ? 0u : snap_k, hi = job == 0u ? snap_k : snap_m;
+        const unsigned lo = snap_end[job], hi = snap_end[job + 1u];
         for (unsigned t = lo; t < hi; ++t) boosters(x, &v, &snap_b[snap_rank[t]], snap_hover, snap_tick);
         PHASE(3);
     }
@@ -532,25 +541,23 @@ void fzx_fx_job(unsigned job) {
  * far to near (job 0 first among equal bands, the original emit order) into dst, at most capacity (the farthest
  * go first when over). Returns the count. */
 unsigned fzx_fx_collect(vdp1_cmdt_t *dst, unsigned capacity, unsigned slave_mask) {
-    const volatile fx_out_t *o0 = (const volatile fx_out_t *)((uintptr_t)&job_out[0] | CPU_CACHE_THROUGH);
-    const volatile fx_out_t *o1 = (const volatile fx_out_t *)((uintptr_t)&job_out[1] | CPU_CACHE_THROUGH);
-    const unsigned n0 = o0->n, n1 = o1->n;
-    /* The slave's lists are in memory (write-through): purge this CPU's copies of those lines and read them cached. */
-    if ((slave_mask & 1u) && n0) cpu_cache_area_purge(job_cmds[0], n0 * sizeof(vdp1_cmdt_t));
-    if ((slave_mask & 2u) && n1) cpu_cache_area_purge(job_cmds[1], n1 * sizeof(vdp1_cmdt_t));
-    const uint32_t *a = (const uint32_t *)(const void *)job_cmds[0];
-    const uint32_t *b = (const uint32_t *)(const void *)job_cmds[1];
-    unsigned skip = n0 + n1 > capacity ? n0 + n1 - capacity : 0u, i = 0, k = 0, out = 0;
-    uint32_t ka = n0 ? a[7] & 0xffu : 0u, kb = n1 ? b[7] & 0xffu : 0u;
-    while (i < n0 || k < n1) {
-        const uint32_t *w;
-        if (k >= n1 || (i < n0 && ka <= kb)) {
-            w = a + 8u * i;
-            if (++i < n0) ka = a[8u * i + 7u] & 0xffu;
-        } else {
-            w = b + 8u * k;
-            if (++k < n1) kb = b[8u * k + 7u] & 0xffu;
-        }
+    const uint32_t *base[FZX_FX_JOBS];
+    unsigned n[FZX_FX_JOBS], idx[FZX_FX_JOBS], total = 0;
+    uint32_t key[FZX_FX_JOBS];
+    for (unsigned j = 0; j < FZX_FX_JOBS; ++j) {
+        const volatile fx_out_t *o = (const volatile fx_out_t *)((uintptr_t)&job_out[j] | CPU_CACHE_THROUGH);
+        n[j] = o->n; idx[j] = 0; total += n[j];
+        /* the slave's lists are in memory (write-through): purge this CPU's copies of those lines and read them cached */
+        if (((slave_mask >> j) & 1u) && n[j]) cpu_cache_area_purge(job_cmds[j], n[j] * sizeof(vdp1_cmdt_t));
+        base[j] = (const uint32_t *)(const void *)job_cmds[j];
+        key[j] = n[j] ? base[j][7] & 0xffu : 0x100u;
+    }
+    unsigned skip = total > capacity ? total - capacity : 0u, out = 0;
+    for (unsigned c = 0; c < total; ++c) {
+        unsigned j = 0;
+        for (unsigned q = 1; q < FZX_FX_JOBS; ++q) if (key[q] < key[j]) j = q;   /* the first job among equal bands */
+        const uint32_t *w = base[j] + 8u * idx[j];
+        key[j] = ++idx[j] < n[j] ? base[j][8u * idx[j] + 7u] & 0xffu : 0x100u;
         if (skip) { --skip; continue; }
         uint32_t *d = (uint32_t *)(void *)&dst[out++];
         d[0] = w[0]; d[1] = w[1]; d[2] = w[2]; d[3] = w[3]; d[4] = w[4]; d[5] = w[5]; d[6] = w[6];
@@ -559,6 +566,9 @@ unsigned fzx_fx_collect(vdp1_cmdt_t *dst, unsigned capacity, unsigned slave_mask
     return out;
 }
 
+#if ENG_FX_PROF
+#define smask_prof(m) ((m) & 15u)
+#endif
 void fzx_fx_job_done(unsigned slave_mask, unsigned out) {
     unsigned demand = 0, boost = 0;
     uint32_t live = 0, dropped = 0, mticks = 0;
@@ -575,8 +585,8 @@ void fzx_fx_job_done(unsigned slave_mask, unsigned out) {
             ++fzx_fx_agg[w][14];
             if (fzx_fx_prof_row < FZX_FX_PROF_ROWS) {
                 uint16_t *r = fzx_fx_prof[fzx_fx_prof_row];
-                r[1 + j] = (uint16_t)(o->ticks * sc);
-                r[3] = (uint16_t)((r[3] & (j ? 0xf980u : 0xf800u)) | out | ((slave ? 2u : 1u) << (7 + 2 * j)));
+                r[slave ? 2 : 1] = (uint16_t)(r[slave ? 2 : 1] + o->ticks * sc);   /* [1] the master's jobs, [2] the slave's */
+                r[3] = (uint16_t)((r[3] & 0xf800u) | out | ((smask_prof(slave_mask)) << 7));
             }
         }
 #endif

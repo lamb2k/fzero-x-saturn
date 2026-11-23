@@ -296,7 +296,8 @@
     "ENG_CADENCE_STALL_CONTROL=1"
    ],
    "kind": "race",
-   "course": "mute-city-1"
+   "course": "mute-city-1",
+   "stall_row": 512
   },
   {
    "name": "ctl-margin",

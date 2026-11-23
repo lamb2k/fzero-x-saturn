@@ -1,4 +1,7 @@
 #include "fzx_view.h"
+#if defined(FZX_ENGINE) && FZX_ENGINE
+#include "fzx_fraction.h"
+#endif
 #include <limits.h>
 #include <string.h>
 #ifndef FZX_RBG_FAST
@@ -142,12 +145,18 @@ static uint64_t fraction32(int64_t dp,int64_t dc) {
     const uint64_t b=dc<0 ? 0u-(uint64_t)dc : (uint64_t)dc;
     if(b==0)return UINT64_C(4294967296);
     const uint64_t d=a+b;
+#if defined(FZX_ENGINE) && FZX_ENGINE
+    /* Engine builds only (the legacy recipes keep the loop below, byte for byte): the same quotient from the
+     * SH-2 64/32 divider with an exact remainder fix (include/fzx_fraction.h, checked against the loop). */
+    return fzx_fraction(a,d);
+#else
     uint64_t q=0;
     for(unsigned i=0;i<32;++i) {
         q<<=1;
         if(a>=d-a) { a-=d-a; q|=1u; } else a+=a;
     }
     return q;
+#endif
 }
 #if FZX_RBG_FAST
 /* d is a positive focal length (int32). */

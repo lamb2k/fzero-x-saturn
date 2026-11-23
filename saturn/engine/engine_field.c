@@ -396,7 +396,7 @@ static void grid_places(void) {
 
 #if FZX_FIELD_IDENT
 volatile uint32_t fzx_field_ident[8];
-volatile uint8_t fzx_field_machine[30];
+volatile int32_t fzx_field_live[30][4];
 #endif
 bool fzx_field_load(const sh2z_vd_track_t *track, const sh2z_vd_body_t *player) {
     memset((void *)fzx_field_report, 0, sizeof(fzx_field_report));
@@ -630,7 +630,12 @@ bool fzx_field_load(const sh2z_vd_track_t *track, const sh2z_vd_body_t *player) 
     fzx_field_ident[3] = (uint32_t)fzx_cid_index;
     fzx_field_ident[4] = (uint32_t)fzx_session.difficulty & 3u;
     fzx_field_ident[5] = (uint32_t)(mode_now ? mode_now->menu_mode : 0xFFu);
-    for (uint32_t i = 0; i < FZX_FIELD_CARS; ++i) fzx_field_machine[i] = (uint8_t)FIELD_ROWS[i][5];
+    for (uint32_t i = 0; i < FZX_FIELD_CARS; ++i) {
+        fzx_field_live[i][0] = FIELD_ROWS[i][5];                                   /* the machine of the row the vehicle was built from */
+        fzx_field_live[i][1] = veh[i].max_energy;                                   /* its energy ceiling, Q8 (the player's is set at the start) */
+        fzx_field_live[i][2] = brain[i].chase;                                      /* the vehicle it paces against, -1 none */
+        fzx_field_live[i][3] = (int32_t)((int64_t)veh[i].t.lap * line.length + veh[i].t.dist); /* where it stands on the grid, Q8 along the line */
+    }
 #endif
 #if ENG_RIVAL_BEHAVE
     for (uint32_t i = 0; i < FZX_FIELD_CARS; ++i) { prev_flags[i] = veh[i].flags; prev_credit[i] = brain[i].ko_credit; }

@@ -109,7 +109,12 @@ void engine_smpc_quiet(bool on);
 /* The Time Attack ghost (one slot, two files). Load: the newest valid file into DST (true when there is one). Save: writes the
  * older file with the next generation. */
 bool fzx_records_ghost_load(fzx_ghost_t *dst);
-fzx_rec_result_t fzx_records_ghost_save(const fzx_ghost_t *g);
+/* The save is a queue (engine_records.c): save_begin stamps the image and queues its files, pump writes one backup-RAM file per call
+ * (true while more is queued, the head file last: the commit), pending says whether any is queued. The ghost is saved once the
+ * last pump returned false and fzx_ghost_store[5] is FZX_REC_OK. */
+fzx_rec_result_t fzx_records_ghost_save_begin(const fzx_ghost_t *g);
+bool fzx_records_ghost_pump(void);
+bool fzx_records_ghost_pending(void);
 extern volatile uint32_t fzx_ghost_fault, fzx_ghost_store[16];
 #endif
 #endif

@@ -471,12 +471,42 @@
   {
    "name": "ctl-pr-roster",
    "check": "fixture",
-   "how": "a copy of the observed roster with two rivals' sprite machines swapped (still 29 distinct machines; the frozen expected row is untouched): the roster fails",
+   "how": "a copy of the observed roster (the 30 entrants' machines) with two rivals swapped (still 29 distinct machines; the frozen expected row is untouched): the roster fails",
    "image": "scenes-drv",
    "kind": "practice",
    "course": "mute-city-1",
    "reuse": "course-mute-city-1",
    "mutate": "roster"
+  },
+  {
+   "name": "ctl-pr-energy",
+   "check": "fixture",
+   "how": "a copy of the observed energy ceilings with two rivals swapped: the live entrants fail",
+   "image": "scenes-drv",
+   "kind": "practice",
+   "course": "mute-city-1",
+   "reuse": "course-mute-city-1",
+   "mutate": "energy"
+  },
+  {
+   "name": "ctl-pr-chase",
+   "check": "fixture",
+   "how": "a copy of the observed chase targets with two rivals swapped: the live entrants fail",
+   "image": "scenes-drv",
+   "kind": "practice",
+   "course": "mute-city-1",
+   "reuse": "course-mute-city-1",
+   "mutate": "chase"
+  },
+  {
+   "name": "ctl-pr-standing",
+   "check": "fixture",
+   "how": "a copy of the vehicles' start positions with two swapped (the grid array itself right): the order they stand in fails",
+   "image": "scenes-drv",
+   "kind": "practice",
+   "course": "mute-city-1",
+   "reuse": "course-mute-city-1",
+   "mutate": "standing"
   },
   {
    "name": "ctl-pr-entrants",

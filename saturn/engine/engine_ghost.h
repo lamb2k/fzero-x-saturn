@@ -46,7 +46,9 @@ bool fzx_ghost_play_tick(fzx_ghost_play_t *p, int32_t out_q16[3]);
 #include "sh2zam/vehicle_dynamics_experimental.h"
 void fzx_ghost_race_begin(void);                              /* every race start (drive reset): loads the kept ghost */
 void fzx_ghost_tick(const sh2z_vd_body_t *body);              /* every physics tick */
-fzx_rec_result_t fzx_ghost_race_save(const fzx_run_result_t *run); /* a new best was committed */
+fzx_rec_result_t fzx_ghost_race_save(const fzx_run_result_t *run); /* a new best was committed: queues the save */
+void fzx_ghost_race_pump(void);                               /* one backup-RAM file of the queued save (once a menu frame) */
+void fzx_ghost_race_flush(void);                              /* all that is queued, now (before a race reads the files) */
 extern volatile uint32_t fzx_ghost_on, fzx_ghost_report[16];
 extern volatile int32_t fzx_ghost_pos[3];
 #endif

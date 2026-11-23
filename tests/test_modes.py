@@ -170,6 +170,37 @@ class Modes(unittest.TestCase):
                 rc, out = self.run_ghost(f)
                 self.assertNotEqual(rc, 0, name + ': the fixture did not fail')
 
+    def run_ghost_store(self, edit=None):
+        src = self.tmp / 'gstore'
+        src.mkdir(exist_ok=True)
+        text = (ENG / 'engine_records.c').read_text()
+        t2 = edit(text) if edit else text
+        if edit:
+            self.assertNotEqual(text, t2, 'the control changed nothing')
+        (src / 'engine_records.c').write_text(t2)
+        out = self.tmp / 'gstore-drv'
+        subprocess.run(['gcc', '-std=gnu11', '-Wall', '-Wextra', '-DENG_MODES=1', '-DENG_GHOST=1', '-I', str(ROOT / 'tests/records_v1_stub'), '-I', str(ENG),
+                        str(ROOT / 'tests/ghost_store_driver.c'), str(src / 'engine_records.c'), str(ENG / 'engine_ghost.c'), str(ENG / 'engine_modes.c'),
+                        '-lm', '-o', str(out)], check=True)
+        r = subprocess.run([str(out)], capture_output=True, text=True)
+        return r.returncode, r.stdout
+
+    def test_ghost_store(self):
+        """The ghost's backup storage (engine_records.c): a save is a queue of files, one write per menu frame (at most one chunk), the head
+        file last; a power cut after any write leaves the previous ghost or the whole new one. Controls: each edit must fail a named case."""
+        rc, out = self.run_ghost_store()
+        self.assertEqual(rc, 0, out)
+        self.assertGreaterEqual(out.count('PASS'), 15, out)
+        self.assertNotIn('FAIL', out)
+        for name, f in {
+            'head first': lambda t: t.replace('gw.next = gw.n > 1u ? 1u : 0u;', 'gw.next = 0u;'),
+            'chunks of 600': lambda t: t.replace('#define GH_CHUNK 512u', '#define GH_CHUNK 600u'),
+            'no generation on the head': lambda t: t.replace('ghost_gen[gw.slot] = gw.gen;', ''),
+        }.items():
+            with self.subTest(name):
+                rc, out = self.run_ghost_store(f)
+                self.assertNotEqual(rc, 0, name + ': the fixture did not fail')
+
     def test_table(self):
         self.check(self.run_table())
 

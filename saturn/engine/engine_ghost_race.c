@@ -20,7 +20,22 @@ static fzx_ghost_t rec_g, play_g;
 static fzx_ghost_play_t play;
 static bool rec_on, play_on, rec_done;
 
+static bool save_queued;   /* a save is queued in the records service and its result is not yet in the report */
+
+/* One backup-RAM file of the queued save (one menu frame's share); the report takes the result when the head file, the commit, is written. */
+void fzx_ghost_race_pump(void) {
+    if (!save_queued) return;
+    if (fzx_records_ghost_pump()) return;
+    save_queued = false;
+    fzx_ghost_report[5] = fzx_ghost_store[5] == FZX_REC_OK; fzx_ghost_report[6] = fzx_ghost_store[5];
+}
+/* Everything queued is written now (a race begins: the next load reads the same files and buffer). */
+void fzx_ghost_race_flush(void) {
+    while (save_queued) fzx_ghost_race_pump();
+}
+
 void fzx_ghost_race_begin(void) {
+    fzx_ghost_race_flush();
     rec_on = play_on = rec_done = false;
     memset((void *)fzx_ghost_report, 0, sizeof(fzx_ghost_report));
     if (!fzx_ghost_on || fzx_session.menu_mode != FZX_MODE_TA) return;
@@ -50,13 +65,13 @@ void fzx_ghost_tick(const sh2z_vd_body_t *b) {
     }
 }
 
-/* A new best was committed (Time Attack, place 1): keep this race's ghost. */
+/* A new best was committed (Time Attack, place 1): queue this race's ghost (the pump writes it, a file a menu frame). */
 fzx_rec_result_t fzx_ghost_race_save(const fzx_run_result_t *run) {
     if (!rec_on || rec_done || run->menu_mode != FZX_MODE_TA || run->reason != FZX_END_FINISH) return FZX_REC_ABSENT;
     if (!fzx_ghost_rec_end(&rec_g, run->race_ms)) { fzx_ghost_report[6] = 0xFFu; return FZX_REC_FAILED; }
     rec_done = true;
     fzx_ghost_report[8] = rec_g.bytes;
-    const fzx_rec_result_t r = fzx_records_ghost_save(&rec_g);
-    fzx_ghost_report[5] = r == FZX_REC_OK; fzx_ghost_report[6] = (uint32_t)r;
-    return r;
+    fzx_ghost_report[5] = 0u; fzx_ghost_report[6] = 0u;
+    save_queued = true;
+    return fzx_records_ghost_save_begin(&rec_g);
 }

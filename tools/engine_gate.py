@@ -238,10 +238,13 @@ def _swap(a, i, j):
 
 # Practice fixture controls: each edits a copy of what the image reported (the expected rows are never touched).
 PR_OBS_MUT = {
-    'roster': lambda o: dict(o, roster=_swap(o['roster'], 1, 2)),          # two rivals' sprites swapped: still 29 distinct machines
-    'entrants': lambda o: dict(o, machine=_swap(o['machine'], 3, 4)),      # two rows' machines swapped in the field
-    'grid': lambda o: dict(o, grid=_swap(o['grid'], 3, 4)),                # still places 1..30, wrong order
-    'gridsrc': lambda o: dict(o, src=2),                                    # the right grid from the wrong source
+    'roster': lambda o: dict(o, machine=_swap(o['machine'], 1, 2)),                   # two rivals' machines swapped: still 29 distinct machines
+    'entrants': lambda o: dict(o, machine=_swap(o['machine'], 3, 4)),
+    'energy': lambda o: dict(o, energy=_swap(o['energy'], 5, 6)),                     # two rivals' energy ceilings swapped
+    'chase': lambda o: dict(o, chase=_swap(o['chase'], 7, 8)),
+    'standing': lambda o: dict(o, dist=_swap(o['dist'], 3, 4)),                       # two vehicles' start positions swapped: places differ
+    'grid': lambda o: dict(o, grid=_swap(o['grid'], 3, 4)),                           # still places 1..30, wrong order
+    'gridsrc': lambda o: dict(o, src=2),                                               # the right grid from the wrong source
     'seed': lambda o: dict(o, ident=o['ident'][:2] + [o['ident'][2] + 1] + o['ident'][3:]),
     'count': lambda o: dict(o, ident=o['ident'][:1] + [o['ident'][1] - 1] + o['ident'][2:]),
 }
@@ -646,15 +649,20 @@ class Gate:
         return doc, ''
 
     def practice_observed(self, mem, sym):
-        """The live state at race_start, as the image holds it."""
-        return dict(
+        """The live state at race_start, as the image holds it: the field's identity words, each vehicle's machine, energy ceiling,
+        chase target and start position, the grid array and its source, and (images with the sprite roster) each rival's bound sprites."""
+        live = struct.unpack('>120i', mem.raw(sym['_fzx_field_live'], 480))
+        obs = dict(
             ident=list(mem.words('fzx_field_ident', 8)),
-            machine=list(mem.raw(sym['_fzx_field_machine'], 30)),
-            roster=list(mem.raw(sym['_fzx_e2_roster_machine'], 30)),
-            roster_set=list(mem.words('fzx_e2_roster_set', 30)),
+            machine=[live[4 * i] for i in range(30)], energy=[live[4 * i + 1] for i in range(30)],
+            chase=[live[4 * i + 2] for i in range(30)], dist=[live[4 * i + 3] for i in range(30)],
             grid=list(mem.raw(sym['_fzx_field_grid'], 30)),
             src=mem.words('fzx_field_grid_src', 1)[0],
             report=mem.words('fzx_field_report', 16)[0])
+        if '_fzx_e2_roster_machine' in sym:
+            obs['roster'] = list(mem.raw(sym['_fzx_e2_roster_machine'], 30))
+            obs['roster_set'] = list(mem.words('fzx_e2_roster_set', 30))
+        return obs
 
     @staticmethod
     def first_diff(got, want):
@@ -711,23 +719,33 @@ class Gate:
         if (ident[3], ident[4], ident[5]) != (want['row'], want['cls'], want['mode']):
             why.append('the field was built for row %d class %d mode %d, want %d / %d / %d' % (ident[3], ident[4], ident[5], want['row'], want['cls'], want['mode']))
         if obs['machine'] != exp['machine']:
-            why.append('the field\'s entrants: %s' % self.first_diff(obs['machine'], exp['machine']))
-        if obs['roster'][1:] != exp['machine'][1:]:
-            why.append('the sprites\' roster: %s' % self.first_diff(obs['roster'][1:], exp['machine'][1:]))
-        rs = obs['roster_set'][1:]
-        mach = obs['roster'][1:]
-        if (len(set(rs)) != len(set(mach)) or any(x == 0 or x & 3 for x in rs)
-                or any((rs[a] == rs[b]) != (mach[a] == mach[b]) for a in range(len(rs)) for b in range(a))):
-            why.append('rival sprite sets are not one per machine')
+            why.append('the field\'s entrants (machines): %s' % self.first_diff(obs['machine'], exp['machine']))
+        if obs['energy'][1:] != exp['energy'][1:]:
+            why.append('the rivals\' energy ceilings: %s' % self.first_diff(obs['energy'][1:], exp['energy'][1:]))
+        if obs['chase'] != exp['chase']:
+            why.append('the rivals\' chase targets: %s' % self.first_diff(obs['chase'], exp['chase']))
+        # The ordered grid as the vehicles stand: the rivals sorted by start position, front first, are the rivals sorted by HOST grid place.
+        stand = sorted(range(1, 30), key=lambda i: -obs['dist'][i])
+        order = sorted(range(1, 30), key=lambda i: exp['grid'][i])
+        if len(set(obs['dist'][1:])) != 29 or stand != order:
+            why.append('the rivals\' start positions are not in the HOST grid order (%s)' % self.first_diff(stand, order))
+        if 'roster' in obs:
+            if obs['roster'][1:] != exp['machine'][1:]:
+                why.append('the sprites\' roster: %s' % self.first_diff(obs['roster'][1:], exp['machine'][1:]))
+            rs, mach = obs['roster_set'][1:], obs['roster'][1:]
+            if (len(set(rs)) != len(set(mach)) or any(x == 0 or x & 3 for x in rs)
+                    or any((rs[a] == rs[b]) != (mach[a] == mach[b]) for a in range(len(rs)) for b in range(a))):
+                why.append('rival sprite sets are not one per machine')
         if obs['src'] != 1:
             why.append('grid source %d, want 1 (the course header)' % obs['src'])
         if obs['grid'] != exp['grid']:
             why.append('start grid: %s' % self.first_diff(obs['grid'], exp['grid']))
         ok = not why
-        seen = 'mode %d class %d course %d, row %d, machine %d skin %d, field %s of %d, seed %d, entrants and sprites = HOST rows %s, grid from the header = HOST grid %s' % (
+        seen = 'mode %d class %d course %d, row %d, machine %d skin %d, field %s of %d, seed %d, 30 entrants (machine, energy, chase) = HOST rows %s%s, grid from the header = HOST grid, vehicles stand in it %s' % (
             mode, diff, course, mem.words('fzx_cid_index', 1)[0], machine, skin, 'loaded' if obs['report'] == 1 else 'NOT loaded', ident[1], ident[2],
-            'yes' if obs['machine'] == exp['machine'] and obs['roster'][1:] == exp['machine'][1:] else 'NO',
-            'yes' if obs['src'] == 1 and obs['grid'] == exp['grid'] else 'NO')
+            'yes' if obs['machine'] == exp['machine'] and obs['energy'][1:] == exp['energy'][1:] and obs['chase'] == exp['chase'] else 'NO',
+            (', sprite roster %s' % ('yes' if obs['roster'][1:] == exp['machine'][1:] else 'NO')) if 'roster' in obs else ' (no sprite roster in this image)',
+            'yes' if stand == order else 'NO')
         self.add('fixture', name, ok, ('Practice %s: %s' % (want['slug'], seen)) if ok else ('FIXTURE FAILED, %s; seen: %s' % ('; '.join(why), seen)),
                  ('expected rows %s (HOST reports); opponent machines %s' % (arch['expected_sha256'][:12], ' '.join(map(str, sorted(exp['machine'][1:]))))) if ok
                  else 'asked: Practice (mode %d) class %d, %s' % (want['mode'], want['cls'], want['slug']), sink=sink)

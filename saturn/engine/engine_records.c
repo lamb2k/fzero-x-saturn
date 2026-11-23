@@ -17,6 +17,20 @@
 #include "engine_ghost.h"
 #endif
 
+#if ENG_GHOST
+extern uint32_t video_fields_get(void);
+/* Captures (32-bit: the FRT counters wrap past 4.6 fields): per backup write, in order (the first 6): video fields at entry and at exit,
+ * the bytes, 1 for a records file or 2 for a ghost file, and the FRT at entry and exit. [0] writes so far. */
+volatile uint32_t fzx_bup_log[1 + 5 * 6];
+static void bup_log(uint32_t f0, uint16_t t0, uint32_t bytes, uint32_t kind) {
+    const uint32_t n = fzx_bup_log[0];
+    if (n < 6u) {
+        fzx_bup_log[1u + 5u * n] = f0; fzx_bup_log[2u + 5u * n] = video_fields_get(); fzx_bup_log[3u + 5u * n] = bytes; fzx_bup_log[4u + 5u * n] = kind;
+        fzx_bup_log[5u + 5u * n] = ((uint32_t)t0 << 16) | cpu_frt_count_get();   /* FRT at entry, at exit (16 bits each) */
+    }
+    fzx_bup_log[0] = n + 1u;
+}
+#endif
 #define REC_MAGIC 0x465A5852u /* "FZXR" */
 #if ENG_MODES
 #define REC_VERSION 2u
@@ -127,10 +141,12 @@ static fzx_rec_result_t write_table(void) {
     engine_smpc_quiet(true);
 #if ENG_GHOST
     const uint16_t w0 = cpu_frt_count_get();
+    const uint32_t bf0 = video_fields_get();
 #endif
     const bup_status_t s = bup_write(BUP_DEVICE_INTERNAL, &dir, &io, BUP_WRITE_MODE_OVERWRITE);
 #if ENG_GHOST
     fzx_rec_report[14] = (uint16_t)(cpu_frt_count_get() - w0); /* FRT ticks the write blocked the caller (a menu frame) */
+    bup_log(bf0, w0, size, 1u);
 #endif
     engine_smpc_quiet(false);
     fzx_rec_report[7] = s;
@@ -289,21 +305,55 @@ fzx_rec_result_t fzx_records_credits_seen(void) {
 #endif
 
 #if ENG_GHOST
-/* The Time Attack ghost: one slot kept as two files (FZXGHO_A, FZXGHO_B), written alternately with a generation, as the records are. */
+/* The Time Attack ghost: one slot kept as two slots (A, B), written alternately with a generation, as the records are.
+ * A slot is a head file (FZXGHO_A: the first GH_CHUNK bytes of the ghost image, the 44-byte header and the start of the stream) and
+ * its chunk files (FZXGHO_A01, ...02: GH_CHUNK bytes each, the last the remainder). A backup-RAM write blocks its caller for as long
+ * as it takes (about a field for 512 bytes on the emulator), so the save is a queue: fzx_records_ghost_save_begin stamps the image, and
+ * fzx_records_ghost_pump writes one chunk file per menu frame (RESULTS keeps presenting every two fields); the head file goes last and
+ * is the commit. Until it is written the target slot is not a valid ghost (a stale head with new chunks fails the whole-image CRC and
+ * the decode), so a power cut leaves the other slot, the previous best. A head file as large as the whole image (the first format)
+ * is read as one piece. */
+#define GH_CHUNK 512u
+#define GH_MAX_CHUNKS ((FZX_GHOST_HEAD_BYTES + FZX_GHOST_STREAM_MAX + GH_CHUNK - 1u) / GH_CHUNK)
 static const char *const ghost_file[2] = { "FZXGHO_A", "FZXGHO_B" };
-static fzx_ghost_t ghost_io;            /* one file's image; high work RAM, like `io` */
+static fzx_ghost_t ghost_io;            /* one image; high work RAM, like `io` */
 static uint32_t ghost_gen[2];
-volatile uint32_t fzx_ghost_fault;       /* captures: 1 = the next ghost write stores a wrong CRC; 2 = it stores half the file */
-/* [0] last load (1 found, 0 none), [1] generation loaded, [2] file loaded (1 A, 2 B), [3] A valid, [4] B valid, [5] last save result,
- * [6] file written, [7] bup status of the last write, [8] bytes of the last file written, [9] free blocks after it, [10] FRT ticks the write blocked */
+volatile uint32_t fzx_ghost_fault;       /* captures: 1 = the next ghost write stores a wrong CRC; 2 = it stops half way (no head file) */
+/* [0] last load (1 found, 0 none), [1] generation loaded, [2] slot loaded (1 A, 2 B), [3] A valid, [4] B valid, [5] last save result,
+ * [6] slot written, [7] bup status of the last write, [8] bytes of the last image, [9] free blocks after it, [10] FRT ticks the last chunk
+ * write blocked (16 bits), [11] saves begun, [12] chunk files written, [13] saves completed, [14] chunks of the last image,
+ * [15] most FRT ticks any chunk write blocked */
 volatile uint32_t fzx_ghost_store[16];
+static struct { bool active; unsigned slot, n, next; uint32_t gen, size; bool half; } gw;   /* the queued save; next counts 1..n-1 then 0 (the head) */
+
+static void ghost_name(char out[12], unsigned slot, unsigned k) {
+    static const char hex[] = "0123456789abcdef";
+    strcpy(out, ghost_file[slot]);
+    if (k) { out[8] = hex[(k >> 4) & 15u]; out[9] = hex[k & 15u]; out[10] = 0; }
+}
 
 static bool ghost_read(unsigned i, uint32_t *gen) {
     bup_directory_t d[1];
     memset(&d[0], 0, sizeof(d[0]));
-    if (bup_dir(BUP_DEVICE_INTERNAL, ghost_file[i], 1, d) <= 0 || d[0].data_size > sizeof(ghost_io)) return false;
+    if (bup_dir(BUP_DEVICE_INTERNAL, ghost_file[i], 1, d) <= 0 || d[0].data_size > sizeof(ghost_io) || d[0].data_size < FZX_GHOST_HEAD_BYTES) return false;
+    const uint32_t head = d[0].data_size;
     memset(&ghost_io, 0, FZX_GHOST_HEAD_BYTES);
-    if (bup_read(BUP_DEVICE_INTERNAL, ghost_file[i], &ghost_io) != BUP_OK || !fzx_ghost_valid(&ghost_io, d[0].data_size)) return false;
+    if (bup_read(BUP_DEVICE_INTERNAL, ghost_file[i], &ghost_io) != BUP_OK) return false;
+    if (ghost_io.bytes > FZX_GHOST_STREAM_MAX) return false;
+    const uint32_t total = FZX_GHOST_FILE_BYTES(&ghost_io);
+    if (head < total) {   /* chunked: the head is one chunk, the rest are the slot's chunk files */
+        if (head != GH_CHUNK) return false;
+        for (uint32_t off = head, k = 1; off < total; off += GH_CHUNK, ++k) {
+            char nm[12];
+            ghost_name(nm, i, k);
+            const uint32_t want = total - off < GH_CHUNK ? total - off : GH_CHUNK;
+            bup_directory_t c[1];
+            memset(&c[0], 0, sizeof(c[0]));
+            if (bup_dir(BUP_DEVICE_INTERNAL, nm, 1, c) <= 0 || c[0].data_size != want) return false;
+            if (bup_read(BUP_DEVICE_INTERNAL, nm, (uint8_t *)&ghost_io + off) != BUP_OK) return false;
+        }
+    } else if (head != total) return false;
+    if (!fzx_ghost_valid(&ghost_io, total)) return false;
     *gen = ghost_io.generation;
     return true;
 }
@@ -324,36 +374,78 @@ bool fzx_records_ghost_load(fzx_ghost_t *dst) {
     return best < 2u;
 }
 
-fzx_rec_result_t fzx_records_ghost_save(const fzx_ghost_t *g) {
+/* Stamps the image and queues its files; nothing is written here. The queue holds one save (a second begin first finishes the first). */
+fzx_rec_result_t fzx_records_ghost_save_begin(const fzx_ghost_t *g) {
     ensure_bup();
-    const unsigned target = ghost_gen[0] <= ghost_gen[1] ? 0u : 1u;
-    const uint32_t gen = (ghost_gen[0] > ghost_gen[1] ? ghost_gen[0] : ghost_gen[1]) + 1u;
-    uint32_t size = FZX_GHOST_FILE_BYTES(g);
-    memcpy(&ghost_io, g, size);
-    fzx_ghost_stamp(&ghost_io, gen);
+    while (gw.active) (void)fzx_records_ghost_pump();
+    gw.slot = ghost_gen[0] <= ghost_gen[1] ? 0u : 1u;
+    gw.gen = (ghost_gen[0] > ghost_gen[1] ? ghost_gen[0] : ghost_gen[1]) + 1u;
+    gw.size = FZX_GHOST_FILE_BYTES(g);
+    memcpy(&ghost_io, g, gw.size);
+    fzx_ghost_stamp(&ghost_io, gw.gen);
     const uint32_t fault = POKED(fzx_ghost_fault);
     if (fault == 1u) ghost_io.crc ^= 0x00010000u;
-    else if (fault == 2u) size /= 2u;
+    gw.half = fault == 2u;
     POKED(fzx_ghost_fault) = 0;
+    gw.n = (gw.size + GH_CHUNK - 1u) / GH_CHUNK;
+    gw.next = gw.n > 1u ? 1u : 0u;
+    gw.active = true;
+    ++fzx_ghost_store[11];
+    fzx_ghost_store[6] = gw.slot + 1u; fzx_ghost_store[8] = gw.size; fzx_ghost_store[14] = gw.n;
+    return FZX_REC_OK;
+}
+
+bool fzx_records_ghost_pending(void) { return gw.active; }
+
+/* One backup-RAM write of the queued save (a chunk file, or last the head). True while more is queued. */
+bool fzx_records_ghost_pump(void) {
+    if (!gw.active) return false;
+    const unsigned k = gw.next;
+    const bool head = k == 0u;
+    /* Control 2: the save stops half way, the head never written (a power cut). */
+    if (gw.half && (gw.n == 1u || (!head && k > gw.n / 2u))) {
+        gw.active = false;
+        fzx_ghost_store[5] = FZX_REC_FAILED;
+        return false;
+    }
     bup_directory_t dir;
     memset(&dir, 0, sizeof(dir));
-    strcpy(dir.filename, ghost_file[target]);
+    char nm[12];
+    ghost_name(nm, gw.slot, k);
+    strcpy(dir.filename, nm);
     strcpy(dir.comment, "FZX GHOST");
     dir.language = BUP_LANG_ENGLISH;
-    dir.data_size = size;
+    const uint32_t off = head ? 0u : k * GH_CHUNK;
+    const uint32_t len = gw.n == 1u ? gw.size : head ? GH_CHUNK : (gw.size - off < GH_CHUNK ? gw.size - off : GH_CHUNK);
+    dir.data_size = len;
     engine_smpc_quiet(true);
     const uint16_t w0 = cpu_frt_count_get();
-    const bup_status_t s = bup_write(BUP_DEVICE_INTERNAL, &dir, &ghost_io, BUP_WRITE_MODE_OVERWRITE);
-    fzx_ghost_store[10] = (uint16_t)(cpu_frt_count_get() - w0); /* FRT ticks the write blocked the caller */
+    const uint32_t bf0 = video_fields_get();
+    const bup_status_t s = bup_write(BUP_DEVICE_INTERNAL, &dir, (uint8_t *)&ghost_io + off, BUP_WRITE_MODE_OVERWRITE);
+    const uint16_t dt = (uint16_t)(cpu_frt_count_get() - w0);
+    fzx_ghost_store[10] = dt;
+    if (dt > fzx_ghost_store[15]) fzx_ghost_store[15] = dt;
+    bup_log(bf0, w0, len, 2u);
+    ++fzx_ghost_store[12];
     bup_stat_t st;
     memset(&st, 0, sizeof(st));
     (void)bup_status(BUP_DEVICE_INTERNAL, 0, &st);
     engine_smpc_quiet(false);
-    fzx_ghost_store[7] = s; fzx_ghost_store[6] = target + 1u; fzx_ghost_store[8] = size; fzx_ghost_store[9] = st.free_blocks;
-    fzx_rec_result_t r = s == BUP_OK ? FZX_REC_OK : s == BUP_NOT_ENOUGH_MEMORY ? FZX_REC_FULL : FZX_REC_FAILED;
-    if (r == FZX_REC_OK && !fault) ghost_gen[target] = gen; else if (r == FZX_REC_OK) r = FZX_REC_FAILED;
-    fzx_ghost_store[5] = r;
-    return r;
+    fzx_ghost_store[7] = s; fzx_ghost_store[9] = st.free_blocks;
+    if (s != BUP_OK) {
+        gw.active = false;
+        fzx_ghost_store[5] = s == BUP_NOT_ENOUGH_MEMORY ? FZX_REC_FULL : FZX_REC_FAILED;
+        return false;
+    }
+    if (head) {
+        gw.active = false;
+        ghost_gen[gw.slot] = gw.gen;
+        ++fzx_ghost_store[13];
+        fzx_ghost_store[5] = FZX_REC_OK;
+        return false;
+    }
+    gw.next = k + 1u < gw.n ? k + 1u : 0u;
+    return true;
 }
 #endif
 

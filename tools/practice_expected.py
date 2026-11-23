@@ -39,13 +39,14 @@ def row_of(slug, d, rep):
     machine = [int(x['character']) for x in racers]
     grid = [int(x['grid']) for x in racers]
     energy = [int(round(float(x['max_energy']) * 256)) for x in racers]
+    chase = [-1 if int(x['chase']) == 255 else int(x['chase']) for x in racers]   # the vehicle each paces against (255: none)
     if sorted(grid) != list(range(1, CARS + 1)):
         raise Bad('%s class %d: grid places are not 1..%d' % (slug, d, CARS))
     if len(set(machine[1:])) != CARS - 1 or machine[0] in machine[1:]:
         raise Bad('%s class %d: the opponents are not %d distinct machines apart from the player' % (slug, d, CARS - 1))
     if any(e <= 0 for e in energy):
         raise Bad('%s class %d: a vehicle with no energy' % (slug, d))
-    return dict(count=len(racers), seed=SEED, machine=machine, grid=grid, energy=energy,
+    return dict(count=len(racers), seed=SEED, machine=machine, grid=grid, energy=energy, chase=chase,
                 course_length=round(float(rep['course_length']), 2))
 
 

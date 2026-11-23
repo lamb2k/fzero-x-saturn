@@ -5,4 +5,5 @@
 #include <stdint.h>
 #define CPU_CACHE_THROUGH 0u
 typedef struct { int unused; } vdp1_cmdt_t;
+uint16_t cpu_frt_count_get(void);
 #endif

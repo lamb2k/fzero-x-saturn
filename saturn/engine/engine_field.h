@@ -102,11 +102,12 @@ extern volatile uint32_t fzx_field_grid_src;
 #define FZX_FIELD_IDENT 1
 /* The live field's identity, written after the field is built (the Practice fixture reads it back at race_start): [0] magic
  * FZX_FIELD_IDENT_MAGIC, [1] the field's vehicle count, [2] the seed it was initialised with, [3] the course row, [4] the class
- * raced, [5] the session's menu mode; fzx_field_machine[i] is the machine (column 5 of the row the field was built from) of
- * vehicle i, 0 the player's slot. */
+ * raced, [5] the session's menu mode; fzx_field_live[i] is vehicle i's ([0] the machine, column 5 of the row it was built from;
+ * [1] max energy Q8; [2] the vehicle it paces against, -1 none; [3] its start position, laps x line length + distance, Q8), vehicle 0
+ * being the player's slot. */
 #define FZX_FIELD_IDENT_MAGIC 0x46494431u /* "FID1" */
 extern volatile uint32_t fzx_field_ident[8];
-extern volatile uint8_t fzx_field_machine[30];
+extern volatile int32_t fzx_field_live[30][4];
 #endif
 #if defined(ENG_MODES) && ENG_MODES
 /* Rivals whose vehicle is retired now (0 for a solo field). */

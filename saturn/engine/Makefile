@@ -704,7 +704,7 @@ SH_CFLAGS += -I$(G)/$(E1_REBAKE) -I$(G)/$(E1_VEHICLE)
 endif
 # 16 root files plus MACHAB.PAK: the CD loader reads up to 32 root entries (default 16).
 ifeq ($(ENG_P3_UI),1)
-SH_CFLAGS += $$(if $$(filter %/texture_cd.c,$$<),-DFZX_TEXTURE_CD_ROOT_ENTRIES=$(if $(filter 1,$(ENG_SCENES)),320,32),)
+SH_CFLAGS += $$(if $$(filter %/texture_cd.c,$$<),-DFZX_TEXTURE_CD_ROOT_ENTRIES=$(if $(filter 1,$(ENG_SCENES)),384,32),)
 else
 SH_CFLAGS += $$(if $$(filter %/texture_cd.c,$$<),-DFZX_TEXTURE_CD_ROOT_ENTRIES=$(if $(filter 1,$(ENG_COURSE_SELECT)),96,32),)
 endif

@@ -564,7 +564,7 @@ static void menu_test_tick(void) {
     static uint32_t waited;
     const uint32_t cmd = fzx_menu_test[0];
 #ifndef FZX_P3_BASELINE
-    if (fzx_menu_test[5] && title_ticks < 100u) title_ticks = 100u;   /* hold the title's demo timer off while the script tests */
+    if (fzx_menu_test[5]) title_ticks = 100u;   /* hold the title's demo timer off while the script tests */
 #endif
     if (!cmd) { waited = 0; return; }
     if (!engine_snd_disc_acquire()) { ++waited; return; }          /* granted: the drive is quiet */

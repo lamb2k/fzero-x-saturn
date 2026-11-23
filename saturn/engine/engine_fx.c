@@ -202,7 +202,7 @@ typedef struct { int32_t depth; uint16_t w[16]; } item_t;
  * past FZX_FX_SLOTS a new command replaces the farthest kept one when it is nearer (fzx_fx_report[10] counts the
  * commands left out). */
 typedef struct {
-    item_t items[FZX_FX_SLOTS];
+    item_t items[FZX_FX_JOB_SLOTS];
     item_t spare;
     unsigned n_items, demand, dropped, boost_cmds;
 #if ENG_FX_PROF
@@ -212,7 +212,7 @@ typedef struct {
 static jobctx_t jc[FZX_FX_JOBS];
 static item_t *slot(jobctx_t *x, int32_t depth) {
     ++x->demand;
-    item_t *t = x->n_items < FZX_FX_SLOTS ? &x->items[x->n_items] : &x->spare;
+    item_t *t = x->n_items < FZX_FX_JOB_SLOTS ? &x->items[x->n_items] : &x->spare;
     t->depth = depth;
     return t;
 }
@@ -220,7 +220,7 @@ static void commit(jobctx_t *x, item_t *t) {
     if (t != &x->spare) { ++x->n_items; return; }
     ++x->dropped;
     unsigned far = 0;
-    for (unsigned i = 1; i < FZX_FX_SLOTS; ++i) if (x->items[i].depth > x->items[far].depth) far = i;
+    for (unsigned i = 1; i < FZX_FX_JOB_SLOTS; ++i) if (x->items[i].depth > x->items[far].depth) far = i;
     if (x->spare.depth < x->items[far].depth) x->items[far] = x->spare;
 }
 
@@ -306,7 +306,7 @@ typedef struct { uint32_t n, demand, dropped, boost, live, ticks;
 } fx_out_t;
 static fx_out_t job_out[FZX_FX_JOBS];
 /* A job's sorted commands (far to near; halfword 15 of each, a reserved word, holds its depth band for the merge). */
-static vdp1_cmdt_t job_cmds[FZX_FX_JOBS][FZX_FX_SLOTS] __attribute__((aligned(32)));
+static vdp1_cmdt_t job_cmds[FZX_FX_JOBS][FZX_FX_JOB_SLOTS] __attribute__((aligned(32)));
 
 /* A racer's share of the emit (a head costs about 5, a tail 3): only the split point reads it. */
 static unsigned snap_boost_weight(const boost_t *o) {
@@ -458,7 +458,7 @@ bool fzx_fx_stage(const fzx_view_t *view, const fzx_engine_cam_t *cam, const fzx
  * band, as two 4-bit passes). The band goes to halfword 15 of the command; returns the count. */
 static unsigned order_job(jobctx_t *x, vdp1_cmdt_t *out) {
     const unsigned n = x->n_items;
-    uint8_t key[FZX_FX_SLOTS], tmp[FZX_FX_SLOTS], cnt[16];
+    uint8_t key[FZX_FX_JOB_SLOTS], tmp[FZX_FX_JOB_SLOTS], cnt[16];
     for (unsigned i = 0; i < 16u; ++i) cnt[i] = 0;
     for (unsigned i = 0; i < n; ++i) {
         uint32_t b = (uint32_t)x->items[i].depth >> 18;            /* Q14 depth / 16 units */

@@ -66,12 +66,12 @@ void fzx_fx_tick(const sh2z_vd_body_t *player, int32_t max_energy, bool accel_pr
  * to emit. */
 bool fzx_fx_stage(const fzx_view_t *view, const fzx_engine_cam_t *cam, const fzx_field_car_t *cars, unsigned n,
                   uint32_t player_machine);
-/* The staged frame is emitted as four jobs of about equal cost (0: the player's boosters, the sparks and the nearest
+/* The staged frame is emitted as jobs of about equal cost (0: the player's boosters, the sparks and the nearest
  * rivals; then the next rivals in turn), each on either SH-2 (engine_main.c, SH2ZAM dual-claim-1: the slave takes
  * the first free job, the master the last), and the master merges their far-to-near lists. */
-#define FZX_FX_JOBS 4u
+#define FZX_FX_JOBS 2u
 /* Each job keeps at most this many commands (the nearest): the four together stay under FZX_FX_SLOTS. */
-#define FZX_FX_JOB_SLOTS 48u
+#define FZX_FX_JOB_SLOTS 64u
 void fzx_fx_job(unsigned job);
 /* On the master once both jobs are done (slave_mask bit j: job j ran on the slave): the commands, far to near,
  * into dst, at most capacity. Returns the count. */

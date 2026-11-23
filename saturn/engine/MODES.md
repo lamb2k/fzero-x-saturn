@@ -101,7 +101,7 @@ right); Master is skipped until it is open.
   or Practice. `FZX_COURSE_BUNDLE_MASK` is 64-bit. The bundle takes it as the last course (`course_bundle.py ... death-race`).
 - **Field rows** come from the HOST reference alone (`tools/modes_death_regen.sh`: `fzx-gp-ref --mode death`, seed 1, difficulty 1, and its per-tick
   diagnostic): grid, machines and chase from the report; each rival's pace the mean distance a tick over the 30 ticks before its first air tick, by
-  id (`tools/death_field_header.py`, C-169 item 2); energy the full value (the mode halves it). The rule is SH2ZAM line-field-14 (pin 3188d32):
+  id (`tools/death_field_header.py`, C-169 item 2); energy the full value (the mode halves it). The rule is SH2ZAM line-field-14 (pin b1e1e39, line-field-14 merged):
   `gap_reach_ticks 19`, `fall_ticks 127`, set in `engine_field.c` for the mode. The Death rows are in every class of the course row and in `PR54.BIN`.
 - **No distance LOD** in the mode: with it (focus on the driving player) five of the 29 ran past the first air run and retired on lap 2 (EMULATOR,
   tick 1400 against the reference's 834); without it all 29 fall on the first lap.
@@ -109,3 +109,21 @@ right); Master is skipped until it is open.
   stay relative to him). Death Race's player is 30th on the grid but starts at the line, so the 29 stood 2,300 units too far on and fell 60 ticks
   early. Rivals keep their absolute slots now: retirement ticks (from the race start, as the reference's) are within -11..+31 of the reference
   by rank (EMULATOR vs HOST, seed 1; the qualification band is 40). Found by comparing against the HOST harness, which has no player shift.
+
+## The 24-course image and its memory (claude/modes, modes-6, 2026-11-23)
+
+- **Class rows are not in the default image.** `ENG_RIVAL_CLASS` is 0 on the engine (as on 4999ba8), so `course_class.c` (92 KB for 24 courses) is
+  not linked; only a build with `ENG_RIVAL_CLASS=1` would carry it, and that build would need its rows moved to disc like the Practice rows
+  (`CLnn.BIN`, not done: field-class tuning is backlog 39).
+- **What did not fit.** The 24-course image with the modes (ENG_MODES, ghost, Practice, Death Race) overflowed work RAM by 4,208 B: the modes cost
+  44.9 KB of high work RAM on the image of 4999ba8, whose gap between the end of `.bss` and the master stack was 40.7 KB (stack depth about 6 KB in
+  the loop run, floor 20,480 B unused).
+- **What was moved** (ENG_MODES=1 only; ENG_MODES=0 is byte-identical to 4999ba8, so nothing changes without the modes):
+  1. the ghost's recording and kept run (`rec_g`, `play_g`, 8,236 B each) and Practice's rows (3,840 B) to low work RAM (`.bss.lowcold.*`,
+     `engine_low_bss.ld`): the ghost touches them once every second tick, about 12 B, the one use of low work RAM in a race frame (data only; no
+     code runs from it in a race frame, which the census checks);
+  2. the road work arena `FZX_ROAD_STREAM_HIGH_BYTES` from 131,072 to 114,688 B (the largest peak of the 24 courses is Big Hand's 109,072 B).
+  The backup library's staging copy `ghost_io` and `bup` stay in high work RAM (they have not run from low work RAM on hardware).
+- **Result** (EMULATOR, Ymir): master stack unused 35,368 B (floor 20,480 B), slave 5,448 B, 0 guard trips, Mute City loop; the gate's memory row prints the
+  arena peak (`road arena peak`).
+

@@ -915,7 +915,7 @@ class Gate:
         raw = mem.raw(sym['_fzx_field_events'], 8 * 96)
         ev = [struct.unpack('>BBhi', raw[8 * i:8 * i + 8]) for i in range(min(n, 96))]   # agent, kind, by, tick
         return dict(events=ev, event_count=n, field=list(mem.words('fzx_field_report', 16)), rec=list(mem.words('fzx_rec_report', 16)),
-                    scn=list(mem.words('fzx_scn_report', 32)), script_pokes=0)
+                    scn=list(mem.words('fzx_scn_report', 32)), bup=list(mem.words('fzx_bup_log', 11)), bup0=Mem(run_dir, 'race_start', sym).words('fzx_bup_log', 1)[0])
 
     def death_check(self, name, obs, ref, script_text, sink):
         """The natural Death Race on the integrated image: no poke in the script, the race ends by the 29th retirement (end reason FINISH,
@@ -938,6 +938,8 @@ class Gate:
             why.append('end reason %d (want FINISH, 1)' % obs['scn'][13])
         if obs['rec'][10] != 1 or obs['rec'][11] != 0:
             why.append('records: %d commits, %d already-recorded (want 1 and 0)' % (obs['rec'][10], obs['rec'][11]))
+        if obs['bup'][0] - obs['bup0'] != 1 or obs['bup'][4 + 5 * obs['bup0']] != 1:   # the boot's own first write (the empty table) is before the race
+            why.append('%d backup writes since the race start (kind %d), want exactly one records write' % (obs['bup'][0] - obs['bup0'], obs['bup'][4 + 5 * obs['bup0']] if obs['bup0'] < 2 else -1))
         dev = nid = worst_id = 0
         if len(nt) == 29 and len(rt) == 29:
             ns, rs = sorted(nt.values()), sorted(rt.values())
@@ -950,7 +952,7 @@ class Gate:
         last = max(nt.values()) if nt else 0
         self.add('death', name, not why, '; '.join(why) if why else
                  '29 of 29 rivals retired by the fall (ticks %d..%d, HOST %d..%d), win at the 29th (tick %d, HOST %d); sorted max deviation %d, %d of 29 by id within %d (worst %d); '
-                 '1 records commit' % (min(nt.values()), last, min(rt.values()), max(rt.values()), last, max(rt.values()), dev, nid, self.DR_ID_BAND, worst_id),
+                 '1 records commit, 1 backup write' % (min(nt.values()), last, min(rt.values()), max(rt.values()), last, max(rt.values()), dev, nid, self.DR_ID_BAND, worst_id),
                  'EMULATOR vs HOST (fzx-gp-ref --mode death, seed 1, %s); bands from tools/modes_dr_check.py' % ref.get('role', ''), sink=sink)
 
     def score_death(self, run, run_dir, build_dir, lines, mk, sym, sink):
@@ -1332,7 +1334,7 @@ class Gate:
                 elif c['mutate'] == 'short':
                     k = next(i for i, e in enumerate(obs['events']) if e[1] == 3)
                     del obs['events'][k]
-                elif c['mutate'] == 'commits': obs['rec'][10] = 2
+                elif c['mutate'] == 'commits': obs['rec'][10] = 2; obs['bup'][0] += 1
                 elif c['mutate'] == 'reason': obs['scn'][13] = 2
                 elif c['mutate'] == 'poke': text += chr(10) + 'poke _veh+120 0x01000002' + chr(10)
                 if ref is None:

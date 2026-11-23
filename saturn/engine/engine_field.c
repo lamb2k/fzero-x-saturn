@@ -574,7 +574,11 @@ bool fzx_field_load(const sh2z_vd_track_t *track, const sh2z_vd_body_t *player) 
 #if ENG_RIVAL_SURFACE
     {
         /* line-field-4: the values ref/rivals_gp_main.c checks the bands with. */
+#if ENG_MODES
+        const uint32_t nz = (mode_now && mode_now->win_all_retired) ? 0u : (uint32_t)CSEL(zone_count,FZX_RIVALS_ZONE_COUNT); /* TEST: Death Race without the surface zones */
+#else
         const uint32_t nz = (uint32_t)CSEL(zone_count,FZX_RIVALS_ZONE_COUNT);
+#endif
         memset(&surface, 0, sizeof(surface));
         for (uint32_t k = 0; k < nz && k < FZX_RIVALS_ZONE_MAX; ++k) {
             const int32_t *z = CSEL(zones,fzx_rivals_zones)[k];

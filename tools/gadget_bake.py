@@ -133,7 +133,7 @@ def bake_bitmap(kind, corners, uv, textures, pal, cache):
 
 
 FINE_BYTES = 76
-FINE_LEVELS = (0, 4, 8, 16, 24, 28, 32)      # texture rows (t): the corners of a plate half and the texture's wrap rows are all on this list
+FINE_LEVELS = (0, 8, 16, 24, 32)      # texture rows (t): the corners of a plate half and the texture's wrap rows are all on this list
 
 
 def fine_half(q):

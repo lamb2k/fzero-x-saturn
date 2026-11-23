@@ -189,7 +189,7 @@ int main(int argc, char** argv) {
             #undef T
             if (!strcmp(tok, "boost_ticks")) { P.boost_ticks = (int16_t)val; continue; }
             #define B(n) if (!strcmp(tok, #n)) { behave.n = val; continue; }
-            B(drop_lat) B(drop_chance) B(launch_chance) B(contact_norm)
+            B(gap_reach_ticks) B(drop_lat) B(drop_chance) B(launch_chance) B(contact_norm)
             B(roll_chance) B(roll_latch) B(roll_lead) B(roll_well) B(hold_lead) B(roll_exit_ahead) B(lat_accel) B(air_spread) B(fall_margin) B(fall_ticks) B(ko_window) B(ko_near) B(ko_floor)
             #undef B
             if (!strcmp(tok, "roll_min")) { behave.roll_min = (int16_t)val; continue; }

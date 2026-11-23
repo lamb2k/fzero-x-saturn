@@ -1,6 +1,7 @@
 #include "texture_cd.h"
 #include "road_cd.h"
 #include <string.h>
+#include "iso_root.h"
 #if FZX_SOURCE_MACHINE_MENU
 enum { ROOT_ENTRIES=256 };
 #elif FZX_SOURCE_COUNTDOWN
@@ -53,6 +54,26 @@ static bool kept_ok;
 void fzx_texture_cd_reset(void){kept_ok=false;fzx_road_stream_invalidate();}
 static bool load_once(const char *name,uint32_t bytes,uint32_t expected,
                       void *vram,void *scratch,uint32_t scratch_bytes);
+typedef struct {cdfs_filelist_entry_t *entries;uint32_t count;} root_fill_t;
+static void root_sector_read(uint32_t lba,uint8_t *sector,void *ctx) {
+    (void)ctx;(void)sector;   /* the buffer is the workspace sector, as for every volume_read */
+    volume_read(lba,&workspace->sector);
+}
+static int root_emit(const fzx_iso_rec_t *rec,void *ctx) {
+    root_fill_t *const f=ctx;
+    if(f->count<ROOT_ENTRIES) {
+        cdfs_filelist_entry_t *const e=&f->entries[f->count];
+        e->type=rec->dir?CDFS_ENTRY_TYPE_DIRECTORY:CDFS_ENTRY_TYPE_FILE;
+        /* The entry was zeroed. name[] holds 12 characters, so a 12-character name (MACH3D05.PAK) has no NUL of its
+         * own: the FAD's high byte, 0 and set below, ends it, as in cdfs's list. */
+        memcpy(e->name,rec->name,rec->name_len);
+        e->starting_fad=rec->lba+150u;
+        e->size=rec->size;
+        e->sector_count=(uint16_t)((rec->size+CDFS_SECTOR_SIZE-1u)/CDFS_SECTOR_SIZE);
+    }
+    ++f->count;
+    return 1;
+}
 /* A whole-file load whose bytes arrive wrong (copy check 7, FNV 8) is read again from a new
  * stream, up to twice: every byte is still checked, so wrong data is never accepted, and a
  * pack that is wrong on the disc is still refused. [0] retries, [1] loads that needed one,
@@ -87,17 +108,15 @@ static bool load_once(const char *name,uint32_t bytes,uint32_t expected,
         cpu_frt_init(CPU_FRT_CLOCK_DIV_32);
         if(cd_block_init())return fail(3);
         fzx_road_stream_invalidate();
-    volume_read(16,&workspace->sector);
+    /* The root list is read by saturn/iso_root.h, not cdfs_filelist_root_read: that reader lost the file whose
+     * record ends exactly on a sector boundary (tests/test_iso_root.c). */
+    root_fill_t fill={entries,0};
+    memset(entries,0,sizeof(kept));
+    const int found=fzx_iso_root_walk(root_sector_read,NULL,workspace->sector.buffer8,root_emit,&fill);
     if(fzx_texture_cd_status.io_result)return fail(3);
-    if(workspace->sector.buffer8[0]!=1 || memcmp(workspace->sector.buffer8+1,"CD001",5))return fail(4);
-    const cdfs_config_t config={.sector_read=volume_read,.sectors=&workspace->sector,.sector_count=1};
-    cdfs_config_set(&config);
-    cdfs_filelist_t list;
-    cdfs_filelist_init(&list,entries,ROOT_ENTRIES);
-    cdfs_filelist_root_read(&list);
-    if(fzx_texture_cd_status.io_result)return fail(3);
-    if(list.entries_count>ROOT_ENTRIES)return fail(5);
-    kept_count=list.entries_count;kept_ok=true;
+    if(found<0)return fail(4);
+    if(fill.count>ROOT_ENTRIES)return fail(5);
+    kept_count=fill.count;kept_ok=true;
     }
     const uint32_t entries_count=kept_count;
     const cdfs_filelist_entry_t *file=NULL;

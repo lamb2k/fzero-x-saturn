@@ -9,7 +9,8 @@
   "slave_guard_trips": 0,
   "menu_worst_fields": 2,
   "race_window_tick": 420,
-  "countdown": {"drawn_min": 100, "commands_max": 30, "first_min": 458, "last_max": 3}
+  "countdown": {"drawn_min": 100, "commands_max": 30, "first_min": 458, "last_max": 3},
+  "root_entries": 384
  },
  "images": {
   "e0": {

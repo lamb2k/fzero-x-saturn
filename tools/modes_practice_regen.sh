@@ -14,7 +14,13 @@
 # input and generator hashes go to OUTDIR/practice-regen.log. Any failure stops the script before the bundle is written.
 set -euo pipefail
 OUT=${1:-/tmp/fzx-practice}
-COURSES="mute-city-1 silence-1 sand-ocean-1 devils-forest-1 big-blue-1 port-town-1"
+# Every course the image bundles (course_ids.c order); Death Race has no Practice and is skipped (its rows come from tools/modes_death_regen.sh).
+COURSES=$(python3 -c "
+import re,sys
+sys.path.insert(0,'tools')
+import course_bundle as b, course_catalog as k
+by={v[0]:s for s,v in k.COURSES.items()}
+print(' '.join(by[int(i)] for i in re.findall(r'\.id = (\d+)u', (b.OUT/'course_ids.c').read_text()) if by[int(i)] != 'death-race'))")
 REF=ref/build/rivals-gcc-O2/fzx-gp-ref
 [ -x "$REF" ] || { echo "build $REF first (ref/rivals_build.sh)" >&2; exit 1; }
 [ -n "${OUT:?}" ] && [ "$OUT" != "/" ]

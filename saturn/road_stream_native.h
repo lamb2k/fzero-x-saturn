@@ -14,6 +14,11 @@ extern fzx_road_stream_draw_stats_t fzx_road_stream_stats;
  * remap/count, positions/count, projected/count, images/count. */
 extern volatile uint32_t fzx_road_stream_report[24];
 bool fzx_road_stream_load(void *vram);
+#if FZX_ROAD_GADGETS
+/* Decal pack (ROADGAD.PAK) load report and the VDP1 bytes it takes behind the road's shade tables (alignment included);
+ * the caller adds fzx_road_gadget_extent to its texture offset after every fzx_road_stream_load. */
+extern volatile uint32_t fzx_road_gadget_report[4],fzx_road_gadget_extent;
+#endif
 bool fzx_road_stream_guards(void);
 #ifndef FZX_ROAD_STREAM_CLUT_ALIGN
 #define FZX_ROAD_STREAM_CLUT_ALIGN 0

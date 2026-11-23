@@ -958,10 +958,17 @@ static void before_master(void) {
 #ifndef E0_QUEUE_STRESS
 #define E0_QUEUE_STRESS 0
 #endif
+#if ENG_PICK_AHEAD
+static void kick(const fzx_engine_cam_t *cam, uint32_t tick, bool pre) {
+#else
 static void kick(const fzx_engine_cam_t *cam, uint32_t tick) {
+#endif
     vdp1_cmdt_t *const commands = commands_buf;
     const fzx_engine_consts_t *k = &path.consts;
     fzx_engine_view(&fzx_native_view, cam, k);
+#if ENG_PICK_AHEAD
+    fzx_slave_road_pick_wait(); /* an early pick still reads job_cam, job_tick and job_outer */
+#endif
     job_cam = cam; job_tick = tick;
 #if FZX_PHYS_TUBES
     job_outer = fzx_drive_outer();
@@ -973,6 +980,9 @@ static void kick(const fzx_engine_cam_t *cam, uint32_t tick) {
     job.capacity = SCENE_CAPACITY - FZX_SLAVE_ROAD_RESERVE;
     job.view = &fzx_native_view; job.plan = &fzx_source_road_plan;
     job.pixels = road_pixels;
+#if ENG_PICK_AHEAD
+    job.pre = pre ? 1u : 0u; /* the road job uses the early pick's plan (or undoes it and picks again) */
+#endif
 #if FZX_VDP1_DBANK
     job.shades = road_shades[sh2z_vdp1_banks_bank(&fzx_dbank_banks)];
 #else
@@ -1792,7 +1802,11 @@ bool fzx_race_frame(void) {
         tick = fzx_drive_tick() ? fzx_drive_tick() : 1u;
         if (fzx_e1_driver && fzx_e1_report[5]) { fzx_e0_done = 1; fzx_e0_status = 2; }
         const uint32_t shown = tick;
+#if ENG_PICK_AHEAD
+        const bool pre_pick = fzx_drive_camera_ahead(&drive_cam, lens);
+#else
         fzx_drive_camera(&drive_cam, lens);
+#endif
         const fzx_engine_cam_t *const cam = &drive_cam;
 #else
         tick += advance;
@@ -1836,7 +1850,11 @@ bool fzx_race_frame(void) {
         if (fzx_atk_prof_row < FZX_ATK_PROF_ROWS) fzx_atk_prof[fzx_atk_prof_row][11] = (uint16_t)(kicked - p0);
 #endif
 #if FZX_E1_DRIVE
+#if ENG_PICK_AHEAD
+        kick(cam, shown, pre_pick);
+#else
         kick(cam, shown);
+#endif
 #if ENG_BAL_EARLY
         {   /* The rival field on this frame's player ticks, now that the slave has its track. */
             const uint16_t r0 = cpu_frt_count_get();
@@ -1858,7 +1876,11 @@ bool fzx_race_frame(void) {
         }
 #endif
 #else
+#if ENG_PICK_AHEAD
+        kick(&path.cams[shown - 1u], shown, false);
+#else
         kick(&path.cams[shown - 1u], shown);
+#endif
 #endif
         const uint16_t w1 = cpu_frt_count_get();
         before_master();
@@ -1900,6 +1922,21 @@ bool fzx_race_frame(void) {
 #endif
             const uint16_t a0 = cpu_frt_count_get();
             fzx_drive_ahead_prepare(2u);
+#if ENG_PICK_AHEAD
+            {   /* The slave picks the predicted frame's track now, while it and the master wait for the present. */
+                const fzx_engine_cam_t *pc; uint32_t pt, po;
+                if (fzx_drive_ahead_view(lens, &pc, &pt, &po)) {
+                    job_cam = pc; job_tick = pt;
+#if FZX_PHYS_TUBES
+                    job_outer = (uint8_t)po;
+#else
+                    (void)po;
+#endif
+                    fzx_slave_road_pick_start();
+                    ++fzx_e1_ahead[7];
+                }
+            }
+#endif
             const uint16_t at = (uint16_t)(cpu_frt_count_get() - a0);
             fzx_e1_ahead[4] += at;
             if (at > fzx_e1_ahead[5]) fzx_e1_ahead[5] = at;

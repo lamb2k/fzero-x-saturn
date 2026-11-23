@@ -515,6 +515,15 @@ SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter-out 0,$(ENG_BAL_SPLIT)),s$(ENG_BA
 # frame (engine_drive.c); the step takes them when the tick count, the start and the pad word agree. 0: steps in the frame.
 ENG_PHYS_AHEAD ?= 1
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter 1,$(ENG_PHYS_AHEAD)),-ahd,)
+# ENG_PICK_AHEAD (claude/speed-6): the slave picks the next frame's track in the master's idle time as well, from the camera of the
+# state the physics prediction ends in; the road job then skips its pick when the step took the prediction (engine_pick_body.h).
+# Drive images with ENG_PHYS_AHEAD only; 0 (or an image without the drive) builds the code as it was.
+ENG_PICK_AHEAD ?= $(if $(filter 1,$(ENG_PHYS_AHEAD)),$(if $(filter 1,$(FZX_E1_DRIVE)),1,0),0)
+SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter 1,$(ENG_PICK_AHEAD)),-pka,)
+# Controls (diagnostic only): 1 declares every third early pick unused (the undo path; the picture must equal the default's), 2 gives
+# the early pick the camera of the state before the prediction (a stale view; the picture must differ).
+ENG_PICK_AHEAD_CONTROL ?= 0
+SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter-out 0,$(ENG_PICK_AHEAD_CONTROL)),-pkc$(ENG_PICK_AHEAD_CONTROL),)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter 0,$(E0_FLOOR_NEAR0)),-fn0,)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter-out mute-city-1,$(ENG_COURSE)),-$(ENG_COURSE),)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(E1_DRIVER_KH),-kh$(E1_DRIVER_KH),)
@@ -656,7 +665,7 @@ ifeq ($(ENG_ATTACKS),1)
 SH_CFLAGS += -DENG_ATK_DEFER=$(ENG_ATK_DEFER)
 SH_CFLAGS += -DENG_ATK_LAG=$(ENG_ATK_LAG)
 endif
-SH_CFLAGS += -DENG_BAL_CLOUDS=$(ENG_BAL_CLOUDS) -DENG_BAL_EARLY=$(ENG_BAL_EARLY) -DENG_BAL_FORCE=$(ENG_BAL_FORCE) -DENG_BAL_HASH=$(ENG_BAL_HASH) -DENG_BAL_PREWARM=$(ENG_BAL_PREWARM) -DENG_BAL_SPLIT=$(ENG_BAL_SPLIT) -DENG_PHYS_AHEAD=$(ENG_PHYS_AHEAD)
+SH_CFLAGS += -DENG_BAL_CLOUDS=$(ENG_BAL_CLOUDS) -DENG_BAL_EARLY=$(ENG_BAL_EARLY) -DENG_BAL_FORCE=$(ENG_BAL_FORCE) -DENG_BAL_HASH=$(ENG_BAL_HASH) -DENG_BAL_PREWARM=$(ENG_BAL_PREWARM) -DENG_BAL_SPLIT=$(ENG_BAL_SPLIT) -DENG_PHYS_AHEAD=$(ENG_PHYS_AHEAD) -DENG_PICK_AHEAD=$(ENG_PICK_AHEAD) -DENG_PICK_AHEAD_CONTROL=$(ENG_PICK_AHEAD_CONTROL)
 SH_CFLAGS += -DENG_CADENCE_STALL_CONTROL=$(ENG_CADENCE_STALL_CONTROL)
 SH_CFLAGS += -DENG_PACE=$(ENG_PACE) $(if $(filter 3,$(ENG_PACE)),-DENG_VDP1_INTERVAL=$(ENG_VDP1_INTERVAL),) $(if $(filter 4,$(ENG_PACE)),-DENG_PACE_LEAD=$(ENG_PACE_LEAD) -DENG_PACE_EARLY_CONTROL=$(ENG_PACE_EARLY_CONTROL) -DENG_PACE_HUD_LEAD=$(ENG_PACE_HUD_LEAD),) -DFZX_ENGINE=1 -DFZX_FRAME_PROFILE=1 -DFZX_VDP1_DBANK=$(FZX_VDP1_DBANK) \
     -DFZX_VDP1_DBANK_STALE=$(FZX_VDP1_DBANK_STALE) -DFZX_ROAD_STREAM_CLUT_ALIGN=$(ENG_CLUT_ALIGN) -DENG_CLUT_ALIGN=$(ENG_CLUT_ALIGN) -DENG_CLUT_RACE_CONTROL=$(ENG_CLUT_RACE_CONTROL) -DFZX_ROAD_STREAM_GUARD_MARGIN=$(E0_GUARD_MARGIN) -DFZX_ROAD_STREAM_LINE_START=$(E0_LINE_START) -DFZX_RBG_NEAR0=$(E0_FLOOR_NEAR0) \

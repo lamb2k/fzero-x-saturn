@@ -517,7 +517,12 @@ class Gate:
         ms = mem.master_stack_unused()
         ss, trips = int(g('slave_road_stack_unused') or 0), int(g('slave_road_guard_trips') or 0)
         ok = ms >= self.lim['master_stack_min'] and ss >= self.lim['slave_stack_min'] and trips <= self.lim['slave_guard_trips']
-        self.add('memory', name, ok, 'master stack unused %d B, slave %d B, guard trips %d' % (ms, ss, trips),
+        # The road work arena's peak (fzx_road_stream_high_used) against its size, when the image has the arena: INFO (a course that outgrows it
+        # stops the load, which the race check catches); the size is the image's own HIGH_BYTES in the Makefile.
+        arena = ''
+        if mem.has('fzx_road_stream_high_used'):
+            arena = ', road arena peak %d B' % mem.words('fzx_road_stream_high_used', 1)[0]
+        self.add('memory', name, ok, 'master stack unused %d B, slave %d B, guard trips %d%s' % (ms, ss, trips, arena),
                  'floors %d / %d / %d' % (self.lim['master_stack_min'], self.lim['slave_stack_min'], self.lim['slave_guard_trips']), sink=sink)
 
     def menus_check(self, name, lines, sink=None):

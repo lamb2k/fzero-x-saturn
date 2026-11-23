@@ -16,7 +16,17 @@ volatile int32_t fzx_ghost_pos[3];
  * [4] recording overrun, [5] saved (1) after the last race, [6] save result, [7] kept ghost's race ms, [8] recorded bytes */
 volatile uint32_t fzx_ghost_report[16];
 
-static fzx_ghost_t rec_g, play_g;
+/* The recording and the kept ghost: 8,236 B each, appended and read once every second tick (about 12 B), so low work RAM
+ * (engine_low.x, ENG_LOW_COLD) holds them and the master stack keeps the room (the 24-course image with the modes did not link
+ * with them in high work RAM). The backup library's staging copy (engine_records.c ghost_io) stays in high work RAM. */
+#if ENG_LOW_COLD
+__attribute__((section(".bss.lowcold.ghost_rec")))
+#endif
+static fzx_ghost_t rec_g;
+#if ENG_LOW_COLD
+__attribute__((section(".bss.lowcold.ghost_play")))
+#endif
+static fzx_ghost_t play_g;
 static fzx_ghost_play_t play;
 static bool rec_on, play_on, rec_done;
 

@@ -69,6 +69,10 @@ static const fzx_course_index_t *course_index_row(uint32_t id) {
 #include "course_practice.h"
 /* Practice's rival rows of the course in use (PRnn.BIN, big-endian int32 [class][vehicle][8]): disc data read at LOAD with the row,
  * 3,840 B in high work RAM instead of 3,840 B a bundled course in the image (tools/course_practice_bundle.py). */
+#if ENG_LOW_COLD
+/* Read at the race's field load only (engine_field.c), never in a race frame: low work RAM (engine_low.x). */
+__attribute__((section(".bss.lowcold.practice_rows")))
+#endif
 static int32_t practice_rows[4][30][8] __attribute__((aligned(8)));
 const int32_t (*const fzx_practice_rows)[30][8] = practice_rows;
 static int32_t practice_loaded = -1;

@@ -771,7 +771,11 @@ endif
 # The rows themselves are disc files (PRnn.BIN, read at LOAD); the image links only their hashes.
 SH_SRCS += $(G)/courses/select/course_practice_index.c
 endif
-SH_CFLAGS += -DENG_COURSE_SELECT=1 -I$(G)/courses/select -DFZX_ROAD_STREAM_HIGH_BYTES=131072u -DFZX_ROAD_STREAM_TEXTURE_LIMIT=262144u -DFZX_ROAD_STREAM_PACK_LIMIT=240000u
+# The road work arena (FZX_ROAD_STREAM_HIGH_BYTES) is 114,688 B on the one-disc image (it was 131,072): the 24-course image with the race modes
+# (ENG_MODES, ghost, Practice rows) left 24.8 KB between the end of .bss and the master stack, so the arena gave 16 KB back. The largest peak
+# over the 24 courses is Big Hand's 109,072 B (COURSES.md section 12; the gate's memory row prints the peak), a course that needs more stops
+# the load with TRACK LOAD 35.
+SH_CFLAGS += -DENG_COURSE_SELECT=1 -I$(G)/courses/select -DFZX_ROAD_STREAM_HIGH_BYTES=114688u -DFZX_ROAD_STREAM_TEXTURE_LIMIT=262144u -DFZX_ROAD_STREAM_PACK_LIMIT=240000u
 endif
 
 # Course gadget decals (claude/gadgets): the dash plates and the pit, dirt and ice strips the original draws on the road,

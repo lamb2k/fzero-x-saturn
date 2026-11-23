@@ -1948,6 +1948,14 @@ bool fzx_race_frame(void) {
             if (video_fields < last->present_field + 2u) { ++fzx_pace_holds; while (video_fields < last->present_field + 2u) {} }
         }
 #endif
+#if ENG_CADENCE_STALL_CONTROL
+        /* Let the real display clock advance before submitting this one list.
+         * The present path and its timestamp collection run unchanged. */
+        if (row != &scratch_row && row_index == 512u) {
+            const uint32_t start = video_fields;
+            while ((uint32_t)(video_fields - start) < 4u) { }
+        }
+#endif
         row->submit_frt = cpu_frt_count_get();
         vdp1_sync_cmdt_list_put(&command_list, 0);
 #if ENG_PACE == 4

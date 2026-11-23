@@ -290,17 +290,14 @@
   {
    "name": "ctl-cadence",
    "check": "cadence",
-   "how": "field image with chunk cap and balance disabled, retaining the candidate road implementation",
+   "how": "Shipping field image with one real four-VBlank stall before frame submission at recorded row 512",
    "image": "field",
    "vars": [
-    "E0_CAP_STABLE=0",
-    "E0_CHUNK_CAP=0",
-    "ENG_BAL_CLOUDS=0",
-    "ENG_BAL_EARLY=0",
-    "ENG_BAL_PREWARM=0"
+    "ENG_CADENCE_STALL_CONTROL=1"
    ],
    "kind": "race",
-   "course": "mute-city-1"
+   "course": "mute-city-1",
+   "stall_row": 512
   },
   {
    "name": "ctl-margin",
@@ -490,32 +487,92 @@
   },
   {
    "receipt": "generated/road_prep/road_prep.receipt",
-   "cmd": "python3 tools/road_prep.py --sh2zam ../lib-{engine_pin} --bake generated/road_bake --output generated/road_prep",
+   "cmd": "sh {view_regen} .",
+   "rom": false
+  },
+  {
+   "receipt": "generated/engine_path/engine_path.receipt",
+   "cmd": "sh {view_regen} .",
+   "rom": false
+  },
+  {
+   "receipt": "generated/engine_path_ranges/engine_path_ranges.receipt",
+   "cmd": "sh {view_regen} .",
    "rom": false
   },
   {
    "receipt": "generated/courses/silence-1/road_prep/road_prep.receipt",
-   "cmd": "python3 tools/road_prep.py --sh2zam ../lib-{engine_pin} --bake generated/courses/silence-1/road_bake --output generated/courses/silence-1/road_prep --texture-limit 240000",
+   "cmd": "sh {view_regen} silence-1",
+   "rom": false
+  },
+  {
+   "receipt": "generated/courses/silence-1/engine_path/engine_path.receipt",
+   "cmd": "sh {view_regen} silence-1",
+   "rom": false
+  },
+  {
+   "receipt": "generated/courses/silence-1/engine_path_ranges/engine_path_ranges.receipt",
+   "cmd": "sh {view_regen} silence-1",
    "rom": false
   },
   {
    "receipt": "generated/courses/sand-ocean-1/road_prep/road_prep.receipt",
-   "cmd": "python3 tools/road_prep.py --sh2zam ../lib-{engine_pin} --bake generated/courses/sand-ocean-1/road_bake --output generated/courses/sand-ocean-1/road_prep --texture-limit 240000",
+   "cmd": "sh {view_regen} sand-ocean-1",
+   "rom": false
+  },
+  {
+   "receipt": "generated/courses/sand-ocean-1/engine_path/engine_path.receipt",
+   "cmd": "sh {view_regen} sand-ocean-1",
+   "rom": false
+  },
+  {
+   "receipt": "generated/courses/sand-ocean-1/engine_path_ranges/engine_path_ranges.receipt",
+   "cmd": "sh {view_regen} sand-ocean-1",
    "rom": false
   },
   {
    "receipt": "generated/courses/devils-forest-1/road_prep/road_prep.receipt",
-   "cmd": "python3 tools/road_prep.py --sh2zam ../lib-{engine_pin} --bake generated/courses/devils-forest-1/road_bake --output generated/courses/devils-forest-1/road_prep --texture-limit 240000",
+   "cmd": "sh {view_regen} devils-forest-1",
+   "rom": false
+  },
+  {
+   "receipt": "generated/courses/devils-forest-1/engine_path/engine_path.receipt",
+   "cmd": "sh {view_regen} devils-forest-1",
+   "rom": false
+  },
+  {
+   "receipt": "generated/courses/devils-forest-1/engine_path_ranges/engine_path_ranges.receipt",
+   "cmd": "sh {view_regen} devils-forest-1",
    "rom": false
   },
   {
    "receipt": "generated/courses/big-blue-1/road_prep/road_prep.receipt",
-   "cmd": "python3 tools/road_prep.py --sh2zam ../lib-{engine_pin} --bake generated/courses/big-blue-1/road_bake --output generated/courses/big-blue-1/road_prep --texture-limit 240000",
+   "cmd": "sh {view_regen} big-blue-1",
+   "rom": false
+  },
+  {
+   "receipt": "generated/courses/big-blue-1/engine_path/engine_path.receipt",
+   "cmd": "sh {view_regen} big-blue-1",
+   "rom": false
+  },
+  {
+   "receipt": "generated/courses/big-blue-1/engine_path_ranges/engine_path_ranges.receipt",
+   "cmd": "sh {view_regen} big-blue-1",
    "rom": false
   },
   {
    "receipt": "generated/courses/port-town-1/road_prep/road_prep.receipt",
-   "cmd": "python3 tools/road_prep.py --sh2zam ../lib-{engine_pin} --bake generated/courses/port-town-1/road_bake --output generated/courses/port-town-1/road_prep --texture-limit 240000",
+   "cmd": "sh {view_regen} port-town-1",
+   "rom": false
+  },
+  {
+   "receipt": "generated/courses/port-town-1/engine_path/engine_path.receipt",
+   "cmd": "sh {view_regen} port-town-1",
+   "rom": false
+  },
+  {
+   "receipt": "generated/courses/port-town-1/engine_path_ranges/engine_path_ranges.receipt",
+   "cmd": "sh {view_regen} port-town-1",
    "rom": false
   }
  ],

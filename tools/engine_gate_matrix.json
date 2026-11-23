@@ -455,7 +455,14 @@
    "image": "scenes-drv",
    "kind": "practice",
    "script": "course_pr.txt",
-   "courses": "all",
+   "courses": [
+    "mute-city-1",
+    "silence-1",
+    "sand-ocean-1",
+    "devils-forest-1",
+    "big-blue-1",
+    "port-town-1"
+   ],
    "modes": [
     "full"
    ]

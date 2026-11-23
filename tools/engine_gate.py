@@ -939,7 +939,8 @@ class Gate:
         hdir = self.ev / 'host'
         slugs = set(r['course'] for r in runs if r.get('course'))
         if any(r['kind'] in ('course', 'practice') for r in runs):
-            slugs |= set(c['slug'] for c in courses)
+            slugs |= set(c['slug'] for r in runs if r['kind'] in ('course', 'practice') for c in courses
+                         if not isinstance(r.get('courses'), list) or c['slug'] in r['courses'])
         if a.controls:
             slugs |= {'mute-city-1'}
         by_slug = {c['slug']: c for c in m['courses']}
@@ -954,6 +955,8 @@ class Gate:
                 continue
             if r['kind'] in ('course', 'practice'):
                 for c in courses:
+                    if isinstance(r.get('courses'), list) and c['slug'] not in r['courses']:
+                        continue   # a row that names its courses (the Practice rows: the Jack Cup, whose HOST rows are frozen)
                     rr = dict(r, name='course-%s' % c['slug'], course=c['slug'], image=c.get('image', r['image']))
                     jobs.append((rr, 'script', self.script_for(r['script'], c['index'])))
             elif r['kind'] == 'race':

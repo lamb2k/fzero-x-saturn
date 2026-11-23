@@ -19,12 +19,12 @@
 
 #if ENG_GHOST
 extern uint32_t video_fields_get(void);
-/* Captures (32-bit: the FRT counters wrap past 4.6 fields): per backup write, in order (the first 6): video fields at entry and at exit,
+/* Captures (32-bit: the FRT counters wrap past 4.6 fields): per backup write, in order (the first 12): video fields at entry and at exit,
  * the bytes, 1 for a records file or 2 for a ghost file, and the FRT at entry and exit. [0] writes so far. */
-volatile uint32_t fzx_bup_log[1 + 5 * 6];
+volatile uint32_t fzx_bup_log[1 + 5 * 12];
 static void bup_log(uint32_t f0, uint16_t t0, uint32_t bytes, uint32_t kind) {
     const uint32_t n = fzx_bup_log[0];
-    if (n < 6u) {
+    if (n < 12u) {
         fzx_bup_log[1u + 5u * n] = f0; fzx_bup_log[2u + 5u * n] = video_fields_get(); fzx_bup_log[3u + 5u * n] = bytes; fzx_bup_log[4u + 5u * n] = kind;
         fzx_bup_log[5u + 5u * n] = ((uint32_t)t0 << 16) | cpu_frt_count_get();   /* FRT at entry, at exit (16 bits each) */
     }
@@ -324,7 +324,7 @@ volatile uint32_t fzx_ghost_fault;       /* captures: 1 = the next ghost write s
  * write blocked (16 bits), [11] saves begun, [12] chunk files written, [13] saves completed, [14] chunks of the last image,
  * [15] most FRT ticks any chunk write blocked */
 volatile uint32_t fzx_ghost_store[16];
-static struct { bool active; unsigned slot, n, next; uint32_t gen, size; bool half; } gw;   /* the queued save; next counts 1..n-1 then 0 (the head) */
+static struct { bool active; unsigned slot, n, next; uint32_t gen, size; bool half, bad; } gw;   /* the queued save; next counts 1..n-1 then 0 (the head) */
 
 static void ghost_name(char out[12], unsigned slot, unsigned k) {
     static const char hex[] = "0123456789abcdef";
@@ -386,6 +386,7 @@ fzx_rec_result_t fzx_records_ghost_save_begin(const fzx_ghost_t *g) {
     const uint32_t fault = POKED(fzx_ghost_fault);
     if (fault == 1u) ghost_io.crc ^= 0x00010000u;
     gw.half = fault == 2u;
+    gw.bad = fault == 1u;
     POKED(fzx_ghost_fault) = 0;
     gw.n = (gw.size + GH_CHUNK - 1u) / GH_CHUNK;
     gw.next = gw.n > 1u ? 1u : 0u;
@@ -439,8 +440,9 @@ bool fzx_records_ghost_pump(void) {
     }
     if (head) {
         gw.active = false;
-        ghost_gen[gw.slot] = gw.gen;
         ++fzx_ghost_store[13];
+        if (gw.bad) { fzx_ghost_store[5] = FZX_REC_FAILED; return false; }   /* control 1: the stored image is wrong; not a generation */
+        ghost_gen[gw.slot] = gw.gen;
         fzx_ghost_store[5] = FZX_REC_OK;
         return false;
     }

@@ -98,16 +98,6 @@
    "note": "scenes, R03 look-ahead driver (White Land 1 retires under R01); sound on",
    "sound": true
   },
-  "scenes-drv-r03": {
-   "vars": [
-    "FZX_E1_DRIVE=1",
-    "ENG_SCENES=1",
-    "E1_DRIVER=2"
-   ],
-   "kind": "scenes",
-   "note": "scenes, R03 look-ahead driver (White Land 1 retires under R01); sound on",
-   "sound": true
-  },
   "scenes-drv-ff": {
    "vars": [
     "FZX_E1_DRIVE=1",
@@ -466,6 +456,39 @@
    "modes": [
     "full"
    ]
+  },
+  {
+   "name": "ghost-f0",
+   "image": "scenes-drv",
+   "kind": "ghost",
+   "script": "ghost_ta_f0.txt",
+   "course": "mute-city-1",
+   "fault": 0,
+   "modes": [
+    "full"
+   ]
+  },
+  {
+   "name": "ghost-f1",
+   "image": "scenes-drv",
+   "kind": "ghost",
+   "script": "ghost_ta_f1.txt",
+   "course": "mute-city-1",
+   "fault": 1,
+   "modes": [
+    "full"
+   ]
+  },
+  {
+   "name": "ghost-f2",
+   "image": "scenes-drv",
+   "kind": "ghost",
+   "script": "ghost_ta_f2.txt",
+   "course": "mute-city-1",
+   "fault": 2,
+   "modes": [
+    "full"
+   ]
   }
  ],
  "controls": [
@@ -809,6 +832,83 @@
    "course": "mute-city-1",
    "reuse": "course-mute-city-1",
    "practice_host": "late"
+  },
+  {
+   "name": "ctl-gh-frames",
+   "check": "ghost",
+   "how": "two ghost files written in one manager frame (the second at the first one's field): the one-file-a-frame check fails",
+   "image": "scenes-drv",
+   "kind": "ghost",
+   "course": "mute-city-1",
+   "reuse": "ghost-f0",
+   "fault": 0,
+   "mutate": "frames"
+  },
+  {
+   "name": "ctl-gh-commits",
+   "check": "ghost",
+   "how": "two ghost saves counted for one name commit: the exactly-one-commit check fails",
+   "image": "scenes-drv",
+   "kind": "ghost",
+   "course": "mute-city-1",
+   "reuse": "ghost-f0",
+   "fault": 0,
+   "mutate": "commits"
+  },
+  {
+   "name": "ctl-gh-readback",
+   "check": "ghost",
+   "how": "the reset finds no ghost in the backup RAM after a good save: the durable read-back check fails",
+   "image": "scenes-drv",
+   "kind": "ghost",
+   "course": "mute-city-1",
+   "reuse": "ghost-f0",
+   "fault": 0,
+   "mutate": "readback"
+  },
+  {
+   "name": "ctl-gh-ms",
+   "check": "ghost",
+   "how": "the ghost read back after the reset is one millisecond off the race that made it: the read-back check fails",
+   "image": "scenes-drv",
+   "kind": "ghost",
+   "course": "mute-city-1",
+   "reuse": "ghost-f0",
+   "fault": 0,
+   "mutate": "ms"
+  },
+  {
+   "name": "ctl-gh-big",
+   "check": "ghost",
+   "how": "a ghost write of 2048 bytes (two chunks in one write): the chunk-size check fails",
+   "image": "scenes-drv",
+   "kind": "ghost",
+   "course": "mute-city-1",
+   "reuse": "ghost-f0",
+   "fault": 0,
+   "mutate": "big"
+  },
+  {
+   "name": "ctl-gh-held",
+   "check": "ghost",
+   "how": "a ghost write holding the caller one whole field: the blocking check fails",
+   "image": "scenes-drv",
+   "kind": "ghost",
+   "course": "mute-city-1",
+   "reuse": "ghost-f0",
+   "fault": 0,
+   "mutate": "held"
+  },
+  {
+   "name": "ctl-gh-nofault",
+   "check": "ghost",
+   "how": "the half-written save's slot read back as a valid ghost after the reset (observed state altered): the no-ghost-accepted check fails",
+   "image": "scenes-drv",
+   "kind": "ghost",
+   "course": "mute-city-1",
+   "reuse": "ghost-f2",
+   "fault": 2,
+   "mutate": "accepted"
   }
  ],
  "regenerate": [

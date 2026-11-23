@@ -248,6 +248,16 @@ PR_OBS_MUT = {
     'seed': lambda o: dict(o, ident=o['ident'][:2] + [o['ident'][2] + 1] + o['ident'][3:]),
     'count': lambda o: dict(o, ident=o['ident'][:1] + [o['ident'][1] - 1] + o['ident'][2:]),
 }
+def _gh_frames(o):
+    g = [e for e in o['log'] if e[3] == 2]
+    g[1][0] = g[0][0]          # two ghost files in one manager frame (the catch-up pump)
+def _gh_commits(o): o['store'][11] = 2
+def _gh_readback(o): o['reload'][0] = 0
+def _gh_big(o): [e for e in o['log'] if e[3] == 2][0][2] = 2048
+def _gh_held(o): o['store'][15] = 14090
+def _gh_ms(o): o['report2'][7] += 1
+def _gh_accepted(o): o['reload'][0] = 1
+GH_MUT = dict(frames=_gh_frames, commits=_gh_commits, readback=_gh_readback, big=_gh_big, held=_gh_held, ms=_gh_ms, accepted=_gh_accepted)
 PR_ARCH_MUT = {
     'bundle': lambda a: dict(a, bundle_rows_match=False, bundle_diffs=['control: a row of the linked bundle edited']),
 }
@@ -561,6 +571,8 @@ class Gate:
                 sum(1 for n in notes if n.endswith('scene 1 load 3')), 'yes' if raced else 'no'), '; '.join(notes) or error_text(run_dir), sink=sink)
         elif kind == 'practice':
             self.score_practice(run, run_dir, build_dir, lines, mk, sym, host, host_label, sink)
+        elif kind == 'ghost':
+            self.score_ghost(run, run_dir, build_dir, lines, mk, sym, host, sink)
         elif kind == 'course':
             if 'results' in mk:
                 mkv, mchk = result_kv(lines, 'results')
@@ -813,6 +825,72 @@ class Gate:
         else:
             self.add('exit', name, False, 'no quit mark', error_text(run_dir), sink=sink)
 
+    # -- Time Attack ghost storage (claude/modes; C-169 item 3) -------------------------------------------------------------
+    GH_CHUNK = 1024      # engine_records.c GH_CHUNK
+    FIELD_TICKS = 14090  # one field in FRT ticks (e0_report[12])
+
+    def ghost_observed(self, run_dir, build_dir, mk, sym):
+        mem = Mem(run_dir, 'saved1', sym)
+        m2 = Mem(run_dir, 'race2_start', sym)
+        log = list(mem.words('fzx_bup_log', 61))
+        entries = [log[1 + 5 * n:6 + 5 * n] for n in range(min(log[0], 12))]   # [fields in, fields out, bytes, kind (1 records, 2 ghost), FRT in<<16|out]
+        return dict(store=list(mem.words('fzx_ghost_store', 16)), rec=list(mem.words('fzx_rec_report', 16)), log=entries, nlog=log[0],
+                    commits=list(mem.words('fzx_scn_commit_log', 8)),
+                    reload=list(m2.words('fzx_ghost_store', 16)), report2=list(m2.words('fzx_ghost_report', 16)), rec2=list(m2.words('fzx_rec_report', 16)))
+
+    def ghost_check(self, name, fault, obs, race1_ms, sink):
+        """The ghost save: exactly one commit (one records commit, one ghost save begun), one backup file per manager frame (consecutive ghost
+        writes at least two fields apart, none larger than a chunk, none holding the caller for a field), the head file last; and what a
+        soft reset reads back from the backup RAM: the whole new ghost (fault 0) or no ghost, with the records intact (faults)."""
+        st, why = obs['store'], []
+        gw = [e for e in obs['log'] if e[3] == 2]
+        if obs['rec'][10] != 1 or st[11] != 1:
+            why.append('commits: %d records, %d ghost saves begun (want 1 and 1)' % (obs['rec'][10], st[11]))
+        n = st[14]
+        want_writes = n if fault != 2 else n // 2 + 1 if n > 1 else 0   # fault 2: the head and the chunks past half are never written
+        if st[12] != (n if fault != 2 else min(n - 1, n // 2)) or (fault != 2 and st[13] != 1):
+            why.append('%d ghost files written of %d (saves completed %d)' % (st[12], n, st[13]))
+        if any(e[2] > self.GH_CHUNK for e in gw):
+            why.append('a ghost write larger than a chunk (%d bytes)' % max(e[2] for e in gw))
+        if obs['nlog'] > 12 or len(gw) < st[12]:
+            why.append('write log incomplete (%d entries)' % obs['nlog'])
+        if any(b[0] - a[0] < 2 for a, b in zip(gw, gw[1:])):
+            why.append('two ghost writes within one manager frame (fields %s)' % ','.join(str(e[0]) for e in gw))
+        if st[15] >= self.FIELD_TICKS:
+            why.append('a ghost write held the caller %d FRT ticks (a field is %d)' % (st[15], self.FIELD_TICKS))
+        rl, rp = obs['reload'], obs['report2']
+        if fault == 0:
+            if not (rl[0] == 1 and rl[1] == 1 and rp[7] == race1_ms and race1_ms > 0):
+                why.append('after the reset: ghost found %d, generation %d, race ms %d (want 1, 1, %d)' % (rl[0], rl[1], rp[7], race1_ms))
+            if st[5] != 1:
+                why.append('save result %d' % st[5])
+        else:
+            if not (rl[0] == 0 and rp[7] == 0 and rl[3] == 0 and rl[4] == 0):
+                why.append('after the reset a ghost was accepted from a %s save (found %d, valid %d/%d)' % ('wrong-CRC' if fault == 1 else 'half', rl[0], rl[3], rl[4]))
+            if st[5] != 2:
+                why.append('the faulted save returned %d, want FAILED (2)' % st[5])
+        if obs['rec2'][0] != 0:
+            why.append('records not loaded after the reset (result %d)' % obs['rec2'][0])
+        self.add('ghost', name, not why, ('%s; fault %d' % ('; '.join(why), fault)) if why else
+                 'fault %d: 1 commit, %d ghost files (%d bytes each at most), writes %s fields apart, longest %d of %d FRT ticks a field; after the reset %s' % (
+                     fault, st[12], self.GH_CHUNK, ','.join(str(b[0] - a[0]) for a, b in zip(gw, gw[1:])) or '-', st[15], self.FIELD_TICKS,
+                     'the new ghost (generation %d, %d ms) read back' % (rl[1], rp[7]) if fault == 0 else 'no ghost accepted, records intact'),
+                 'EMULATOR; ghost_store, bup_log, rec_report at saved1 and race2_start', sink=sink)
+
+    def score_ghost(self, run, run_dir, build_dir, lines, mk, sym, host, sink):
+        name = run['name']
+        ok = result_kv(lines)[0].get('exit') == 'ok' and all(m in mk for m in ('results1', 'saved1', 'race2_start', 'results2'))   # 'exit' as the other script rows
+        self.add('script', name, ok, '%d marks, %s fields' % (len(mk), result_kv(lines)[0].get('fields', '-')), error_text(run_dir), sink=sink)
+        if not ok:
+            return
+        obs = self.ghost_observed(run_dir, build_dir, mk, sym)
+        if not host or host.get('finish_ms') is None:
+            self.add('ghost', name, False, '', 'no HOST finish for the race the ghost records', sink=sink)
+            return
+        race1_ms = int(host['finish_ms'])   # the cold race of the script is the loop's: the image's R01 HOST finish
+        self.ghost_check(name, run['fault'], obs, race1_ms, sink)
+        self.menus_check(name, lines, sink=sink)   # RESULTS keeps presenting through the name commit: 0 menu intervals over two
+
     def determinism(self, name, dir_a, dir_b, dumps, sink=None, build_dir=None):
         """Two runs: per-field ticks and pixel hashes, work RAM, VRAM and stills identical. The matrix's
         determinism_mask (symbol, bytes) is cleared in work RAM first: the SMPC OREG buffer holds the RTC, which
@@ -964,6 +1042,8 @@ class Gate:
                 jobs.append((r, 'race', '-'))
                 if r.get('determinism'):
                     jobs.append((dict(r, name=r['name'] + '.2', repeat=True), 'race', '-'))
+            elif r['kind'] == 'ghost':
+                jobs.append((r, 'script', self.script_for(r['script'], next(c['index'] for c in m['courses'] if c['slug'] == r['course']))))
             else:
                 rec = self.record_ms(hosts, builds[r['image']]['dir']) if r['kind'] == 'loop' else None
                 jobs.append((r, 'script', self.script_for(r['script'], record_ms=rec)))
@@ -1158,6 +1238,14 @@ class Gate:
                     bd = str(tmp)
                 self.practice_fixture(name, rd, bd, lines, marks(lines), sym, dict(slug=cc['slug'], index=cc['index'], row=cc['index'], mode=5, cls=1), mutate=mut, sink=sink,
                                       mutate_arch=PR_ARCH_MUT.get(c['mutate']))
+            elif chk == 'ghost' and c.get('reuse'):
+                rd = self.ev / 'runs' / c['reuse']
+                bd = builds[c['image']]['dir']
+                lines = read_result(rd)
+                obs = copy.deepcopy(self.ghost_observed(rd, bd, marks(lines), load_syms(Path(bd) / 'fzs-engine.sym')))
+                race1_ms = int(self.record_ms(hosts, bd))
+                GH_MUT[c['mutate']](obs)
+                self.ghost_check(name, c['fault'], obs, race1_ms, sink)
             elif chk == 'host' and c.get('practice_host'):
                 rd = self.ev / 'runs' / c['reuse']
                 lines = read_result(rd)

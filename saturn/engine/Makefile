@@ -312,8 +312,8 @@ endif
 # ENG_RIVAL_RECHARGE (field images with ENG_RIVAL_SURFACE=1; SH2ZAM line-field-15): a rival on a recharge strip refills by 0.008 of its own
 # maximum energy a tick (racer.c 5458-5467, energyIncrease), not while in the air, falling, crashed or spinning out; a rival driven by the
 # attacks takes the same rule (sh2z_field_recharge). The pit matters once the attacks hurt the rivals. Default: on when the pin has
-# line-field-15, off before it (the field's one flat rate, as before).
-ENG_RIVAL_RECHARGE ?= $(if $(and $(filter-out 0,$(E1_FIELD)),$(filter 1,$(E2_PACK)),$(filter 1,$(ENG_RIVAL_SURFACE)),$(shell grep -l 'line-field-15' $(SH2ZAM_ROOT)/saturn/include/sh2zam/line_field_experimental.h 2>/dev/null)),1,0)
+# line-field-15, off before it (the field's one flat rate, as before); only with ENG_ATTACKS=1 (an image without the attacks is the base).
+ENG_RIVAL_RECHARGE ?= $(if $(and $(filter-out 0,$(E1_FIELD)),$(filter 1,$(ENG_ATTACKS)),$(filter 1,$(E2_PACK)),$(filter 1,$(ENG_RIVAL_SURFACE)),$(shell grep -l 'line-field-15' $(SH2ZAM_ROOT)/saturn/include/sh2zam/line_field_experimental.h 2>/dev/null)),1,0)
 ifeq ($(filter 0 1,$(ENG_RIVAL_RECHARGE)),)
 $(error ENG_RIVAL_RECHARGE must be 0 or 1)
 endif

@@ -81,11 +81,18 @@ int rb_gp_tuning_course(int n) {
 
 /* After ref_race_init(): re-run the race set-up as a 30-racer Grand Prix race.
  * cpu_line is the course's CPU line in host order (0x200 s16); the hooks skip the ROM read. */
+/* Death Race (course 54, GAMEMODE_DEATH_RACE): the same Racer_Init, with the tuning tables read at the course's own
+ * index (the tables run to the last course; the pace tables and the CPU line are guarded by course < COURSE_EDIT_1)
+ * and the rivals' energy halved by the mode (racer.c). */
+extern s32 gCourseIndex;
+static int death_mode;
+void rb_gp_mode_death(int on) { death_mode = on; }
 int rb_gp_init(int difficulty, unsigned seed, const short* cpu_line) {
     int i;
     static s16 line[0x200];
     for (i = 0; i < 0x200; ++i) line[i] = cpu_line[i];
-    gGameMode = GAMEMODE_GP_RACE;
+    gGameMode = death_mode ? GAMEMODE_DEATH_RACE : GAMEMODE_GP_RACE;
+    if (death_mode) gCourseIndex = COURSE_DEATH_RACE;
     gDifficulty = difficulty;
     gNumPlayers = 1;
     gTotalLapCount = 3;

@@ -29,15 +29,44 @@ COURSES = {
                         "DEVIL'S FOREST"),
     "big-blue-1": (4, "aCourseBigBlue1", "big_blue_textures.yaml", (0x23EC50, 0x243D90), 0x264690, 4, "BIG BLUE"),
     "port-town-1": (5, "aCoursePortTown1", "port_town_textures.yaml", (0x239A80, 0x23EC50), 0x264540, 3, "PORT TOWN"),
+    # Queen Cup (course ids 6..11 in the ROM's record order; venue ids 5 white land, 6 sector, 7 red canyon)
+    "sector-alpha": (6, "aCourseSectorAlpha", "sector_textures.yaml", (0x255100, 0x259600), 0x264920, 7, "SECTOR ALPHA"),
+    "red-canyon-1": (7, "aCourseRedCanyon1", "red_canyon_textures.yaml", (0x259600, 0x25F360), 0x264860, 6, "RED CANYON"),
+    "devils-forest-2": (8, "aCourseDevilsForest2", "devils_forest_textures.yaml", (0x24A270, 0x2507F0), 0x264740, 5,
+                        "DEVIL'S FOREST 2"),
+    "mute-city-2": (9, "aCourseMuteCity2", "mute_city_textures.yaml", (0x235130, 0x239A80), 0x264C80, 0, "MUTE CITY 2"),
+    "big-blue-2": (10, "aCourseBigBlue2", "big_blue_textures.yaml", (0x23EC50, 0x243D90), 0x264B40, 4, "BIG BLUE 2"),
+    "white-land-1": (11, "aCourseWhiteLand1", "white_land_textures.yaml", (0x2507F0, 0x255100), 0x2652B0, 8, "WHITE LAND"),
+    # King Cup (course ids 12..17; venue 8 fire field, 9 silence)
+    "fire-field": (12, "aCourseFireField", "fire_field_textures.yaml", (0x25F360, 0x266C20), 0x264DE0, 2, "FIRE FIELD"),
+    "silence-2": (13, "aCourseSilence2", "silence_textures.yaml", (0x266C20, 0x26D780), 0x264F08, 1, "SILENCE 2"),
+    "sector-beta": (14, "aCourseSectorBeta", "sector_textures.yaml", (0x255100, 0x259600), 0x2650B0, 7, "SECTOR BETA"),
+    "red-canyon-2": (15, "aCourseRedCanyon2", "red_canyon_textures.yaml", (0x259600, 0x25F360), 0x2651C8, 6, "RED CANYON 2"),
+    "white-land-2": (16, "aCourseWhiteLand2", "white_land_textures.yaml", (0x2507F0, 0x255100), 0x264A58, 8, "WHITE LAND 2"),
+    "mute-city-3": (17, "aCourseMuteCity3", "mute_city_textures.yaml", (0x235130, 0x239A80), 0x2656C8, 0, "MUTE CITY 3"),
+    # Joker Cup (course ids 18..23); music from the retail table (Rainbow Road plays Sector's track)
+    "rainbow-road": (18, "aCourseRainbowRoad", "big_blue_textures.yaml", (0x23EC50, 0x243D90), 0x265530, 7, "RAINBOW ROAD"),
+    "devils-forest-3": (19, "aCourseDevilsForest3", "devils_forest_textures.yaml", (0x24A270, 0x2507F0), 0x2659E0, 5,
+                        "DEVIL'S FOREST 3"),
+    "space-plant": (20, "aCourseSpacePlant", "sector_textures.yaml", (0x255100, 0x259600), 0x2658D0, 6, "SPACE PLANT"),
+    "sand-ocean-2": (21, "aCourseSandOcean2", "sand_ocean_textures.yaml", (0x243D90, 0x24A270), 0x265B70, 2, "SAND OCEAN 2"),
+    "port-town-2": (22, "aCoursePortTown2", "port_town_textures.yaml", (0x239A80, 0x23EC50), 0x2653E8, 3, "PORT TOWN 2"),
+    "big-hand": (23, "aCourseBigHand", "devils_forest_textures.yaml", (0x24A270, 0x2507F0), 0x265D08, 8, "BIG HAND"),
+    # Death Race (course id 54, ROM record 24 "aCourseBattle"; venue 6 sector). The original has no CPU line for it
+    # (cpu.c fills the line with its flat default), so cpu_line is None.
+    "death-race": (54, "aCourseBattle", "sector_textures.yaml", (0x255100, 0x259600), None, 7, "DEATH RACE"),
 }
 DEFAULT = "mute-city-1"
+# The courses the shipped disc bundles when a bundle tool gets no slugs (the Jack Cup). A later cup joins this
+# list when its courses are in the image; a lane bundling more names them on the command line.
+SHIPPED = tuple(COURSES)[:6]
 
 
 def course(slug: str) -> dict:
     if slug not in COURSES:
         raise SystemExit(f"unknown course {slug}; known: {', '.join(COURSES)}")
     index, symbol, yaml, venue, cpu_line, music, name = COURSES[slug]
-    return dict(slug=slug, index=index, symbol=symbol, rom_offset=RECORD_BASE + index * RECORD_SIZE,
+    return dict(slug=slug, index=index, symbol=symbol, rom_offset=RECORD_BASE + (index if index < 30 else index - 30) * RECORD_SIZE,
                 venue_yaml=yaml, venue_segment=venue, cpu_line=cpu_line, music=music, name=name)
 
 

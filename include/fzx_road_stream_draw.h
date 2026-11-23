@@ -104,7 +104,7 @@ typedef struct {
  * and the owner of the list merges its groups after the slave's, so the commands and Gouraud words equal the single-CPU
  * build's. The record lives in the uncached section (both CPUs read and write it). */
 #ifndef FZX_ROAD_SPLIT_UNIT_CHUNKS
-#define FZX_ROAD_SPLIT_UNIT_CHUNKS 2 /* chunks a claim covers at most (a unit never crosses a group or the course's wrap) */
+#define FZX_ROAD_SPLIT_UNIT_CHUNKS 64 /* chunks a claim covers at most (a unit never crosses a group or the course's wrap) */
 #endif
 enum {FZX_ROAD_SPLIT_UNITS=96};
 typedef struct {

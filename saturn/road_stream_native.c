@@ -439,6 +439,10 @@ void fzx_road_stream_split_arm(uint32_t tag){
 }
 void fzx_road_stream_steal_run(const fzx_view_t *view,const int32_t eye[3],const RefRoadPlan *plan,void *pixels,void *shades,
     vdp1_cmdt_t *commands,unsigned capacity,bool (*slave_done)(void)){
+#ifdef FZX_ROAD_STEAL_OFF
+    (void)view;(void)eye;(void)plan;(void)pixels;(void)shades;(void)commands;(void)capacity;(void)slave_done;
+    return; /* diagnostic: the slave claims its units, the thief never runs */
+#endif
     const uint32_t tag=split_rec.tag;
     thief.first=FZX_ROAD_SPLIT_UNITS;thief.ngroups=0;thief.commands=0;thief.chunks=0;thief.fault=0;
     if(!work||!thief.hot||!tag)return;

@@ -72,7 +72,7 @@ void engine_snd_disc_read(void);
 #define ENG_SND_SE_BALANCE 22u
 #define ENG_SND_MENU_SLOT0 20u   /* effect slots 20..23; the race's one-shots are 6..15, its voices 18..19 */
 #define ENG_SND_MENU_SLOTS 4u
-extern volatile uint32_t engine_snd_menu_report[8];
+extern volatile uint32_t engine_snd_menu_report[16];
 bool engine_snd_menu_load(void *scratch, uint32_t scratch_bytes);
 void engine_snd_menu_music(uint32_t music_id);
 void engine_snd_menu_se(uint32_t na_se_id);

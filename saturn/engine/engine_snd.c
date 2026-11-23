@@ -553,7 +553,7 @@ typedef struct {
 static menu_t menu MENU_BSS;
 /* [0] status (1 ok, 2 pack load failed, 3 TOC failed), [1] effects posted, [2] played, [3] dropped, [4] music requests,
  * [5] music starts, [6] resumes after a hold, [7] holds acquired. */
-volatile uint32_t engine_snd_menu_report[8] MENU_BSS;
+volatile uint32_t engine_snd_menu_report[16] MENU_BSS;   /* [8] mode, [9] saved FAD, [10] last FAD, [11] cur, [12] want, [13] hold */
 extern uint32_t video_fields_get(void);
 
 MENU_TEXT bool engine_snd_menu_load(void *scratch, uint32_t scratch_bytes) {
@@ -657,6 +657,8 @@ MENU_TEXT void engine_snd_menu_frame(void) {
     }
     menu.ring_n = 0u;
     if (!menu.music_ok) return;
+    engine_snd_menu_report[8] = menu.mode; engine_snd_menu_report[9] = menu.saved_fad; engine_snd_menu_report[10] = cd.last_fad;
+    engine_snd_menu_report[11] = menu.cur; engine_snd_menu_report[12] = menu.want; engine_snd_menu_report[13] = menu.hold;
     /* Music. */
     const uint32_t st = cd.state;
     const bool playing = st == SH2Z_CDDA_START_SENT || st == SH2Z_CDDA_PLAYING || st == SH2Z_CDDA_LOOP_SENT || st == SH2Z_CDDA_LOOPING;

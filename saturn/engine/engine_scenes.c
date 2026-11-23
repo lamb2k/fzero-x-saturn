@@ -256,6 +256,17 @@ static bool race_regs_kept, retry_entering;
 #define MENU_SE(id) ((void)0)
 #define MENU_MUSIC(id) ((void)0)
 #endif
+#if ENG_SND_MENU_TEST
+/* Capture-only test hooks (ENG_SND_MENU_TEST=1, never shipped): the script pokes fzx_menu_test[0] and title_tick runs
+ * [1]: a disc read under a hold, [2]: a hold granted then released unread (a cancel), [3]: a hold, then a newer music
+ * request (select) before the release, [4]: no music requests at all (effects alone), [5]: no effects. [1] state,
+ * [2] reads done, [3] read result (1 ok), [4] fields the hold took to be granted. */
+volatile uint32_t fzx_menu_test[8] __attribute__((section(".bss.lowcold.menu_test")));
+#undef MENU_SE
+#undef MENU_MUSIC
+#define MENU_SE(id) do { if (!fzx_menu_test[7]) engine_snd_menu_se(id); } while (0)
+#define MENU_MUSIC(id) do { if (!fzx_menu_test[6]) engine_snd_menu_music(id); } while (0)
+#endif
 static uint32_t snd_epoch_queue[8], snd_count;
 
 static void fault(uint32_t code, const char *text) {
@@ -548,8 +559,28 @@ static bool title_enter(void *u, uint32_t s) {
     text_dirty = true;
     return true;
 }
+#if ENG_SND_MENU_TEST
+static void menu_test_tick(void) {
+    static uint32_t waited;
+    const uint32_t cmd = fzx_menu_test[0];
+    if (!cmd) { fzx_menu_test[1] = 0; waited = 0; return; }
+    fzx_menu_test[1] = 1;
+    if (!engine_snd_disc_acquire()) { ++waited; return; }          /* granted: the drive is quiet */
+    fzx_menu_test[4] = waited;
+    if (cmd == 1u) {
+        uintptr_t scratch = ((uintptr_t)sat_stub_data_end + 31u) & ~(uintptr_t)31u;
+        fzx_menu_test[3] = fzx_texture_cd_load("TITLE.PAK", FZX_TITLE_BYTES, FZX_TITLE_HASH, (void *)title_cart, (void *)scratch, 4096u) ? 1u : 2u;
+        ++fzx_menu_test[2];
+    } else if (cmd == 3u) engine_snd_menu_music(15u);
+    engine_snd_disc_release();
+    fzx_menu_test[0] = 0; fzx_menu_test[1] = 2; waited = 0;
+}
+#endif
 static void title_tick(void *u, uint32_t s) {
     (void)u; (void)s;
+#if ENG_SND_MENU_TEST
+    menu_test_tick();
+#endif
 #ifndef FZX_P3_BASELINE
     if (!title_connected) return;
     ++title_ticks;

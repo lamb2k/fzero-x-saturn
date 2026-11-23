@@ -32,6 +32,12 @@
 #if E1_FIELD
 #include "engine_field.h"
 #endif
+#ifndef ENG_FX
+#define ENG_FX 0
+#endif
+#if ENG_FX
+#include "engine_fx.h"
+#endif
 
 #ifndef E1_DRIVER
 #define E1_DRIVER 0
@@ -134,6 +140,9 @@ static uint32_t finish_timer;
 #endif
 static void step_once(sh2z_vd_input_t *in) {
     fzx_phys_step(&course, &body, &fzx_phys_rules, in);
+#if ENG_FX
+    fzx_fx_tick(&body, course.vehicle.max_energy, (in->pressed & SH2Z_VD_BTN_ACCEL) != 0u); /* race effects: read only */
+#endif
 #if ENG_SND
     engine_snd_tick(&body, &course.vehicle, course.track.laps); /* reads the state only */
 #endif

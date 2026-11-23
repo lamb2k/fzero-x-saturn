@@ -83,6 +83,12 @@ static uint32_t roster_inflate_fnv(uint32_t family, unsigned prof) {
 }
 #endif
 #include "engine_drive.h"
+#ifndef ENG_FX
+#define ENG_FX 0
+#endif
+#if ENG_FX
+#include "engine_fx.h"
+#endif
 #include "sh2zam/scene_experimental.h"
 #include "sh2zam/vehicle_dynamics_experimental.h"
 #if ENG_SND
@@ -1452,6 +1458,9 @@ static void load_tick(void *u, uint32_t s) {
         /* Retry: everything is resident; only race-local state goes back to its start. */
         fzx_drive_reset();
         fzx_closeup_reset();
+#if ENG_FX
+        fzx_fx_reset();
+#endif
         retry_entering = race_regs_kept;
         memset((void *)fzx_scn_load_fields, 0, sizeof(fzx_scn_load_fields));
         fzx_scn_report[11] = 2;

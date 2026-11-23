@@ -110,6 +110,17 @@ static double dot30(const int32_t a[3], const int32_t b[3]) {
 #ifndef E1_DRIVER_TARGET
 #define E1_DRIVER_TARGET 0.0f
 #endif
+#if ENG_PHYS_AHEAD
+static signed char driver_stick_of(const sh2z_vd_body_t *b) {
+    const float lateral = (float)(sh2z_vd_body_lateral(b) / 65536.0);
+    const float heading = (float)dot30(b->body[0], b->road[2]);
+    float steer = E1_DRIVER_KL * (lateral - E1_DRIVER_TARGET) + E1_DRIVER_KH * heading;
+    if (steer > 1.0f) steer = 1.0f;
+    if (steer < -1.0f) steer = -1.0f;
+    return (signed char)(steer >= 0.0f ? (int)(steer * 63.0f + 0.5f) : -(int)(-steer * 63.0f + 0.5f));
+}
+static signed char driver_stick(void) { return driver_stick_of(&body); }
+#else
 static signed char driver_stick(void) {
     const float lateral = (float)(sh2z_vd_body_lateral(&body) / 65536.0);
     const float heading = (float)dot30(body.body[0], body.road[2]);
@@ -118,6 +129,16 @@ static signed char driver_stick(void) {
     if (steer < -1.0f) steer = -1.0f;
     return (signed char)(steer >= 0.0f ? (int)(steer * 63.0f + 0.5f) : -(int)(-steer * 63.0f + 0.5f));
 }
+#endif
+#if ENG_ATTACKS
+/* Run-time driver 2 is the scripted hunter (engine_attacks.c) in every image but the R03 look-ahead ones, where it is the
+ * look-ahead driver (E1_DRIVER == 2 builds; the hunter would override its steering and buttons). */
+#if E1_DRIVER == 2
+#define ATK_HUNTER_ON() (0)
+#else
+#define ATK_HUNTER_ON() (fzx_e1_driver == 2u)
+#endif
+#endif
 
 #if E1_FIELD
 /* Close-up 3D-N: the rival field steps after the player, every tick (FRT time summed for the frame row). */
@@ -171,7 +192,7 @@ void fzx_drive_field_run(void) {
 void fzx_drive_contact_ahead(void) {
     if (ahead_ok || field_pending) return;
     if (fzx_e1_driver && ticks >= RACE_END_TICK) return;
-    if (fzx_e1_driver == 2u) return;   /* the scripted hunter reads the attack state before the next contact */
+    if (ATK_HUNTER_ON()) return;   /* the scripted hunter reads the attack state before the next contact */
     fzx_atk_hold_hooks(true);
     fzx_atk_contact(&body, &ahead_contact);
     fzx_atk_hold_hooks(false);
@@ -197,6 +218,40 @@ static inline void phys_step_contact(const FzxPhysCourse *c, sh2z_vd_body_t *b, 
 #else
     sh2z_vd_step_contact(b, &c->track, &c->vehicle, r, in, k);
 #endif
+}
+#endif
+#if ENG_PHYS_AHEAD
+/* ENG_PHYS_AHEAD (claude/speed-5, with attacks claude/attacks-cost-2): the next frame's physics ticks are computed in the
+ * master's idle time at the end of this frame (fzx_drive_ahead_prepare, called by the loop while VDP1's previous frame is
+ * still being drawn) on a copy of the player's state, assuming no contact on the player, and the next fzx_drive_step takes
+ * them instead of stepping, tick by tick: the player's state, the tick count, the sound's read, the field's copy, the finish
+ * hook and the checkpoints all happen there, in the same order and on the same states as before. With ENG_ATTACKS each taken
+ * tick still runs its field tick and its racer-racer contact (or defers them, as without the prediction); the tick is taken
+ * only when the contact this step would give the player is zero (push, damage, regain and hit all 0: the deferred contact
+ * of fzx_atk_player_clear, the contact run ahead, or the live one), where sh2z_vd_step_contact is sh2z_vd_step bit for bit.
+ * A tick with a contact for the player discards the rest of the prediction and steps as before. A step that finds the
+ * prediction wrong (another tick count, the race restarted, another pad word) throws it away; the pad is read again at
+ * the step, so a held button is never older than before. The scripted hunter is never predicted. */
+enum { AHEAD_MAX = 2u };
+static struct {
+    uint32_t valid, req, n, cursor, from_ticks;
+    uint16_t pad;
+    sh2z_vd_body_t after[AHEAD_MAX];
+} ahead;
+/* [0] prepared, [1] ticks taken, [2] pad word differed, [3] tick count or start differed, [4] master FRT units spent preparing,
+ * [5] the longest prepare (FRT units), [6] frames the loop did not prepare (VDP1 idle), [7] ticks stepped because the contact
+ * gave the player something (the prediction dropped from there). */
+volatile uint32_t fzx_e1_ahead[8];
+static inline bool ahead_take(bool contact_zero) {
+    if (!ahead.valid) return false;
+    if (ahead.cursor < ahead.n && contact_zero) {
+        body = ahead.after[ahead.cursor++];
+        ++fzx_e1_ahead[1];
+        return true;
+    }
+    ahead.valid = 0;
+    if (!contact_zero) ++fzx_e1_ahead[7];
+    return false;
 }
 #endif
 static void step_once(sh2z_vd_input_t *in) {
@@ -241,13 +296,23 @@ static void step_once(sh2z_vd_input_t *in) {
 #else
     fzx_atk_contact(&body, &contact);
 #endif
-    APROF_T(ps);
-    phys_step_contact(&course, &body, &fzx_phys_rules, in, &contact);
-    APROF(5, ps);
+#if ENG_PHYS_AHEAD
+    if (!ahead_take(!(contact.push[0] | contact.push[1] | contact.push[2] | contact.damage | contact.hit | contact.regain)))
+#endif
+    {
+        APROF_T(ps);
+        phys_step_contact(&course, &body, &fzx_phys_rules, in, &contact);
+        APROF(5, ps);
+    }
 #else
-    APROF_T(ps);
-    fzx_phys_step(&course, &body, &fzx_phys_rules, in);
-    APROF(5, ps);
+#if ENG_PHYS_AHEAD
+    if (!ahead_take(true))
+#endif
+    {
+        APROF_T(ps);
+        fzx_phys_step(&course, &body, &fzx_phys_rules, in);
+        APROF(5, ps);
+    }
 #endif
 #if ENG_SND
     engine_snd_tick(&body, &course.vehicle, course.track.laps); /* reads the state only */
@@ -288,7 +353,83 @@ static void step_once(sh2z_vd_input_t *in) {
     }
 }
 
+#if ENG_PHYS_AHEAD
+/* The pad word of this frame (the override the scripts poke, else the Saturn pad). */
+static uint16_t pad_read(void) {
+    uint16_t pad = 0;
+    const uint32_t o = fzx_e1_pad_override;
+    if (o & 0x10000u) pad = (uint16_t)o;
+    else {
+        smpc_peripheral_digital_t d = {0};
+        smpc_peripheral_process();
+        smpc_peripheral_digital_port(1, &d);
+        if (d.connected) pad = d.pressed.raw; /* Yaul: "pressed" is the current state */
+    }
+    return pad;
+}
+#if ENG_ATTACKS
+/* The prediction steps with the contact entry and a zero contact (the same call as a deferred tick's), never a second
+ * physics entry: the zero contact is passed through an opaque pointer so the compiler does not clone the step for a constant
+ * (a plain-step clone costs 30 KB of code, which the scenes image does not have). */
+static const sh2z_vd_contact_t ahead_zero_contact;
+static inline void ahead_step(sh2z_vd_body_t *b, const sh2z_vd_input_t *in) {
+    const sh2z_vd_contact_t *z = &ahead_zero_contact;
+    __asm__ volatile("" : "+r"(z));
+    phys_step_contact(&course, b, &fzx_phys_rules, in, z);
+}
+#else
+static inline void ahead_step(sh2z_vd_body_t *b, const sh2z_vd_input_t *in) { fzx_phys_step(&course, b, &fzx_phys_rules, in); }
+#endif
+void fzx_drive_ahead_prepare(uint32_t req) {
+    ahead.valid = 0;
+    if (!req || req > AHEAD_MAX) return;
+#if ENG_ATTACKS
+    if (ATK_HUNTER_ON()) return;   /* the scripted hunter reads the field and the attack state: never predicted */
+#endif
+    sh2z_vd_body_t b = body;
+    uint16_t pv = prev_n64;
+    uint32_t k = 0, t = ticks;
+    if (fzx_e1_driver) {
+        for (; k < req && t < RACE_END_TICK; ++k, ++t) {
+            uint16_t button = t >= RACE_START_TICK ? N64_A : 0u;
+            signed char sx = 0;
+            if (b.intro == 0) {
+#if E1_DRIVER == 2
+                sx = fzx_e1_driver == 2u ? fzx_drive_ahead(&course.track, &b, 0.1f, &button) : driver_stick_of(&b);
+#else
+                sx = driver_stick_of(&b);
+#endif
+                if (E1_DRIVER_BOOST > 0 && t % E1_DRIVER_BOOST == 0u) button |= N64_B;
+            }
+            sh2z_vd_input_t in;
+            in.held = fzx_phys_buttons_n64(button);
+            in.pressed = fzx_phys_buttons_n64((uint16_t)((pv ^ button) & button));
+            in.released = fzx_phys_buttons_n64((uint16_t)((pv ^ button) & pv));
+            in.stick_x = sx; in.stick_y = 0;
+            pv = button;
+            ahead_step(&b, &in);
+            ahead.after[k] = b;
+        }
+    } else {
+        FzxPadState ps = pad_state;
+        sh2z_vd_input_t in;
+        ahead.pad = pad_read();
+        fzx_phys_pad(&ps, ahead.pad, &in);
+        for (; k < req; ++k) {
+            ahead_step(&b, &in);
+            ahead.after[k] = b;
+            in.pressed = 0; in.released = 0;
+        }
+    }
+    ahead.req = req; ahead.n = k; ahead.cursor = 0; ahead.from_ticks = ticks; ahead.valid = 1;
+    ++fzx_e1_ahead[0];
+}
+#endif
+
 void fzx_drive_step(uint32_t n) {
+#if ENG_PHYS_AHEAD
+    if (ahead.valid && !(ahead.from_ticks == ticks && ahead.req == n)) { ahead.valid = 0; ++fzx_e1_ahead[3]; }
+#endif
     if (fzx_e1_driver) {
         for (uint32_t k = 0; k < n && ticks < RACE_END_TICK; ++k) {
             uint16_t button = ticks >= RACE_START_TICK ? N64_A : 0u;
@@ -303,7 +444,7 @@ void fzx_drive_step(uint32_t n) {
             }
 #if ENG_ATTACKS
             /* fzx_e1_driver 2: the scripted hunter (engine_attacks.c), the 5-KO scenario. */
-            if (fzx_e1_driver == 2u && body.intro == 0) {
+            if (ATK_HUNTER_ON() && body.intro == 0) {
                 uint16_t hb; int8_t hs;
 #if E1_FIELD && ENG_BAL_EARLY
                 fzx_drive_field_run(); /* the hunter reads the field: step it to this tick first */
@@ -326,6 +467,10 @@ void fzx_drive_step(uint32_t n) {
             }
         }
     } else if (n) {
+#if ENG_PHYS_AHEAD
+        const uint16_t pad = pad_read();
+        if (ahead.valid && pad != ahead.pad) { ahead.valid = 0; ++fzx_e1_ahead[2]; }
+#else
         uint16_t pad = 0;
         const uint32_t o = fzx_e1_pad_override;
         if (o & 0x10000u) pad = (uint16_t)o;
@@ -335,6 +480,7 @@ void fzx_drive_step(uint32_t n) {
             smpc_peripheral_digital_port(1, &d);
             if (d.connected) pad = d.pressed.raw; /* Yaul: "pressed" is the current state */
         }
+#endif
         sh2z_vd_input_t in;
         fzx_phys_pad(&pad_state, pad, &in);
         for (uint32_t k = 0; k < n; ++k) {
@@ -342,6 +488,9 @@ void fzx_drive_step(uint32_t n) {
             in.pressed = 0; in.released = 0; /* one edge per press: the later ticks hold */
         }
     }
+#if ENG_PHYS_AHEAD
+    ahead.valid = 0;
+#endif
     fzx_e1_report[0] = ticks; fzx_e1_report[1] = (uint32_t)body.laps_done; fzx_e1_report[2] = (uint32_t)body.race_time;
     fzx_e1_report[3] = (body.flags & SH2Z_VD_FINISHED) ? 1u : 0u; fzx_e1_report[4] = (uint32_t)body.speed;
     fzx_e1_report[13] = (uint32_t)body.lap_times[0]; fzx_e1_report[14] = (uint32_t)body.lap_times[1];
@@ -546,6 +695,9 @@ bool fzx_drive_load(void *scratch, uint32_t scratch_bytes) {
 #endif
 #endif
     body = course.start; prev_n64 = 0; ticks = 0;
+#if ENG_PHYS_AHEAD
+    ahead.valid = 0;
+#endif
     memset(&pad_state, 0, sizeof(pad_state));
 #if E1_FIELD
 #if E2_PACK
@@ -629,6 +781,9 @@ static void field_state_reset(void);
 #endif
 void fzx_drive_reset(void) {
     body = course.start; prev_n64 = 0; ticks = 0; finish_timer = 0;
+#if ENG_PHYS_AHEAD
+    ahead.valid = 0;
+#endif
 #if E1_FIELD && ENG_BAL_EARLY
     field_pending = 0; /* player states a left race never handed to the field */
 #if ENG_ATTACKS

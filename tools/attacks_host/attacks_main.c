@@ -2,11 +2,13 @@
  * runs for one race (saturn/physics_native.c, saturn/engine/engine_field.c, saturn/engine/engine_attacks.c,
  * SH2ZAM), stepped tick by tick as engine_drive.c's driver mode does. HOST only. MIT; see ../../LICENSE.
  *
- *   fzx-atk --phys PHYS.PAK --rivals RIVALS.PAK [--driver 1|2] [--ticks N] [--vis 0|1] [--ai 0|1]
+ *   fzx-atk --phys PHYS.PAK --rivals RIVALS.PAK [--driver 1|2] [--drive KL,KH[,0,460[,TARGET]]] [--drive-ahead LOOK] [--ticks N] [--vis 0|1] [--ai 0|1]
  *           [--difficulty D] [--report OUT.json] [--trace OUT.tsv] [--mutate NAME]
  *           [--order canonical|saturn] [--frame N] [--clear-check 1] [--gate 1] [--credit-test 1]
  *
- * --driver 1 is the R01 closed-loop driver (the image's E1_DRIVER=1), 2 the scripted hunter.
+ * --driver 1 is the R01 closed-loop driver (the image's E1_DRIVER=1), 2 the scripted hunter. --drive sets the gains of the R01 driver
+ * (the image's E1_DRIVER_KL, _KH, _TARGET; the engine gate matrix's host_driver of the course), --drive-ahead the R03 look-ahead driver
+ * (the image's E1_DRIVER=2: saturn/engine/drive_ahead.h with this look, 0.1) in its place.
  * Prints "chk N HASH" every 256 field ticks (fzx_atk_chk, the image keeps the same words) and
  * "body N HASH" every 256 steps (fzx_e1_checkpoints). --mutate plants one rule change for the
  * class controls (see attacks_host.h). The packs are ROM-derived: local only.
@@ -39,6 +41,7 @@
 #include "texture_cd.h"
 
 #include "rivals_course.h"
+#include "drive_ahead.h"
 
 static const char *rivals_path;
 static void swap16(uint8_t *p) { const uint8_t t = p[0]; p[0] = p[1]; p[1] = t; }
@@ -76,12 +79,15 @@ static uint64_t fnv64_body(const sh2z_vd_body_t *b) {
     return h;
 }
 static double q30d(int32_t v) { return v / 1073741824.0; }
+/* The image's E1_DRIVER_KL, E1_DRIVER_KH and E1_DRIVER_TARGET (the R01 driver's gains; a course's image may set others, see
+ * tools/engine_gate_matrix.json host_driver) and the R03 look-ahead (E1_DRIVER == 2 images: drive_ahead.h with this look; 0 = off). */
+static float drv_kl = 0.004f, drv_kh = 2.5f, drv_target = 0.0f, drv_look = 0.0f;
 static signed char driver_stick(const sh2z_vd_body_t *b) {
     const float lateral = (float)(sh2z_vd_body_lateral(b) / 65536.0);
     const double h = q30d(b->body[0][0]) * q30d(b->road[2][0]) + q30d(b->body[0][1]) * q30d(b->road[2][1]) +
                      q30d(b->body[0][2]) * q30d(b->road[2][2]);
     const float heading = (float)h;
-    float steer = 0.004f * (lateral - 0.0f) + 2.5f * heading;
+    float steer = drv_kl * (lateral - drv_target) + drv_kh * heading;
     if (steer > 1.0f) steer = 1.0f;
     if (steer < -1.0f) steer = -1.0f;
     return (signed char)(steer >= 0.0f ? (int)(steer * 63.0f + 0.5f) : -(int)(-steer * 63.0f + 0.5f));
@@ -186,6 +192,11 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[i], "--rivals")) rivals_path = argv[i + 1];
         else if (!strcmp(argv[i], "--driver")) driver = atoi(argv[i + 1]);
         else if (!strcmp(argv[i], "--ticks")) ticks_max = atoi(argv[i + 1]);
+        else if (!strcmp(argv[i], "--drive")) {   /* kl,kh[,boost,start,target]: the matrix's host_driver (boost and start are the image's: none, 460) */
+            int boost = 0, start = 460;
+            if (sscanf(argv[i + 1], "%f,%f,%d,%d,%f", &drv_kl, &drv_kh, &boost, &start, &drv_target) < 2 || boost != 0 || start != 460)
+                die("--drive is kl,kh[,0,460[,target]]");
+        } else if (!strcmp(argv[i], "--drive-ahead")) drv_look = (float)atof(argv[i + 1]);
         else if (!strcmp(argv[i], "--vis")) vis = atoi(argv[i + 1]);
         else if (!strcmp(argv[i], "--ai")) ai = atoi(argv[i + 1]);
         else if (!strcmp(argv[i], "--difficulty")) diff = atoi(argv[i + 1]);
@@ -227,7 +238,7 @@ int main(int argc, char **argv) {
         uint16_t button = t >= RACE_START_TICK ? 0x8000u : 0u;
         signed char sx = 0;
         if (body.intro == 0) {
-            sx = driver_stick(&body);
+            sx = drv_look > 0.0f ? fzx_drive_ahead(&course.track, &body, drv_look, &button) : driver_stick(&body);
             if (driver == 2) {
                 uint16_t hb; int8_t hs;
                 if (saturn) q_run();   /* the hunter reads the field (engine_drive.c) */

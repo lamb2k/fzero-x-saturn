@@ -398,7 +398,10 @@ class Gate:
     def host_atk(self, slug):
         if slug not in self.hosts_atk:
             hdir = self.ev / 'host'
-            self.stage_cmd('hostatk', self.stage, wslpath(hdir), self.head['sha'][:12], slug)
+            # The course's own driver, as the fzx-phys references have it (matrix host_driver / host_ahead / host_ticks): '-' is "none".
+            c = {x['slug']: x for x in self.m['courses']}.get(slug, {})
+            self.stage_cmd('hostatk', self.stage, wslpath(hdir), self.head['sha'][:12], slug, c.get('host_driver', '0.004,2.5'),
+                           str(c.get('host_ahead') or '-'), str(c.get('host_ticks') or '-'))
             self.hosts_atk[slug] = host_ref(hdir / ('%s-atk.txt' % slug))
         return self.hosts_atk[slug]
 

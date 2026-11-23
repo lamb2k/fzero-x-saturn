@@ -90,6 +90,32 @@ def load_syms(path):
     return sym
 
 
+def iso_root_files(iso):
+    """(file names, decal pack names, records ending exactly on a sector boundary) of an ISO 9660 image's root directory.
+    The scenes image keeps this list in RAM (saturn/texture_cd.c, saturn/iso_root.h); the rootdir check compares them."""
+    with open(iso, 'rb') as f:
+        f.seek(16 * 2048)
+        pvd = f.read(2048)
+        if pvd[0] != 1 or pvd[1:6] != b'CD001':
+            raise ValueError('%s: no primary volume descriptor' % iso)
+        lba, size = struct.unpack('<I', pvd[158:162])[0], struct.unpack('<I', pvd[166:170])[0]
+        f.seek(lba * 2048)
+        d = f.read(size)
+    names, edge, i = [], 0, 0
+    while i < len(d):
+        n = d[i]
+        if n == 0:
+            i = (i // 2048 + 1) * 2048
+            continue
+        nl = d[i + 32]
+        nm = d[i + 33:i + 33 + nl]
+        if not (nl == 1 and nm[0] <= 1) and not d[i + 25] & 2:
+            names.append(nm.decode('latin1').split(';')[0])
+        i += n
+        edge += i % 2048 == 0
+    return names, [n for n in names if re.fullmatch(r'RGAD\d+\.PAK', n)], edge
+
+
 class Mem:
     """Work RAM from a harness dump pair (NAME.wram-high at 0x06000000, NAME.wram-low at 0x00200000)."""
 
@@ -469,6 +495,7 @@ class Gate:
         if host is not None:
             self.host_check(name, kv, chk, host, full_final=True, sink=sink)
         self.memory_checks(name, mem, kv, sink)
+        self.fx_check(name, mem, sink)
         return fr
 
     def cadence_checks(self, name, fr, sink=None, margin=True):
@@ -524,6 +551,31 @@ class Gate:
             arena = ', road arena peak %d B' % mem.words('fzx_road_stream_high_used', 1)[0]
         self.add('memory', name, ok, 'master stack unused %d B, slave %d B, guard trips %d%s' % (ms, ss, trips, arena),
                  'floors %d / %d / %d' % (self.lim['master_stack_min'], self.lim['slave_stack_min'], self.lim['slave_guard_trips']), sink=sink)
+
+    def fx_check(self, name, mem, sink=None):
+        """An image built with the race effects (ENG_FX: fzx_fx_report exists) must draw them. fzx_fx_report[2] is the most
+        effect commands added to one frame, [0] the load status (1 ok), [5] the frames the player boosted, [7] the most
+        booster commands in a frame. Once a physics path (the look-ahead) bypassed the effects' tick hook and the race ran
+        with every effect silent (0 commands) and every other check green."""
+        if not mem.has('fzx_fx_report'):
+            return
+        r = mem.words('fzx_fx_report', 16)
+        self.add('fx', name, r[0] == 1 and r[2] > 0,
+                 'status %d, most effect commands in a frame %d, player boost frames %d, most booster commands %d' % (r[0], r[2], r[5], r[7]),
+                 'an ENG_FX image must emit effect commands over the race window (fzx_fx_report)', sink=sink)
+
+    def rootdir_check(self, name, mem, build_dir, sink=None):
+        """The image's root file list (texture_cd kept[]) holds every file on the disc and fits its 384 slots. The list once lost
+        the file whose directory record ended on a sector boundary (Sector Beta's RLOD14.PAK, 24 decal packs), and the
+        decal rows cover only a prefix of the courses, so a course without a pack is silent: both are in the detail."""
+        iso = Path(build_dir) / 'fzs-engine.iso'
+        if not iso.exists() or not mem.has('kept_count'):
+            return
+        files, packs, edge = iso_root_files(iso)
+        kept = mem.words('kept_count', 1)[0]
+        self.add('rootdir', name, kept == len(files) and len(files) <= self.lim['root_entries'],
+                 'list %d of %d root files (slots %d)' % (kept, len(files), self.lim['root_entries']),
+                 'decal packs on the disc %d; records ending on a sector boundary %d' % (len(packs), edge), sink=sink)
 
     def menus_check(self, name, lines, sink=None):
         worst = over = 0
@@ -613,10 +665,16 @@ class Gate:
                 mem = Mem(run_dir, 'results', sym)
                 self.cadence_checks(name, frame_rows(mem, self.lim['race_window_tick']), sink)
                 self.memory_checks(name, mem, mkv, sink)
+                self.fx_check(name, mem, sink)
+                self.rootdir_check(name, mem, build_dir, sink)
                 load = result_kv(lines, 'race_start')[0].get('_fzx_scn_report10')
                 self.add('load', name, True, 'cold LOAD %s fields' % load, info=True, sink=sink)
             else:
                 self.add('host', name, False, 'no RESULTS mark', error_text(run_dir), sink=sink)
+                for dump in ('race_start', 'error'):   # the list is kept at the first load: any dump after it shows it
+                    if (Path(run_dir) / (dump + '.wram-high')).exists():
+                        self.rootdir_check(name, Mem(run_dir, dump, sym), build_dir, sink)
+                        break
         self.menus_check(name, lines, sink)
 
     # -- Practice course rows (claude/modes; C-166 item 1, C-169 item 1) ---------------------------------------------------
@@ -1055,9 +1113,9 @@ class Gate:
             want = set(a.only.split(','))
             runs = [r for r in runs if r['name'] in want or r['kind'] in want]
         if a.courses:
-            courses = [c for c in m['courses'] if c['slug'] in a.courses.split(',')]
+            courses = [c for c in m['courses'] if c.get('row', c['slug']) in a.courses.split(',')]
         else:
-            courses = m['courses'] if mode == 'full' else [c for c in m['courses'] if c['slug'] == 'mute-city-1']
+            courses = m['courses'] if mode == 'full' else [c for c in m['courses'] if c.get('row', c['slug']) == 'mute-city-1']
         ident = list(m['identity'][mode])
         # A course may name its own image (the R03 look-ahead driver, tools/engine_gate_matrix.json) and HOST driver.
         course_images = [c['image'] for c in courses if c.get('image')] if any(r['kind'] == 'course' for r in runs) else []
@@ -1130,13 +1188,13 @@ class Gate:
         hdir = self.ev / 'host'
         slugs = set(r['course'] for r in runs if r.get('course'))
         if any(r['kind'] in ('course', 'practice') for r in runs):
-            slugs |= set(c['slug'] for r in runs if r['kind'] in ('course', 'practice') for c in courses
+            slugs |= set(c.get('row', c['slug']) for r in runs if r['kind'] in ('course', 'practice') for c in courses
                          if not isinstance(r.get('courses'), list) or c['slug'] in r['courses'])
         if a.controls:
             slugs |= {'mute-city-1'}
-        by_slug = {c['slug']: c for c in m['courses']}
+        by_slug = {c.get('row', c['slug']): c for c in m['courses']}   # a course entry may have its own row name (a second driver on one course)
         for slug in sorted(slugs):
-            hosts[slug] = self.host(hdir, slug, by_slug.get(slug, {}).get('host_driver', '0.004,2.5'), by_slug.get(slug, {}).get('host_ahead'), by_slug.get(slug, {}).get('host_ticks'))
+            hosts[slug] = self.host(hdir, by_slug.get(slug, {}).get('slug', slug), by_slug.get(slug, {}).get('host_driver', '0.004,2.5'), by_slug.get(slug, {}).get('host_ahead'), by_slug.get(slug, {}).get('host_ticks'))
 
         # Harness runs.
         t0 = time.time()
@@ -1148,7 +1206,7 @@ class Gate:
                 for c in courses:
                     if isinstance(r.get('courses'), list) and c['slug'] not in r['courses']:
                         continue   # a row that names its courses (the Practice rows: the Jack Cup, whose HOST rows are frozen)
-                    rr = dict(r, name='%s-%s' % (r['kind'], c['slug']), course=c['slug'], image=c.get('image', r['image']))
+                    rr = dict(r, name='%s-%s' % (r['kind'], c.get('row', c['slug'])), course=c.get('row', c['slug']), image=c.get('image', r['image']))
                     jobs.append((rr, 'script', self.script_for(r['script'], c['index'])))
             elif r['kind'] == 'race':
                 jobs.append((r, 'race', '-'))

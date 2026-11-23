@@ -51,4 +51,10 @@ extern volatile uint32_t fzx_closeup_lod; /* the pose draw's source LOD (1..5) *
 unsigned fzx_closeup_draw_pose(vdp1_cmdt_t *commands, unsigned capacity, const fzx_view_t *view,
                                const fzx_engine_cam_t *cam, uint32_t bank, uint32_t slot,
                                const int32_t pos[3], const int16_t basis[3][3]);
+#if defined(ENG_FX) && ENG_FX
+/* Race effects (engine_fx.c): the body colour the next draw of the 3D player shades with (the white
+ * flash and the low-energy flicker); its palettes go to the player's own table only. */
+void fzx_closeup_body_get(uint8_t rgb[3]);
+void fzx_closeup_body_set(const uint8_t rgb[3]);
+#endif
 #endif

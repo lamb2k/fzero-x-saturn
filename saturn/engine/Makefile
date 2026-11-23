@@ -165,6 +165,22 @@ E2_LOD_NEAR ?= 1000,3000,8000
 E2_EARLY ?= $(if $(filter 1:1,$(E1_CLOSEUP):$(E1_CLOSEUP_EARLY)),1,0)
 # Diagnostic: per-frame master phase times (fzx_e2_prof); changes timing slightly, never a floor measurement.
 E2_PROF ?= 0
+# ENG_FX (lane claude/fx-boost): the race effects the source draws without its attack code, from the source art:
+#   every racer's boost flame (idle, boost, dash plate, tail), the wall sparks, the player's white flash and
+#   low-energy flicker, as at most FZX_FX_SLOTS (96, nearest kept) VDP1 commands after the cars (engine_fx.c,
+#   SH2ZAM effect-pool-1; the emit on either SH-2 by dual-claim-1). Render only: the race is unchanged. On in
+#   the field images (E1_FIELD with E2_PACK and E2_EARLY); ENG_FX=0 is the identity control, not a product arm.
+#   Needs the effect art (tools/fx_assets.py, local) and an SH2ZAM checkout with effect-pool-1.
+ENG_FX_PROF ?= 0
+ENG_FX ?= $(if $(and $(filter-out 0,$(E1_FIELD)),$(filter 1,$(E2_PACK)),$(filter 1,$(E2_EARLY))),1,0)
+ifeq ($(filter 0 1,$(ENG_FX)),)
+$(error ENG_FX must be 0 or 1)
+endif
+ifeq ($(ENG_FX),1)
+ifneq ($(if $(filter-out 0,$(E1_FIELD)),1,0):$(E2_PACK):$(E2_EARLY),1:1:1)
+$(error ENG_FX=1 needs E1_FIELD with E2_PACK=1 E2_EARLY=1)
+endif
+endif
 # E2_FASTSPRITE (needs E2_CULL): rival sprite poses reuse the cull's camera-space terms; one division for the up vector.
 E2_FASTSPRITE ?= 0
 # E2_ROSTER (needs E2_PACK, E2_CULL, E2_FASTSPRITE, E2_EARLY): each rival drawn from its own machine's
@@ -322,6 +338,13 @@ endif
 # control that shows the cost), ENG_LOCATE_FAR=3 with ENG_LOCATE_FAR_RUN=1 the stop that changes a normal course.
 ENG_LOCATE_FAR ?= 128
 ENG_LOCATE_FAR_RUN ?= 8
+# ENG_LOCATE_DAMP / ENG_LOCATE_FLIP (SH2ZAM vehicle-dynamics-7, SH2Z_VD_LOCATE_DAMP / SH2Z_VD_LOCATE_FLIP; ff-gap lane): the
+# other two ways a search over a gap runs its 99 passes. A residual that swings from side to side (the step is twice
+# the Newton step where the body sits near the line's centre of curvature) takes the secant step after DAMP passes;
+# a search that flips between two nodes (the closest point is the join) ends after FLIP flips on the side the 99th
+# pass would have been. 0 builds the earlier search for either.
+ENG_LOCATE_DAMP ?= 8
+ENG_LOCATE_FLIP ?= 3
 
 # ENG_RIVAL_SURFACE (field images with the rival pack, E2_PACK=1): the rivals meet the course's surface
 # (SH2ZAM line-field-4): its zones (plates, low grip, rough ground, recharge strips), its pipes and cylinders
@@ -418,6 +441,7 @@ OUTDIR_E1FIELD := $(OUTDIR_E1FIELD)$(if $(filter 1,$(E2_EARLY)),e,)
 OUTDIR_E1FIELD := $(OUTDIR_E1FIELD)$(if $(filter 1,$(E2_FASTSPRITE)),f,)
 OUTDIR_E1FIELD := $(OUTDIR_E1FIELD)$(if $(filter 1,$(E2_ROSTER)),r,)
 OUTDIR_E1FIELD := $(OUTDIR_E1FIELD)$(if $(filter 1,$(E2_PROF)),P,)
+OUTDIR_E1FIELD := $(OUTDIR_E1FIELD)$(if $(filter 1,$(ENG_FX)),-fx$(if $(filter-out 0,$(ENG_FX_PROF)),p$(ENG_FX_PROF),),)
 OUTDIR_E1SCN := -scn$(if $(filter 1,$(FZX_CUP_DIAG_CATALOG)),-gpdiag,)
 OUTDIR_E1SCN := $(OUTDIR_E1SCN)$(if $(filter-out 0,$(FZX_GUEST_MASK)),-gm$(FZX_GUEST_MASK),)
 OUTDIR_E1SCN := $(OUTDIR_E1SCN)$(if $(filter 1,$(ENG_ROSTER)),-ro,)
@@ -521,6 +545,7 @@ SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(E1_DRIVER_TARGET),-tg$(E1_DRIVER_TARGET)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter 1,$(ENG_COURSE_SELECT)),-sel,)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter 1,$(ENG_TUBES)),-tubes,)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter-out 128,$(ENG_LOCATE_FAR)),-lf$(ENG_LOCATE_FAR),)$(if $(filter-out 8,$(ENG_LOCATE_FAR_RUN)),-lr$(ENG_LOCATE_FAR_RUN),)
+SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter-out 8,$(ENG_LOCATE_DAMP)),-ld$(ENG_LOCATE_DAMP),)$(if $(filter-out 3,$(ENG_LOCATE_FLIP)),-lx$(ENG_LOCATE_FLIP),)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter 0,$(ENG_RIVAL_SURFACE)),-rs0,)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter 1,$(ENG_RIVAL_BEHAVE)),-beh,)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter 1,$(ENG_RIVAL_CLASS)),-cls,)
@@ -615,7 +640,8 @@ SH2ZAM_UNITS := sh2zam.c sh2zam_angles.c sh2zam_batch_sh2.c sh2zam_box2.c sh2zam
     $(if $(filter-out 0,$(E1_FIELD)),$(if $(filter 1,$(E2_EMIT_CMD) $(E2_EMIT_POSE) $(E2_EMIT_YAW)),sh2zam_rotation_sprite3.c,),) \
     $(if $(filter 1,$(E1_CLOSEUP)),sh2zam_vehicle.c sh2zam_view_indexed.c sh2zam_pose.c,) \
     $(if $(filter-out 0,$(E1_FIELD)),sh2zam_line_follower.c sh2zam_line_field.c $(if $(filter 1,$(E2_PACK)),$(if $(filter 1,$(ENG_RIVAL_SURFACE)),sh2zam_trig12.c,),),) \
-    $(if $(filter 1,$(ENG_SCENES)),sh2zam_scene.c,)     $(if $(filter 2,$(ENG_BAL_CLOUDS)),sh2zam_dual_claim.c,)
+    $(if $(filter 1,$(ENG_SCENES)),sh2zam_scene.c,)     $(if $(filter 2,$(ENG_BAL_CLOUDS)),sh2zam_dual_claim.c,) \
+    $(if $(filter 1,$(ENG_FX)),sh2zam_effect_pool.c $(if $(filter 2,$(ENG_BAL_CLOUDS)),,sh2zam_dual_claim.c),)
 
 SH_SRCS := engine_main.c engine_scene.c engine_path.c \
     ../sky_native.c ../skyline_native.c ../planes_native.c ../floor_rbg_native.c ../clouds_vdp2_native.c \
@@ -626,8 +652,7 @@ SH_SRCS := engine_main.c engine_scene.c engine_path.c \
     $(GC)/course_record.c \
     $(if $(filter 1,$(FZX_E1_DRIVE)),engine_drive.c ../physics_native.c,) \
     $(if $(filter 1,$(E1_CLOSEUP)),engine_closeup.c ../../src/fzx_vehicle.c ../../src/fzx_vehicle_draw.c,) \
-    $(if $(filter-out 0,$(E1_FIELD)),engine_field.c,) \
-    $(if $(filter 1,$(ENG_SCENES)),engine_scenes.c engine_records.c engine_load_fast.c engine_cup.c $(if $(filter 1,$(ENG_MODES)),engine_modes.c engine_mode_entry.c,) $(if $(filter 1,$(ENG_GHOST)),engine_ghost.c engine_ghost_race.c,),) $(if $(filter 1,$(ENG_ROSTER)),engine_roster.c,) \
+    $(if $(filter-out 0,$(E1_FIELD)),engine_field.c,) $(if $(filter 1,$(ENG_FX)),engine_fx.c,) \n    $(if $(filter 1,$(ENG_SCENES)),engine_scenes.c engine_records.c engine_load_fast.c engine_cup.c $(if $(filter 1,$(ENG_MODES)),engine_modes.c engine_mode_entry.c,) $(if $(filter 1,$(ENG_GHOST)),engine_ghost.c engine_ghost_race.c,),) $(if $(filter 1,$(ENG_ROSTER)),engine_roster.c,) \
     $(addprefix $(SH2ZAM_ROOT)/saturn/src/,$(sort $(SH2ZAM_UNITS)))
 ifneq ($(ENG_DSP_BANDS),0)
 SH_SRCS += ../../src/fzx_band_corners.c
@@ -707,6 +732,19 @@ $(error E2_EMIT_POSE needs E2_CULL=1)
 endif
 ifeq ($(E2_PACK),1)
 SH_CFLAGS += -I$(GC)/rivals
+ifeq ($(ENG_FX),1)
+ifeq ($(wildcard $(SH2ZAM_ROOT)/saturn/include/sh2zam/effect_pool_experimental.h),)
+$(error ENG_FX=1 needs an SH2ZAM checkout with effect-pool-1)
+endif
+FX_RECEIPT_CHECK := $(shell sh ../../tools/check_receipt.sh $(G)/fx/fx.receipt >/dev/null 2>&1 || echo fx)
+ifneq ($(strip $(FX_RECEIPT_CHECK)),)
+$(error Missing or stale effect art; run tools/fx_assets.py (FZX_TEST_ROM set))
+endif
+SH_CFLAGS += -DENG_FX=1 -I$(G)/fx
+ifneq ($(filter-out 0,$(ENG_FX_PROF)),)
+SH_CFLAGS += -DENG_FX_PROF=$(ENG_FX_PROF)
+endif
+endif
 endif
 ifeq ($(E2_ROSTER),1)
 ifneq ($(E2_PACK):$(E2_CULL):$(E2_FASTSPRITE):$(E2_EARLY),1:1:1:1)
@@ -759,6 +797,7 @@ endif
 # sky gradient need not be monotonic in brightness (a sunset), so sky bands pick their colour by distance.
 SH_CFLAGS += $(if $(filter 1,$(FZX_E1_DRIVE)),$(if $(filter 1,$(ENG_TUBES)),-DFZX_PHYS_TUBES=1,),)
 SH_CFLAGS += $(if $(filter 1,$(FZX_E1_DRIVE)),$(if $(filter-out 0,$(ENG_LOCATE_FAR)),-DSH2Z_VD_LOCATE_FAR=$(ENG_LOCATE_FAR) -DSH2Z_VD_LOCATE_FAR_RUN=$(ENG_LOCATE_FAR_RUN),),)
+SH_CFLAGS += $(if $(filter 1,$(FZX_E1_DRIVE)),$(if $(filter-out 0,$(ENG_LOCATE_DAMP)),-DSH2Z_VD_LOCATE_DAMP=$(ENG_LOCATE_DAMP) ,)$(if $(filter-out 0,$(ENG_LOCATE_FLIP)),-DSH2Z_VD_LOCATE_FLIP=$(ENG_LOCATE_FLIP),),)
 SH_CFLAGS += $(if $(E4_PROW_ROWS),-DE0_PROW_ROWS=$(E4_PROW_ROWS)u,)
 SH_CFLAGS += $(if $(GCREL),-DENG_COURSE_SKYLINE=1 -DFZX_ROAD_STREAM_TEXTURE_LIMIT=240000u -DFZX_ROAD_STREAM_PACK_LIMIT=240000u -DFZX_SKY_LINEAR_PICK=1 -DENG_COURSE_INDEX=$(COURSE_INDEX_$(ENG_COURSE)),)
 ifeq ($(ENG_COURSE_SELECT),1)
@@ -905,6 +944,7 @@ else ifeq ($(E1_CLOSEUP),1)
 endif
 ifeq ($(E2_PACK),1)
 	cp $(GC)/rivals/RIVALS.PAK "$(IMAGE_DIRECTORY)/"
+	$(if $(filter 1,$(ENG_FX)),cp $(G)/fx/FX.PAK "$(IMAGE_DIRECTORY)/",rm -f "$(IMAGE_DIRECTORY)/FX.PAK")
 endif
 ifeq ($(ENG_COURSE_SELECT),1)
 	while read -r src name; do cp "$(G)/$$src" "$(IMAGE_DIRECTORY)/$$name"; done < $(G)/courses/select/files.txt

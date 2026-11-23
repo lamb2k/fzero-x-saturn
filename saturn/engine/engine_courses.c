@@ -32,6 +32,8 @@ const fzx_course_info_t fzx_course_info[] = {
     ROW(21, 3, 2, "SAND OCEAN 2"),
     ROW(22, 4, 3, "PORT TOWN 2"),
     ROW(23, 5, 8, "BIG HAND"),
+    /* Death Race (course id 54, ROM record 24): sector venue, Sector's music */
+    ROW(54, 0, 7, "DEATH RACE"),
 };
 #undef ROW
 const uint32_t fzx_course_info_count = sizeof(fzx_course_info) / sizeof(fzx_course_info[0]);

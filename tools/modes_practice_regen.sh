@@ -45,5 +45,12 @@ for c in $COURSES; do
 done
 { for f in "$REF" tools/modes_practice_regen.sh tools/rivals_field_header.py tools/course_practice_bundle.py tools/course_catalog.py tools/course_bundle.py; do
     echo "generator sha256 $(sha256sum "$f" | cut -d' ' -f1) $f"; done; } >> "$OUT/practice-regen.log"
-python3 tools/course_practice_bundle.py $COURSES --reports "$OUT"
+# The bundle's rows follow course_ids.c (the courses the image bundles, Death Race last when it is on the disc).
+ALL=$(python3 -c "
+import re,sys
+sys.path.insert(0,'tools')
+import course_bundle as b, course_catalog as k
+by={v[0]:s for s,v in k.COURSES.items()}
+print(' '.join(by[int(i)] for i in re.findall(r'\.id = (\d+)u', (b.OUT/'course_ids.c').read_text())))")
+python3 tools/course_practice_bundle.py $ALL --reports "$OUT"
 echo "practice bundle ok ($OUT/practice-regen.log)"

@@ -208,7 +208,7 @@ class Modes(unittest.TestCase):
         for name, f in {
             'time attack with the field': lambda t: t.replace('{ FZX_MODE_TA,       0,', '{ FZX_MODE_TA,       1,'),
             'practice with a finish': lambda t: t.replace('{ FZX_MODE_PRACTICE, 1,    1,', '{ FZX_MODE_PRACTICE, 1,    0,'),
-            'death race with full energy': lambda t: t.replace('FZX_AVAIL_GP,   128,   1', 'FZX_AVAIL_GP,   256,   1'),
+            'death race with full energy': lambda t: t.replace('FZX_AVAIL_DEATH, 128,   1', 'FZX_AVAIL_DEATH, 256,   1'),
             'death race class picked': lambda t: t.replace('{ FZX_MODE_DEATH,    1,    1,      0,', '{ FZX_MODE_DEATH,    1,    1,      1,'),
             'grand prix keeps times': lambda t: t.replace('{ FZX_MODE_GP,       1,    0,      1,   0,     1,  FZX_MODE_NO_RECORD',
                                                            '{ FZX_MODE_GP,       1,    0,      1,   0,     1,  FZX_MODE_REC_TA'),

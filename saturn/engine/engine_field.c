@@ -607,6 +607,12 @@ bool fzx_field_load(const sh2z_vd_track_t *track, const sh2z_vd_body_t *player) 
          * beyond 1.8 of the radius round a drop cylinder, 16 / 65536 a step. */
         behave.drop_mask = 0x0200u; behave.drop_value = 0x0200u; behave.drop_lat = 117965; behave.drop_chance = 16; behave.launch_chance = 4096;
         behave.contact_norm = 36045; /* racer.c's impact: 1.1 x the closing speed along the line between the two, shared */
+#if ENG_MODES
+        /* Death Race (course 54; the original has no energy drain for its rivals: they fly off the air run, 922 units, and are retired by the
+         * fall). line-field-14: an agent in the air flies 19 ticks at its speed (the HOST reference: 19 or 20) and, past the reach, drops; its
+         * retirement follows 127 ticks after the fall begins (122..132). Held to HOST on seeds 31..38 (tools/modes_dr_check.py, band 40 ticks). */
+        if (mode_now && mode_now->win_all_retired) { behave.gap_reach_ticks = 19; behave.fall_ticks = 127; }
+#endif
         params.behave = &behave;
         params.boost_energy = 0;
         fzx_field_event_count = 0;

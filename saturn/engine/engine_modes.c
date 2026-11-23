@@ -6,7 +6,7 @@ static const fzx_mode_rules_t rules[] = {
     /* mode              field endless pick forced cup record               avail           energy win */
     { FZX_MODE_GP,       1,    0,      1,   0,     1,  FZX_MODE_NO_RECORD,  FZX_AVAIL_GP,   256,   0 },
     { FZX_MODE_TA,       0,    0,      0,   0,     0,  FZX_MODE_REC_TA,      FZX_AVAIL_TA,   256,   0 },
-    { FZX_MODE_DEATH,    1,    1,      0,   3,     0,  FZX_MODE_REC_DEATH,   FZX_AVAIL_GP,   128,   1 },
+    { FZX_MODE_DEATH,    1,    1,      0,   3,     0,  FZX_MODE_REC_DEATH,   FZX_AVAIL_DEATH, 128,   1 },
     { FZX_MODE_PRACTICE, 1,    1,      1,   0,     0,  FZX_MODE_NO_RECORD,  FZX_AVAIL_GP,   256,   0 },
 };
 

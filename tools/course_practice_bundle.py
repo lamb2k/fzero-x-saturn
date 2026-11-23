@@ -90,6 +90,15 @@ def main():
     sets = []
     lengths = []
     for s in slugs:
+        if s == 'death-race':
+            # Death Race has no Practice (its course is the mode's own); the row keeps the table's shape: the Death Race rows, every class.
+            p = course_catalog.gen_root(s) / 'rivals/rivals_field_class.h'
+            m = re.search(r'fzx_rivals_field_class\[4\]\[30\]\[8\]\s*=\s*\{(.*?)\};', p.read_text(), re.S) if p.is_file() else None
+            v = [int(x) for x in re.findall(r'-?\d+', m[1])] if m else []
+            if len(v) != 4 * 30 * 8:
+                raise Bad('death-race: no class header %s (run tools/modes_death_regen.sh)' % p)
+            sets.append((p, v))
+            continue
         p = course_catalog.gen_root(s) / 'rivals/rivals_field_practice.h'
         if not p.is_file():
             raise Bad('%s: no practice header %s (run tools/modes_practice_regen.sh)' % (s, p))

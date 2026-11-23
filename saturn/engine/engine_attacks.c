@@ -266,13 +266,14 @@ void fzx_atk_test_touch(uint32_t i, uint32_t since) { body[i].toucher = 0; body[
 enum { MAX_PAIRS = FZX_ATK_MAX * (FZX_ATK_MAX - 1u) / 2u };
 static uint8_t pair_a[MAX_PAIRS], pair_b[MAX_PAIRS];
 static uint32_t npairs;
-static uint32_t movedm;   /* bit i: candidate rival i has its rows and velocity this tick */
+static uint8_t moved[FZX_ATK_MAX];   /* candidate rival i has its rows and velocity this tick */
+static int32_t along[FZX_ATK_MAX];
 
 /* The rows (forward, up, left) and the velocity of a candidate rival. Only a body that reaches a pair in range needs them (the pair rule reads
  * the velocities, the push back to line space the rows), so a candidate that is only posed for the range test never pays for them. */
 static void rival_motion(uint32_t i) {
-    if ((movedm >> i) & 1u) return;
-    movedm |= 1u << i;
+    if (moved[i]) return;
+    moved[i] = 1;
     const rival_t *r = &R[i];
     const sh2z_vehicle_t *v = &F.veh[i];
     int32_t pos[3];
@@ -283,34 +284,16 @@ static void rival_motion(uint32_t i) {
         body[i].vel[c] = (int32_t)(((int64_t)rows[0][c] * v->t.speed - (int64_t)rows[2][c] * lv) >> 6);
 }
 
-/* sh2z_bc_field_resolve (SH2ZAM body-contact-1) over the pairs the scan listed: both bodies ACTIVE (the library's own test, in its walk order),
- * the pair function's first test (every axis of the two positions within the reach) done here in 32-bit arithmetic first. A difference that
- * is within the reach comes out of the wrapped subtraction within it; one that is not may still pass here (two positions 2^32 apart in a
- * coordinate), and the pair function's own 64-bit test then rejects it with no effect. */
+/* The pairs the sweep listed, through SH2ZAM body-contact-2: those of two ACTIVE bodies within the reach on every axis, then the bodies of
+ * those get their velocity, then the pair function runs on them in the walk's order. */
 static uint32_t resolve_pairs(void) {
-    const uint32_t reach = (uint32_t)rules.reach, span = 2u * reach;
-    uint32_t touching = 0u, tested = 0u;
-    for (uint32_t p = 0u; p < npairs; p++) {
-        const uint32_t i = pair_a[p], j = pair_b[p];
-        const sh2z_bc_body_t *bi = &body[i], *bj = &body[j];
-        if (!(bi->flags & SH2Z_BC_ACTIVE) || !(bj->flags & SH2Z_BC_ACTIVE)) continue;
-        tested++;
-        if ((uint32_t)((uint32_t)bj->pos[0] - (uint32_t)bi->pos[0] + reach) > span) continue;
-        if ((uint32_t)((uint32_t)bj->pos[1] - (uint32_t)bi->pos[1] + reach) > span) continue;
-        if ((uint32_t)((uint32_t)bj->pos[2] - (uint32_t)bi->pos[2] + reach) > span) continue;
-        if (i) rival_motion(i);
-        if (j) rival_motion(j);
-        const uint32_t lo = i < j ? i : j, hi = i < j ? j : i;
-        const uint32_t idx = hi * (hi - 1u) / 2u + lo;
-        const uint32_t ev = sh2z_bc_pair(&body[lo], &body[hi], lo, hi, bcf.last[idx] != 0u && bcf.last[idx] + 1u == bcf.tick, &rules);
-        if (ev & SH2Z_BC_EV_TOUCH) {
-            bcf.last[idx] = bcf.tick;
-            touching++;
-            if (ev & SH2Z_BC_EV_FIRST) bcf.contacts++;
-        }
+    static uint8_t qa[MAX_PAIRS], qb[MAX_PAIRS];
+    const uint32_t nq = sh2z_bc_range(&bcf, pair_a, pair_b, npairs, &rules, qa, qb);
+    for (uint32_t q = 0u; q < nq; q++) {
+        if (qa[q]) rival_motion(qa[q]);
+        if (qb[q]) rival_motion(qb[q]);
     }
-    bcf.tested = tested;
-    return touching;
+    return sh2z_bc_field_resolve_list(&bcf, qa, qb, nq, &rules);
 }
 
 void fzx_atk_contact(const sh2z_vd_body_t *p, sh2z_vd_contact_t *out) {
@@ -325,32 +308,26 @@ void fzx_atk_contact(const sh2z_vd_body_t *p, sh2z_vd_contact_t *out) {
     sh2z_bc_field_begin(&bcf);
     PROF(0);
     const uint32_t n = F.count;
-    const int32_t length = F.line->length, half = length / 2;
+    const int32_t length = F.line->length;
     /* Physical order by current distance: last tick's order, nearly sorted, fixed by insertion. The key (distance down, index up) is a strict
      * order, so the result does not depend on the starting permutation (attacks-4 started from the field's order: the same result). One pass
      * over the vehicles gathers what the sort and the scan read (distance, lateral, current on this tick); the keys are the distance times 32
      * plus 31 minus the index (an index is below 32 and a distance below 2^26), so one compare orders them, and the scan reads its columns
      * by slot rather than through the order. */
-    int32_t sk[FZX_ATK_MAX], sa[FZX_ATK_MAX], sl[FZX_ATK_MAX];
-    uint32_t curm = 0u, scm = 0u, candm = 0u;   /* current vehicles by index, by slot; candidates by index */
+    int32_t lat[FZX_ATK_MAX];
+    uint8_t cand[FZX_ATK_MAX], cur[FZX_ATK_MAX];
     {
         const uint32_t tick = F.field->tick;
-        for (uint32_t s = 0; s < n; ++s) {
-            const uint32_t i = order[s];
+        for (uint32_t i = 0; i < n; ++i) {
             const sh2z_vehicle_t *v = &F.veh[i];
-            sk[s] = (int32_t)((uint32_t)v->t.dist << 5) + (int32_t)(31u - i);
-            if (i == 0u || (v->flags & SH2Z_VEH_EXTERNAL) || F.brain[i].last_tick == tick) curm |= 1u << i;
+            along[i] = v->t.dist; lat[i] = v->t.lateral;
+            cur[i] = (uint8_t)(i == 0u || (v->flags & SH2Z_VEH_EXTERNAL) || F.brain[i].last_tick == tick);
         }
     }
     for (uint32_t s = 1; s < n; ++s) {
-        const int32_t k = sk[s]; uint32_t j = s;
-        while (j > 0 && sk[j - 1] < k) { sk[j] = sk[j - 1]; --j; }
-        sk[j] = k;
-    }
-    for (uint32_t s = 0; s < n; ++s) {
-        const uint32_t i = 31u - ((uint32_t)sk[s] & 31u);
-        order[s] = (uint8_t)i; sa[s] = sk[s] >> 5; sl[s] = F.veh[i].t.lateral;
-        scm |= ((curm >> i) & 1u) << s;
+        const uint8_t k = order[s]; uint32_t j = s;
+        while (j > 0 && (along[order[j - 1]] < along[k] || (along[order[j - 1]] == along[k] && order[j - 1] > k))) { order[j] = order[j - 1]; --j; }
+        order[j] = k;
     }
     PROF(1); APROF(0, sp);
     /* Candidates and pairs: another vehicle within PRE_Q8 along and across the line. Two bodies in reach (46)
@@ -362,29 +339,13 @@ void fzx_atk_contact(const sh2z_vd_body_t *p, sh2z_vd_contact_t *out) {
      * The walk is the library's pair walk (each pair once, from the body ahead, ties before the wrap; the same gap rule, REACH_LONG_Q8 =
      * PRE_Q8), and the pairs it finds within the window are the pairs that are resolved, listed in its order: two bodies in reach are in the
      * window by the claim above, so a pair outside it has nothing to resolve. */
-    npairs = 0; movedm = 0u;
-    for (uint32_t s = 0; s < n; ++s) {
-        if (!((scm >> s) & 1u)) continue;
-        const int32_t as = sa[s], ls = sl[s];
-        for (uint32_t k = 1; k < n; ++k) {
-            const uint32_t t = s + k < n ? s + k : s + k - n;
-            int32_t gap = as - sa[t];
-            if (gap > half) gap -= length;
-            else if (gap <= -half) gap += length;
-            if (gap > PRE_Q8) break;
-            if (gap < 0 || (gap == 0 && s + k >= n) || !((scm >> t) & 1u)) continue;
-            if (iabs(ls - sl[t]) <= PRE_Q8) {
-                const uint8_t a = order[s], b = order[t];
-                candm |= (1u << a) | (1u << b);
-                pair_a[npairs] = a; pair_b[npairs] = b; ++npairs;
-            }
-        }
-    }
+    memset(moved, 0, sizeof(moved));
+    npairs = sh2z_bc_sweep(order, along, lat, cur, n, length, rules.reach_long, PRE_Q8, pair_a, pair_b, cand);
     PROF(2); APROF(1, sp);
     /* Last tick's candidates leave the walk; this tick's enter it. */
     for (uint32_t ci = 0; ci < ncand; ++ci) body[cand_list[ci]].flags = 0;
     ncand = 0;
-    for (uint32_t i = 0; i < n; ++i) if ((candm >> i) & 1u) cand_list[ncand++] = (uint8_t)i;
+    for (uint32_t i = 0; i < n; ++i) if (cand[i]) cand_list[ncand++] = (uint8_t)i;
     for (uint32_t ci = 0; ci < ncand; ++ci) {
         const uint32_t i = cand_list[ci];
         sh2z_bc_body_t *b = &body[i];

@@ -692,6 +692,9 @@ ifeq ($(ENG_ATTACKS),1)
 ifeq ($(wildcard $(SH2ZAM_ROOT)/saturn/include/sh2zam/body_contact_experimental.h),)
 $(error ENG_ATTACKS=1 needs an SH2ZAM checkout with body-contact-1 (claude/body-contact))
 endif
+ifeq ($(shell grep -l 'body-contact-2' $(SH2ZAM_ROOT)/saturn/include/sh2zam/body_contact_experimental.h 2>/dev/null),)
+$(error ENG_ATTACKS=1 needs an SH2ZAM checkout with body-contact-2 (the sorted sweep and the pair list))
+endif
 ATK_RECEIPT_CHECK := $(shell sh ../../tools/check_receipt.sh $(G)/attacks/attacks.receipt >/dev/null 2>&1 || echo attacks)
 ifneq ($(strip $(ATK_RECEIPT_CHECK)),)
 $(error Missing or stale attack tables; run tools/attacks_tables.py DECOMP generated/attacks)

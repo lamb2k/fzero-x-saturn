@@ -88,6 +88,32 @@ def load_syms(path):
     return sym
 
 
+def iso_root_files(iso):
+    """(file names, decal pack names, records ending exactly on a sector boundary) of an ISO 9660 image's root directory.
+    The scenes image keeps this list in RAM (saturn/texture_cd.c, saturn/iso_root.h); the rootdir check compares them."""
+    with open(iso, 'rb') as f:
+        f.seek(16 * 2048)
+        pvd = f.read(2048)
+        if pvd[0] != 1 or pvd[1:6] != b'CD001':
+            raise ValueError('%s: no primary volume descriptor' % iso)
+        lba, size = struct.unpack('<I', pvd[158:162])[0], struct.unpack('<I', pvd[166:170])[0]
+        f.seek(lba * 2048)
+        d = f.read(size)
+    names, edge, i = [], 0, 0
+    while i < len(d):
+        n = d[i]
+        if n == 0:
+            i = (i // 2048 + 1) * 2048
+            continue
+        nl = d[i + 32]
+        nm = d[i + 33:i + 33 + nl]
+        if not (nl == 1 and nm[0] <= 1) and not d[i + 25] & 2:
+            names.append(nm.decode('latin1').split(';')[0])
+        i += n
+        edge += i % 2048 == 0
+    return names, [n for n in names if re.fullmatch(r'RGAD\d+\.PAK', n)], edge
+
+
 class Mem:
     """Work RAM from a harness dump pair (NAME.wram-high at 0x06000000, NAME.wram-low at 0x00200000)."""
 
@@ -471,6 +497,19 @@ class Gate:
         self.add('memory', name, ok, 'master stack unused %d B, slave %d B, guard trips %d' % (ms, ss, trips),
                  'floors %d / %d / %d' % (self.lim['master_stack_min'], self.lim['slave_stack_min'], self.lim['slave_guard_trips']), sink=sink)
 
+    def rootdir_check(self, name, mem, build_dir, sink=None):
+        """The image's root file list (texture_cd kept[]) holds every file on the disc and fits its 384 slots. The list once lost
+        the file whose directory record ended on a sector boundary (Sector Beta's RLOD14.PAK, 24 decal packs), and the
+        decal rows cover only a prefix of the courses, so a course without a pack is silent: both are in the detail."""
+        iso = Path(build_dir) / 'fzs-engine.iso'
+        if not iso.exists() or not mem.has('kept_count'):
+            return
+        files, packs, edge = iso_root_files(iso)
+        kept = mem.words('kept_count', 1)[0]
+        self.add('rootdir', name, kept == len(files) and len(files) <= self.lim['root_entries'],
+                 'list %d of %d root files (slots %d)' % (kept, len(files), self.lim['root_entries']),
+                 'decal packs on the disc %d; records ending on a sector boundary %d' % (len(packs), edge), sink=sink)
+
     def menus_check(self, name, lines, sink=None):
         worst = over = 0
         where = {}
@@ -553,10 +592,15 @@ class Gate:
                 mem = Mem(run_dir, 'results', sym)
                 self.cadence_checks(name, frame_rows(mem, self.lim['race_window_tick']), sink)
                 self.memory_checks(name, mem, mkv, sink)
+                self.rootdir_check(name, mem, build_dir, sink)
                 load = result_kv(lines, 'race_start')[0].get('_fzx_scn_report10')
                 self.add('load', name, True, 'cold LOAD %s fields' % load, info=True, sink=sink)
             else:
                 self.add('host', name, False, 'no RESULTS mark', error_text(run_dir), sink=sink)
+                for dump in ('race_start', 'error'):   # the list is kept at the first load: any dump after it shows it
+                    if (Path(run_dir) / (dump + '.wram-high')).exists():
+                        self.rootdir_check(name, Mem(run_dir, dump, sym), build_dir, sink)
+                        break
         self.menus_check(name, lines, sink)
 
     def determinism(self, name, dir_a, dir_b, dumps, sink=None, build_dir=None):

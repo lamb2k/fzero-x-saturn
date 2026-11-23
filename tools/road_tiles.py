@@ -53,7 +53,11 @@ def strip(mesh,material,u0,u1,fog):
     if m['combine']!=[0xfc147e28,0x44fe793c] or ((b>>8)&3)!=0 or (b&15) or ((b>>10)&15):
         raise ArtError('Unsupported source strip material')
     mirror=((b>>18)&3)==1
-    if ((b>>18)&3)>1 or width!=tex['width']:raise ArtError('Unsupported source strip addressing')
+    # The tile may view the texture's texels with another shape (Big Blue 2's D_8002008 is declared 128x16 and drawn
+    # as 64x32, line 16 words = 64 texels): the same texels read with the tile's stride, so the flat array below is right.
+    # Anything else (a different texel count or stride) stays refused.
+    reshaped=width!=tex['width'] and width*height==tex['width']*tex['height'] and ((a>>9)&511)*4==width
+    if ((b>>18)&3)>1 or (width!=tex['width'] and not reshaped):raise ArtError('Unsupported source strip addressing')
     start=(a&511)*8//(width*2);rgba=bytes.fromhex(tex['rgba_hex'])
     period=height*(2 if mirror else 1)
     native_width=max(8,8*math.ceil((u1-u0)/256))

@@ -57,7 +57,7 @@ def generate(source,out):
     manifest=json.loads((source/'backdrop.json').read_text())
     bindings=manifest['bindings'];sprites=bindings['sprites']
     first=manifest['bindings'].get('course_index',0)==0
-    if (len(sprites)!=6) if first else not 1<=len(sprites)<=6:raise ArtError('Unexpected source skyline instance count')
+    if (len(sprites)!=6) if first else not 0<=len(sprites)<=6:raise ArtError('Unexpected source skyline instance count')
     assets={r['symbol']:r for r in manifest['assets']}
     unique=[]
     for sprite in sprites:
@@ -65,7 +65,7 @@ def generate(source,out):
         if pair not in unique:unique.append(pair)
     if first and [r[0] for r in unique]!=['BG_SPRITE_CITY_SKYLINE_'+str(i) for i in range(1,5)]:
         raise ArtError('Unexpected source skyline bindings')
-    if not 1<=len(unique)<=4:raise ArtError('Skyline needs one to four source images')
+    if not 0<=len(unique)<=4:raise ArtError('Skyline needs at most four source images')
     dependencies=[Path(__file__),ROOT/'tools/skyline_state.py',ROOT/'tools/backdrop_state.py',
                   ROOT/'tools/import_source_art.py',backdrop_state.SOURCE,
                   backdrop_state.SOURCE.with_suffix('.h'),ROOT/'ref/skyline_state.h',

@@ -29,6 +29,8 @@ def targets(report, slug):
     """{racer id: finish ms or 0} for a fzx-gp-ref report on course SLUG."""
     src = (DECOMP / "src/overlays/ovl_i3/cpu.c").read_text()
     c, d = course_catalog.course(slug)["index"], int(report["difficulty"])
+    if c >= 30:   # no pace tables past course 29 (cpu.c: CPU_TUNING_COURSE() >= COURSE_EDIT_1): no second-lap target
+        return {r["id"]: 0 for r in report["racers"]}
     finish, base, step = (table(n, src)[c * 4 + d] for n in ("D_i3_8013E328", "D_i3_8013E4A8", "D_i3_8013E628"))
     share, rank_add = values("f32", "D_i3_8013E9E0", src, float)[d], values("s32", "D_i3_8013E9F0", src, int)
     out = {}
@@ -52,6 +54,8 @@ def chase_caps(report, slug, speed_k):
     """{racer id: first-lap chase cap, Q8 line distance per tick (line-field-3), or 0}: chasers only."""
     src = (DECOMP / "src/overlays/ovl_i3/cpu.c").read_text()
     c, d = course_catalog.course(slug)["index"], int(report["difficulty"])
+    if c >= 30:
+        return {r["id"]: 0 for r in report["racers"]}
     if values("f32", "D_i3_8013DFA0", src, float)[c * 4 + d] != 0.0:
         return {r["id"]: 0 for r in report["racers"]}   # a boost share on the first lap: no cap
     cap = int(round(FIRST_LAP_TOP * speed_k * 256))

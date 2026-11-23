@@ -16,7 +16,13 @@ u32 GTEX bytes, u32 0, then (u32 offset, u32 bytes) for GFIRST, GPOS, GQUADS, GI
   GFIRST:  u16 x (chunks + 1): the first decal quad of each road chunk (quads are in chunk order; the last entry = quads).
   GPOS:    3 x i16 per corner, 4 corners per quad: the original's world coordinates, in VDP1 order A B C D
            (the bitmap's top-left, top-right, bottom-right, bottom-left).
-  GQUADS:  u16 image slot, u16 flags (bit 0: dash plate) per quad.
+  GQUADS:  u16 image slot, u16 flags per quad, then the refinement records (FINE_BYTES each) of the dash halves.
+           flags: bit 0 dash plate (coarse half: one 2-D bitmap), bit 1 strip (the engine may split it into bands along the road,
+           bitmap rows run along the road), bit 2 the dash half has a refinement record, number in bits 8..15.
+           Refinement record: u8 strips, u8 points, u16 image slot of the shared ramp (8 x 16, one texture row per row), u8 edge[12],
+           u16 frac[12] (point k = corner[edge] + (corner[edge+1 mod 4] - corner[edge]) * frac / 65536, in view space), u8 strip[6][6]
+           (corner point indices A B C D, ramp row, rows). The strips are cut along the lines of equal texture row (the dash texture
+           shades along t only), so VDP1's affine mapping has nothing to get wrong across a strip.
   GIMAGES: 52-byte records as the road's image table (3 x (u32 pixels, u32 palette, u16 width, u16 height, u16 mode, u16 0),
            u8 mean[3], u8 0); pixels and palette are byte offsets into GTEX. Slot 0 and every fifth slot stay empty.
   GTEX:    CLUT4 bitmaps (8-aligned), then the fog palettes (32-aligned, RGB1555, opaque), 16 words each.
@@ -92,13 +98,15 @@ def nearest(pal_rgb, c):
 
 
 def bake_bitmap(kind, corners, uv, textures, pal, cache):
-    """corners: UV (texels) of A B C D = bitmap TL TR BR BL. Returns (w, h, packed CLUT4 bytes, pixel colours)."""
+    """uv: texture coordinates (texels) of A B C D = bitmap TL TR BR BL. Returns (w, h, packed CLUT4 bytes, pixel colours)."""
     tw, th, words = textures[kind]
     ab = math.dist(uv[0], uv[1]); ad = math.dist(uv[0], uv[3])
     if kind == 'dash':      # a plate keeps its chevron detail: full resolution, at most 32 x 32
         w = min(32, max(8, (int(math.ceil(ab)) + 7) // 8 * 8)); h = min(32, max(2, int(math.ceil(ad))))
-    else:                   # strips repeat a noisy texture several times per quad: half resolution, at most 32 x 16
-        w = min(32, max(8, (int(math.ceil(ab / 2)) + 7) // 8 * 8)); h = min(16, max(2, int(math.ceil(ad / 4))))
+    else:                   # strips repeat a noisy texture several times per quad: A->B across the strip (at most 16 wide, quarter
+                            # resolution), A->D along the road (half resolution, 8 to 32 rows in steps of 8: the engine splits near
+                            # strips into 2 or 4 bands by rows, and a band starts on an 8-byte boundary)
+        w = min(16, max(8, (int(math.ceil(ab / 4)) + 7) // 8 * 8)); h = min(32, max(8, (int(math.ceil(ad / 2)) + 7) // 8 * 8))
     # box-filtered: each bitmap pixel averages the texels under it (at most 4 x 4 subsamples), then takes the nearest
     # palette entry, so a strip that repeats its texture several times per quad does not alias
     su = max(1, min(4, int(math.ceil(ab / w)))); sv = max(1, min(4, int(math.ceil(ad / h))))
@@ -122,6 +130,51 @@ def bake_bitmap(kind, corners, uv, textures, pal, cache):
             idx.append(cache[key])
     packed = bytes((idx[i] << 4) | idx[i + 1] for i in range(0, len(idx), 2))
     return w, h, packed, idx
+
+
+FINE_BYTES = 76
+FINE_LEVELS = (0, 4, 8, 16, 24, 28, 32)      # texture rows (t): the corners of a plate half and the texture's wrap rows are all on this list
+
+
+def fine_half(q):
+    """The refinement of one dash half (corners A B C D in perimeter order, t = affine in the plane): strips between the lines of
+    equal t. Returns dict(points=[(edge, frac16)], strips=[(a, b, c, d, t0, t1)]) or None when the half's t layout is not the one the
+    levels fit (the half then keeps its single quad)."""
+    t = [round(u[1]) for u in q['uv']]
+    if sorted(set(t)) != [0, 8, 24, 32] or any(abs(u[1] - round(u[1])) > 1e-6 for u in q['uv']):
+        return None
+    points, index = [], {}
+
+    def point(pos):
+        pos %= 4.0
+        e = int(pos + 1e-12)
+        f = round((pos - e) * 65536)
+        if f >= 65536:
+            e, f = (e + 1) % 4, 0
+        key = (e % 4, f)
+        if key not in index:
+            index[key] = len(points); points.append(key)
+        return index[key]
+
+    def line(level):
+        pos = set()
+        for e in range(4):
+            t0, t1 = t[e], t[(e + 1) % 4]
+            if t0 != t1 and min(t0, t1) <= level <= max(t0, t1):
+                pos.add(round(((e + (level - t0) / (t1 - t0)) % 4.0), 9) % 4.0)
+        pos = sorted(pos)
+        if len(pos) == 1:
+            pos = pos * 2
+        if len(pos) != 2:
+            raise ArtError('dash half: iso line %s has %d ends' % (level, len(pos)))
+        return pos
+    strips = []
+    for lo, hi in zip(FINE_LEVELS[:-1], FINE_LEVELS[1:]):
+        (a, b), (d, c) = line(lo), line(hi)
+        strips.append((point(a), point(b), point(c), point(d), lo, hi))
+    if len(points) > 12 or len(strips) > 6:
+        raise ArtError('dash half refinement too large')
+    return dict(points=points, strips=strips)
 
 
 def build(chunks, effects, textures, fog):
@@ -156,15 +209,24 @@ def build(chunks, effects, textures, fog):
                 else:
                     step = (r1['t'] - tr0, l1['t'] - tl0)
                 uv = [(r0['s'] * k, tr0 * k), (l0['s'] * k, tl0 * k), (l1['s'] * k, l1['t'] * k), (r1['s'] * k, r1['t'] * k)]
+                # A B C D = r0 l0 l1 r1: A->B across the strip, A->D and B->C along the road (bitmap rows run along the road)
                 quads.append(dict(chunk=r0['chunk'], order=(e['index'], p), kind=kind,
-                                  pos=[r0['pos'], l0['pos'], l1['pos'], r1['pos']], uv=uv, flags=0))
-    # Corners B and D swap (the bitmap is then baked in the swapped order), so the quads wind the way the road's quads do on a flat
+                                  pos=[r0['pos'], l0['pos'], l1['pos'], r1['pos']], uv=uv, flags=2))
+    # Dash halves: corners B and D swap (the bitmap is then baked in the swapped order), so the quads wind the way the road's quads do on a flat
     # stretch. The engine draws decals two-sided anyway (the original clears G_CULL_BACK for its gadgets and hides them with its
     # depth buffer): the order only fixes which way the bitmap maps, and each vertex keeps the original's texture coordinate.
     for q in quads:
-        q['pos'] = [q['pos'][i] for i in (0, 3, 2, 1)]
-        q['uv'] = [q['uv'][i] for i in (0, 3, 2, 1)]
+        if q['flags'] & 1:
+            q['pos'] = [q['pos'][i] for i in (0, 3, 2, 1)]
+            q['uv'] = [q['uv'][i] for i in (0, 3, 2, 1)]
     quads.sort(key=lambda q: (q['chunk'], q['order']))
+    fines = []
+    for q in quads:
+        if q['flags'] & 1:
+            f = fine_half(q)
+            if f is not None and len(fines) < 256:
+                q['flags'] |= 4 | len(fines) << 8
+                fines.append(f)
     # texture pool: bitmaps 8-aligned, palettes 32-aligned, identical bytes stored once
     pixels = bytearray(); bitmaps = {}
     images = []; image_of = {}
@@ -182,6 +244,26 @@ def build(chunks, effects, textures, fog):
             image_of[key] = (len(images), at, w, h, q['kind'], idx)
             images.append(image_of[key])
         q['image'] = image_of[key][0]
+    ramp = None
+    if fines:
+        # the dash texture shades along t only: the ramp is one column of it, a row per texture row
+        tw, th, words = textures['dash']
+        for r in range(th):
+            if len(set(words[r * tw:(r + 1) * tw])) != 1:
+                raise ArtError('dash texture row %d is not constant across s' % r)
+        idx = []
+        for r in range(th):
+            c = rgb(words[r * tw])
+            key = ('dash', tuple(round(x * 2) for x in c))
+            if key not in cache:
+                cache[key] = nearest(pal['dash']['rgb'], c)
+            idx += [cache[key]] * 8
+        packed = bytes((idx[i] << 4) | idx[i + 1] for i in range(0, len(idx), 2))
+        at = bitmaps.get(packed)
+        if at is None:
+            at = bitmaps[packed] = len(pixels); pixels += packed; pixels += bytes(-len(pixels) % 8)
+        ramp = len(images)
+        images.append((ramp, at, 8, th, 'dash', idx))
     # palettes after the pixels
     base_pal = (len(pixels) + 31) // 32 * 32
     tex = bytearray(pixels) + bytes(base_pal - len(pixels))
@@ -224,7 +306,15 @@ def build(chunks, effects, textures, fog):
                     raise ArtError('decal vertex out of range')
             gpos += struct.pack('>3h', *p)
         gq += struct.pack('>2H', 1 + q['image'] + q['image'] // 4, q['flags'])
-    return dict(quads=quads, images=images, slots=slots, gfirst=struct.pack('>%dH' % len(gfirst), *gfirst),
+    for f in fines:
+        edge = [e for e, _ in f['points']] + [0] * (12 - len(f['points']))
+        frac = [v for _, v in f['points']] + [0] * (12 - len(f['points']))
+        strip = b''.join(bytes(st[0:4]) + bytes([st[4] % 16, st[5] - st[4]]) for st in f['strips'])
+        strip += bytes(36 - len(strip))
+        rec = struct.pack('>BBH12B12H', len(f['strips']), len(f['points']), 1 + ramp + ramp // 4, *edge, *frac) + strip
+        assert len(rec) == FINE_BYTES
+        gq += rec
+    return dict(quads=quads, fines=len(fines), images=images, slots=slots, gfirst=struct.pack('>%dH' % len(gfirst), *gfirst),
                 gpos=bytes(gpos), gquads=bytes(gq), gimages=bytes(img_rec), gtex=bytes(tex))
 
 

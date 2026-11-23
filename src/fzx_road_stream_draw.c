@@ -819,6 +819,55 @@ static bool gadget_run(draw_t *d,run_t *r){
     r->goffset=(int32_t)used-(int32_t)(q0*4u);r->gdone=true;
     d->stats->positions=used+n;d->stats->decal_corners+=n;return true;
 }
+/* VDP1 maps a quad's bitmap along straight lines between corresponding points of two opposite edges, with no perspective. A decal
+ * that is big on screen and runs far into the depth (a plate seen from just behind it, a strip's nearest quad) therefore shades wrongly
+ * and the two halves of a plate do not meet (the original's N64 texturing is perspective correct). The cure is more, smaller quads:
+ * every new corner is a point on an edge of the projected quad, taken in view space (where an edge is straight) and projected like
+ * any corner, so its place and depth are exact, and each piece then maps its own rows of the same bitmap. */
+static void lerp_view(sh2z_view_vertex_t *o,const sh2z_view_vertex_t *a,const sh2z_view_vertex_t *b,uint32_t f){
+    o->x=a->x+(int32_t)((((int64_t)b->x-a->x)*f)>>16);
+    o->y=a->y+(int32_t)((((int64_t)b->y-a->y)*f)>>16);
+    o->z=a->z+(int32_t)((((int64_t)b->z-a->z)*f)>>16);
+}
+/* How much the affine mapping is off for this quad: 0 none worth a command, 1 some (two bands), 2 a lot (four bands). The measure is
+ * m = sqrt(screen area) * (zmax - zmin) / (zmax + zmin), in pixels about twice the worst displacement; m < 3.5 is left, m < 12 gets two
+ * bands, more gets four (displacement falls as the square of the bands). A quad the guard would clip gets the most. */
+static unsigned decal_level(const vref_t v[4],bool safe){
+    if(!safe)return 2;
+    int32_t zmin=v[0]->z,zmax=zmin;
+    for(unsigned i=1;i<4;++i){if(v[i]->z<zmin)zmin=v[i]->z;if(v[i]->z>zmax)zmax=v[i]->z;}
+    int32_t a=area(v,4);if(a<0)a=-a;
+    const int64_t dz=((int64_t)zmax-zmin)>>12,sz=((int64_t)zmax+zmin)>>12;
+    const int64_t m=(int64_t)a*dz*dz,s2=sz*sz;     /* m^2 = a * dz^2 / (2 * sz^2) */
+    return m<24*s2?0u:m<288*s2?1u:2u;
+}
+/* A strip (rows run along the road: corners A B C D, A->D and B->C along it) cut into bands of equal rows. */
+static bool decal_bands(draw_t *d,const vref_t v[4],unsigned q,unsigned image,unsigned bands){
+    const unsigned height=d->work->images[image].variant[0].height;
+    if(height%bands)return piece(d,v,q,0,image,image,0,height,0,false);
+    sh2z_view_vertex_t p[10];
+    for(unsigned k=0;k<=bands;++k){const uint32_t f=(uint32_t)(k*65536u/bands);
+        lerp_view(&p[2*k],v[0],v[3],f);lerp_view(&p[2*k+1],v[1],v[2],f);}
+    if(!sh2z_view_project_center_divu(p,&d->view,p,2u*(bands+1u)))return fail(d,FZX_RS_PROJECT);
+    const unsigned rows=height/bands;
+    for(unsigned k=0;k<bands;++k){const vref_t part[4]={&p[2*k],&p[2*k+1],&p[2*k+3],&p[2*k+2]};
+        if(!piece(d,part,q,k,image,image,k*rows,rows,0,false))return false;}
+    return true;
+}
+/* A dash half as strips between the lines of equal texture row (record layout in tools/gadget_bake.py): the plate's colour depends on
+ * that row only, so across a strip there is nothing for the affine mapping to get wrong. */
+static bool decal_fine(draw_t *d,const vref_t v[4],unsigned q,const uint8_t *r){
+    sh2z_view_vertex_t p[12];
+    const unsigned strips=r[0],points=r[1],image=d->work->pack->count[FZX_RLD_IMAGES]+((unsigned)r[2]<<8|r[3]);
+    if(strips>6||points>12)return fail(d,FZX_RS_INVALID);
+    for(unsigned i=0;i<points;++i){const unsigned e=r[4+i];
+        lerp_view(&p[i],v[e],v[(e+1u)&3u],(uint32_t)r[16+2*i]<<8|r[17+2*i]);}
+    if(!sh2z_view_project_center_divu(p,&d->view,p,points))return fail(d,FZX_RS_PROJECT);
+    for(unsigned k=0;k<strips;++k){const uint8_t *s=r+40+6*k;
+        const vref_t part[4]={&p[s[0]],&p[s[1]],&p[s[2]],&p[s[3]]};
+        if(!piece(d,part,q,k,image,image,s[4],s[5],0,false))return false;}
+    return true;
+}
 /* One decal quad: culled like a road quad (outcode, winding), then its own bitmap through the road's piece builder
  * (fog variant, shading, guard clip, VDP1 command). Corners are baked in the road's winding. */
 static bool decal_quad(draw_t *d,const sh2z_view_vertex_t *base,unsigned q){
@@ -831,7 +880,11 @@ static bool decal_quad(draw_t *d,const sh2z_view_vertex_t *base,unsigned q){
      * exactly as the original's per-vertex coordinates would show it. A quad under the size floor (twice its screen area in pixels) is left out. */
     if(safe){int32_t a=area(v,4);if(a<0)a=-a;
         if(a<=(int32_t)FZX_ROAD_GADGET_MIN_AREA){++d->stats->culled;++d->stats->decal_small;return true;}}
-    const unsigned image=w->pack->count[FZX_RLD_IMAGES]+w->gquad[q*2u];
+    const unsigned image=w->pack->count[FZX_RLD_IMAGES]+w->gquad[q*2u],flags=w->gquad[q*2u+1u];
+    if(flags&6u){const unsigned level=decal_level(v,safe);
+        if(level){
+            if(flags&4u)return decal_fine(d,v,q,w->gfine+(flags>>8)*76u);
+            return decal_bands(d,v,q,image,level>1u?4u:2u);}}
     return piece(d,v,q,0,image,image,0,w->images[image].variant[0].height,0,false);
 }
 #endif

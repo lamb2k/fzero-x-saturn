@@ -139,11 +139,12 @@ typedef struct {
 #if FZX_ROAD_GADGETS
     /* Course gadget decals (ROADGAD.PAK, tools/gadget_bake.py): quads in chunk order, gfirst[c]..gfirst[c+1] the
      * decal quads of road chunk c (chunks + 1 entries), gpos four world corners per quad (A B C D), gquad an
-     * (image slot, flags) pair per quad: the image is images[pack.count[IMAGES] + slot]. The projected array holds
+     * (image slot, flags) pair per quad (flags: 1 dash half, 2 strip, 4 refinement record number in bits 8..15; see tools/gadget_bake.py): the image is images[pack.count[IMAGES] + slot]. The projected array holds
      * the decal corners after the road's (vertex_capacity covers both). NULL gfirst: no decals. */
     const uint16_t *gfirst;
     const sh2z_pos16_t *gpos;
     const uint16_t *gquad;
+    const uint8_t *gfine;   /* the dash halves' refinement records, after gquads pairs in the same table */
     uint32_t gquads;
 #endif
 #if FZX_ROAD_STREAM_CLUSTERS

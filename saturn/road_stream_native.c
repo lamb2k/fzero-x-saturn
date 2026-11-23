@@ -138,7 +138,7 @@ static bool gadget_load(fzx_road_stream_draw_work_t *w,uintptr_t vram,uintptr_t 
     uint16_t *gfirst,sh2z_pos16_t *gpos,uint16_t *gquad){
     fzx_road_gadget_report[0]=0;fzx_road_gadget_report[1]=0;fzx_road_gadget_report[2]=0;fzx_road_gadget_extent=0;
     fzx_road_gadget_report[3]=gad.quads;
-    if(gad.chunks!=pack.count[FZX_RLD_CHUNKS]||gad.len[0]<(gad.chunks+1u)*2u||gad.len[1]!=gad.quads*24u||gad.len[2]!=gad.quads*4u||
+    if(gad.chunks!=pack.count[FZX_RLD_CHUNKS]||gad.len[0]<(gad.chunks+1u)*2u||gad.len[1]!=gad.quads*24u||gad.len[2]<gad.quads*4u||(gad.len[2]-gad.quads*4u)%76u||
        gad.len[3]!=gad.images*sizeof(fzx_road_stream_image_t)||gad.len[4]!=gad.tex){fzx_road_gadget_report[0]=9;return false;}
     const uintptr_t shades_end=vram+CSEL(lod_tex_bytes,FZX_ROAD_LOD_TEXTURE_BYTES)+FZX_ROAD_STREAM_SHADE_BYTES;
     const uintptr_t bank=aligned(shades_end),vend=(uintptr_t)VDP1_VRAM(0)+0x80000u;
@@ -153,7 +153,7 @@ static bool gadget_load(fzx_road_stream_draw_work_t *w,uintptr_t vram,uintptr_t 
     const uint32_t shift=(uint32_t)(bank-vram);
     for(uint32_t k=0;k<gad.images;++k){fzx_road_stream_image_t *m=w->images+pack.count[FZX_RLD_IMAGES]+k;
         for(unsigned v=0;v<3u;++v)if(m->variant[v].mode){m->variant[v].pixels+=shift;m->variant[v].palette+=shift;}}
-    w->gfirst=gfirst;w->gpos=gpos;w->gquad=gquad;w->gquads=gad.quads;
+    w->gfirst=gfirst;w->gpos=gpos;w->gquad=gquad;w->gfine=(const uint8_t *)gquad+gad.quads*4u;w->gquads=gad.quads;
     w->vertex_capacity+=GAD_VERTICES;
     fzx_road_gadget_extent=(uint32_t)(bank+gad.tex-shades_end);
     fzx_road_gadget_report[0]=1;fzx_road_gadget_report[1]=(uint32_t)bank;fzx_road_gadget_report[2]=gad.tex;

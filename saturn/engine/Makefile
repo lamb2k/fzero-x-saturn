@@ -469,6 +469,9 @@ ENG_LOW_COLD ?= $(ENG_SCENES)
 ifeq ($(ENG_SCENES):$(ENG_LOW_COLD),1:0)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)-low0
 endif
+# Course gadget decals (claude/gadgets, ENG_GADGETS below): the scenes images that carry them get their own directory.
+ENG_GADGETS ?= 1
+SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(and $(filter 1,$(ENG_GADGETS)),$(filter 1,$(ENG_SCENES))),-gad,)
 SH_BUILD_DIR := $(SH_OUTPUT_DIR)/yaul
 IMAGE_DIRECTORY := $(SH_OUTPUT_DIR)/cd
 IMAGE_1ST_READ_BIN := A.BIN
@@ -716,7 +719,7 @@ endif
 # quads. On by default; the scenes images carry the decals (the E0, drive and field images have no course pack to load). 0 is the identity
 # control only (byte-identical to an engine without the decals). The one-disc image needs its bundle made
 # with tools/course_gadget_bundle.py (a separate bundle next to course_ids; course_bundle.py is untouched).
-ENG_GADGETS ?= 1
+# (ENG_GADGETS ?= 1 is set with the output directory name, above.)
 # Smallest decal quad drawn: a quad whose screen area is 64 pixels or less (this value is twice that) is left out. Measured on Devil's Forest
 # (the 111-quad course): 128 takes the critical path p99 cost from +0.38 to +0.21 ms with no visible change; 0 draws every non-empty quad.
 ENG_GADGET_MIN_AREA ?= 128

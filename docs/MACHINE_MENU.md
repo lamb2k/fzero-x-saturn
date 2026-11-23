@@ -175,5 +175,16 @@ The baker reconstructs the stationary grid from thirty C8 selections at
 4-bit patches for each selected machine. The engine owns navigation and draws
 the resulting VDP1 sprites. The machine name, weight, selected pilot and
 original grades come from the same C8 view as the selection highlight.
-Settings currently use the engine's text and portrait panel. The original
-rotating model, settings artwork and four skins remain open.
+Stock settings load one original C8 entry view for the selected machine.
+The engine draws the balance arrow separately. Left/right or L/R adjust
+balance, X/Z select its limits, B cancels and A commits. The guest picker
+uses the engine's text and portrait panel. Stock model rotation and four-skin
+selection remain open.
+
+Bake the thirty settings pages from the same private capture set. The
+route1 endpoint views supply the uncovered track behind the moving arrow.
+
+```sh
+python tools/engine_machine_settings.py "$FZX_EVIDENCE/emu/machine-menu" generated/machine_settings
+sh tools/check_receipt.sh generated/machine_settings/machine_settings.receipt
+```

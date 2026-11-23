@@ -21,6 +21,7 @@
 #include "menu_pages.h"
 #include "cup_ui.h"
 #include "machine_grid.h"
+#include "machine_settings.h"
 #ifndef ENG_SND
 #define ENG_SND 0
 #endif
@@ -501,7 +502,7 @@ static unsigned select_span(vdp1_cmdt_t *span, unsigned capacity) {
     return 1;
 }
 
-static const fzx_scn_menu_hooks_t select_hooks = {select_preload, title_cancel, select_span};
+
 
 static unsigned title_span(vdp1_cmdt_t *span, unsigned capacity) {
     if (capacity < FZX_TITLE_IMAGE_COUNT) return 0;
@@ -609,7 +610,7 @@ static bool ending_page_ready, browsing_courses;
 static uint8_t cup_cursor, round_cursor;
 _Static_assert(CUP_UI_BYTES <= PAGES_UI_BYTES, "cup board must fit the menu cache");
 
-enum menu_bank_id { BANK_PAGES, BANK_CUPS, BANK_GRID };
+enum menu_bank_id { BANK_PAGES, BANK_CUPS, BANK_GRID, BANK_SETTINGS };
 static enum menu_bank_id loaded_bank;
 static void menu_bank(enum menu_bank_id id) {
     static const char *const names[] = {"PAGESUI.PAK", "CUPUI.PAK", "MACHGRID.PAK"};
@@ -708,6 +709,31 @@ _Static_assert(GRID_MAX_SPRITES + 1 <= FZX_SCN_MENU_SPAN, "machine grid exceeds 
 static uint8_t grid_slot, grid_pick;
 static bool from_grid, grid_uploaded;
 static unsigned grid_run_at, grid_pixels;
+_Static_assert(SETTINGS_BYTES <= PAGES_UI_BYTES, "settings exceed the shared cartridge bank");
+static uint8_t cached_settings_id;
+static bool stock_settings(void) { return from_grid && grid_pick < 30u; }
+static bool settings_preload(uint32_t budget) {
+    if (!stock_settings()) return select_preload(budget);
+    if (loaded_bank != BANK_SETTINGS || cached_settings_id != grid_pick) {
+        uintptr_t scratch = ((uintptr_t)sat_stub_data_end + 31u) & ~(uintptr_t)31u;
+        if (!fzx_texture_cd_load_range("SETTINGS.PAK", 30u*SETTINGS_BYTES, grid_pick*SETTINGS_BYTES,
+                                       SETTINGS_BYTES, settings_hash[grid_pick], (void *)pages_base(),
+                                       (void *)scratch, 4096u))
+            fault(63, "SETTINGS BANK");
+        cached_settings_id = grid_pick;
+        loaded_bank = BANK_SETTINGS;
+    }
+    return art_preload(budget, pages_base(), SETTINGS_BYTES);
+}
+static unsigned settings_span(vdp1_cmdt_t *span, unsigned capacity) {
+    if (!stock_settings()) return select_span(span, capacity);
+    if (capacity < 2u) return 0;
+    sprite(span, 0, 320, 224, 0, 0);
+    const unsigned step = (unsigned)(select_balance * 128.f + 0.5f);
+    sprite(span+1, 320u*224u*2u, 16, 11, 154 + (int)step, 78);
+    return 2;
+}
+static const fzx_scn_menu_hooks_t select_hooks = {settings_preload, title_cancel, settings_span};
 static void grid_cancel(void) {
     title_cancel();
     grid_uploaded = false;
@@ -927,8 +953,8 @@ static void select_tick(void *u, uint32_t s) {
     float previous = select_balance;
     if (input.edges & PAD_X) select_balance = 0;
     else if (input.edges & PAD_Z) select_balance = 1;
-    else if (input.held & PAD_L) select_balance -= 1.f/128.f;
-    else if (input.held & PAD_R) select_balance += 1.f/128.f;
+    else if ((input.held & PAD_L) || (stock_settings() && (input.held & PAD_LEFT))) select_balance -= 1.f/128.f;
+    else if ((input.held & PAD_R) || (stock_settings() && (input.held & PAD_RIGHT))) select_balance += 1.f/128.f;
     if (select_balance < 0) select_balance = 0;
     if (select_balance > 1) select_balance = 1;
     if (previous != select_balance) text_dirty = true;
@@ -951,6 +977,7 @@ static void select_draw(void) {
     if (!text_dirty) return;
     text_dirty = false;
 #ifndef FZX_P3_BASELINE
+    if (stock_settings()) { dbgio_printf("\x1b[H\x1b[2J"); return; }
     if (from_grid) {
         const fzx_machine_grade_t g = fzx_machine_grade(cursor);
         dbgio_printf("\x1b[H\x1b[2J\n\n   MACHINE SETTINGS\x1b[12;4H%s\n", machine_name(cursor));

@@ -190,6 +190,20 @@ Never change a limit after seeing a result. A change needs the integrator, and t
 Ymir slows down with 12 or more parallel jobs: one Mute City race takes 2.7 min alone and about 5 min under load.
 Lower `--jobs` when other lanes share the machine.
 
+**Ghost storage (claude/modes C-169 item 3).** `ghost-f0`, `-f1`, `-f2` run `ghost_ta_f0/1/2.txt` (Time Attack, Mute City: race, new best, name entry,
+soft reset, race again with the ghost read back): fault 0 none, 1 a wrong-CRC save, 2 a save stopped half way. The `ghost` check reads
+`fzx_bup_log` (fields in and out, bytes and kind of each backup write), `fzx_ghost_store` and `fzx_rec_report` at `saved1`, and the reload at
+`race2_start`: exactly one records commit and one ghost save begun; every ghost file at most one chunk (1 KB), consecutive ghost writes at least
+two fields apart (one per manager frame), none holding the caller a whole field (FRT ticks); after the reset the whole new ghost (generation,
+race ms equal the HOST finish) for fault 0, no ghost accepted and the records intact for faults 1 and 2; and `menus` 0 over two through the commit.
+Controls `ctl-gh-frames`, `-commits`, `-readback`, `-ms`, `-big`, `-held`, `-nofault` alter the observed state of a run and must fail.
+
+**Death Race natural end (claude/modes C-169 item 4).** `death-natural` runs `death_nat.txt` (mode probe `0x423`, no poke): the `death` check wants
+29 retirements in the field's event log (`fzx_field_events`), end reason FINISH, one records commit, and the rivals' retirement ticks against the
+original code's reference (`--death-ref`, `fzx-gp-ref --mode death`, seed 1; tools/modes_death_regen.sh) inside the qualification band of
+tools/modes_dr_check.py (sorted ticks within 40, 24 of 29 by id within 60). Controls `ctl-dr-ticks`, `-short`, `-commits`, `-reason`, `-poke`,
+`-noref`. At the time of writing the parity part FAILS on the integrated image: see saturn/engine/MODES.md "Death Race: open".
+
 ## Baseline
 
 The baseline for `origin/engine` `78e6a92` is in `docs/ENGINE_GATE_BASELINE.md` and

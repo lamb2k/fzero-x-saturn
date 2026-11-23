@@ -575,11 +575,21 @@ void engine_snd_disc_read(void) {
 /* Menu audio, continued: the API and the per-frame service (low work RAM; see the block before engine_snd_leave). */
 extern uint32_t video_fields_get(void);
 
+#if ENG_SND_MENU_TEST == 3   /* control: the pack is not on the disc */
+#define MENU_PACK_NAME "SNDNONE.PAK"
+#else
+#define MENU_PACK_NAME "SNDMENU.PAK"
+#endif
+#if ENG_SND_MENU_TEST == 4   /* control: the TOC fails */
+#define MENU_TOC_OK() 0
+#else
+#define MENU_TOC_OK() read_toc(menu.toc)
+#endif
 MENU_TEXT bool engine_snd_menu_load(void *scratch, uint32_t scratch_bytes) {
     menu.want = menu.cur = ENG_SND_BGM_NONE;
     /* The TOC first (a short blocking read), the pack second; either failing leaves the rest working. */
-    if (!read_toc(menu.toc)) engine_snd_menu_report[0] = 3u; else menu.music_ok = 1u;
-    if (!fzx_texture_cd_load("SNDMENU.PAK", SND_MENU_PAK_BYTES, SND_MENU_PAK_HASH,
+    if (!MENU_TOC_OK()) engine_snd_menu_report[0] = 3u; else menu.music_ok = 1u;
+    if (!fzx_texture_cd_load(MENU_PACK_NAME, SND_MENU_PAK_BYTES, SND_MENU_PAK_HASH,
                              (void *)((uintptr_t)SCSP_RAM + SND_MENU_BASE), scratch, scratch_bytes)) {
         engine_snd_menu_report[0] = 2u;
         return false;

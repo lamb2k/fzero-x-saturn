@@ -460,6 +460,12 @@ static void player_into_field(const sh2z_vd_body_t *p) {
 
 volatile uint32_t fzx_e2_report[16];
 #if E2_PACK
+#if defined(ENG_LOW_COLD) && ENG_LOW_COLD && ENG_ATTACKS
+/* Read once at LOAD (fzx_field_load copies the nodes and station poses out of it; nothing reads it in a race frame): low work RAM
+ * (engine_low.x, engine_low_bss.ld). With the attacks on, the 24-course scenes image has 7.8 KB above its heap for the master stack
+ * (floor 20,480 B); this 81 KB buffer there gives it back. The attacks-off image keeps its layout (identity with the base). */
+__attribute__((section(".bss.lowcold.field_pack_buf")))
+#endif
 static uint32_t pack_buf[(CMAX(FZX_COURSE_MAX_RIVALS_BYTES,FZX_RIVALS_PACK_BYTES) + 7u) / 4u] __attribute__((aligned(8)));
 static bool pack_ok;
 bool fzx_field_pack_load(void *scratch, uint32_t scratch_bytes) {

@@ -109,10 +109,10 @@
     "FZX_E1_DRIVE=1",
     "ENG_SCENES=1",
     "E1_DRIVER=1",
-    "E1_DRIVER_TARGET=90.0"
+    "E1_DRIVER_TARGET=-120.0"
    ],
    "kind": "scenes",
-   "note": "scenes, R01-t driver, lateral target 90 (Fire Field retires under R01); sound on",
+   "note": "scenes, R01-t driver, lateral target -120 (Fire Field: target 90 is knocked off the course by the rivals' start contact at tick 1440 with the attacks on; -120 finishes in both frame orders); sound on",
    "sound": true
   },
   "scenes-drv-rc2": {
@@ -268,7 +268,7 @@
    "index": 12,
    "tubes": false,
    "image": "scenes-drv-ff",
-   "host_driver": "0.004,2.5,0,460,90.0"
+   "host_driver": "0.004,2.5,0,460,-120.0"
   },
   {
    "slug": "silence-2",

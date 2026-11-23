@@ -321,7 +321,7 @@ int main(int argc, char **argv) {
         else if (retire_tick >= 0) printf("finish_ms - retire_tick %d\n", retire_tick);
         else printf("finish_ms - retire_tick -\n");
     }
-    printf("ticks %u race_ms %d finished %u kos %u ko_hook %u spun %u retired_by_damage %u field_retired %u contacts %u cpu_side %u cpu_spin %u hits %u player_hits %u held_off_screen %u player_damage %u hash %08x\n",
+    if (!gate) printf("ticks %u race_ms %d finished %u kos %u ko_hook %u spun %u retired_by_damage %u field_retired %u contacts %u cpu_side %u cpu_spin %u hits %u player_hits %u held_off_screen %u player_damage %u hash %08x\n",
            t, body.race_time, (unsigned)fzx_field_report[11], fzx_atk_report[3], ko_hook_calls, fzx_atk_report[4], fzx_atk_report[5],
            (unsigned)fzx_field_report[12], fzx_atk_report[0], fzx_atk_report[6], fzx_atk_report[7], fzx_atk_report[8], fzx_atk_report[12],
            fzx_atk_report[9], fzx_atk_report[10], fzx_atk_report[14]);

@@ -641,6 +641,13 @@ void fzx_field_tick(const sh2z_vd_body_t *player) {
 #endif
 }
 
+#if defined(ENG_FX) && ENG_FX
+const sh2z_vehicle_t *fzx_field_vehicle(unsigned i) { return i < FZX_FIELD_CARS ? &veh[i] : (const sh2z_vehicle_t *)0; }
+uint32_t fzx_field_machine(unsigned i) { return i < FZX_FIELD_CARS ? (uint32_t)FIELD_ROWS[i][5] : 0u; }
+int32_t fzx_field_boost_ticks(void) { return params.boost_ticks; }
+void fzx_field_pose_of(unsigned i, int32_t pos[3], int16_t rows[3][3]) { line_pose_fast(&veh[i].t, pos, rows); }
+#endif
+
 #if E2_FASTPOSE
 /* Squared distance, Q16 units^2 (no square root): compared against squared limits. */
 typedef uint64_t fdist_t;

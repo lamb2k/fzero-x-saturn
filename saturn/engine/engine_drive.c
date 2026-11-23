@@ -32,6 +32,12 @@
 #if E1_FIELD
 #include "engine_field.h"
 #endif
+#ifndef ENG_FX
+#define ENG_FX 0
+#endif
+#if ENG_FX
+#include "engine_fx.h"
+#endif
 
 #ifndef E1_DRIVER
 #define E1_DRIVER 0
@@ -147,7 +153,17 @@ static uint32_t finish_timer;
 #endif
 #if ENG_PHYS_AHEAD
 /* Everything after the physics of one tick: the sound's read, the field's copy, the count, the finish hook and the checkpoint. */
-static void after_step(void) {
+#if ENG_FX
+#define AFTER_PARAM bool accel
+#define AFTER_ARG(a) (a)
+#else
+#define AFTER_PARAM void
+#define AFTER_ARG(a)
+#endif
+static void after_step(AFTER_PARAM) {
+#if ENG_FX
+    fzx_fx_tick(&body, course.vehicle.max_energy, accel); /* race effects: read only (the same state and place as before the look-ahead) */
+#endif
 #if ENG_SND
     engine_snd_tick(&body, &course.vehicle, course.track.laps); /* reads the state only */
 #endif
@@ -185,12 +201,15 @@ static void after_step(void) {
 }
 static void step_once(sh2z_vd_input_t *in) {
     fzx_phys_step(&course, &body, &fzx_phys_rules, in);
-    after_step();
+    after_step(AFTER_ARG((in->pressed & SH2Z_VD_BTN_ACCEL) != 0u));
 }
 
 #else
 static void step_once(sh2z_vd_input_t *in) {
     fzx_phys_step(&course, &body, &fzx_phys_rules, in);
+#if ENG_FX
+    fzx_fx_tick(&body, course.vehicle.max_energy, (in->pressed & SH2Z_VD_BTN_ACCEL) != 0u); /* race effects: read only */
+#endif
 #if ENG_SND
     engine_snd_tick(&body, &course.vehicle, course.track.laps); /* reads the state only */
 #endif
@@ -257,6 +276,9 @@ static struct {
     uint16_t pad;
     FzxPadState pad_after;
     uint16_t prev_after[AHEAD_MAX];
+#if ENG_FX
+    uint8_t accel[AHEAD_MAX];   /* the accelerator press of each tick (the race effects' flare) */
+#endif
     sh2z_vd_body_t after[AHEAD_MAX];
 #if ENG_PICK_AHEAD
     /* ENG_PICK_AHEAD: the camera of the state the prediction ends in, computed with the lens and orbit named here, and the
@@ -298,6 +320,9 @@ void fzx_drive_ahead_prepare(uint32_t req) {
             pv = button;
             fzx_phys_step(&course, &b, &fzx_phys_rules, &in);
             ahead.after[k] = b; ahead.prev_after[k] = pv;
+#if ENG_FX
+            ahead.accel[k] = (in.pressed & SH2Z_VD_BTN_ACCEL) != 0u;
+#endif
         }
     } else {
         FzxPadState ps = pad_state;
@@ -307,6 +332,9 @@ void fzx_drive_ahead_prepare(uint32_t req) {
         for (; k < req; ++k) {
             fzx_phys_step(&course, &b, &fzx_phys_rules, &in);
             ahead.after[k] = b;
+#if ENG_FX
+            ahead.accel[k] = (in.pressed & SH2Z_VD_BTN_ACCEL) != 0u;
+#endif
             in.pressed = 0; in.released = 0;
         }
         ahead.pad_after = ps;
@@ -329,7 +357,7 @@ void fzx_drive_step(uint32_t n) {
             for (uint32_t k = 0; k < ahead.n; ++k) {
                 body = ahead.after[k];
                 if (fzx_e1_driver) prev_n64 = ahead.prev_after[k];
-                after_step();
+                after_step(AFTER_ARG(ahead.accel[k] != 0u));
                 if (fzx_e1_driver && ticks == RACE_END_TICK) {
                     const uint64_t h = fnv64_body(&body);
                     fzx_e1_report[5] = ticks; fzx_e1_report[6] = (uint32_t)(h >> 32); fzx_e1_report[7] = (uint32_t)h;

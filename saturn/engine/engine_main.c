@@ -81,6 +81,18 @@
 #if ENG_CDDA
 #include "engine_cdda.h"
 #endif
+#ifndef ENG_FX
+#define ENG_FX 0
+#endif
+#if ENG_FX
+#if !E1_FIELD || !E2_EARLY
+#error ENG_FX draws after the staged cars: it needs E1_FIELD with E2_EARLY
+#endif
+#include "engine_fx.h"
+#define FX_COMMANDS FZX_FX_SLOTS
+#else
+#define FX_COMMANDS 0u
+#endif
 #ifndef ENG_SND
 #define ENG_SND 0
 #endif
@@ -146,7 +158,7 @@ enum {
      * (close-up arm A: and the 3D model's commands). */
     CLOSEUP_SLOTS = CLOSEUP_COMMANDS,
     DRIVE_SLOTS = FZX_E1_DRIVE ? 3u + CLOSEUP_SLOTS : 0u,
-    CMD_CAPACITY = SCENE_CAPACITY + 3u + DRIVE_SLOTS,
+    CMD_CAPACITY = SCENE_CAPACITY + 3u + DRIVE_SLOTS + FX_COMMANDS,
     PATH_BASE = 0x00200000u, PATH_CAPACITY = 0x0008C000u, /* Makefile: sat_stub_data_end follows */
     ROW_MAGIC = 0x45305246u, /* "E0RF" */
     ROW_WORDS = 9u + (FZX_E1_DRIVE ? 3u : 0u) + (E1_FIELD ? 3u : 0u)
@@ -834,6 +846,17 @@ static uint32_t bal_fnv(uint32_t h, const volatile void *p, uint32_t bytes) {
 #endif
 #endif
 
+#if ENG_FX && E1_FIELD && E2_EARLY
+/* The race effects' commands: emitted as two jobs, each by whichever SH-2 claims it first (SH2ZAM
+ * dual-claim-1, as the clouds): the slave after its track, fills and clouds, or the master just
+ * before it waits for the track. Each CPU takes the next unclaimed job when it is free, so the emit
+ * is shared when both arrive together; the master merges the two lists after the track wait. */
+#include "sh2zam/dual_claim_experimental.h"
+static unsigned fx_stage_n;
+static sh2z_claim_t fx_claim[FZX_FX_JOBS] __uncached;
+static volatile uint32_t fx_tag __uncached, fx_done[FZX_FX_JOBS] __uncached;
+static bool fx_mine[FZX_FX_JOBS];
+#endif
 #if FZX_E1_DRIVE
 void fzx_engine_slave_after(void) {
 #if E1_FIELD && E2_EARLY
@@ -843,6 +866,18 @@ void fzx_engine_slave_after(void) {
     fzx_drive_slave_fill();
 #if ENG_BAL_CLOUDS
     bal_slave();
+#endif
+#if ENG_FX && E1_FIELD && E2_EARLY
+    {
+        const uint32_t tag = fx_tag;
+        bool purged = false;
+        for (unsigned j = 0; j < FZX_FX_JOBS; ++j) {   /* the slave from the first job up */
+            if (!sh2z_claim_b(&fx_claim[j], tag)) continue;
+            if (!purged) { cpu_cache_purge(); purged = true; } /* the staged frame, ring and states the master wrote */
+            fzx_fx_job(j);
+            fx_done[j] = tag;
+        }
+    }
 #endif
 }
 #endif
@@ -1041,6 +1076,18 @@ static void field_stage(const fzx_engine_cam_t *cam) {
     vp = v1;
 #endif
     field_stage_n = fzx_drive_cars(field_stage_cmds, DRIVE_SLOTS, &fzx_native_view, cam, field_cars, ncars, car_stage_p, car_stage_n);
+#if ENG_FX
+    (void)fzx_fx_stage(&fzx_native_view, cam, field_cars, field_stage_n ? ncars : 0u,
+#if ENG_SCENES
+                       fzx_scn_player_family());
+#else
+                       0u);
+#endif
+    {   /* a new job tag before STAGE_READY (nonzero, below 2^31) */
+        const uint32_t t = (fx_tag + 1u) & SH2Z_CLAIM_TAG_MAX;
+        fx_tag = t ? t : 1u;
+    }
+#endif
     field_stage_c3d = (uint16_t)(v1 - v0);
     field_stage_emit = (uint16_t)(cpu_frt_count_get() - v1);
     PROF(7, vp);
@@ -1262,6 +1309,13 @@ static void build(row_t *row, const fzx_engine_cam_t *cam, uint32_t tick, uint16
 #endif
 #endif
 
+#if ENG_FX && E1_FIELD && E2_EARLY
+    /* The effects: the master takes each job the slave has not (it is still on its track). */
+    for (unsigned j = 0; j < FZX_FX_JOBS; ++j) {   /* the master from the first job up too (measured: it beat the opposite orders) */
+        fx_mine[j] = sh2z_claim_a(&fx_claim[j], fx_tag);
+        if (fx_mine[j]) fzx_fx_job(j);
+    }
+#endif
     const uint16_t t1 = cpu_frt_count_get();
 #if E0_QUEUE_STRESS
     road_count = 0;
@@ -1374,6 +1428,31 @@ static void build(row_t *row, const fzx_engine_cam_t *cam, uint32_t tick, uint16
             memcpy(&commands[CMD_FIRST + draws], field_stage_cmds, m * sizeof(vdp1_cmdt_t));
 #endif
             draws += m;
+#if ENG_FX
+            /* The race effects after the cars (their user clip still applies): the two jobs' lists merged,
+             * the slave's read through the cache-through window. */
+            {
+                unsigned smask = 0;
+                for (unsigned j = 0; j < FZX_FX_JOBS; ++j) if (!fx_mine[j]) { smask |= 1u << j; while (fx_done[j] != fx_tag) {} }
+#if ENG_FX_PROF
+                const uint16_t cp0 = cpu_frt_count_get();
+#endif
+                fx_stage_n = fzx_fx_collect(&commands[CMD_FIRST + draws], FZX_FX_SLOTS, smask);
+                fzx_fx_job_done(smask, fx_stage_n);
+#if ENG_FX_PROF
+                fzx_fx_agg[0][15] += (uint16_t)(cpu_frt_count_get() - cp0);   /* the collect, master FRT units, summed */
+#if ENG_FX_PROF > 1
+                if (fzx_fx_prof_row < FZX_FX_PROF_ROWS) {   /* a fold of the commands' words, to compare two emitters frame by frame */
+                    const uint16_t *hw = (const uint16_t *)(const void *)&commands[CMD_FIRST + draws];
+                    uint32_t hh = 2166136261u;
+                    for (unsigned i = 0; i < fx_stage_n * 16u; ++i) hh = (hh ^ hw[i]) * 16777619u;
+                    fzx_fx_prof[fzx_fx_prof_row][4] = (uint16_t)(hh ^ (hh >> 16));
+                }
+#endif
+#endif
+            }
+            draws += fx_stage_n;
+#endif
             row->car_cmds = (uint16_t)(m ? m - 1u : 0u); row->sprites = field_stage_sprites;
             row->near = field_stage_near; row->n3d = field_stage_n3d;
             row->cars3d_ticks = field_stage_c3d;
@@ -1639,6 +1718,12 @@ void fzx_race_load(void) {
 #endif
         if (!closeup_floor) fail(53, "VEHICLE LOAD", fzx_ab_report[0] * 100u + fzx_texture_cd_status.status);
         if (offset > closeup_floor) fail(51, "SPRITE VRAM OVERLAP", offset);
+#if ENG_FX
+        /* The race effects' art (FX.PAK) just below the 3D player. */
+        const uint32_t fx_floor = fzx_fx_load(&partitions, closeup_floor, (void *)scratch, 0x0028D000u - 32u - scratch);
+        if (!fx_floor) fail(55, "FX LOAD", fzx_fx_report[0] * 100u + fzx_texture_cd_status.status);
+        if (offset > fx_floor) fail(51, "SPRITE VRAM OVERLAP", offset);
+#endif
         SCN_STAMP(5);
 #endif
         if (offset > fzx_drive_texture_floor()) fail(51, "SPRITE VRAM OVERLAP", offset);
@@ -1820,6 +1905,9 @@ bool fzx_race_frame(void) {
 #endif
 #if ENG_BAL_CLOUDS
         bal_row = row != &scratch_row ? row_index : BAL_ROWS;
+#endif
+#if ENG_FX && ENG_FX_PROF
+        fzx_fx_prof_row = row != &scratch_row ? row_index : FZX_FX_PROF_ROWS;
 #endif
         memset(row, 0, sizeof(*row));
         row->tick = shown; row->build_field = field;

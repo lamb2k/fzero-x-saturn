@@ -65,6 +65,7 @@ with the base's receipt.
 **Courses.** All six Jack Cup courses are raced from the shipped scenes image, chosen in SELECT with probe
 `0x2nn`. Two are tube courses: Sand Ocean and Big Blue. Each course is judged against its own HOST reference, which
 the gate makes from that course's physics pack in the stage. Port Town's R01 driver retires, as HOST's does.
+A course entry may carry its own `row` name: `fire-field-h` is Fire Field raced under the human-line driver (kl 0.0044, kh 2.75, target 100: five 99-pass closest-point searches in a row at the jump; image `scenes-drv-ffh`, ff-gap lane), next to the R01-t row `fire-field`; its HOST reference is made with the same driver.
 
 **Sound and the disc.** Sound moves the disc drive: music plays from CD audio tracks, so a sound-on run on a
 data-only CUE never seeks data after real CD-DA playback (C-093). The gate therefore assembles the shipping

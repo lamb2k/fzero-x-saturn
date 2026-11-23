@@ -612,6 +612,7 @@ bool fzx_field_load(const sh2z_vd_track_t *track, const sh2z_vd_body_t *player) 
          * fall). line-field-14: an agent in the air flies 19 ticks at its speed (the HOST reference: 19 or 20) and, past the reach, drops; its
          * retirement follows 127 ticks after the fall begins (122..132). Held to HOST on seeds 31..38 (tools/modes_dr_check.py, band 40 ticks). */
         if (mode_now && mode_now->win_all_retired) { behave.gap_reach_ticks = 19; behave.fall_ticks = 127; }
+        if (mode_now && mode_now->win_all_retired) { params.lod_near[0] = U(60000); params.lod_near[1] = U(60000); params.lod_near[2] = U(60000); } /* TEST: no distance LOD */
 #endif
         params.behave = &behave;
         params.boost_energy = 0;

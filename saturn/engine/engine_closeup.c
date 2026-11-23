@@ -70,6 +70,10 @@ static fzx_vehicle_work_t work __attribute__((aligned(32)));
 /* Race effects: the body colour changes every frame while the player flashes or flickers. Its
  * palettes go to the player's own table only (both banks, as each is next built); the rivals'
  * tables keep the load's palettes. gen 1 = the load's palettes (base_pal), 0 = not yet written. */
+/* Read when a rival's table is first built (a few halfwords, once a slot and bank): low work RAM on the scenes image. */
+#if ENG_LOW_COLD
+__attribute__((section(".bss.lowcold.fx_base_pal")))
+#endif
 static uint16_t base_pal[FZX_VEHICLE_PALETTES][16];
 static uint32_t pal_gen, table_gen[2][FZX_CLOSEUP_CARS];
 static bool draw_player;

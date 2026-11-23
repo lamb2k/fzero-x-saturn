@@ -28,12 +28,21 @@ volatile uint32_t fzx_fx_sagg[8];
 #define FXP(k, v) do { } while (0)
 #endif
 
+/* The effects' buffers live in low work RAM on the scenes image (ENG_LOW_COLD, engine_low.x: the high block is the
+ * master's headroom): the CPU reads and writes them only, never a DMA, and only a few hundred bytes of each are
+ * touched in a frame. The other images keep them in high work RAM. */
+#if defined(ENG_LOW_COLD) && ENG_LOW_COLD
+#define FX_LOW(n) __attribute__((section(".bss.lowcold.fx_" n)))
+#else
+#define FX_LOW(n)
+#endif
+
 #define Q16(x) ((int32_t)((x) * 65536.0 + ((x) >= 0 ? 0.5 : -0.5)))
 #define CARS FZX_FIELD_CARS
 enum { WHITE_TICKS = 5, NEAR_TAIL = 400, NEAR_BOOST = 900, FAR_SPAWN = 2500, SORT_BANDS = 192u /* 16-unit bands to 3,072 units */ };
 
 /* The source's collision-spark ring (effects.c): 32 sparks of 16 ticks, drag 1.05. */
-static sh2z_ep_particle_t it_spark[32];
+static sh2z_ep_particle_t it_spark[32] FX_LOW("spark");
 static sh2z_ep_pool_t p_spark;
 
 typedef struct {
@@ -74,7 +83,7 @@ static void pmods(void) {
 }
 
 /* 7.5 sqrt(t / 100), Q16, for the boost timer t (racer.c's booster size). */
-static int32_t sqrt_share[101];
+static int32_t sqrt_share[101] FX_LOW("sqrt");
 
 static void reset(void) {
     for (uint32_t t = 0, r = 0; t <= 100u; ++t) {
@@ -196,32 +205,40 @@ void fzx_fx_tick(const sh2z_vd_body_t *b, int32_t max_energy, bool accel_pressed
 }
 
 /* ---- the frame --------------------------------------------------------------------------------------- */
-typedef struct { int32_t depth; uint16_t w[16]; } item_t;
-
-/* One emit job's own state: the frame's two jobs may run at once, one on each SH-2. The budget keeps the nearest:
- * past FZX_FX_SLOTS a new command replaces the farthest kept one when it is nearer (fzx_fx_report[10] counts the
- * commands left out). */
+/* One emit job's own state: the frame's two jobs may run at once, one on each SH-2. A job writes its commands straight
+ * into its slot of the job buffer (one 32-byte command a slot, in the order emitted) and keeps each one's depth; the
+ * order (a sort of slot indexes) is made after. The budget keeps the nearest: past FZX_FX_JOB_SLOTS a new command
+ * replaces the farthest kept one when it is nearer (fzx_fx_report[10] counts the commands left out). */
+/* A job's output, read by the master (through the purge) once the job is done: first the sorted order (halfword
+ * `ord`: slot of the i-th command far to near, `key`: its 16-unit depth band), then the commands by slot. */
 typedef struct {
-    item_t items[FZX_FX_JOB_SLOTS];
-    item_t spare;
+    uint8_t ord[FZX_FX_JOB_SLOTS], key[FZX_FX_JOB_SLOTS];
+    vdp1_cmdt_t cmd[FZX_FX_JOB_SLOTS];
+} job_buf_t;
+static job_buf_t job_buf[FZX_FX_JOBS] FX_LOW("jobs") __attribute__((aligned(32)));
+typedef struct {
+    job_buf_t *buf;
+    int32_t depth[FZX_FX_JOB_SLOTS];
+    uint8_t key[FZX_FX_JOB_SLOTS], tmp[FZX_FX_JOB_SLOTS];
+    uint16_t spare[16];
+    int32_t spare_depth;
     unsigned n_items, demand, dropped, boost_cmds;
 #if ENG_FX_PROF
     uint32_t c[8];   /* [0] sockets visited, [1] heads refused by the projection, [2] heads under a pixel, [3] heads emitted, [4] tails projected out, [5] tails emitted, [6] cars, [7] cars with a tail */
 #endif
 } jobctx_t;
-static jobctx_t jc[FZX_FX_JOBS];
-static item_t *slot(jobctx_t *x, int32_t depth) {
+static jobctx_t jc[FZX_FX_JOBS] FX_LOW("jc");
+static uint16_t *slot(jobctx_t *x, int32_t depth) {
     ++x->demand;
-    item_t *t = x->n_items < FZX_FX_JOB_SLOTS ? &x->items[x->n_items] : &x->spare;
-    t->depth = depth;
-    return t;
+    x->spare_depth = depth;
+    return x->n_items < FZX_FX_JOB_SLOTS ? (uint16_t *)(void *)&x->buf->cmd[x->n_items] : x->spare;
 }
-static void commit(jobctx_t *x, item_t *t) {
-    if (t != &x->spare) { ++x->n_items; return; }
+static void commit(jobctx_t *x, uint16_t *t) {
+    if (t != x->spare) { x->depth[x->n_items++] = x->spare_depth; return; }
     ++x->dropped;
     unsigned far = 0;
-    for (unsigned i = 1; i < FZX_FX_JOB_SLOTS; ++i) if (x->items[i].depth > x->items[far].depth) far = i;
-    if (x->spare.depth < x->items[far].depth) x->items[far] = x->spare;
+    for (unsigned i = 1; i < FZX_FX_JOB_SLOTS; ++i) if (x->depth[i] > x->depth[far]) far = i;
+    if (x->spare_depth < x->depth[far]) { memcpy(&x->buf->cmd[far], x->spare, 32u); x->depth[far] = x->spare_depth; }
 }
 
 /* A racer's boosters, staged: where it is, how it burns. */
@@ -265,8 +282,8 @@ static void boosters(jobctx_t *x, const sh2z_ep_view_t *v, const boost_t *o, int
         const int32_t r = px1(&pt, size);
         if (r < 1) { PC(2); continue; }
         const uint32_t colr = (uint32_t)art + FZX_FX_CLUT_BOOST + (uint32_t)o->env * 32u;
-        item_t *t = slot(x, pt.depth - 1);
-        if (t && sh2z_ep_emit_diamond(t->w, pt.x, pt.y, r, (uint32_t)art + FZX_FX_BOOST_HEAD, 16u, 16u, colr, pmod_tex)) {
+        uint16_t *t = slot(x, pt.depth - 1);
+        if (t && sh2z_ep_emit_diamond(t, pt.x, pt.y, r, (uint32_t)art + FZX_FX_BOOST_HEAD, 16u, 16u, colr, pmod_tex)) {
             commit(x, t); ++x->boost_cmds; PC(3);
         }
         if (!tail) continue;
@@ -276,7 +293,7 @@ static void boosters(jobctx_t *x, const sh2z_ep_view_t *v, const boost_t *o, int
         const int16_t xy[4][2] = { { (int16_t)(pt.x + r), (int16_t)pt.y }, { (int16_t)pe.x, (int16_t)pe.y },
                                    { (int16_t)(pt.x - r), (int16_t)pt.y }, { (int16_t)(pt.x - r), (int16_t)pt.y } };
         t = slot(x, pt.depth);
-        if (t && sh2z_ep_emit_quad(t->w, xy, (uint32_t)art + FZX_FX_BOOST_TAIL, 16u, 16u, colr, pmod_tex_half)) {
+        if (t && sh2z_ep_emit_quad(t, xy, (uint32_t)art + FZX_FX_BOOST_TAIL, 16u, 16u, colr, pmod_tex_half)) {
             commit(x, t); ++x->boost_cmds; PC(5);
         }
     }
@@ -285,11 +302,11 @@ static void boosters(jobctx_t *x, const sh2z_ep_view_t *v, const boost_t *o, int
 /* The frame's inputs to the emit, staged by the master (fzx_fx_stage) and read by whichever SH-2
  * runs the emit (fzx_fx_job). The rivals are within the booster range and not wrecked. */
 static sh2z_ep_view_t snap_v;
-static boost_t snap_b[CARS];
+static boost_t snap_b[CARS] FX_LOW("snap_b");
 static unsigned snap_n;
 static int32_t snap_hover, snap_up[3];
 /* The sparks: the master steps the ring during the frame's ticks, so the emit reads a copy. */
-static sh2z_ep_particle_t snap_sp[32];
+static sh2z_ep_particle_t snap_sp[32] FX_LOW("snap_sp");
 static unsigned snap_sp_n;
 static uint32_t snap_tick;
 static bool snap_ok;
@@ -305,8 +322,6 @@ typedef struct { uint32_t n, demand, dropped, boost, live, ticks;
 #endif
 } fx_out_t;
 static fx_out_t job_out[FZX_FX_JOBS];
-/* A job's sorted commands (far to near; halfword 15 of each, a reserved word, holds its depth band for the merge). */
-static vdp1_cmdt_t job_cmds[FZX_FX_JOBS][FZX_FX_JOB_SLOTS] __attribute__((aligned(32)));
 
 /* A racer's share of the emit (a head costs about 5, a tail 3): only the split point reads it. */
 static unsigned snap_boost_weight(const boost_t *o) {
@@ -455,13 +470,15 @@ bool fzx_fx_stage(const fzx_view_t *view, const fzx_engine_cam_t *cam, const fzx
 }
 
 /* Far to near by 16-unit depth bands, the order inside a band the emit order (a stable counting sort on the 8-bit
- * band, as two 4-bit passes). The band goes to halfword 15 of the command; returns the count. */
-static unsigned order_job(jobctx_t *x, vdp1_cmdt_t *out) {
+ * band, as two 4-bit passes). Writes the job buffer's sorted slot order and each one's band; returns the count. */
+static unsigned order_job(jobctx_t *x) {
     const unsigned n = x->n_items;
-    uint8_t key[FZX_FX_JOB_SLOTS], tmp[FZX_FX_JOB_SLOTS], cnt[16];
+    uint8_t *const key = x->key, *const tmp = x->tmp;
+    uint8_t *const ord = x->buf->ord, *const bnd = x->buf->key;
+    uint8_t cnt[16];
     for (unsigned i = 0; i < 16u; ++i) cnt[i] = 0;
     for (unsigned i = 0; i < n; ++i) {
-        uint32_t b = (uint32_t)x->items[i].depth >> 18;            /* Q14 depth / 16 units */
+        uint32_t b = (uint32_t)x->depth[i] >> 18;                  /* Q14 depth / 16 units */
         if (b >= SORT_BANDS) b = SORT_BANDS - 1u;
         const uint8_t k = (uint8_t)(SORT_BANDS - 1u - b);          /* far first */
         key[i] = k; ++cnt[k & 15u];
@@ -475,10 +492,8 @@ static unsigned order_job(jobctx_t *x, vdp1_cmdt_t *out) {
     for (unsigned i = 0; i < 16u; ++i) { const unsigned c = cnt[i]; cnt[i] = (uint8_t)sum; sum += c; }
     for (unsigned i = 0; i < n; ++i) {
         const unsigned t = tmp[i];
-        const uint32_t *w = (const uint32_t *)(const void *)x->items[t].w;
-        uint32_t *d = (uint32_t *)(void *)&out[cnt[key[t] >> 4]++];
-        d[0] = w[0]; d[1] = w[1]; d[2] = w[2]; d[3] = w[3]; d[4] = w[4]; d[5] = w[5]; d[6] = w[6];
-        d[7] = (w[7] & 0xffff0000u) | key[t];
+        const unsigned at = cnt[key[t] >> 4]++;
+        ord[at] = (uint8_t)t; bnd[at] = key[t];
     }
     return n;
 }
@@ -489,6 +504,7 @@ void fzx_fx_job(unsigned job) {
     fx_out_t *const jo = &job_out[job];
     if (!snap_ok) { jo->n = 0; jo->demand = jo->dropped = jo->boost = jo->live = jo->ticks = 0; return; }
     jobctx_t *const x = &jc[job];
+    x->buf = &job_buf[job];
     const uint16_t t0 = cpu_frt_count_get();
     const sh2z_ep_view_t v = snap_v;
     x->n_items = 0; x->demand = 0; x->dropped = 0; x->boost_cmds = 0;
@@ -515,8 +531,8 @@ void fzx_fx_job(unsigned job) {
             if (!proj1(&v, d.pos, &pt) || pt.depth > NEAR_BOOST * 16384) continue;
             const int32_t r = px1(&pt, d.scale);
             if (r < 1) continue;
-            item_t *t = slot(x, pt.depth);
-            if (t && sh2z_ep_emit_diamond(t->w, pt.x, pt.y, r, (uint32_t)art + FZX_FX_SPARK + (uint32_t)(e->timer >> 1) * 512u, 32u, 32u,
+            uint16_t *t = slot(x, pt.depth);
+            if (t && sh2z_ep_emit_diamond(t, pt.x, pt.y, r, (uint32_t)art + FZX_FX_SPARK + (uint32_t)(e->timer >> 1) * 512u, 32u, 32u,
                                           (uint32_t)art + FZX_FX_CLUT_SPARK + (uint32_t)e->timer * 32u, pmod_tex)) commit(x, t);
         }
         PHASE(1);
@@ -526,7 +542,7 @@ void fzx_fx_job(unsigned job) {
         for (unsigned t = lo; t < hi; ++t) boosters(x, &v, &snap_b[snap_rank[t]], snap_hover, snap_tick);
         PHASE(3);
     }
-    const unsigned out = order_job(x, job_cmds[job]);
+    const unsigned out = order_job(x);
     PHASE(4);
 #if ENG_FX_PROF
     for (unsigned i = 0; i < 6u; ++i) jo->ph[i] = phs[i];
@@ -542,22 +558,25 @@ void fzx_fx_job(unsigned job) {
  * go first when over). Returns the count. */
 unsigned fzx_fx_collect(vdp1_cmdt_t *dst, unsigned capacity, unsigned slave_mask) {
     const uint32_t *base[FZX_FX_JOBS];
+    const uint8_t *ord[FZX_FX_JOBS], *bnd[FZX_FX_JOBS];
     unsigned n[FZX_FX_JOBS], idx[FZX_FX_JOBS], total = 0;
     uint32_t key[FZX_FX_JOBS];
     for (unsigned j = 0; j < FZX_FX_JOBS; ++j) {
         const volatile fx_out_t *o = (const volatile fx_out_t *)((uintptr_t)&job_out[j] | CPU_CACHE_THROUGH);
         n[j] = o->n; idx[j] = 0; total += n[j];
-        /* the slave's lists are in memory (write-through): purge this CPU's copies of those lines and read them cached */
-        if (((slave_mask >> j) & 1u) && n[j]) cpu_cache_area_purge(job_cmds[j], n[j] * sizeof(vdp1_cmdt_t));
-        base[j] = (const uint32_t *)(const void *)job_cmds[j];
-        key[j] = n[j] ? base[j][7] & 0xffu : 0x100u;
+        /* the slave's lists are in memory (write-through): purge this CPU's copies of the order and of the commands
+         * used (the buffer's first 2 x 64 B, then n commands) and read them cached */
+        if (((slave_mask >> j) & 1u) && n[j]) cpu_cache_area_purge(&job_buf[j], sizeof(job_buf[j].ord) + sizeof(job_buf[j].key) + n[j] * sizeof(vdp1_cmdt_t));
+        base[j] = (const uint32_t *)(const void *)job_buf[j].cmd;
+        ord[j] = job_buf[j].ord; bnd[j] = job_buf[j].key;
+        key[j] = n[j] ? bnd[j][0] : 0x100u;
     }
     unsigned skip = total > capacity ? total - capacity : 0u, out = 0;
     for (unsigned c = 0; c < total; ++c) {
         unsigned j = 0;
         for (unsigned q = 1; q < FZX_FX_JOBS; ++q) if (key[q] < key[j]) j = q;   /* the first job among equal bands */
-        const uint32_t *w = base[j] + 8u * idx[j];
-        key[j] = ++idx[j] < n[j] ? base[j][8u * idx[j] + 7u] & 0xffu : 0x100u;
+        const uint32_t *w = base[j] + 8u * ord[j][idx[j]];
+        key[j] = ++idx[j] < n[j] ? bnd[j][idx[j]] : 0x100u;
         if (skip) { --skip; continue; }
         uint32_t *d = (uint32_t *)(void *)&dst[out++];
         d[0] = w[0]; d[1] = w[1]; d[2] = w[2]; d[3] = w[3]; d[4] = w[4]; d[5] = w[5]; d[6] = w[6];

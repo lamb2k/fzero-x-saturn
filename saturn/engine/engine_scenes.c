@@ -166,6 +166,12 @@ fzx_session_t fzx_session;
 fzx_run_result_t fzx_scn_result;
 
 /* ---- arenas ---------------------------------------------------------------- */
+/* The menu scenes' structures (a few hundred bytes of each scene's arena; nothing reads it in a race, and no DMA reads
+ * it). With the race effects (ENG_FX) the scenes image keeps it in low work RAM: the effects' buffers took the
+ * master's headroom (lane fx-3). */
+#if ENG_FX && ENG_LOW_COLD
+__attribute__((section(".bss.lowcold.menu_heap")))
+#endif
 static uint8_t menu_heap[8192] __attribute__((aligned(16)));
 static uint8_t race_heap[1024] __attribute__((aligned(16)));
 static sh2z_arena_t menu_arena, race_arena;

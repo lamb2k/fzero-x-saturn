@@ -652,7 +652,8 @@ SH_SRCS := engine_main.c engine_scene.c engine_path.c \
     $(GC)/course_record.c \
     $(if $(filter 1,$(FZX_E1_DRIVE)),engine_drive.c ../physics_native.c,) \
     $(if $(filter 1,$(E1_CLOSEUP)),engine_closeup.c ../../src/fzx_vehicle.c ../../src/fzx_vehicle_draw.c,) \
-    $(if $(filter-out 0,$(E1_FIELD)),engine_field.c,) $(if $(filter 1,$(ENG_FX)),engine_fx.c,) \n    $(if $(filter 1,$(ENG_SCENES)),engine_scenes.c engine_records.c engine_load_fast.c engine_cup.c $(if $(filter 1,$(ENG_MODES)),engine_modes.c engine_mode_entry.c,) $(if $(filter 1,$(ENG_GHOST)),engine_ghost.c engine_ghost_race.c,),) $(if $(filter 1,$(ENG_ROSTER)),engine_roster.c,) \
+    $(if $(filter-out 0,$(E1_FIELD)),engine_field.c,) $(if $(filter 1,$(ENG_FX)),engine_fx.c,) \
+    $(if $(filter 1,$(ENG_SCENES)),engine_scenes.c engine_records.c engine_load_fast.c engine_cup.c $(if $(filter 1,$(ENG_MODES)),engine_modes.c engine_mode_entry.c,) $(if $(filter 1,$(ENG_GHOST)),engine_ghost.c engine_ghost_race.c,),) $(if $(filter 1,$(ENG_ROSTER)),engine_roster.c,) \
     $(addprefix $(SH2ZAM_ROOT)/saturn/src/,$(sort $(SH2ZAM_UNITS)))
 ifneq ($(ENG_DSP_BANDS),0)
 SH_SRCS += ../../src/fzx_band_corners.c

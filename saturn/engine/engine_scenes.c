@@ -22,6 +22,7 @@
 #include "cup_ui.h"
 #include "machine_grid.h"
 #include "machine_settings.h"
+#include <fiber.h>
 #ifndef ENG_SND
 #define ENG_SND 0
 #endif
@@ -91,8 +92,8 @@ static uint32_t roster_inflate_fnv(uint32_t family, unsigned prof) {
 #if ENG_SND
 #include "engine_snd.h"
 #if ENG_SND_MENU
-/* Reference binding of the menu audio contract (docs/MENU_AUDIO.md, claude/menu-audio): enough to prove the path
- * end to end; the front end's own binding replaces these calls, one producer per UI action. */
+/* The scene that accepts an input owns its sound. The diagnostic image can
+ * independently mute music and effects to measure the underlying SCSP output. */
 #define MENU_SE(id) engine_snd_menu_se(id)
 #define MENU_MUSIC(id) engine_snd_menu_music(id)
 #endif
@@ -618,7 +619,7 @@ static void title_tick(void *u, uint32_t s) {
     if (!title_connected) return;
     ++title_ticks;
     if (title_ticks >= 80u && (input.edges & (PAD_A | PAD_C | PAD_START))) {
-        snd_event(1); (void)request(FZX_SCN_MODES, RANK_GOTO);
+        snd_event(1); if (request(FZX_SCN_MODES, RANK_GOTO)) MENU_SE(62u);
     } else if (input.edges & PAD_B) (void)request(FZX_SCN_RECORDS, RANK_GOTO);
     else if (title_ticks >= 600u) {
         /* Retail cues its demo from the soundtrack and rotates GP/VS cameras.
@@ -679,18 +680,71 @@ static bool ending_page_ready, browsing_courses;
 static uint8_t cup_cursor, round_cursor;
 _Static_assert(CUP_UI_BYTES <= PAGES_UI_BYTES, "cup board must fit the menu cache");
 
-enum menu_bank_id { BANK_PAGES, BANK_CUPS, BANK_GRID, BANK_SETTINGS };
+enum menu_bank_id { BANK_PAGES, BANK_CUPS, BANK_GRID, BANK_SETTINGS, BANK_EMPTY };
 static enum menu_bank_id loaded_bank;
-static void menu_bank(enum menu_bank_id id) {
+/* Each preload owns the released menu arena. Run its checked CD loader on
+ * a private stack in that arena so polling a seek or filling a bank yields
+ * to the scene manager. The CD hook runs only between sector transfers. */
+static fiber_t bank_reader;
+static struct {
+    const char *file;
+    uint32_t file_bytes, offset, bytes, hash;
+    uint16_t start;
+    bool active, done, range;
+} bank_read;
+
+static void *bank_stack(size_t alignment, size_t bytes) {
+    return alignment <= 16 && bytes <= sizeof(menu_heap) / 2 ? menu_heap + sizeof(menu_heap) / 2 : NULL;
+}
+static void bank_stack_free(void *stack) { (void)stack; }
+static void bank_yield(void) {
+    if ((uint16_t)(cpu_frt_count_get() - bank_read.start) >= 3000u) fiber_yield(NULL);
+}
+static void bank_read_entry(void) {
+    void *scratch = (void *)(((uintptr_t)sat_stub_data_end + 31u) & ~(uintptr_t)31u);
+    bool ok;
+    if (bank_read.range)
+        ok = fzx_texture_cd_load_range(bank_read.file, bank_read.file_bytes, bank_read.offset, bank_read.bytes,
+                                      bank_read.hash, (void *)pages_base(), scratch, 4096u);
+    else
+        ok = fzx_texture_cd_load(bank_read.file, bank_read.bytes, bank_read.hash, (void *)pages_base(), scratch, 4096u);
+    if (!ok) fault(63, "MENU BANK");
+    bank_read.done = true;
+    fiber_yield(NULL);
+}
+static bool bank_step(const char *file, uint32_t file_bytes, uint32_t offset, uint32_t bytes, uint32_t hash, bool range) {
+#if ENG_SND_MENU
+    if (!engine_snd_disc_acquire()) return false;
+#endif
+    if (!bank_read.active) {
+        bank_read.file = file; bank_read.file_bytes = file_bytes; bank_read.offset = offset;
+        bank_read.bytes = bytes; bank_read.hash = hash; bank_read.range = range;
+        bank_read.done = false;
+        loaded_bank = BANK_EMPTY; /* a cancelled read has already overwritten the old bank */
+        fiber_init();
+        fiber_stack_allocator_set(bank_stack, bank_stack_free);
+        if (fiber_fiber_init(&bank_reader, 4096, bank_read_entry) != 0) fault(63, "MENU STACK");
+        bank_read.active = true;
+    }
+    bank_read.start = cpu_frt_count_get();
+    fzx_cd_yield = bank_yield;
+    fiber_yield(&bank_reader);
+    fzx_cd_yield = NULL;
+    if (!bank_read.done) return false;
+    bank_read.active = false;
+#if ENG_SND_MENU
+    engine_snd_disc_release();
+#endif
+    return true;
+}
+static bool menu_bank(enum menu_bank_id id) {
     static const char *const names[] = {"PAGESUI.PAK", "CUPUI.PAK", "MACHGRID.PAK"};
     static const uint32_t sizes[] = {PAGES_UI_BYTES, CUP_UI_BYTES, GRID_BYTES};
     static const uint32_t hashes[] = {PAGES_UI_HASH, CUP_UI_HASH, GRID_HASH};
-    if (loaded_bank == id) return;
-    uintptr_t scratch = ((uintptr_t)sat_stub_data_end + 31u) & ~(uintptr_t)31u;
-    if (!fzx_texture_cd_load(names[id], sizes[id], hashes[id],
-                             (void *)pages_base(), (void *)scratch, 4096u))
-        fault(63, "MENU BANK");
+    if (loaded_bank == id) return true;
+    if (!bank_step(names[id], sizes[id], 0, sizes[id], hashes[id], false)) return false;
     loaded_bank = id;
+    return true;
 }
 
 static void sprite(vdp1_cmdt_t *cmd, unsigned at, unsigned w, unsigned h, int x, int y) {
@@ -706,7 +760,7 @@ static void sprite(vdp1_cmdt_t *cmd, unsigned at, unsigned w, unsigned h, int x,
 static void ui_sprite(vdp1_cmdt_t *cmd, unsigned id, int x, int y) {
     sprite(cmd, menu_sprites[id].at, menu_sprites[id].w, menu_sprites[id].h, x, y);
 }
-static bool pages_preload(uint32_t budget) { menu_bank(BANK_PAGES); return art_preload(budget, pages_base(), PAGES_UI_BYTES); }
+static bool pages_preload(uint32_t budget) { return menu_bank(BANK_PAGES) && art_preload(budget, pages_base(), PAGES_UI_BYTES); }
 static unsigned modes_span(vdp1_cmdt_t *span, unsigned capacity) {
     static const uint8_t signs[] = {UI_aMenuSignGpRaceTex, UI_aMenuSignTimeAttackTex,
         UI_aMenuSignDeathRaceTex, UI_aMenuSignVsBattleTex, UI_aMenuSignPracticeTex, UI_aMenuSignOptionsTex};
@@ -733,33 +787,34 @@ static unsigned options_span(vdp1_cmdt_t *span, unsigned capacity) {
 static bool panel_enter(void *u, uint32_t scene) {
     (void)u;
     if (scene == FZX_SCN_MODES) mode_cursor = fzx_session.menu_mode ? 1u : 0u;
-    MENU_MUSIC(15u);
+    if (scene != FZX_SCN_ENDING) MENU_MUSIC(scene == FZX_SCN_OPTIONS ? 16u : 15u);
     text_dirty = true;
     return true;
 }
 static void modes_tick(void *u, uint32_t scene) {
     (void)u; (void)scene;
-    if (input.edges & PAD_B) { (void)request(FZX_SCN_TITLE, RANK_GOTO); return; }
+    if (input.edges & PAD_B) { if (request(FZX_SCN_TITLE, RANK_GOTO)) MENU_SE(16u); return; }
     if (input.repeat & PAD_LEFT) mode_cursor = (mode_cursor + 5u) % 6u;
     else if (input.repeat & PAD_RIGHT) mode_cursor = (mode_cursor + 1u) % 6u;
     else if (input.repeat & (PAD_UP | PAD_DOWN)) {
         static const uint8_t vertical[] = {4, 4, 5, 5, 1, 2};
         mode_cursor = vertical[mode_cursor];
     }
-    if (input.repeat & (PAD_LEFT | PAD_RIGHT | PAD_UP | PAD_DOWN)) text_dirty = true;
+    if (input.repeat & (PAD_LEFT | PAD_RIGHT | PAD_UP | PAD_DOWN)) { text_dirty = true; MENU_SE(30u); }
     if (!(input.edges & (PAD_A | PAD_START))) return;
-    if (mode_cursor == 5u) (void)request(FZX_SCN_OPTIONS, RANK_GOTO);
+    if (mode_cursor == 5u) { if (request(FZX_SCN_OPTIONS, RANK_GOTO)) MENU_SE(62u); }
     else if (mode_cursor == 1u || (mode_cursor == 0u && jack_ready())) {
         if (request(FZX_SCN_CUPS, RANK_GOTO)) {
+            MENU_SE(62u); MENU_SE(33u);
             cup_cursor = fzx_session.course < 24u ? fzx_session.course / 6u : 0u;
             round_cursor = fzx_session.course < 24u ? fzx_session.course % 6u : 0u;
             browsing_courses = false;
         }
-    }
+    } else MENU_SE(32u);
 }
 static unsigned cup_course(void) { return cup_cursor * 6u + round_cursor; }
 static bool cups_preload(uint32_t budget) {
-    menu_bank(BANK_CUPS);
+    if (!menu_bank(BANK_CUPS)) return false;
     return art_preload(budget, pages_base(), CUP_UI_BYTES);
 }
 static unsigned cups_span(vdp1_cmdt_t *span, unsigned capacity) {
@@ -789,11 +844,8 @@ static bool settings_preload(uint32_t budget) {
     if (!stock_settings()) return select_preload(budget);
     const settings_bank_t *bank = &settings_banks[grid_pick];
     if (loaded_bank != BANK_SETTINGS || cached_settings_id != grid_pick) {
-        uintptr_t scratch = ((uintptr_t)sat_stub_data_end + 31u) & ~(uintptr_t)31u;
-        if (!fzx_texture_cd_load_range("SETTINGS.PAK", SETTINGS_FILE_BYTES, bank->offset,
-                                       bank->bytes, bank->hash, (void *)pages_base(),
-                                       (void *)scratch, 4096u))
-            fault(63, "SETTINGS BANK");
+        if (!bank_step("SETTINGS.PAK", SETTINGS_FILE_BYTES, bank->offset, bank->bytes, bank->hash, true))
+            return false;
         cached_settings_id = grid_pick;
         loaded_bank = BANK_SETTINGS;
     }
@@ -819,7 +871,7 @@ static void grid_cancel(void) {
     grid_run_at = grid_pixels = 0;
 }
 static bool grid_preload(uint32_t budget) {
-    menu_bank(BANK_GRID);
+    if (!menu_bank(BANK_GRID)) return false;
     if (!grid_uploaded) {
         vdp1_vram_partitions_t part;
         vdp1_vram_partitions_get(&part);
@@ -858,25 +910,26 @@ static unsigned grid_span(vdp1_cmdt_t *span, unsigned capacity) {
 static const fzx_scn_menu_hooks_t grid_hooks = {grid_preload, grid_cancel, grid_span};
 static void grid_tick(void *u, uint32_t scene) {
     (void)u; (void)scene;
-    if (input.edges & PAD_B) { (void)request(FZX_SCN_CUPS, RANK_GOTO); return; }
+    if (input.edges & PAD_B) { if (request(FZX_SCN_CUPS, RANK_GOTO)) MENU_SE(16u); return; }
     unsigned row = grid_slot / 6, col = grid_slot % 6;
     if (input.repeat & PAD_LEFT) col = (col + 5) % 6;
     else if (input.repeat & PAD_RIGHT) col = (col + 1) % 6;
     if (input.repeat & PAD_UP) row = (row + 4) % 5;
     else if (input.repeat & PAD_DOWN) row = (row + 1) % 5;
+    if (grid_slot != row*6 + col) MENU_SE(30u);
     grid_slot = row*6 + col;
     uint8_t pick = grid_identity[grid_slot];
     if (input.edges & PAD_Y) {
         if (machine_allowed(33)) pick = 33;
         else if (machine_allowed(34)) pick = 34;
-        else return;
+        else { MENU_SE(32u); return; }
     } else if (!(input.edges & (PAD_A | PAD_C | PAD_START))) return;
-    if (request(FZX_SCN_SELECT, RANK_GOTO)) { grid_pick = pick; from_grid = true; picked_mode = true; }
+    if (request(FZX_SCN_SELECT, RANK_GOTO)) { MENU_SE(33u); grid_pick = pick; from_grid = true; picked_mode = true; }
 }
 static void cups_tick(void *u, uint32_t scene) {
     (void)u; (void)scene;
     if (input.edges & PAD_B) {
-        if (!browsing_courses) (void)request(FZX_SCN_MODES, RANK_GOTO);
+        if (browsing_courses || request(FZX_SCN_MODES, RANK_GOTO)) MENU_SE(16u);
         browsing_courses = false;
         text_dirty = true;
         return;
@@ -884,11 +937,13 @@ static void cups_tick(void *u, uint32_t scene) {
     if (input.repeat & (PAD_LEFT | PAD_RIGHT)) {
         uint8_t *position = browsing_courses ? &round_cursor : &cup_cursor;
         unsigned count = browsing_courses ? 6u : 4u;
+        MENU_SE(30u);
         *position = (*position + ((input.repeat & PAD_LEFT) ? count - 1u : 1u)) % count;
         text_dirty = true;
     }
     if (!(input.edges & (PAD_A | PAD_START))) return;
     if (mode_cursor && !browsing_courses) {
+        MENU_SE(33u);
         browsing_courses = true;
         round_cursor = 0;
         text_dirty = true;
@@ -897,11 +952,12 @@ static void cups_tick(void *u, uint32_t scene) {
     if ((mode_cursor && course_ok(cup_course(), mode_cursor)) ||
         (!mode_cursor && !cup_cursor && jack_ready())) {
         if (request(FZX_SCN_MACHINE_GRID, RANK_GOTO)) {
+            MENU_SE(33u);
             grid_slot = 0;
             for (unsigned i = 0; i < 30; ++i)
                 if (grid_identity[i] == fzx_session.machine_id) grid_slot = i;
         }
-    }
+    } else MENU_SE(32u);
 }
 static void cups_draw(void) {
     if (!text_dirty) return;
@@ -968,11 +1024,11 @@ static void select_tick(void *u, uint32_t s) {
     (void)u; (void)s;
 #ifndef FZX_P3_BASELINE
     if (from_grid && (input.edges & PAD_B)) {
-        (void)request(FZX_SCN_MACHINE_GRID, RANK_GOTO);
+        if (request(FZX_SCN_MACHINE_GRID, RANK_GOTO)) MENU_SE(16u);
         return;
     }
     if (input.edges & PAD_Y) {
-        (void)request(FZX_SCN_MODES, RANK_GOTO);
+        if (request(FZX_SCN_MODES, RANK_GOTO)) MENU_SE(16u);
         return;
     }
 #endif
@@ -1024,7 +1080,7 @@ static void select_tick(void *u, uint32_t s) {
 #ifndef FZX_P3_BASELINE
     if (from_grid && cursor >= 33u && (input.repeat & (PAD_UP | PAD_DOWN))) {
         unsigned other = cursor == 33u ? 34u : 33u;
-        if (machine_allowed(other)) cursor = other;
+        if (machine_allowed(other)) { cursor = other; MENU_SE(30u); }
         text_dirty = true;
     } else if (!from_grid && (input.repeat & (PAD_UP | PAD_DOWN))) {
         do {
@@ -1034,6 +1090,7 @@ static void select_tick(void *u, uint32_t s) {
         MENU_SE(30u);
     }
     if (stock_settings()) {
+        if (input.edges & (PAD_R | PAD_L)) MENU_SE(30u);
         if (input.edges & PAD_R) select_skin = (select_skin + 1u) & 3u;
         else if (input.edges & PAD_L) select_skin = (select_skin + 3u) & 3u;
     }
@@ -1303,7 +1360,7 @@ static void ending_cache(void) {
 static bool ending_preload(uint32_t budget) {
     if (ending_place == 1u && ending_page_ready)
         return art_preload(budget, fzx_title_cart_limit(), ending_pages[ending_slot].size);
-    menu_bank(BANK_PAGES);
+    if (!menu_bank(BANK_PAGES)) return false;
     return art_preload(budget, pages_base()+menu_sprites[UI_aCongratulationsTex].at, 264u*31u*2u);
 }
 static unsigned ending_span(vdp1_cmdt_t *span, unsigned capacity) {
@@ -2109,6 +2166,15 @@ static void race_leave(void *u, uint32_t s) { common_leave(u, s); engine_snd_lea
 #define PRELOAD_BUDGET_FRT 7000u /* about 7.8 ms a frame (FRT at master clock / 32) */
 static uint32_t preload_frames;
 static void preload_cancel(void) {
+#ifndef FZX_P3_BASELINE
+    if (bank_read.active) {
+        bank_read.active = false;
+        fzx_road_stream_invalidate();
+    }
+#endif
+#if ENG_SND_MENU
+    if (preloading < FZX_SCN_COUNT) engine_snd_disc_release();
+#endif
     if (preloading < FZX_SCN_COUNT && hooks[preloading].preload_cancel) hooks[preloading].preload_cancel();
     if (preloading < FZX_SCN_COUNT) ++fzx_scn_ctl[3];
     preloading = FZX_SCN_COUNT;

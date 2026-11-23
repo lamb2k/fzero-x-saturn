@@ -10,7 +10,18 @@ wait 120
 mark l_quiet
 poke _fzx_menu_test+20 0
 pad 0800 2
-until 2 1 600
+until 7 1 1200
+wait 20
+pad 0400 2
+until 10 1 1600
+wait 20
+pad 0400 2
+wait 20
+pad 0400 2
+until 11 1 1600
+wait 20
+pad 0400 2
+until 2 1 1600
 wait 120
 mark l_select
 pad 0400 2

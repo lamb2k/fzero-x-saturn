@@ -23,12 +23,23 @@ wait 120
 mark m_changed
 poke _fzx_menu_test+20 0
 pad 0800 2
-until 2 1 600
+until 7 1 1200
+wait 20
+pad 0400 2
+until 10 1 1600
+wait 20
+pad 0400 2
+wait 20
+pad 0400 2
+until 11 1 1600
+wait 20
+pad 0400 2
+until 2 1 1600
 wait 90
 mark m_select
-pad 2000 2
+pad 0080 2
 wait 20
-pad 2000 2
+pad 0080 2
 wait 20
 pad 0010 2
 wait 30

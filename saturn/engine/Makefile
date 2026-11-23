@@ -816,6 +816,9 @@ endif
 
 SH_LDFLAGS += -Wl,--defsym=_sat_stub_data_end=0x0028C000 -Wl,--defsym=_fzx_input_log=0x0028D000
 # Unused functions and data are dropped at link time (SH2ZAM sections-1).
+ifeq ($(ENG_SCENES),1)
+SH_LDFLAGS += -lfiber
+endif
 SH_LDFLAGS += -Wl,--gc-sections
 # ENG_LOW_COLD (memory lane, 2026-11-21; default 1 on the scenes image, which needs ENG_SCENES=1): functions,
 # read-only data and buffers that never run or are read during a race are linked into low work RAM at 0x00240000

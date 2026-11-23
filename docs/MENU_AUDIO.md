@@ -103,10 +103,17 @@ acquired, [8] state (0 stopped, 1 playing, 2 pausing, 3 paused), [9] FAD where t
 FAD, [11] music owned, [12] music wanted, [13] hold. `engine_snd_disc[0]/[1]`: disc data reads / reads made while music
 was not quiet.
 
-## Reference binding (in engine_scenes.c, replaced by the front end's binding)
+## Original front-end binding
 
-Boot: `engine_snd_menu_load` after `title_cache`. Title enter: music 14; Start: effect 62. Mode, select enter: music 15.
-Select: cursor moves 30, balance tenth 22, accept 62 then 33, refused accept 32, back 16.
+Boot loads the effects after the title cache. Title requests music 14; mode, cup/course, machine grid and settings request 15;
+options requests 16. Cursor changes use 30, back uses 16, and a refused choice uses the bounded 32. Mode confirmation posts
+62 then 33. Stock skin changes and guest changes have their own cursor event. The balance slider posts 22 when it changes
+tenths. The final settings confirm rings through LOAD.
+
+On a cache miss the menu preload acquires the disc once and yields while waiting. The checked CD loader yields back to
+the scene manager between sector transfers on the released menu arena's stack. Release occurs after the bank is complete,
+before any subsequent VRAM upload. A cancelled partial bank remains invalid. Cache hits, card browsing, guest selection,
+skin cycling and balance changes require no disc hold.
 
 ## Race-side countdown sounds (scope addition from the countdown lane; costed, not built)
 

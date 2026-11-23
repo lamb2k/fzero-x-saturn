@@ -94,9 +94,10 @@ def checks(ev, build):
     cur, st, lf = (a.word('m_changed', 'engine_snd_menu_report', i) for i in (11, 5, 10))
     add('target', cur == 15 and st == 2 and lf > saved2 + 3000,
         'wanted 15 while held: playing %d, fresh starts %d (no stale resume), FAD %d' % (cur, st, lf))
-    add('select', a.word('m_cursor', 'engine_snd_menu_report', 2) == 3 and a.word('m_confirm', 'engine_snd_menu_report', 2) == 5 and
+    add('select', a.word('m_select', 'engine_snd_menu_report', 2) == 6 and
+        a.word('m_cursor', 'engine_snd_menu_report', 2) == 9 and a.word('m_confirm', 'engine_snd_menu_report', 2) == 11 and
         a.word('m_confirm', 'engine_snd_menu_report', 3) == 0,
-        'effects played %d of %d posted (cursor, cursor, balance, then 62 and 33), dropped %d' % (
+        'effects played %d of %d posted (six route effects, two skin changes, balance, then 62 and 33), dropped %d' % (
             a.word('m_confirm', 'engine_snd_menu_report', 2), a.word('m_confirm', 'engine_snd_menu_report', 1), a.word('m_confirm', 'engine_snd_menu_report', 3)))
 
     f = Run(ev, 'fx', build)

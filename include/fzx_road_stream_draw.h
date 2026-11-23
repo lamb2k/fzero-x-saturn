@@ -46,7 +46,6 @@ typedef struct {
     uint32_t unaligned,fog_updates,fog_error,fault,error_quad;
 #if FZX_ROAD_GADGETS
     uint32_t decals,decal_corners,decal_dropped,decal_small;   /* decal quads fetched, corners projected, quads dropped for room, quads under the size floor */
-    uint32_t decal_pre;                                        /* decal quads left out before projection (FZX_ROAD_GADGET_PRECULL) */
 #endif
 } fzx_road_stream_draw_stats_t;
 
@@ -138,11 +137,6 @@ typedef struct {
     bool native;
     uint16_t nunit[256];
 #if FZX_ROAD_GADGETS
-    /* FZX_ROAD_GADGET_PRECULL: the native layout leaves w->positions (800 entries of 6 bytes) unused; the decals borrow it. Entries
-     * [0, FZX_GAD_SLOT_AT): the corners of the decals that survive the pre-test, one batch; [FZX_GAD_SLOT_AT, FZX_GAD_LEN_AT): a u16 per decal
-     * of the run (its survivor number, 0xFFFF left out), [FZX_GAD_LEN_AT, 800): a u16 per decal quad of the course, the longest diagonal in model units (set at load). */
-    #define FZX_GAD_SLOT_AT 560u
-    #define FZX_GAD_LEN_AT 700u
     /* Course gadget decals (ROADGAD.PAK, tools/gadget_bake.py): quads in chunk order, gfirst[c]..gfirst[c+1] the
      * decal quads of road chunk c (chunks + 1 entries), gpos four world corners per quad (A B C D), gquad an
      * (image slot, flags) pair per quad (flags: 1 dash half, 2 strip, 4 refinement record number in bits 8..15; see tools/gadget_bake.py): the image is images[pack.count[IMAGES] + slot]. The projected array holds

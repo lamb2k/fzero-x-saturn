@@ -780,16 +780,12 @@ endif
 # Smallest decal quad drawn: a quad whose screen area is 64 pixels or less (this value is twice that) is left out. Measured on Devil's Forest
 # (the 111-quad course): 128 takes the critical path p99 cost from +0.38 to +0.21 ms with no visible change; 0 draws every non-empty quad.
 ENG_GADGET_MIN_AREA ?= 128
-# Pre-test before projecting a decal (src/fzx_road_stream_draw.c, gadget_run): from the four view depths, a decal behind the near plane or
-# beyond the far plane (exact) or farther than PRECULL_PX pixels per longest diagonal on the view axis (far under the size floor) is not projected.
-ENG_GADGET_PRECULL ?= 1
-ENG_GADGET_PRECULL_PX ?= 5
 ifeq ($(and $(filter 1,$(ENG_GADGETS)),$(filter 1,$(ENG_SCENES))),1)
 GADGET_RECEIPT_CHECK := $(foreach R,$(GCREL)road_gadget/road_gadget.receipt,$(shell sh ../../tools/check_receipt.sh $(G)/$(R) >/dev/null 2>&1 || echo $(R)))
 ifneq ($(strip $(GADGET_RECEIPT_CHECK)),)
 $(error Missing or stale decal pack: $(GADGET_RECEIPT_CHECK) (tools/gadget_bake.py --course $(ENG_COURSE)))
 endif
-SH_CFLAGS += -DFZX_ROAD_GADGETS=1 -DFZX_ROAD_GADGET_MIN_AREA=$(ENG_GADGET_MIN_AREA) -DFZX_ROAD_GADGET_PRECULL=$(ENG_GADGET_PRECULL) -DFZX_ROAD_GADGET_PRECULL_PX=$(ENG_GADGET_PRECULL_PX) -I$(GC)/road_gadget
+SH_CFLAGS += -DFZX_ROAD_GADGETS=1 -DFZX_ROAD_GADGET_MIN_AREA=$(ENG_GADGET_MIN_AREA) -I$(GC)/road_gadget
 ifeq ($(ENG_COURSE_SELECT),1)
 GADGETS_RECEIPT_CHECK := $(shell sh ../../tools/check_receipt.sh $(G)/courses/select/course_gadgets.receipt >/dev/null 2>&1 || echo stale)
 ifneq ($(strip $(GADGETS_RECEIPT_CHECK)),)

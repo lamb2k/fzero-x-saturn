@@ -102,7 +102,7 @@ volatile uint32_t fzx_e0_rsp_counts[FZX_RSPC_COUNTERS];
 #ifndef E0_PROW_ROWS
 #define E0_PROW_ROWS 4608u /* E4_PROW_ROWS (Makefile): fewer rows for a diagnostic image that has to fit the phase table beside a big course */
 #endif
-enum { E0_PROW_WORDS = FZX_RSP_PHASES + FZX_RSPC_COUNTERS + 10u };
+enum { E0_PROW_WORDS = 45u };
 uint16_t fzx_e0_prow[E0_PROW_ROWS][E0_PROW_WORDS];
 static void prow_fill(uint32_t index) {
     if (index >= E0_PROW_ROWS) return;
@@ -119,6 +119,7 @@ static void prow_fill(uint32_t index) {
     for (unsigned i = 0; i < 4u; ++i) x[5 + i] = (uint16_t)st->tiers[i];
     x[9] = (uint16_t)st->commands;
 }
+_Static_assert(FZX_RSP_PHASES + FZX_RSPC_COUNTERS + 10u == E0_PROW_WORDS, "per-frame record layout");
 #endif
 #ifndef E0_ROAD_HASH
 #define E0_ROAD_HASH 0

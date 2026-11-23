@@ -799,77 +799,26 @@ culled_ok:
 typedef struct {uint32_t first,last;int32_t offset;
 #if FZX_ROAD_GADGETS
     int32_t goffset;bool gdone;   /* decal corner i of quad q is projected[goffset+4q+i]; gdone: this run's decals are projected */
-#if FZX_ROAD_GADGET_PRECULL
-    uint32_t gq0;                 /* with the pre-test: the run's first decal quad (the slot list is indexed from it); the corners are projected[goffset+4*slot+i] */
-#endif
 #endif
 } run_t;
 #if FZX_ROAD_GADGETS
-#ifndef FZX_ROAD_GADGET_PRECULL
-#define FZX_ROAD_GADGET_PRECULL 0
-#endif
 #ifndef FZX_ROAD_GADGET_MIN_AREA
 #define FZX_ROAD_GADGET_MIN_AREA 0   /* decal quads whose screen area (x2, pixels) is at most this are left out; 0 leaves out only the empty ones */
 #endif
 /* The decals of one run's chunks: one more projected batch, after the run's road positions. A run that does not fit
  * leaves its decals out (counted), never the road. */
-#if FZX_ROAD_GADGET_PRECULL
-/* With FZX_ROAD_GADGET_PRECULL a decal is tested before it is projected, from its four view depths alone (three multiplies each, no
- * division): all behind the near plane or all beyond the far plane (the outcode test would cull it; exact), or farther than 5 pixels per
- * longest diagonal on the view axis (its picture is then far under the size floor, 64 pixels, but for the widest off-axis corners).
- * Only the survivors are projected, in one batch. */
-#ifndef FZX_ROAD_GADGET_PRECULL_PX
-#define FZX_ROAD_GADGET_PRECULL_PX 5
-#endif
 static bool gadget_run(draw_t *d,run_t *r){
     fzx_road_stream_draw_work_t *w=d->work;
     r->gdone=false;
     if(!w->gfirst)return true;
     const uint32_t q0=w->gfirst[r->first],q1=w->gfirst[r->last+1u];
     if(q1<=q0)return true;
-    FZX_RSP(GPROJ);
-    if(q1-q0>(FZX_GAD_LEN_AT-FZX_GAD_SLOT_AT)){d->stats->decal_dropped+=q1-q0;FZX_RSP_COUNT(DECAL_DROP,q1-q0);return true;}   /* more than 140 decals in one run: none of the course has */
-    const int16_t *const r2=d->view.view.r[2];const int32_t t2=d->view.view.t[2],near=d->view.view.near_z,far=d->view.view.far_z;
-    const uint32_t fscale=(uint32_t)d->view.view.focal_x>>8;       /* pixels per unit * 256 */
-    sh2z_pos16_t *const sp=w->positions;
-    uint16_t *const slot=(uint16_t *)(void *)(w->positions+FZX_GAD_SLOT_AT);
-    const uint16_t *const len=(const uint16_t *)(const void *)(w->positions+FZX_GAD_LEN_AT);
-    uint32_t n=0;
-    for(uint32_t q=q0;q<q1;++q){
-        const sh2z_pos16_t *p=w->gpos+q*4u;
-        int32_t z0=r2[0]*(int32_t)p[0].x+r2[1]*(int32_t)p[0].y+r2[2]*(int32_t)p[0].z+t2,zmin=z0,zmax=z0;
-        for(unsigned i=1;i<4u;++i){
-            const int32_t z=r2[0]*(int32_t)p[i].x+r2[1]*(int32_t)p[i].y+r2[2]*(int32_t)p[i].z+t2;
-            if(z<zmin)zmin=z;if(z>zmax)zmax=z;}
-        /* zQ18.14 at which the longest diagonal is PX pixels on the view axis: 16384 * L * focal_px / PX = 64 * L * fscale / PX (integer 64 / PX) */
-        const int64_t lim=(int64_t)len[q]*(int64_t)fscale*(int64_t)(64u/FZX_ROAD_GADGET_PRECULL_PX);
-        if(zmax<near||zmin>far||(int64_t)zmin>lim){slot[q-q0]=0xFFFFu;++d->stats->decal_pre;FZX_RSP_COUNT(DECAL_PRE,1);continue;}
-        slot[q-q0]=(uint16_t)n;
-        for(unsigned i=0;i<4u;++i)sp[n*4u+i]=p[i];
-        ++n;
-    }
-    if(!n){FZX_RSP(BATCH);return true;}
-    const uint32_t used=d->stats->positions,c=n*4u;
-    if(c>w->vertex_capacity-used){d->stats->decal_dropped+=n;FZX_RSP_COUNT(DECAL_DROP,n);FZX_RSP(BATCH);return true;}
-    if(!sh2z_view_batch_center_divu(w->projected+used,&d->view,sp,sizeof(*sp),c))return fail(d,FZX_RS_PROJECT);
-    r->goffset=(int32_t)used;r->gq0=q0;r->gdone=true;
-    d->stats->positions=used+c;d->stats->decal_corners+=c;FZX_RSP_COUNT(DECAL_CORNERS,c);FZX_RSP(BATCH);return true;
-}
-#else
-static bool gadget_run(draw_t *d,run_t *r){
-    fzx_road_stream_draw_work_t *w=d->work;
-    r->gdone=false;
-    if(!w->gfirst)return true;
-    const uint32_t q0=w->gfirst[r->first],q1=w->gfirst[r->last+1u];
-    if(q1<=q0)return true;
-    FZX_RSP(GPROJ);
     const uint32_t used=d->stats->positions,n=(q1-q0)*4u;
-    if(n>w->vertex_capacity-used){d->stats->decal_dropped+=q1-q0;FZX_RSP_COUNT(DECAL_DROP,q1-q0);return true;}
+    if(n>w->vertex_capacity-used){d->stats->decal_dropped+=q1-q0;return true;}
     if(!sh2z_view_batch_center_divu(w->projected+used,&d->view,w->gpos+q0*4u,sizeof(*w->gpos),n))return fail(d,FZX_RS_PROJECT);
     r->goffset=(int32_t)used-(int32_t)(q0*4u);r->gdone=true;
-    d->stats->positions=used+n;d->stats->decal_corners+=n;FZX_RSP_COUNT(DECAL_CORNERS,n);FZX_RSP(BATCH);return true;
+    d->stats->positions=used+n;d->stats->decal_corners+=n;return true;
 }
-#endif
 /* VDP1 maps a quad's bitmap along straight lines between corresponding points of two opposite edges, with no perspective. A decal
  * that is big on screen and runs far into the depth (a plate seen from just behind it, a strip's nearest quad) therefore shades wrongly
  * and the two halves of a plate do not meet (the original's N64 texturing is perspective correct). The cure is more, smaller quads:
@@ -924,16 +873,16 @@ static bool decal_fine(draw_t *d,const vref_t v[4],unsigned q,const uint8_t *r){
 static bool decal_quad(draw_t *d,const sh2z_view_vertex_t *base,unsigned q){
     fzx_road_stream_draw_work_t *w=d->work;
     const vref_t v[4]={base,base+1,base+2,base+3};bool safe;
-    ++d->stats->decals;FZX_RSP(GQUAD);FZX_RSP_COUNT(DECALS,1);
-    if(classify(v,&safe)){++d->stats->culled;FZX_RSP_COUNT(DECAL_OUT,1);return true;}
+    ++d->stats->decals;
+    if(classify(v,&safe)){++d->stats->culled;return true;}
     /* The original draws these gadgets two-sided (aSetupCourseEffectTextureDL clears G_CULL_BACK) and lets its depth buffer hide them,
      * so there is no winding test: a decal seen from its back face draws, its bitmap mapped by the corners' own texture coordinates
      * exactly as the original's per-vertex coordinates would show it. A quad under the size floor (twice its screen area in pixels) is left out. */
     if(safe){int32_t a=area(v,4);if(a<0)a=-a;
-        if(a<=(int32_t)FZX_ROAD_GADGET_MIN_AREA){++d->stats->culled;++d->stats->decal_small;FZX_RSP_COUNT(DECAL_SMALL,1);return true;}}
+        if(a<=(int32_t)FZX_ROAD_GADGET_MIN_AREA){++d->stats->culled;++d->stats->decal_small;return true;}}
     const unsigned image=w->pack->count[FZX_RLD_IMAGES]+w->gquad[q*2u],flags=w->gquad[q*2u+1u];
     if(flags&6u){const unsigned level=decal_level(v,safe);
-        if(level){FZX_RSP_COUNT(DECAL_SPLIT,1);
+        if(level){
             if(flags&4u)return decal_fine(d,v,q,w->gfine+(flags>>8)*76u);
             return decal_bands(d,v,q,image,level>1u?4u:2u);}}
     return piece(d,v,q,0,image,image,0,w->images[image].variant[0].height,0,false);
@@ -997,14 +946,8 @@ static bool native_frame(draw_t *d){
             for(unsigned i=c->quad_first,e=i+c->quad_count;i<e;++i)if(!native_quad(d,i,base))return false;
 #endif
 #if FZX_ROAD_GADGETS
-#if FZX_ROAD_GADGET_PRECULL
-            if(r->gdone){const uint16_t *slot=(const uint16_t *)(const void *)(w->positions+FZX_GAD_SLOT_AT);
-                for(unsigned q=w->gfirst[index],e=w->gfirst[index+1u];q<e;++q){const unsigned k=slot[q-r->gq0];
-                    if(k!=0xFFFFu&&!decal_quad(d,w->projected+(r->goffset+(int32_t)k*4),q))return false;}}
-#else
             if(r->gdone)for(unsigned q=w->gfirst[index],e=w->gfirst[index+1u];q<e;++q)
                 if(!decal_quad(d,w->projected+(r->goffset+(int32_t)q*4),q))return false;
-#endif
 #endif
             if(group->direction==1){if(index==start)break;index=index?index-1:chunks-1;}
             else {index=index+1<chunks?index+1:0;if(index==end)break;}

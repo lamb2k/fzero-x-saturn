@@ -157,16 +157,6 @@ static bool gadget_load(fzx_road_stream_draw_work_t *w,uintptr_t vram,uintptr_t 
     for(uint32_t k=0;k<gad.images;++k){fzx_road_stream_image_t *m=w->images+pack.count[FZX_RLD_IMAGES]+k;
         for(unsigned v=0;v<3u;++v)if(m->variant[v].mode){m->variant[v].pixels+=shift;m->variant[v].palette+=shift;}}
     w->gfirst=gfirst;w->gpos=gpos;w->gquad=gquad;w->gfine=(const uint8_t *)gquad+gad.quads*4u;w->gquads=gad.quads;
-#if FZX_ROAD_GADGET_PRECULL
-    /* The pre-test's table: per decal quad the longest diagonal (model units, rounded up), kept in the unused gather array (fzx_road_stream_draw.h). */
-    if(gad.quads>(800u-FZX_GAD_LEN_AT)*3u||VERTICES<800u){fzx_road_gadget_report[0]=11;return false;}
-    {uint16_t *const len=(uint16_t *)(void *)(w->positions+FZX_GAD_LEN_AT);
-     for(uint32_t q=0;q<gad.quads;++q){const sh2z_pos16_t *p=gpos+q*4u;uint64_t best=0;
-        for(unsigned k=0;k<2u;++k){const int64_t dx=(int64_t)p[k].x-p[k+2u].x,dy=(int64_t)p[k].y-p[k+2u].y,dz=(int64_t)p[k].z-p[k+2u].z;
-            const uint64_t sq=(uint64_t)(dx*dx+dy*dy+dz*dz);if(sq>best)best=sq;}
-        uint32_t l=0;while((uint64_t)l*l<best&&l<65535u)++l;
-        len[q]=(uint16_t)l;}}
-#endif
     w->vertex_capacity+=GAD_VERTICES;
     fzx_road_gadget_extent=(uint32_t)(bank+gad.tex-shades_end);
     fzx_road_gadget_report[0]=1;fzx_road_gadget_report[1]=(uint32_t)bank;fzx_road_gadget_report[2]=gad.tex;

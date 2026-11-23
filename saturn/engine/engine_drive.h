@@ -67,6 +67,7 @@ extern volatile uint32_t fzx_e1_ahead[12]; /* [8], [9]: the contact run ahead af
 #else
 extern volatile uint32_t fzx_e1_ahead[8];
 #endif
+#endif
 /* ENG_PICK_AHEAD (claude/speed-6, needs ENG_PHYS_AHEAD and the drive): the slave picks the next frame's track in the master's
  * idle time too, from the camera of the state the prediction ends in. */
 #ifndef ENG_PICK_AHEAD

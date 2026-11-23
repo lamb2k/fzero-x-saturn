@@ -59,6 +59,11 @@ void fzx_drive_slave_fill(void);
 extern volatile uint32_t fzx_e1_vram[16], fzx_e1_cache[12], fzx_e1_sprite_pos[4];
 /* Steps the physics `ticks` times (60 Hz), reading the pad once. */
 void fzx_drive_step(uint32_t ticks);
+#if ENG_PHYS_AHEAD
+/* ENG_PHYS_AHEAD: compute the next `ticks` ticks on a copy of the state, for the next fzx_drive_step to take. */
+void fzx_drive_ahead_prepare(uint32_t ticks);
+extern volatile uint32_t fzx_e1_ahead[8];
+#endif
 #if ENG_BAL_EARLY
 /* ENG_BAL_EARLY: fzx_drive_step keeps the player's state after each tick and the rival
  * field steps here instead, after the slave's kick (the field reads the player and

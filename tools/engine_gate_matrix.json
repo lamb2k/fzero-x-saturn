@@ -88,6 +88,85 @@
    "note": "scenes, driver; sound on",
    "sound": true
   },
+  "scenes-drv-r03": {
+   "vars": [
+    "FZX_E1_DRIVE=1",
+    "ENG_SCENES=1",
+    "E1_DRIVER=2"
+   ],
+   "kind": "scenes",
+   "note": "scenes, R03 look-ahead driver (White Land 1 retires under R01); sound on",
+   "sound": true
+  },
+  "scenes-drv-r03": {
+   "vars": [
+    "FZX_E1_DRIVE=1",
+    "ENG_SCENES=1",
+    "E1_DRIVER=2"
+   ],
+   "kind": "scenes",
+   "note": "scenes, R03 look-ahead driver (White Land 1 retires under R01); sound on",
+   "sound": true
+  },
+  "scenes-drv-ff": {
+   "vars": [
+    "FZX_E1_DRIVE=1",
+    "ENG_SCENES=1",
+    "E1_DRIVER=1",
+    "E1_DRIVER_TARGET=90.0"
+   ],
+   "kind": "scenes",
+   "note": "scenes, R01-t driver, lateral target 90 (Fire Field retires under R01); sound on",
+   "sound": true
+  },
+  "scenes-drv-rc2": {
+   "vars": [
+    "FZX_E1_DRIVE=1",
+    "ENG_SCENES=1",
+    "E1_DRIVER=1",
+    "E1_DRIVER_KL=0.008",
+    "E1_DRIVER_KH=3.5",
+    "E1_DRIVER_TARGET=-30.0"
+   ],
+   "kind": "scenes",
+   "note": "scenes, R01-t driver kl 0.008 kh 3.5 target -30 (Red Canyon 2); sound on",
+   "sound": true
+  },
+  "scenes-drv-sp": {
+   "vars": [
+    "FZX_E1_DRIVE=1",
+    "ENG_SCENES=1",
+    "E1_DRIVER=1",
+    "E1_DRIVER_KH=3.5",
+    "E1_DRIVER_TARGET=30.0"
+   ],
+   "kind": "scenes",
+   "note": "scenes, R01-t driver kh 3.5 target 30 (Space Plant); sound on",
+   "sound": true
+  },
+  "scenes-drv-pt2": {
+   "vars": [
+    "FZX_E1_DRIVE=1",
+    "ENG_SCENES=1",
+    "E1_DRIVER=1",
+    "E1_DRIVER_KH=3.5",
+    "E1_DRIVER_TARGET=-90.0"
+   ],
+   "kind": "scenes",
+   "note": "scenes, R01-t driver kh 3.5 target -90 (Port Town 2); sound on",
+   "sound": true
+  },
+  "scenes-drv-rr": {
+   "vars": [
+    "FZX_E1_DRIVE=1",
+    "ENG_SCENES=1",
+    "E1_DRIVER=1",
+    "E1_RACE_TICKS=12000"
+   ],
+   "kind": "scenes",
+   "note": "scenes, driver, race run to 12,000 ticks after the start (Rainbow Road finishes at 10,520); sound on",
+   "sound": true
+  },
   "scenes-drv-snd0": {
    "vars": [
     "FZX_E1_DRIVE=1",
@@ -153,6 +232,112 @@
   {
    "slug": "port-town-1",
    "index": 5,
+   "tubes": false
+  },
+  {
+   "slug": "sector-alpha",
+   "index": 6,
+   "tubes": false
+  },
+  {
+   "slug": "red-canyon-1",
+   "index": 7,
+   "tubes": false
+  },
+  {
+   "slug": "devils-forest-2",
+   "index": 8,
+   "tubes": false
+  },
+  {
+   "slug": "mute-city-2",
+   "index": 9,
+   "tubes": false
+  },
+  {
+   "slug": "big-blue-2",
+   "index": 10,
+   "tubes": false
+  },
+  {
+   "slug": "white-land-1",
+   "index": 11,
+   "tubes": false,
+   "image": "scenes-drv-r03",
+   "host_driver": "0.004,2.5",
+   "host_ahead": 0.1
+  },
+  {
+   "slug": "fire-field",
+   "index": 12,
+   "tubes": false,
+   "image": "scenes-drv-ff",
+   "host_driver": "0.004,2.5,0,460,90.0"
+  },
+  {
+   "slug": "silence-2",
+   "index": 13,
+   "tubes": false
+  },
+  {
+   "slug": "sector-beta",
+   "index": 14,
+   "tubes": false
+  },
+  {
+   "slug": "red-canyon-2",
+   "index": 15,
+   "tubes": false,
+   "image": "scenes-drv-rc2",
+   "host_driver": "0.008,3.5,0,460,-30.0"
+  },
+  {
+   "slug": "white-land-2",
+   "index": 16,
+   "tubes": true
+  },
+  {
+   "slug": "mute-city-3",
+   "index": 17,
+   "tubes": false,
+   "image": "scenes-drv-r03",
+   "host_driver": "0.004,2.5",
+   "host_ahead": 0.1
+  },
+  {
+   "slug": "rainbow-road",
+   "index": 18,
+   "tubes": false,
+   "image": "scenes-drv-rr",
+   "host_ticks": 12000
+  },
+  {
+   "slug": "devils-forest-3",
+   "index": 19,
+   "tubes": true
+  },
+  {
+   "slug": "space-plant",
+   "index": 20,
+   "tubes": true,
+   "image": "scenes-drv-sp",
+   "host_driver": "0.004,3.5,0,460,30.0"
+  },
+  {
+   "slug": "sand-ocean-2",
+   "index": 21,
+   "tubes": false
+  },
+  {
+   "slug": "port-town-2",
+   "index": 22,
+   "tubes": false,
+   "image": "scenes-drv-pt2",
+   "host_driver": "0.004,3.5,0,460,-90.0"
+  },
+  {
+   "slug": "big-hand",
+   "index": 23,
    "tubes": false
   }
  ],

@@ -93,10 +93,14 @@ def bindings(source, header, course, course_index=0):
     lists = re.findall(r"\b(sBackgroundSpriteInit\w+)\b", table)
     if len(lists) != 24 or lists[0] != "sBackgroundSpriteInitMuteCity":
         raise ArtError("Source course skyline selection changed")
-    body = initializer(source, r"BackgroundSpriteInitData " + lists[course_index] + r"\[\]")
+    # Courses 24 and up (Death Race, index 54) have no skyline: Background_SelectSpriteSelection returns NONE.
+    if course_index < len(lists):
+        body = initializer(source, r"BackgroundSpriteInitData " + lists[course_index] + r"\[\]")
+    else:
+        body = "{ BG_SPRITE_END, 0.0f }"
     entries = re.findall(r"\{\s*(BG_SPRITE_\w+)\s*,\s*(-?[0-9]+(?:\.[0-9]+)?)f\s*\}", body)
     residue = re.sub(r"\{\s*BG_SPRITE_\w+\s*,\s*-?[0-9]+(?:\.[0-9]+)?f\s*\}", "", body)
-    if residue.replace(",", "").strip() or not 2 <= len(entries) <= 7 or entries[-1] != ("BG_SPRITE_END", "0.0"):
+    if residue.replace(",", "").strip() or not 1 <= len(entries) <= 7 or entries[-1] != ("BG_SPRITE_END", "0.0"):
         raise ArtError("Unsupported source skyline list")
     # Bind by the actual C enum/table index, never by the explanatory comments.
     enum = re.search(r"typedef enum BackgroundSpriteId\s*\{(.*?)\}\s*BackgroundSpriteId;", header, re.S)

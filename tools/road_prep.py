@@ -46,9 +46,11 @@ def main():
     ap.add_argument('--output', type=Path, default=G / 'road_prep')
     ap.add_argument('--bake', type=Path, default=G / 'road_bake', help='road_bake.py output for this course')
     ap.add_argument('--texture-limit', type=int, help='the track texture budget the bake used (road_bake.py --texture-limit)')
+    ap.add_argument('--pack-limit', type=int, help='the lod pack budget the bake used (road_bake.py --pack-limit)')
     a = ap.parse_args()
     bake = a.bake.resolve()
-    defines = [*DEFINES, *(['-DFZX_ROAD_STREAM_TEXTURE_LIMIT=%du' % a.texture_limit] if a.texture_limit else [])]
+    defines = [*DEFINES, *(['-DFZX_ROAD_STREAM_TEXTURE_LIMIT=%du' % a.texture_limit] if a.texture_limit else []),
+               *(['-DFZX_ROAD_STREAM_PACK_LIMIT=%du' % a.pack_limit] if a.pack_limit else [])]
     subprocess.run(['sh', str(ROOT / 'tools/check_receipt.sh'), str(bake / 'road_bake.receipt')], check=True, stdout=subprocess.DEVNULL)
     lib = a.sh2zam
     with tempfile.TemporaryDirectory() as t:

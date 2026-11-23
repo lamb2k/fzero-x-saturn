@@ -72,7 +72,10 @@ static void *reserve(uintptr_t *at,uint32_t count,uint32_t size){
  * per-frame build reads for every quad (projected vertices, native positions,
  * quad records, spans, chunks) in high work RAM (SDRAM, .bss) instead of low
  * work RAM (DRAM). Guard words bracket the arena. */
-enum {HIGH_BYTES=98304};
+#ifndef FZX_ROAD_STREAM_HIGH_BYTES
+#define FZX_ROAD_STREAM_HIGH_BYTES 98304u
+#endif
+enum {HIGH_BYTES=FZX_ROAD_STREAM_HIGH_BYTES};
 static uint32_t road_high[(HIGH_BYTES+64u)/4u] __attribute__((aligned(32)));
 volatile uint32_t fzx_road_stream_high_used;
 static uintptr_t high_at;

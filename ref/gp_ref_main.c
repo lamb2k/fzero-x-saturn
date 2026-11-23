@@ -24,6 +24,7 @@
 int rb_gp_init(int difficulty, unsigned seed, const short* cpu_line);
 void rb_gp_mode(int mode);
 int rb_gp_tuning_course(int n);
+void rb_gp_mode_death(int on);
 void rb_racer(int i, float f[5], int n[8]);
 float rb_racer_up(int i);
 void rb_racer_disp(int i, float d[3]);
@@ -93,7 +94,7 @@ static void tube_add(double angle_deg) {
 
 int main(int argc, char** argv) {
     const char *course = 0, *rom = 0, *line = 0, *report = 0, *trace = 0, *tube_pack = 0, *diag = 0, *ko_probe = 0, *phys = 0;
-    int difficulty = 1, max_ticks = 14000, player_cpu = 1, tuning_course = 0, zones = 0;
+    int difficulty = 1, max_ticks = 14000, player_cpu = 1, tuning_course = 0, zones = 0, death = 0;
     unsigned seed = 1;
     for (int i = 1; i + 1 < argc; i += 2) {
         if (!strcmp(argv[i], "--course")) course = argv[i + 1];
@@ -112,6 +113,7 @@ int main(int argc, char** argv) {
         else if (!strcmp(argv[i], "--player-cpu")) player_cpu = atoi(argv[i + 1]);
         else if (!strcmp(argv[i], "--tuning-course")) tuning_course = atoi(argv[i + 1]);
         else if (!strcmp(argv[i], "--zones")) zones = atoi(argv[i + 1]);
+        else if (!strcmp(argv[i], "--mode")) { if (!strcmp(argv[i + 1], "death")) death = 1; else if (strcmp(argv[i + 1], "gp")) die("--mode gp or death"); }
         else if (!strcmp(argv[i], "--tube-pack")) tube_pack = argv[i + 1];   /* RIVALS.PAK: tube_angles over its pipe and cylinder nodes */   /* 1: the surface zones, jumps and mines (rivals_bake.c) */
         else if (!strcmp(argv[i], "--diag")) diag = argv[i + 1];
         else if (!strcmp(argv[i], "--ko-probe")) ko_probe = argv[i + 1];   /* RACER:TICK:AGE:BY, see KO PROBE below */   /* line-field-5: per racer and tick, see DIAG below */
@@ -130,7 +132,8 @@ int main(int argc, char** argv) {
     for (int i = 0; i < 0x200; ++i) cpu_line[i] = (short)((lb[2 * i] << 8) | lb[2 * i + 1]);
     if (tube_pack) tube_load(tube_pack);
     if (ref_load_course(rec, 1) != 0 || ref_race_init() != 0) die("race set-up failed");
-    if (rb_gp_tuning_course(tuning_course) != 0) die("--tuning-course is the original course index, 0..23");
+    if (death) rb_gp_mode_death(1);
+    if (!death && rb_gp_tuning_course(tuning_course) != 0) die("--tuning-course is the original course index, 0..23");
     const int total = rb_gp_init(difficulty, seed, cpu_line);
     if (total != MAXR) die("the reference did not set up 30 racers");
     if (zones) rb_gp_zones();

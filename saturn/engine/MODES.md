@@ -126,4 +126,8 @@ right); Master is skipped until it is open.
   The backup library's staging copy `ghost_io` and `bup` stay in high work RAM (they have not run from low work RAM on hardware).
 - **Result** (EMULATOR, Ymir): master stack unused 35,368 B (floor 20,480 B), slave 5,448 B, 0 guard trips, Mute City loop; the gate's memory row prints the
   arena peak (`road arena peak`).
+  Over the 24 courses (modes-7, `m7-c24`): master stack unused 34,060..35,368 B, slave 5,448 B, 0 guard trips; the largest arena peak is Big Hand's
+  112,944 B (1,744 B under the 114,688 B arena), then Space Plant 112,456, Rainbow Road 112,280 and Sand Ocean 2 112,080 B (saturn/engine/COURSES.md section 13).
+  After merging engine `cb84173` (approved guest packs) the scenes images differ from the gated ones in 34 B of the guest identity table only; every loaded
+  section has the same address and size (649 of 649), so the code placement (the low work RAM census) is unchanged.
 

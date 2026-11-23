@@ -153,6 +153,7 @@ E2_PROF ?= 0
 #   SH2ZAM effect-pool-1; the emit on either SH-2 by dual-claim-1). Render only: the race is unchanged. On in
 #   the field images (E1_FIELD with E2_PACK and E2_EARLY); ENG_FX=0 is the identity control, not a product arm.
 #   Needs the effect art (tools/fx_assets.py, local) and an SH2ZAM checkout with effect-pool-1.
+ENG_FX_PROF ?= 0
 ENG_FX ?= $(if $(and $(filter-out 0,$(E1_FIELD)),$(filter 1,$(E2_PACK)),$(filter 1,$(E2_EARLY))),1,0)
 ifeq ($(filter 0 1,$(ENG_FX)),)
 $(error ENG_FX must be 0 or 1)
@@ -394,7 +395,7 @@ OUTDIR_E1FIELD := $(OUTDIR_E1FIELD)$(if $(filter 1,$(E2_EARLY)),e,)
 OUTDIR_E1FIELD := $(OUTDIR_E1FIELD)$(if $(filter 1,$(E2_FASTSPRITE)),f,)
 OUTDIR_E1FIELD := $(OUTDIR_E1FIELD)$(if $(filter 1,$(E2_ROSTER)),r,)
 OUTDIR_E1FIELD := $(OUTDIR_E1FIELD)$(if $(filter 1,$(E2_PROF)),P,)
-OUTDIR_E1FIELD := $(OUTDIR_E1FIELD)$(if $(filter 1,$(ENG_FX)),-fx,)
+OUTDIR_E1FIELD := $(OUTDIR_E1FIELD)$(if $(filter 1,$(ENG_FX)),-fx$(if $(filter-out 0,$(ENG_FX_PROF)),p$(ENG_FX_PROF),),)
 OUTDIR_E1SCN := -scn$(if $(filter 1,$(FZX_CUP_DIAG_CATALOG)),-gpdiag,)
 OUTDIR_E1SCN := $(OUTDIR_E1SCN)$(if $(filter-out 0,$(FZX_GUEST_MASK)),-gm$(FZX_GUEST_MASK),)
 OUTDIR_E1SCN := $(OUTDIR_E1SCN)$(if $(filter 1,$(ENG_ROSTER)),-ro,)
@@ -676,6 +677,9 @@ ifneq ($(strip $(FX_RECEIPT_CHECK)),)
 $(error Missing or stale effect art; run tools/fx_assets.py (FZX_TEST_ROM set))
 endif
 SH_CFLAGS += -DENG_FX=1 -I$(G)/fx
+ifneq ($(filter-out 0,$(ENG_FX_PROF)),)
+SH_CFLAGS += -DENG_FX_PROF=$(ENG_FX_PROF)
+endif
 endif
 endif
 ifeq ($(E2_ROSTER),1)

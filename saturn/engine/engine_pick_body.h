@@ -33,6 +33,9 @@ static void pop_mark(uint32_t *map, const sh2z_segmesh_run_t *r, uint32_t from, 
     }
 }
 #endif
+#ifndef ENG_PICK_AHEAD
+#define ENG_PICK_AHEAD 0
+#endif
 static const fzx_engine_cam_t *volatile job_cam;
 #if FZX_PHYS_TUBES
 static volatile uint8_t job_outer = 1u; /* the road plan's outer bit for the job (tube courses) */
@@ -197,4 +200,45 @@ bool fzx_engine_slave_pick(void) {
 #endif
     return true;
 }
+
+#if ENG_PICK_AHEAD
+/* ENG_PICK_AHEAD (claude/speed-6): the pick for the next frame runs on the slave in the master's idle time, from the camera of
+ * the state the physics prediction ends in (fzx_drive_ahead_view; job_cam, job_tick and job_outer name it). It is the same pick
+ * on the same inputs the road job would use, so when the step takes the prediction the road job skips its pick (pre = 1) and
+ * finds the plan, the run list and the cap's state exactly as its own pick would have left them. When the step does not take
+ * the prediction (another tick count, another pad word, a restarted race) the early pick is undone, the cap's hysteresis
+ * state restored to what it was before it, and the road job picks as before. */
+#if E0_CAP_STABLE
+static uint32_t early_cap_last[FZX_EPATH_MAX_CHUNKS], early_cap_frame, early_cap_dropped;
+static uint8_t early_cap_kept[FZX_EPATH_MAX_CHUNKS], early_cap_wait[FZX_EPATH_MAX_CHUNKS];
+#endif
+static bool early_done, early_ok;
+bool fzx_engine_slave_pick_early(void) {
+#if E0_CAP_STABLE
+    memcpy(early_cap_last, cap_last, sizeof(cap_last)); early_cap_frame = cap_frame; early_cap_dropped = fzx_e0_cap_dropped;
+    memcpy(early_cap_kept, cap_kept, sizeof(cap_kept)); memcpy(early_cap_wait, cap_wait, sizeof(cap_wait));
+#endif
+    early_ok = fzx_engine_slave_pick();
+    early_done = true;
+    return early_ok;
+}
+/* The road job's pick: the early one's result (pre) or a fresh pick after undoing a pick that was not used. */
+bool fzx_engine_slave_pick_for_job(bool pre) {
+    if (pre && early_done) {
+        early_done = false;
+#if FZX_ROAD_STREAM_PHASES
+        fzx_rsp_begin();
+#endif
+        return early_ok;
+    }
+    if (early_done) {
+        early_done = false;
+#if E0_CAP_STABLE
+        memcpy(cap_last, early_cap_last, sizeof(cap_last)); cap_frame = early_cap_frame; fzx_e0_cap_dropped = early_cap_dropped;
+        memcpy(cap_kept, early_cap_kept, sizeof(cap_kept)); memcpy(cap_wait, early_cap_wait, sizeof(cap_wait));
+#endif
+    }
+    return fzx_engine_slave_pick();
+}
+#endif
 #endif

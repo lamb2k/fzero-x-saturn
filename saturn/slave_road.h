@@ -9,9 +9,17 @@
  * (sky lines, cloud bands, skyline, floor): measured maximum 30. */
 #define FZX_SLAVE_ROAD_RESERVE 128u
 
+/* ENG_PICK_AHEAD (engine builds only, claude/speed-6): the track pick may run in an earlier slave job (the master's idle time at
+ * the end of the previous frame); `pre` tells the road job to use that pick. */
+#ifndef ENG_PICK_AHEAD
+#define ENG_PICK_AHEAD 0
+#endif
 typedef struct {
     vdp1_cmdt_t *commands;unsigned capacity;const fzx_view_t *view;
     int32_t eye[3];const RefRoadPlan *plan;int32_t pa,pb;void *pixels,*shades;
+#if ENG_PICK_AHEAD
+    uint32_t pre;
+#endif
 } fzx_slave_road_args_t;
 
 /* Counters, read by captures: jobs, late jobs (over 4 fields), master wait
@@ -34,4 +42,10 @@ void fzx_slave_road_start(const fzx_slave_road_args_t *args);
  * slave's own road ticks go to fzx_slave_road_busy_*. video_fields is the
  * master's field counter. */
 bool fzx_slave_road_finish(const volatile uint32_t *video_fields,uint32_t *count);
+#if ENG_PICK_AHEAD
+/* Master: start the early pick job (the caller has set the pick's inputs); and wait until it is done (a no-op when none is
+ * running). fzx_slave_road_start waits for it too. */
+void fzx_slave_road_pick_start(void);
+void fzx_slave_road_pick_wait(void);
+#endif
 #endif

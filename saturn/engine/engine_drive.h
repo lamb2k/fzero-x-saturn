@@ -64,6 +64,17 @@ void fzx_drive_step(uint32_t ticks);
 void fzx_drive_ahead_prepare(uint32_t ticks);
 extern volatile uint32_t fzx_e1_ahead[8];
 #endif
+/* ENG_PICK_AHEAD (claude/speed-6, needs ENG_PHYS_AHEAD and the drive): the slave picks the next frame's track in the master's
+ * idle time too, from the camera of the state the prediction ends in. */
+#ifndef ENG_PICK_AHEAD
+#define ENG_PICK_AHEAD 0
+#endif
+#if ENG_PICK_AHEAD
+/* After fzx_drive_ahead_prepare: the camera, shown tick and outer bit of the predicted frame (false: no prediction). */
+bool fzx_drive_ahead_view(const fzx_engine_cam_t *lens, const fzx_engine_cam_t **cam, uint32_t *tick, uint32_t *outer);
+/* The chase camera for this frame (fzx_drive_camera's result), taken from the prediction when the step took it; true when taken. */
+bool fzx_drive_camera_ahead(fzx_engine_cam_t *cam, const fzx_engine_cam_t *lens);
+#endif
 #if ENG_BAL_EARLY
 /* ENG_BAL_EARLY: fzx_drive_step keeps the player's state after each tick and the rival
  * field steps here instead, after the slave's kick (the field reads the player and

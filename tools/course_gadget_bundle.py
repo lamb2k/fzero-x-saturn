@@ -26,8 +26,12 @@ TABLES = ('GFIRST', 'GPOS', 'GQUADS', 'GIMAGES', 'GTEX')
 def main():
     slugs = sys.argv[1:] or list(course_catalog.COURSES)
     ids = [int(v) for v in re.findall(r'\.id = (\d+)u', (OUT / 'course_ids.c').read_text())]
-    if ids != [course_catalog.course(s)['index'] for s in slugs]:
-        raise SystemExit('give the courses in course_ids.c order (course indexes %s)' % ids)
+    # The gadget rows may cover only the first courses of course_ids.c (the ones with a decal bake): the table is declared
+    # with FZX_COURSE_IDS_COUNT rows, the rest stay zero, and the road stream checks the row's id (a zero row's id never
+    # matches a bundled course after the first), so a course without a row draws no decals.
+    want = [course_catalog.course(s)['index'] for s in slugs]
+    if not slugs or ids[:len(want)] != want:
+        raise SystemExit('give the courses in course_ids.c order, as a prefix of it (course indexes %s)' % ids)
     rows, files = [], []
     for s in slugs:
         g = course_catalog.gen_root(s) / 'road_gadget'

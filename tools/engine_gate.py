@@ -116,7 +116,7 @@ class Mem:
         return a - lo
 
 
-def frame_rows(mem, window_tick):
+def frame_rows(mem, window_tick, stall_row=None):
     """The engine's frame rows (fzx_e0_report: rows at [3], count at [1], FRT ticks per field at [12]).
     Returns per-row timings in ms over the window (from tick window_tick on drive images, every row on E0)."""
     field = mem.has('fzx_field_report')
@@ -129,6 +129,11 @@ def frame_rows(mem, window_tick):
     balrows = None
     if mem.has('fzx_bal_rows'):
         balrows = struct.unpack('>6144H', mem.raw(mem.sym['_fzx_bal_rows'], 2 * 6144))
+    stall_gap = None
+    if stall_row is not None and 2 <= stall_row <= len(rows):
+        before, after = rows[stall_row-2:stall_row]
+        if before[0] >= window_tick and 0 < before[2] < after[2]:
+            stall_gap = after[2] - before[2]
     iv, prev = [], None
     for i in idx:
         x = rows[i]
@@ -148,7 +153,7 @@ def frame_rows(mem, window_tick):
     crit = [b + x[5] * ms for b, x in zip(busy, sel)]
     vdp1 = [x[13] * ms for x in sel if x[2]]
     hist = collections.Counter(min(v, 3) for v in iv)
-    return dict(rows=len(rows), window=len(sel), intervals=len(iv), h1=hist[1], h2=hist[2], h3=hist[3],
+    return dict(rows=len(rows), window=len(sel), intervals=len(iv), stall_gap=stall_gap, h1=hist[1], h2=hist[2], h3=hist[3],
                 over_two=sum(1 for v in iv if v > 2), worst=max(iv) if iv else 0,
                 fps=round(59.94 * len(iv) / max(1, sum(iv)), 2),
                 master=[round(mean(busy), 2), round(pct(busy, .99), 2), round(max(busy, default=0), 2)],
@@ -221,6 +226,9 @@ def check_controls(matrix):
     with its sections balanced (expect_pass)."""
     by = {c['name']: c for c in matrix.get('controls', [])}
     for c in by.values():
+        if 'stall_row' in c and (c['check'] != 'cadence' or c['kind'] != 'race' or
+                                 not isinstance(c['stall_row'], int) or c['stall_row'] < 2):
+            raise SystemExit('matrix: stall_row requires a race cadence control and a preceding row')
         if c.get('expect_open') and not (c.get('expect_error') and c.get('expect_mark_not')):
             raise SystemExit('matrix: control %s has expect_open without expect_error and expect_mark_not' % c['name'])
         if c.get('pair') and not by.get(c['pair'], {}).get('expect_pass'):
@@ -270,7 +278,12 @@ class Gate:
         self.stage_cmd('tree', self.stage, wslpath(tar), sub)
         regen = []
         for g in self.m.get('regenerate', []):
-            rc, out = self.stage_cmd('regen', self.stage, g['receipt'], *g['cmd'].replace('{engine_pin}', pin).split(), check=False)
+            # The driver supplies the recipe even for older base trees. The
+            # generators and SH2ZAM pin it invokes belong to the staged tree.
+            args = g['cmd'].replace('{engine_pin}', pin).split()
+            if '{view_regen}' in args:
+                args[args.index('{view_regen}')] = wslpath(TOOLS / 'regen_view_receipts.sh')
+            rc, out = self.stage_cmd('regen', self.stage, g['receipt'], *args, check=False)
             regen.append(out.splitlines()[-1] if out else 'REGEN %s rc %d' % (g['receipt'], rc))
         _, out = self.stage_cmd('receipts', self.stage)
         stale = [l.split()[1] for l in out.splitlines() if l.startswith('STALE ')]
@@ -405,7 +418,7 @@ class Gate:
             return None
         sym = load_syms(Path(build_dir) / 'fzs-engine.sym')
         mem = Mem(run_dir, 'final', sym)
-        fr = frame_rows(mem, self.lim['race_window_tick'])
+        fr = frame_rows(mem, self.lim['race_window_tick'], run.get('stall_row'))
         self.cadence_checks(name, fr, sink)
         if host is not None:
             self.host_check(name, kv, chk, host, full_final=True, sink=sink)
@@ -891,7 +904,7 @@ class Gate:
                 bd = self.ctl_builds[name]['dir'] if c.get('vars') else builds[c['image']]['dir']
                 if c['kind'] == 'race':
                     host = hosts.get(c.get('course')) if c.get('course') else None
-                    self.score_race(dict(name=name), rd, bd, host, sink=sink)
+                    race = self.score_race(c, rd, bd, host, sink=sink)
                 else:
                     hslug = c.get('host_course', c.get('course'))
                     host = hosts.get(hslug) if hslug else None
@@ -903,6 +916,10 @@ class Gate:
             failed = [r for r in sink if r['check'] in (chk, 'run', 'script') and r['status'] == 'FAIL']
             shown = ('; '.join('%s: %s' % (r['subject'], r['value']) for r in (failed or target))
                      + ''.join('; %s' % r['value'] for r in sink if r['check'] == 'audio' and chk == 'disc'))
+            if 'stall_row' in c:
+                gap = race['stall_gap'] if race else None
+                failed = [r for r in target if r['status'] == 'FAIL' and gap is not None and gap > 2]
+                shown += '; submission %d interval: %s fields' % (c['stall_row'], gap if gap is not None else 'missing')
             if c.get('expect_error'):
                 # The control counts only when its run failed at the intended place (an earlier boot, disc or scene
                 # failure must not satisfy it): the harness error is expect_error (RECORD_MS filled as for the run)

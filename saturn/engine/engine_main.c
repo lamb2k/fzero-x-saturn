@@ -1567,6 +1567,9 @@ void fzx_race_load(void) {
     if (offset + CSEL(lod_tex_bytes,FZX_ROAD_LOD_TEXTURE_BYTES) + FZX_ROAD_STREAM_SHADE_BYTES > partitions.texture_size || !fzx_road_stream_load(road_pixels))
         fail(35, "TRACK LOAD", fzx_road_stream_status);
     offset += CSEL(lod_tex_bytes,FZX_ROAD_LOD_TEXTURE_BYTES) + FZX_ROAD_STREAM_SHADE_BYTES;
+#if FZX_ROAD_GADGETS
+    offset += fzx_road_gadget_extent;   /* the course's decal bitmaps, behind the shade tables */
+#endif
 #if FZX_ROAD_STREAM_CLUT_ALIGN
     {
         /* The track's lookup tables at 32-byte VDP1 addresses (VDP1 ignores CMDCOLR's two low bits). */
@@ -1960,6 +1963,14 @@ bool fzx_race_frame(void) {
             volatile row_t *const last = &rows[row_index - 2u];
             while (!last->present_field) {}
             if (video_fields < last->present_field + 2u) { ++fzx_pace_holds; while (video_fields < last->present_field + 2u) {} }
+        }
+#endif
+#if ENG_CADENCE_STALL_CONTROL
+        /* Let the real display clock advance before submitting this one list.
+         * The present path and its timestamp collection run unchanged. */
+        if (row != &scratch_row && row_index == 512u) {
+            const uint32_t start = video_fields;
+            while ((uint32_t)(video_fields - start) < 4u) { }
         }
 #endif
         row->submit_frt = cpu_frt_count_get();

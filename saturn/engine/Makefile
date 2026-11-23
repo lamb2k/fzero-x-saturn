@@ -248,6 +248,14 @@ ENG_CDDA_LOOPTEST ?= 0
 # close the event epoch) at tick N, the LOAD hook's control.
 # On by default for the drive images (scenes and the plain drive); ENG_SND=0 is the control.
 ENG_SND ?= $(if $(filter 1,$(FZX_E1_DRIVE)),$(if $(filter 1,$(ENG_CDDA)),0,1),0)
+# Menu audio (docs/MENU_AUDIO.md, claude/menu-audio): menu music (title and select tracks), the front end's
+# system effects (generated/snd_menu, tools/sfx_menu_pack.py, local) and the disc hold around menu disc reads.
+# Only the scenes image has menus: On by default there with sound; ENG_SND_MENU=0 is the control (the image as it was).
+ENG_SND_MENU ?= $(if $(filter 1,$(ENG_SCENES)),$(filter 1,$(ENG_SND)),0)
+ENG_SND_MENU := $(if $(filter 1,$(ENG_SND_MENU)),1,0)
+# ENG_SND_MENU_TEST=1: capture-only test hooks (a disc read under a hold on the title screen, probe words), never shipped;
+# 2: the same with engine_snd_leave stopping the menu effects too (the control of the effects-through-LOAD check).
+ENG_SND_MENU_TEST ?= 0
 # Course (tools/course_catalog.py): its asset set comes from generated/ for the first course and
 # from generated/courses/<ENG_COURSE> for the others; the music defaults to the course's own
 # (race.c D_i2_80106F14). ENG_COURSE=mute-city-1 builds the images it always did.
@@ -444,6 +452,7 @@ SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter 0,$(E0_PRELUDE_WINDOW)),-pw0,)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter 0,$(E0_PRELUDE_DIV)),-pd0,)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter 1,$(ENG_CDDA)),-cdda$(ENG_CDDA_MUSIC)$(if $(filter-out 0,$(ENG_CDDA_LOOPTEST)),-lt$(ENG_CDDA_LOOPTEST),),)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter 1,$(ENG_SND)),-snd$(ENG_SND_MUSIC)$(if $(filter-out 0,$(ENG_SND_FADETEST)),-ft$(ENG_SND_FADETEST),),)
+SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter-out 0,$(ENG_SND_MENU_TEST)),-smt$(ENG_SND_MENU_TEST),)
 # Master/slave balance (claude/balance); each 0 = the frame split as it was.
 # ENG_BAL_CLOUDS: the cloud prepare on either SH-2 (drive images, banks, ENG_PACE=4): 1 always on the
 #   slave after its track; 2 the slave takes it when its track ends before the master reaches it
@@ -661,6 +670,16 @@ $(error ENG_SND=1 needs the SH2ZAM pin (saturn/engine/sh2zam.pin, with snd-1))
 endif
 SH_SRCS += engine_snd.c $(SH2ZAM_ROOT)/saturn/src/sh2zam_snd.c
 SH_CFLAGS += -DENG_SND=1 -DENG_SND_MUSIC=$(ENG_SND_MUSIC) -DENG_SND_FADETEST=$(ENG_SND_FADETEST) -I$(G)/snd -I$(G)/cdda
+ifeq ($(ENG_SND_MENU),1)
+ifneq ($(ENG_SCENES),1)
+$(error ENG_SND_MENU needs ENG_SCENES=1)
+endif
+MENU_RECEIPT_CHECK := $(shell sh ../../tools/check_receipt.sh $(G)/snd_menu/snd_menu.receipt >/dev/null 2>&1 || echo snd_menu/snd_menu.receipt)
+ifneq ($(strip $(MENU_RECEIPT_CHECK)),)
+$(error Missing or stale menu sound assets ($(MENU_RECEIPT_CHECK)): run tools/sfx_menu_pack.py --output generated/snd_menu (local, from the ROM); or build with ENG_SND_MENU=0)
+endif
+SH_CFLAGS += -DENG_SND_MENU=1 -DENG_SND_MENU_TEST=$(ENG_SND_MENU_TEST) -I$(G)/snd_menu
+endif
 endif
 # As ../Makefile: these SH2ZAM units carry same-named assembler macros.
 SH_CFLAGS += $$(if $$(filter %/sh2zam_view.c %/sh2zam_view_center.c,$$<),-fno-lto,)
@@ -851,6 +870,7 @@ stage-e0-packs:
 	   $(GC)/floor_rbg/FLOORCHR.BIN $(GC)/floor_rbg/FLOORMAP.BIN $(GC)/floor_rbg/FLOORKOF.BIN "$(IMAGE_DIRECTORY)/"
 	$(if $(filter 1,$(E0_CLUSTERS)),cp $(GC)/road_cluster/ROADCL.PAK "$(IMAGE_DIRECTORY)/",)
 	$(if $(filter 1,$(ENG_SND)),cp $(G)/snd/SNDRACE.PAK "$(IMAGE_DIRECTORY)/",)
+	$(if $(filter 1,$(ENG_SND_MENU)),cp $(G)/snd_menu/SNDMENU.PAK "$(IMAGE_DIRECTORY)/",)
 ifeq ($(FZX_E1_DRIVE),1)
 	cp $(GC)/physics/PHYS.PAK $(G)/$(E1_SPRITES)/RSPRITE.PAK "$(IMAGE_DIRECTORY)/"
 endif

@@ -304,6 +304,13 @@ endif
 # control that shows the cost), ENG_LOCATE_FAR=3 with ENG_LOCATE_FAR_RUN=1 the stop that changes a normal course.
 ENG_LOCATE_FAR ?= 128
 ENG_LOCATE_FAR_RUN ?= 8
+# ENG_LOCATE_DAMP / ENG_LOCATE_FLIP (SH2ZAM vehicle-dynamics-7, SH2Z_VD_LOCATE_DAMP / SH2Z_VD_LOCATE_FLIP; ff-gap lane): the
+# other two ways a search over a gap runs its 99 passes. A residual that swings from side to side (the step is twice
+# the Newton step where the body sits near the line's centre of curvature) takes the secant step after DAMP passes;
+# a search that flips between two nodes (the closest point is the join) ends after FLIP flips on the side the 99th
+# pass would have been. 0 builds the earlier search for either.
+ENG_LOCATE_DAMP ?= 8
+ENG_LOCATE_FLIP ?= 3
 
 # ENG_RIVAL_SURFACE (field images with the rival pack, E2_PACK=1): the rivals meet the course's surface
 # (SH2ZAM line-field-4): its zones (plates, low grip, rough ground, recharge strips), its pipes and cylinders
@@ -503,6 +510,7 @@ SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(E1_DRIVER_TARGET),-tg$(E1_DRIVER_TARGET)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter 1,$(ENG_COURSE_SELECT)),-sel,)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter 1,$(ENG_TUBES)),-tubes,)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter-out 128,$(ENG_LOCATE_FAR)),-lf$(ENG_LOCATE_FAR),)$(if $(filter-out 8,$(ENG_LOCATE_FAR_RUN)),-lr$(ENG_LOCATE_FAR_RUN),)
+SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter-out 8,$(ENG_LOCATE_DAMP)),-ld$(ENG_LOCATE_DAMP),)$(if $(filter-out 3,$(ENG_LOCATE_FLIP)),-lx$(ENG_LOCATE_FLIP),)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter 0,$(ENG_RIVAL_SURFACE)),-rs0,)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter 1,$(ENG_RIVAL_BEHAVE)),-beh,)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter 1,$(ENG_RIVAL_CLASS)),-cls,)
@@ -740,6 +748,7 @@ endif
 # sky gradient need not be monotonic in brightness (a sunset), so sky bands pick their colour by distance.
 SH_CFLAGS += $(if $(filter 1,$(FZX_E1_DRIVE)),$(if $(filter 1,$(ENG_TUBES)),-DFZX_PHYS_TUBES=1,),)
 SH_CFLAGS += $(if $(filter 1,$(FZX_E1_DRIVE)),$(if $(filter-out 0,$(ENG_LOCATE_FAR)),-DSH2Z_VD_LOCATE_FAR=$(ENG_LOCATE_FAR) -DSH2Z_VD_LOCATE_FAR_RUN=$(ENG_LOCATE_FAR_RUN),),)
+SH_CFLAGS += $(if $(filter 1,$(FZX_E1_DRIVE)),$(if $(filter-out 0,$(ENG_LOCATE_DAMP)),-DSH2Z_VD_LOCATE_DAMP=$(ENG_LOCATE_DAMP),)$(if $(filter-out 0,$(ENG_LOCATE_FLIP)),-DSH2Z_VD_LOCATE_FLIP=$(ENG_LOCATE_FLIP),),)
 SH_CFLAGS += $(if $(E4_PROW_ROWS),-DE0_PROW_ROWS=$(E4_PROW_ROWS)u,)
 SH_CFLAGS += $(if $(GCREL),-DENG_COURSE_SKYLINE=1 -DFZX_ROAD_STREAM_TEXTURE_LIMIT=240000u -DFZX_ROAD_STREAM_PACK_LIMIT=240000u -DFZX_SKY_LINEAR_PICK=1 -DENG_COURSE_INDEX=$(COURSE_INDEX_$(ENG_COURSE)),)
 ifeq ($(ENG_COURSE_SELECT),1)

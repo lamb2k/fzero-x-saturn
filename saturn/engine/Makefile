@@ -94,6 +94,24 @@ FZX_CUP_DIAG_CATALOG ?= 0
 # Engine gate control (tools/engine_gate.py ctl-menus): 1 links a probe that holds one menu frame for 3 fields
 # when fzx_scn_stall_ctl is written. Diagnostic only; 0 (default) compiles nothing.
 ENG_SCN_STALL_CONTROL ?= 0
+# ENG_MODES (scenes image; claude/modes, plan P3 item 3): the race modes (engine_modes.c): Time Attack alone, Practice and
+# Death Race without a lap-count finish, Death Race's rivals at half energy, Grand Prix and Practice keeping no times, and
+# the SELECT placeholder's mode walk (C) and the harness probe 0x400. On by default in every scenes image (the owner's mode
+# set ships; no landed-off switch); ENG_MODES=0 is the identity arm: every BIN then equals the engine's from before the modes.
+ENG_MODES ?= $(if $(filter 1,$(ENG_SCENES)),1,0)
+ifeq ($(filter 0 1,$(ENG_MODES)),)
+$(error ENG_MODES must be 0 or 1)
+endif
+# ENG_GHOST (needs ENG_MODES=1; claude/modes step F): the Time Attack ghost (engine_ghost.c, engine_ghost_race.c): the best run is
+# recorded as a compact stream, kept in backup RAM (one slot, two files) and played back as a position in the next Time Attack.
+# On by default with ENG_MODES (ENG_GHOST=0 is the identity arm: the BINs without it).
+ENG_GHOST ?= $(ENG_MODES)
+ifeq ($(filter 0 1,$(ENG_GHOST)),)
+$(error ENG_GHOST must be 0 or 1)
+endif
+ifeq ($(ENG_GHOST):$(ENG_MODES),1:0)
+$(error ENG_GHOST=1 needs ENG_MODES=1)
+endif
 # Engine gate control (ctl-smpc): 1 builds the scenes image's backup-library calls without the quiet SMPC
 # (engine_smpc_quiet, engine_main.c) and opens each with a RESENAB whose SF stays set across a vertical blank
 # before its command is written, so the handler's INTBACK issue waits on it for good (the hang memory lane part 4
@@ -506,6 +524,7 @@ SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter-out 128,$(ENG_LOCATE_FAR)),-lf$(E
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter 0,$(ENG_RIVAL_SURFACE)),-rs0,)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter 1,$(ENG_RIVAL_BEHAVE)),-beh,)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter 1,$(ENG_RIVAL_CLASS)),-cls,)
+SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter 1,$(ENG_MODES)),-modes,)$(if $(filter 1,$(ENG_GHOST)),-ghost,)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter 1,$(ENG_CADENCE_STALL_CONTROL)),-cadstall,)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter 1,$(ENG_SCN_STALL_CONTROL)),-stallctl,)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter-out 0,$(ENG_SMPC_OVERLAP_CONTROL)),-smpcctl$(ENG_SMPC_OVERLAP_CONTROL),)
@@ -608,7 +627,7 @@ SH_SRCS := engine_main.c engine_scene.c engine_path.c \
     $(if $(filter 1,$(FZX_E1_DRIVE)),engine_drive.c ../physics_native.c,) \
     $(if $(filter 1,$(E1_CLOSEUP)),engine_closeup.c ../../src/fzx_vehicle.c ../../src/fzx_vehicle_draw.c,) \
     $(if $(filter-out 0,$(E1_FIELD)),engine_field.c,) \
-    $(if $(filter 1,$(ENG_SCENES)),engine_scenes.c engine_records.c engine_load_fast.c engine_cup.c,) $(if $(filter 1,$(ENG_ROSTER)),engine_roster.c,) \
+    $(if $(filter 1,$(ENG_SCENES)),engine_scenes.c engine_records.c engine_load_fast.c engine_cup.c $(if $(filter 1,$(ENG_MODES)),engine_modes.c engine_mode_entry.c,) $(if $(filter 1,$(ENG_GHOST)),engine_ghost.c engine_ghost_race.c,),) $(if $(filter 1,$(ENG_ROSTER)),engine_roster.c,) \
     $(addprefix $(SH2ZAM_ROOT)/saturn/src/,$(sort $(SH2ZAM_UNITS)))
 ifneq ($(ENG_DSP_BANDS),0)
 SH_SRCS += ../../src/fzx_band_corners.c
@@ -714,9 +733,9 @@ $(error Missing or stale C8 title/course art: $(C8_ART_CHECK))
 endif
 SH_CFLAGS += -I$(G)/$(ENG_TITLE_ART) -I$(G)/c8_cards -I$(G)/menu_pages -I$(G)/guest_mach3d
 SH_SRCS += machine_tuning.c
-SH_CFLAGS += -DENG_SCENES=1 -DFZX_CUP_DIAG_CATALOG=$(FZX_CUP_DIAG_CATALOG) -DFZX_GUEST_MASK=$(FZX_GUEST_MASK)ull -I$(G)/mach3d -I$(G)/machine_tuning -I$(G)/select_art -DFZX_CD_STREAM=1 -DFZX_LOAD_VERIFIED=1 -DENG_ROSTER=$(ENG_ROSTER) -DENG_SCN_STALL_CONTROL=$(ENG_SCN_STALL_CONTROL) -I$(G)/roster -DFZX_ROAD_PREP_BAKED=1 -I$(GC)/road_prep -I$(GC)/engine_path_ranges
+SH_CFLAGS += -DENG_SCENES=1 -DFZX_CUP_DIAG_CATALOG=$(FZX_CUP_DIAG_CATALOG) -DFZX_GUEST_MASK=$(FZX_GUEST_MASK)ull -I$(G)/mach3d -I$(G)/machine_tuning -I$(G)/select_art -DFZX_CD_STREAM=1 -DFZX_LOAD_VERIFIED=1 -DENG_ROSTER=$(ENG_ROSTER) -DENG_SCN_STALL_CONTROL=$(ENG_SCN_STALL_CONTROL) -DENG_MODES=$(ENG_MODES) -DENG_GHOST=$(ENG_GHOST) -I$(G)/roster -DFZX_ROAD_PREP_BAKED=1 -I$(GC)/road_prep -I$(GC)/engine_path_ranges
 else
-SH_CFLAGS += -DENG_SCENES=1 -DFZX_CUP_DIAG_CATALOG=$(FZX_CUP_DIAG_CATALOG) -DFZX_GUEST_MASK=$(FZX_GUEST_MASK)ull -I$(G)/mach3d_scn -DFZX_CD_STREAM=1 -DFZX_LOAD_VERIFIED=1 -DENG_ROSTER=$(ENG_ROSTER) -DENG_SCN_STALL_CONTROL=$(ENG_SCN_STALL_CONTROL) -I$(G)/roster -DFZX_ROAD_PREP_BAKED=1 -I$(GC)/road_prep -I$(GC)/engine_path_ranges
+SH_CFLAGS += -DENG_SCENES=1 -DFZX_CUP_DIAG_CATALOG=$(FZX_CUP_DIAG_CATALOG) -DFZX_GUEST_MASK=$(FZX_GUEST_MASK)ull -I$(G)/mach3d_scn -DFZX_CD_STREAM=1 -DFZX_LOAD_VERIFIED=1 -DENG_ROSTER=$(ENG_ROSTER) -DENG_SCN_STALL_CONTROL=$(ENG_SCN_STALL_CONTROL) -DENG_MODES=$(ENG_MODES) -DENG_GHOST=$(ENG_GHOST) -I$(G)/roster -DFZX_ROAD_PREP_BAKED=1 -I$(GC)/road_prep -I$(GC)/engine_path_ranges
 endif
 else
 SH_CFLAGS += -I$(G)/$(E1_REBAKE) -I$(G)/$(E1_VEHICLE)
@@ -768,7 +787,21 @@ $(error Missing or stale class bundle: run tools/course_class_bundle.py <courses
 endif
 SH_SRCS += $(G)/courses/select/course_class.c
 endif
-SH_CFLAGS += -DENG_COURSE_SELECT=1 -I$(G)/courses/select -DFZX_ROAD_STREAM_HIGH_BYTES=131072u -DFZX_ROAD_STREAM_TEXTURE_LIMIT=262144u -DFZX_ROAD_STREAM_PACK_LIMIT=240000u
+ifeq ($(ENG_MODES),1)
+# Practice's own rival rows per course and class (tools/course_practice_bundle.py, from fzx-gp-ref --mode practice).
+PRACTICE_RECEIPT_CHECK := $(shell sh ../../tools/check_receipt.sh $(G)/courses/select/course_practice.receipt >/dev/null 2>&1 || echo stale)
+ifneq ($(strip $(PRACTICE_RECEIPT_CHECK)),)
+$(error Missing or stale practice bundle: run tools/course_practice_bundle.py <courses>)
+endif
+# The rows themselves are disc files (PRnn.BIN, read at LOAD); the image links only their hashes.
+SH_SRCS += $(G)/courses/select/course_practice_index.c
+endif
+# The road work arena (FZX_ROAD_STREAM_HIGH_BYTES) is 114,688 B on the one-disc image with the race modes (ENG_MODES=1; it was 131,072, and stays so
+# with ENG_MODES=0, the identity arm): the 24-course image with the race modes
+# (ENG_MODES, ghost, Practice rows) left 24.8 KB between the end of .bss and the master stack, so the arena gave 16 KB back. The largest peak
+# over the 24 courses is Big Hand's 109,072 B (COURSES.md section 12; the gate's memory row prints the peak), a course that needs more stops
+# the load with TRACK LOAD 35.
+SH_CFLAGS += -DENG_COURSE_SELECT=1 -I$(G)/courses/select -DFZX_ROAD_STREAM_HIGH_BYTES=$(if $(filter 1,$(ENG_MODES)),114688u,131072u) -DFZX_ROAD_STREAM_TEXTURE_LIMIT=262144u -DFZX_ROAD_STREAM_PACK_LIMIT=240000u
 endif
 
 # Course gadget decals (claude/gadgets): the dash plates and the pit, dirt and ice strips the original draws on the road,
@@ -875,6 +908,9 @@ ifeq ($(E2_PACK),1)
 endif
 ifeq ($(ENG_COURSE_SELECT),1)
 	while read -r src name; do cp "$(G)/$$src" "$(IMAGE_DIRECTORY)/$$name"; done < $(G)/courses/select/files.txt
+ifeq ($(ENG_MODES),1)
+	while read -r src name; do cp "$(G)/$$src" "$(IMAGE_DIRECTORY)/$$name"; done < $(G)/courses/select/files_practice.txt
+endif
 	$(if $(filter 1,$(ENG_GADGETS)),while read -r src name; do cp "$(G)/$$src" "$(IMAGE_DIRECTORY)/$$name"; done < $(G)/courses/select/gadget_files.txt,)
 endif
 ifeq ($(E2_ROSTER),1)

@@ -3,7 +3,7 @@
  *
  *   fzx-gp-ref --course RECORD --rom BOOT --cpu-line LINE --difficulty 0..3 --seed N
  *              --ticks MAX --report OUT.json [--trace OUT.bin] [--player-cpu 0|1] [--tuning-course N]
- *              [--zones 0|1] [--trace-phys OUT.bin]
+ *              [--zones 0|1] [--trace-phys OUT.bin] [--mode gp|practice|death]
  *
  * Records what the native rival model is judged against: lap and race times per racer, finishing
  * order against grid order, field spread, rank changes, retirements. --trace writes racer 0's
@@ -22,6 +22,7 @@
 #include "ref.h"
 
 int rb_gp_init(int difficulty, unsigned seed, const short* cpu_line);
+void rb_gp_mode(int mode);
 int rb_gp_tuning_course(int n);
 void rb_gp_mode_death(int on);
 void rb_racer(int i, float f[5], int n[8]);
@@ -103,6 +104,10 @@ int main(int argc, char** argv) {
         else if (!strcmp(argv[i], "--trace")) trace = argv[i + 1];
         else if (!strcmp(argv[i], "--trace-phys")) phys = argv[i + 1];
         else if (!strcmp(argv[i], "--difficulty")) difficulty = atoi(argv[i + 1]);
+        else if (!strcmp(argv[i], "--mode")) { /* gp (default), practice or death: the original code runs the race as that game mode */
+            if (!strcmp(argv[i + 1], "practice")) rb_gp_mode(2); else if (!strcmp(argv[i + 1], "death")) rb_gp_mode(0x15);
+            else if (strcmp(argv[i + 1], "gp")) die("--mode gp|practice|death");
+        }
         else if (!strcmp(argv[i], "--seed")) seed = (unsigned)atoi(argv[i + 1]);
         else if (!strcmp(argv[i], "--ticks")) max_ticks = atoi(argv[i + 1]);
         else if (!strcmp(argv[i], "--player-cpu")) player_cpu = atoi(argv[i + 1]);

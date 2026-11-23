@@ -30,10 +30,25 @@ typedef struct {
     uint8_t best_lap_index, pad;
 } fzx_rec_course_t;                     /* 104 bytes */
 
+#if defined(ENG_MODES) && ENG_MODES
+/* Cup progress (plan P3 item 3; common.c func_8007DEF0 and save.c Save_UpdateCupCompletion): which difficulties each cup
+ * has been cleared on, and which machines won which cup at which difficulty. The unlock level (func_8007E2B4) is
+ * computed from it: Master opens once every cup is cleared on Expert. */
+#define FZX_REC_CUPS 4u /* Jack, Queen, King, Joker */
+typedef struct {
+    uint8_t cup_cleared[FZX_REC_CUPS]; /* gCupNumDifficultiesCleared: difficulties cleared, 0..4 */
+    uint8_t credits_due, pad[3];       /* gForceCredits: every cup cleared on Expert, the ending not yet shown */
+    uint16_t cup_done[4][10];          /* cupCompletion[difficulty][machine / 3]: bit (machine % 3) * 5 + cup */
+} fzx_rec_progress_t;                  /* 88 bytes */
+#endif
+
 typedef struct {
     uint32_t magic, version, generation, boot_id, bytes, crc; /* crc over everything after it */
     fzx_rec_course_t ta[FZX_REC_COURSES];
     fzx_rec_time_t death_race[FZX_REC_COURSES]; /* one time per course (its own record) */
+#if defined(ENG_MODES) && ENG_MODES
+    fzx_rec_progress_t progress;        /* version 2; a version 1 file loads with this zeroed */
+#endif
 } fzx_records_t;
 
 /* Results (SCENES.md section 5). */
@@ -59,6 +74,19 @@ fzx_rec_result_t fzx_records_commit(const fzx_run_result_t *run, const char name
 fzx_rec_result_t fzx_records_flush(void);
 /* Captures: write the table again now (with fzx_rec_fault, the interrupted-write controls). */
 fzx_rec_result_t fzx_records_rewrite(void);
+#if defined(ENG_MODES) && ENG_MODES
+/* A Grand Prix cup won (first overall, final round scored): marks the difficulty cleared for the cup, the machine's
+ * trophy, and credits_due when this clears the last cup on Expert; then writes storage. `machine_id` >= 30 (guests)
+ * keeps no trophy. Same results as fzx_records_commit. */
+fzx_rec_result_t fzx_records_cup_clear(uint8_t difficulty, uint8_t cup, uint16_t machine_id);
+/* func_8007E2B4: 0 start, 1 Jack, Queen and King each cleared twice, 2 every cup cleared on Expert (Master opens), 3 sixteen clears. */
+uint32_t fzx_records_unlock_level(void);
+/* Whether SELECT may offer a class: Novice, Standard and Expert always, Master from unlock level 2. */
+bool fzx_records_class_open(uint32_t difficulty);
+/* The ending is due (gForceCredits); the screens clear it with fzx_records_credits_seen(). */
+bool fzx_records_credits_due(void);
+fzx_rec_result_t fzx_records_credits_seen(void);
+#endif
 /* Const read API. */
 const fzx_records_t *fzx_records_get(void);
 const fzx_rec_course_t *fzx_records_course(uint32_t course);
@@ -76,4 +104,17 @@ extern volatile uint32_t fzx_rec_fault;
  * Around every SMPC command issued from this thread (ENG_SMPC_OVERLAP_CONTROL=1: the control, no hold and the
  * command's SF window held open across a vertical blank). */
 void engine_smpc_quiet(bool on);
+#if defined(ENG_GHOST) && ENG_GHOST
+#include "engine_ghost.h"
+/* The Time Attack ghost (one slot, two files). Load: the newest valid file into DST (true when there is one). Save: writes the
+ * older file with the next generation. */
+bool fzx_records_ghost_load(fzx_ghost_t *dst);
+/* The save is a queue (engine_records.c): save_begin stamps the image and queues its files, pump writes one backup-RAM file per call
+ * (true while more is queued, the head file last: the commit), pending says whether any is queued. The ghost is saved once the
+ * last pump returned false and fzx_ghost_store[5] is FZX_REC_OK. */
+fzx_rec_result_t fzx_records_ghost_save_begin(const fzx_ghost_t *g);
+bool fzx_records_ghost_pump(void);
+bool fzx_records_ghost_pending(void);
+extern volatile uint32_t fzx_ghost_fault, fzx_ghost_store[16];
+#endif
 #endif

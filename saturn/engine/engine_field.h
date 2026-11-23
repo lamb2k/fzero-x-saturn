@@ -94,6 +94,25 @@ bool fzx_field_load(const sh2z_vd_track_t *track, const sh2z_vd_body_t *player);
  * reversed finish (GP rounds after the first). */
 extern volatile uint8_t fzx_field_grid[30];
 extern volatile uint32_t fzx_field_grid_src;
+#ifndef FZX_FIELD_IDENT
+#define FZX_FIELD_IDENT 0
+#endif
+#if defined(ENG_MODES) && ENG_MODES && defined(ENG_COURSE_SELECT) && ENG_COURSE_SELECT && E2_PACK
+#undef FZX_FIELD_IDENT
+#define FZX_FIELD_IDENT 1
+/* The live field's identity, written after the field is built (the Practice fixture reads it back at race_start): [0] magic
+ * FZX_FIELD_IDENT_MAGIC, [1] the field's vehicle count, [2] the seed it was initialised with, [3] the course row, [4] the class
+ * raced, [5] the session's menu mode; fzx_field_live[i] is vehicle i's ([0] the machine, column 5 of the row it was built from;
+ * [1] max energy Q8; [2] the vehicle it paces against, -1 none; [3] its start position, laps x line length + distance, Q8), vehicle 0
+ * being the player's slot. */
+#define FZX_FIELD_IDENT_MAGIC 0x46494431u /* "FID1" */
+extern volatile uint32_t fzx_field_ident[8];
+extern volatile int32_t fzx_field_live[30][4];
+#endif
+#if defined(ENG_MODES) && ENG_MODES
+/* Rivals whose vehicle is retired now (0 for a solo field). */
+unsigned fzx_field_retired_now(void);
+#endif
 /* One tick, after the player's step: the player into the field, then the field. */
 void fzx_field_tick(const sh2z_vd_body_t *player);
 /* This frame's cars (player first) with the K/D selection applied; returns the count. */

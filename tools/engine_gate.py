@@ -12,7 +12,7 @@ a private WSL stage, runs them under the one Ymir harness (ymir-gate), scores th
 Exit status: 0 when every check passes (and, with --controls, every control fails as it should); 1 otherwise.
 Nothing ROM-derived leaves the stage or the evidence folder: the receipt holds hashes, counts and timings only.
 """
-import argparse, collections, concurrent.futures as cf, datetime, hashlib, json, os, re, shutil, struct, subprocess, sys, time
+import argparse, collections, concurrent.futures as cf, copy, datetime, hashlib, json, os, re, shutil, struct, subprocess, sys, time
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
@@ -34,6 +34,8 @@ DEF_RECEIPTS = local('FZX_GATE_RECEIPTS', 'receipts', EV_ROOT / 'host' / 'gate-r
 DEF_HARNESS = local('FZX_GATE_HARNESS', 'harness', HARNESS_DIR / 'ymir-gate.exe')
 DEF_BIOS = local('FZX_GATE_BIOS', 'bios', HARNESS_DIR / 'bios.bin')
 DEF_SH2ZAM = local('FZX_GATE_SH2ZAM', 'sh2zam', REPO.parent / 'SH2ZAM')
+DEF_DEATH = local('FZX_GATE_DEATH', 'death_ref', EV_ROOT / 'host' / 'death-ref' / 'death-s1.json')
+DEF_PRACTICE = local('FZX_GATE_PRACTICE', 'practice_expected', EV_ROOT / 'host' / 'practice-expected' / 'practice-expected.json')
 DEF_MUSIC = local('FZX_GATE_MUSIC', 'music', EV_ROOT / 'host' / 'claude-snd' / 'music-all')
 DISTRO = os.environ.get('FZX_GATE_DISTRO', 'Ubuntu-24.04')
 FIELD_MS = 1000.0 / 59.94
@@ -238,6 +240,49 @@ def check_controls(matrix):
         raise SystemExit('matrix: ctl-smpc must keep expect_error, expect_open, expect_mark_not=title and its pair')
 
 
+def _swap(a, i, j):
+    a[i], a[j] = a[j], a[i]
+    return a
+
+
+def _swap_diff(a):
+    a = list(a)
+    for i in range(1, len(a)):
+        for j in range(i + 1, len(a)):
+            if a[i] != a[j]:
+                a[i], a[j] = a[j], a[i]
+                return a
+    a[1] = 99   # all equal: one target changed instead
+    return a
+
+
+# Practice fixture controls: each edits a copy of what the image reported (the expected rows are never touched).
+PR_OBS_MUT = {
+    'roster': lambda o: dict(o, machine=_swap(o['machine'], 1, 2)),                   # two rivals' machines swapped: still 29 distinct machines
+    'entrants': lambda o: dict(o, machine=_swap(o['machine'], 3, 4)),
+    'energy': lambda o: dict(o, energy=_swap(o['energy'], 5, 6)),                     # two rivals' energy ceilings swapped
+    'chase': lambda o: dict(o, chase=_swap_diff(o['chase'])),                          # two rivals with different chase targets swapped
+    'standing': lambda o: dict(o, dist=_swap(o['dist'], 3, 4)),                       # two vehicles' start positions swapped: places differ
+    'grid': lambda o: dict(o, grid=_swap(o['grid'], 3, 4)),                           # still places 1..30, wrong order
+    'gridsrc': lambda o: dict(o, src=2),                                               # the right grid from the wrong source
+    'seed': lambda o: dict(o, ident=o['ident'][:2] + [o['ident'][2] + 1] + o['ident'][3:]),
+    'count': lambda o: dict(o, ident=o['ident'][:1] + [o['ident'][1] - 1] + o['ident'][2:]),
+}
+def _gh_frames(o):
+    g = [e for e in o['log'] if e[3] == 2]
+    g[1][0] = g[0][0]          # two ghost files in one manager frame (the catch-up pump)
+def _gh_commits(o): o['store'][11] = 2
+def _gh_readback(o): o['reload'][0] = 0
+def _gh_big(o): [e for e in o['log'] if e[3] == 2][0][2] = 2048
+def _gh_held(o): o['store'][15] = 14090
+def _gh_ms(o): o['report2'][7] += 1
+def _gh_accepted(o): o['reload'][0] = 1
+GH_MUT = dict(frames=_gh_frames, commits=_gh_commits, readback=_gh_readback, big=_gh_big, held=_gh_held, ms=_gh_ms, accepted=_gh_accepted)
+PR_ARCH_MUT = {
+    'bundle': lambda a: dict(a, bundle_rows_match=False, bundle_diffs=['control: a row of the linked bundle edited']),
+}
+
+
 class Gate:
     def __init__(self, args, matrix):
         self.a, self.m = args, matrix
@@ -298,6 +343,7 @@ class Gate:
             return dict(name=name, vars=vars_, ok=False, error=out[-1500:])
         if not self.a.keep:
             (d / 'fzs-engine.map').unlink(missing_ok=True)
+        self.archive_practice(d)
         return dict(name=name, vars=vars_, ok=True, bin=sha256(d / 'fzs-engine.bin'), dir=str(d),
                     outdir=(d / 'outdir.txt').read_text().strip())
 
@@ -442,6 +488,9 @@ class Gate:
     def host_check(self, name, kv, chk, host, full_final, sink=None, prefix='', against=''):
         """SH-2 against HOST: every checkpoint the image wrote equals HOST's, the finish (or retirement) matches, and
         for a race run to the reference's end, the final state hash too."""
+        if host is None:
+            self.add('host', name, False, 'no HOST reference (fails closed)', sink=sink)
+            return
         e1 = lambda i: kv.get('%s_fzx_e1_report%d' % (prefix, i), kv.get('e1_report%d' % i))
         n = len(chk)
         hostc = dict(host['chk'])
@@ -468,7 +517,12 @@ class Gate:
         ms = mem.master_stack_unused()
         ss, trips = int(g('slave_road_stack_unused') or 0), int(g('slave_road_guard_trips') or 0)
         ok = ms >= self.lim['master_stack_min'] and ss >= self.lim['slave_stack_min'] and trips <= self.lim['slave_guard_trips']
-        self.add('memory', name, ok, 'master stack unused %d B, slave %d B, guard trips %d' % (ms, ss, trips),
+        # The road work arena's peak (fzx_road_stream_high_used) against its size, when the image has the arena: INFO (a course that outgrows it
+        # stops the load, which the race check catches); the size is the image's own HIGH_BYTES in the Makefile.
+        arena = ''
+        if mem.has('fzx_road_stream_high_used'):
+            arena = ', road arena peak %d B' % mem.words('fzx_road_stream_high_used', 1)[0]
+        self.add('memory', name, ok, 'master stack unused %d B, slave %d B, guard trips %d%s' % (ms, ss, trips, arena),
                  'floors %d / %d / %d' % (self.lim['master_stack_min'], self.lim['slave_stack_min'], self.lim['slave_guard_trips']), sink=sink)
 
     def menus_check(self, name, lines, sink=None):
@@ -545,6 +599,12 @@ class Gate:
             good = good and raced
             self.add('cancel', name, good, '%d of 3 loads cancelled to TITLE; next cold load races: %s' % (
                 sum(1 for n in notes if n.endswith('scene 1 load 3')), 'yes' if raced else 'no'), '; '.join(notes) or error_text(run_dir), sink=sink)
+        elif kind == 'practice':
+            self.score_practice(run, run_dir, build_dir, lines, mk, sym, host, host_label, sink)
+        elif kind == 'ghost':
+            self.score_ghost(run, run_dir, build_dir, lines, mk, sym, host, sink)
+        elif kind == 'death':
+            self.score_death(run, run_dir, build_dir, lines, mk, sym, sink)
         elif kind == 'course':
             if 'results' in mk:
                 mkv, mchk = result_kv(lines, 'results')
@@ -558,6 +618,390 @@ class Gate:
             else:
                 self.add('host', name, False, 'no RESULTS mark', error_text(run_dir), sink=sink)
         self.menus_check(name, lines, sink)
+
+    # -- Practice course rows (claude/modes; C-166 item 1, C-169 item 1) ---------------------------------------------------
+    # The expectation is the HOST reference's own rows (tools/practice_expected.py reads the four fzx-gp-ref reports per course),
+    # never the stage's generated bundle: that is the file the image links, and a bundle that agrees with itself says nothing. The
+    # image's live state at race_start (the field's identity, the machines its rows and its sprites were built from, the grid and
+    # where it came from) is compared with it exactly. The expected file and the stage bundle's identity are archived next to
+    # the BIN (practice-identity.json) when the image is built, so a rescore needs neither the stage nor the current tree.
+    PR_CLASSES = 4
+
+    @staticmethod
+    def parse_practice_rows(text):
+        vals = [int(x) for x in re.findall(r'-?\d+', text.split('= {', 1)[1])] if '= {' in text else []
+        return vals
+
+    def archive_practice(self, d):
+        """After a build whose image carries the live field identity: write practice-identity.json (BIN hash, the expected rows
+        and their hash, the stage bundle's text hashes, and whether the bundle's rows equal the expected ones)."""
+        d = Path(d)
+        if '_fzx_field_ident' not in (d / 'fzs-engine.sym').read_text():
+            return
+        sys.path.insert(0, str(TOOLS))
+        import practice_expected
+        doc = dict(schema='fzx-practice-identity-1', bin=sha256(d / 'fzs-engine.bin'))
+        try:
+            exp = practice_expected.load(self.a.practice_expected)
+            doc['expected'] = exp
+            doc['expected_sha256'] = exp['sha256']
+        except (SystemExit, OSError, ValueError) as e:
+            doc['error'] = 'expected rows: %s' % e
+            (d / 'practice-identity.json').write_text(json.dumps(doc, indent=1, sort_keys=True) + '\n')
+            return
+        texts = {}
+        for n in ('course_practice.c', 'course_practice.h', 'course_practice.receipt'):
+            rc, out = self.stage_cmd('cat', self.stage, 'generated/courses/select/' + n, check=False)
+            texts[n] = out if rc == 0 else None
+        doc['bundle'] = {n: (hashlib.sha256(t.encode()).hexdigest() if t is not None else None) for n, t in texts.items()}
+        diffs = []
+        rows = self.parse_practice_rows(texts['course_practice.c'] or '')
+        want_courses = [c for c in self.m['courses'] if c['slug'] in exp['courses']]   # the courses the expected rows cover (the Jack Cup)
+        per = self.PR_CLASSES * 30 * 8
+        if not rows or len(rows) % per or len(rows) // per <= max(c['index'] for c in want_courses):
+            diffs.append('the stage bundle has %d values: not whole course rows covering the expected courses' % len(rows))
+        else:
+            for c in want_courses:
+                for k in range(self.PR_CLASSES):
+                    e = exp['courses'][c['slug']].get(str(k))
+                    if e is None:
+                        diffs.append('%s class %d: not in the expected rows' % (c['slug'], k))
+                        continue
+                    base = (c['index'] * self.PR_CLASSES + k) * 240   # the bundle's row of a course is its position in course_ids (0..5 for the Jack Cup)
+                    vr = [rows[base + 8 * i:base + 8 * i + 8] for i in range(30)]
+                    got = dict(grid=[v[0] for v in vr], energy=[v[3] for v in vr], machine=[v[5] for v in vr])
+                    for key in ('grid', 'energy', 'machine'):
+                        if got[key] != e[key]:
+                            diffs.append('%s class %d %s' % (c['slug'], k, key))
+        # The rows the image reads are the disc files PRnn.BIN: equal to the record the comparison above used, for every bundled course.
+        import base64, struct
+        for k0 in range(min(len(rows) // per, max(c['index'] for c in want_courses) + 1) if rows else 0):   # the bundle's rows are the catalog order
+            cid = k0
+            rc, out = self.stage_cmd('catb', self.stage, 'generated/courses/select/PR%02d.BIN' % cid, check=False)
+            try:
+                blob = base64.b64decode(out.strip()) if rc == 0 else b''
+            except ValueError:
+                blob = b''
+            vals = list(struct.unpack('>%di' % (len(blob) // 4), blob)) if blob and len(blob) % 4 == 0 else None
+            if vals != rows[k0 * per:(k0 + 1) * per]:
+                diffs.append('PR%02d.BIN is not the bundle record (%s)' % (cid, 'missing' if not blob else 'differs'))
+        doc['bundle_diffs'] = diffs[:12]
+        doc['bundle_rows_match'] = not diffs
+        (d / 'practice-identity.json').write_text(json.dumps(doc, indent=1, sort_keys=True) + '\n')
+
+    @staticmethod
+    def practice_archive(build_dir):
+        p = Path(build_dir) / 'practice-identity.json'
+        if not p.is_file():
+            return None, 'no practice-identity.json next to the BIN (the image was not built by this gate with the expected rows)'
+        doc = json.loads(p.read_text())
+        if doc.get('error'):
+            return None, doc['error']
+        if doc.get('bin') != sha256(Path(build_dir) / 'fzs-engine.bin'):
+            return None, 'the archived identity is of another BIN'
+        sys.path.insert(0, str(TOOLS))
+        import practice_expected
+        if doc['expected'].get('sha256') != practice_expected.digest(doc['expected']) or doc.get('expected_sha256') != doc['expected']['sha256']:
+            return None, 'the archived expected rows do not match their hash'
+        return doc, ''
+
+    def practice_observed(self, mem, sym):
+        """The live state at race_start, as the image holds it: the field's identity words, each vehicle's machine, energy ceiling,
+        chase target and start position, the grid array and its source, and (images with the sprite roster) each rival's bound sprites."""
+        live = struct.unpack('>120i', mem.raw(sym['_fzx_field_live'], 480))
+        obs = dict(
+            ident=list(mem.words('fzx_field_ident', 8)),
+            machine=[live[4 * i] for i in range(30)], energy=[live[4 * i + 1] for i in range(30)],
+            chase=[live[4 * i + 2] for i in range(30)], dist=[live[4 * i + 3] for i in range(30)],
+            grid=list(mem.raw(sym['_fzx_field_grid'], 30)),
+            src=mem.words('fzx_field_grid_src', 1)[0],
+            report=mem.words('fzx_field_report', 16)[0])
+        if '_fzx_e2_roster_machine' in sym:
+            obs['roster'] = list(mem.raw(sym['_fzx_e2_roster_machine'], 30))
+            obs['roster_set'] = list(mem.words('fzx_e2_roster_set', 30))
+        return obs
+
+    @staticmethod
+    def first_diff(got, want):
+        d = [i for i in range(min(len(got), len(want))) if got[i] != want[i]]
+        return '%d of %d differ (first at vehicle %d: %s, want %s)' % (len(d), len(want), d[0], got[d[0]], want[d[0]]) if d else 'length %d, want %d' % (len(got), len(want))
+
+    def practice_fixture(self, name, run_dir, build_dir, lines, mk, sym, want, mutate=None, sink=None, mutate_arch=None):
+        """The Practice fixture at RACE entry: the mode, class, course and pack identity, the player's machine and skin, the slider
+        bits, and the live field against the frozen expected row: the vehicle count, the seed, the 30 entrants (the machine each
+        vehicle's row and each rival's sprites were built from) and the ordered start grid, which must come from the course header
+        (fzx_field_grid_src 1) and equal the HOST grid exactly. Fails closed on a missing archive, expected row or mark.
+        want: slug, index, row, mode, cls. mutate: a control's edit of a copy of the observed state (the oracle is never touched)."""
+        why = []
+        if 'race_start' not in mk:
+            self.add('fixture', name, False, 'no race_start mark', error_text(run_dir), sink=sink)
+            return False
+        arch, err = self.practice_archive(build_dir)
+        if arch is not None and mutate_arch:
+            arch = mutate_arch(copy.deepcopy(arch))
+        if arch is None:
+            self.add('fixture', name, False, 'FIXTURE FAILED, %s' % err, 'the expected rows are archived with the BIN when the gate builds it', sink=sink)
+            return False
+        exp = arch['expected']['courses'].get(want['slug'], {}).get(str(want['cls']))
+        if exp is None:
+            self.add('fixture', name, False, 'FIXTURE FAILED, no expected row for %s class %d' % (want['slug'], want['cls']), sink=sink)
+            return False
+        if not arch.get('bundle_rows_match'):
+            why.append('the linked bundle differs from the HOST rows (%s)' % '; '.join(arch.get('bundle_diffs', [])[:3]))
+        mem = Mem(run_dir, 'race_start', sym)
+        ses = struct.unpack('>HBBHBBBBBBI', mem.raw(sym['_fzx_session'], 16))
+        version, mode, course, machine, skin, players, diff, cup, pr, conf, slider = ses
+        if mode != want['mode']:
+            why.append('mode %d, want %d' % (mode, want['mode']))
+        if diff != want['cls']:
+            why.append('class %d, want %d' % (diff, want['cls']))
+        if course != want['index']:
+            why.append('course %d, want %d (%s)' % (course, want['index'], want['slug']))
+        if mem.words('fzx_cid_index', 1)[0] != want['row']:
+            why.append('course row %d, want %d' % (mem.words('fzx_cid_index', 1)[0], want['row']))
+        if machine != exp['machine'][0] or skin != 1 or slider != 0:
+            why.append('player machine %d skin %d slider bits %x, want %d / 1 / 0' % (machine, skin, slider, exp['machine'][0]))
+        obs = self.practice_observed(mem, sym)
+        if mutate:
+            obs = mutate(copy.deepcopy(obs))
+        ident = obs['ident']
+        if obs['report'] != 1:
+            why.append('field not loaded (report %d: solo or failed)' % obs['report'])
+        if ident[0] != 0x46494431:
+            why.append('no live field identity (magic %08x)' % ident[0])
+        if ident[1] != exp['count']:
+            why.append('field count %d, want %d' % (ident[1], exp['count']))
+        if ident[2] != exp['seed']:
+            why.append('field seed %d, want %d' % (ident[2], exp['seed']))
+        if (ident[3], ident[4], ident[5]) != (want['row'], want['cls'], want['mode']):
+            why.append('the field was built for row %d class %d mode %d, want %d / %d / %d' % (ident[3], ident[4], ident[5], want['row'], want['cls'], want['mode']))
+        if obs['machine'] != exp['machine']:
+            why.append('the field\'s entrants (machines): %s' % self.first_diff(obs['machine'], exp['machine']))
+        if obs['energy'][1:] != exp['energy'][1:]:
+            why.append('the rivals\' energy ceilings: %s' % self.first_diff(obs['energy'][1:], exp['energy'][1:]))
+        if obs['chase'] != exp['chase']:
+            why.append('the rivals\' chase targets: %s' % self.first_diff(obs['chase'], exp['chase']))
+        # The ordered grid as the vehicles stand: the rivals sorted by start position, front first, are the rivals sorted by HOST grid place.
+        stand = sorted(range(1, 30), key=lambda i: -obs['dist'][i])
+        order = sorted(range(1, 30), key=lambda i: exp['grid'][i])
+        if len(set(obs['dist'][1:])) != 29 or stand != order:
+            why.append('the rivals\' start positions are not in the HOST grid order (%s)' % self.first_diff(stand, order))
+        if 'roster' in obs:
+            if obs['roster'][1:] != exp['machine'][1:]:
+                why.append('the sprites\' roster: %s' % self.first_diff(obs['roster'][1:], exp['machine'][1:]))
+            rs, mach = obs['roster_set'][1:], obs['roster'][1:]
+            if (len(set(rs)) != len(set(mach)) or any(x == 0 or x & 3 for x in rs)
+                    or any((rs[a] == rs[b]) != (mach[a] == mach[b]) for a in range(len(rs)) for b in range(a))):
+                why.append('rival sprite sets are not one per machine')
+        if obs['src'] != 1:
+            why.append('grid source %d, want 1 (the course header)' % obs['src'])
+        if obs['grid'] != exp['grid']:
+            why.append('start grid: %s' % self.first_diff(obs['grid'], exp['grid']))
+        ok = not why
+        seen = 'mode %d class %d course %d, row %d, machine %d skin %d, field %s of %d, seed %d, 30 entrants (machine, energy, chase) = HOST rows %s%s, grid from the header = HOST grid, vehicles stand in it %s' % (
+            mode, diff, course, mem.words('fzx_cid_index', 1)[0], machine, skin, 'loaded' if obs['report'] == 1 else 'NOT loaded', ident[1], ident[2],
+            'yes' if obs['machine'] == exp['machine'] and obs['energy'][1:] == exp['energy'][1:] and obs['chase'] == exp['chase'] else 'NO',
+            (', sprite roster %s' % ('yes' if obs['roster'][1:] == exp['machine'][1:] else 'NO')) if 'roster' in obs else ' (no sprite roster in this image)',
+            'yes' if stand == order else 'NO')
+        self.add('fixture', name, ok, ('Practice %s: %s' % (want['slug'], seen)) if ok else ('FIXTURE FAILED, %s; seen: %s' % ('; '.join(why), seen)),
+                 ('expected rows %s (HOST reports); opponent machines %s' % (arch['expected_sha256'][:12], ' '.join(map(str, sorted(exp['machine'][1:]))))) if ok
+                 else 'asked: Practice (mode %d) class %d, %s' % (want['mode'], want['cls'], want['slug']), sink=sink)
+        return ok
+
+    def practice_window(self):
+        w = self.m.get('practice')
+        if not w:
+            raise SystemExit('matrix: no "practice" section (checkpoint period and window end)')
+        text = (GATE / 'scripts' / 'course_pr.txt').read_text()
+        if ('poke _fzx_e0_hold_tick %d' + chr(10)) % w['end_tick'] not in text:
+            raise SystemExit('matrix: practice end_tick %d is not the window course_pr.txt holds at' % w['end_tick'])
+        return w
+
+    def practice_host(self, name, mchk, host, host_label, sink):
+        """SH-2 against HOST at the Practice window's checkpoints. Fails closed: the HOST reference must exist and hold every expected
+        checkpoint, the image must have written exactly the expected set (period and end tick are the matrix's, not whatever
+        happened to be captured), and each pair must agree."""
+        w = self.practice_window()
+        want = list(range(w['checkpoint_period'], w['end_tick'] + 1, w['checkpoint_period']))
+        if host is None or not host.get('chk'):
+            self.add('host', name, False, 'no HOST reference (fails closed)', 'expected checkpoints at ticks %s' % want, sink=sink)
+            return
+        hostc = dict(host['chk'])
+        miss_host = [t for t in want if t not in hostc]
+        got = [t for t, _ in mchk]
+        same = sum(1 for t, h in mchk if hostc.get(t) == h)
+        ok = not miss_host and got == want and same == len(want)
+        why = []
+        if miss_host:
+            why.append('HOST lacks %d of the expected checkpoints (%s)' % (len(miss_host), ','.join(map(str, miss_host[:4]))))
+        if got != want:
+            why.append('the image wrote ticks %s, expected %s' % (','.join(map(str, got[:20])) or 'none', '%d..%d every %d (%d)' % (want[0], want[-1], w['checkpoint_period'], len(want))))
+        self.add('host', name, ok, ('checkpoints %d/%d equal (HOST %s; the expected set %d..%d every %d; no finish in Practice)' % (
+            same, len(want), host_label, want[0], want[-1], w['checkpoint_period'])) if ok else ('HOST CHECK FAILED: %s; %d/%d equal' % ('; '.join(why) or 'a checkpoint differs', same, len(want))), sink=sink)
+
+    def score_practice(self, run, run_dir, build_dir, lines, mk, sym, host, host_label, sink):
+        """Practice course row: the fixture at RACE entry, then the cadence, margin and memory of the tick-420 window up to the explicit
+        end-of-window mark (Practice has no finish), the SH-2 checkpoints against HOST (no finish asked), and the normal exit with
+        zero race-record writes."""
+        name = run['name']
+        slug = run.get('course')
+        c = next((x for x in self.m['courses'] if x['slug'] == slug), None)
+        want = dict(slug=slug, index=c['index'] if c else -1, row=c['index'] if c else -1, mode=5, cls=1)
+        self.practice_fixture(name, run_dir, build_dir, lines, mk, sym, want, sink=sink)
+        if 'results' in mk:
+            mkv, mchk = result_kv(lines, 'results')
+            self.practice_host(name, mchk, host, host_label or slug, sink)
+            mem = Mem(run_dir, 'results', sym)
+            self.cadence_checks(name, frame_rows(mem, self.lim['race_window_tick']), sink)
+            self.memory_checks(name, mem, mkv, sink)
+            load = result_kv(lines, 'race_start')[0].get('_fzx_scn_report10')
+            self.add('load', name, True, 'cold LOAD %s fields' % load, info=True, sink=sink)
+        else:
+            self.add('host', name, False, 'no end-of-window mark (results)', error_text(run_dir), sink=sink)
+        if 'quit' in mk and 'race_start' in mk:
+            a, b = Mem(run_dir, 'race_start', sym), Mem(run_dir, 'quit', sym)
+            gens = (a.words('file_gen', 2), b.words('file_gen', 2)) if a.has('file_gen') else (None, None)
+            kq = result_kv(lines, 'quit')[0]
+            quit_ok = kq.get('_fzx_scn_report1') == '5' and b.words('fzx_scn_pause', 8)[4] == 1
+            self.add('exit', name, quit_ok and gens[0] is not None and gens[0] == gens[1],
+                     'QUIT from the pause menu reaches RESULTS (scene %s); record file generations %s before and %s after' % (
+                         kq.get('_fzx_scn_report1'), gens[0], gens[1]), 'zero race-record writes', sink=sink)
+        else:
+            self.add('exit', name, False, 'no quit mark', error_text(run_dir), sink=sink)
+
+    # -- Time Attack ghost storage (claude/modes; C-169 item 3) -------------------------------------------------------------
+    GH_CHUNK = 1024      # engine_records.c GH_CHUNK
+    FIELD_TICKS = 14090  # one field in FRT ticks (e0_report[12])
+
+    def ghost_observed(self, run_dir, build_dir, mk, sym):
+        mem = Mem(run_dir, 'saved1', sym)
+        m2 = Mem(run_dir, 'race2_t2000', sym)   # the ghost is read at the race's own begin, after the scene's first frame
+        log = list(mem.words('fzx_bup_log', 61))
+        entries = [log[1 + 5 * n:6 + 5 * n] for n in range(min(log[0], 12))]   # [fields in, fields out, bytes, kind (1 records, 2 ghost), FRT in<<16|out]
+        return dict(store=list(mem.words('fzx_ghost_store', 16)), rec=list(mem.words('fzx_rec_report', 16)), log=entries, nlog=log[0],
+                    commits=list(mem.words('fzx_scn_commit_log', 8)),
+                    reload=list(m2.words('fzx_ghost_store', 16)), report2=list(m2.words('fzx_ghost_report', 16)), rec2=list(m2.words('fzx_rec_report', 16)))
+
+    def ghost_check(self, name, fault, obs, race1_ms, sink):
+        """The ghost save: exactly one commit (one records commit, one ghost save begun), one backup file per manager frame (consecutive ghost
+        writes at least two fields apart, none larger than a chunk, none holding the caller for a field), the head file last; and what a
+        soft reset reads back from the backup RAM: the whole new ghost (fault 0) or no ghost, with the records intact (faults)."""
+        st, why = obs['store'], []
+        gw = [e for e in obs['log'] if e[3] == 2]
+        if obs['rec'][10] != 1 or st[11] != 1:
+            why.append('commits: %d records, %d ghost saves begun (want 1 and 1)' % (obs['rec'][10], st[11]))
+        n = st[14]
+        want_writes = n if fault != 2 else n // 2 + 1 if n > 1 else 0   # fault 2: the head and the chunks past half are never written
+        if st[12] != (n if fault != 2 else min(n - 1, n // 2)) or (fault != 2 and st[13] != 1):
+            why.append('%d ghost files written of %d (saves completed %d)' % (st[12], n, st[13]))
+        if any(e[2] > self.GH_CHUNK for e in gw):
+            why.append('a ghost write larger than a chunk (%d bytes)' % max(e[2] for e in gw))
+        if obs['nlog'] > 12 or len(gw) < st[12]:
+            why.append('write log incomplete (%d entries)' % obs['nlog'])
+        if any(b[0] - a[0] < 2 for a, b in zip(gw, gw[1:])):
+            why.append('two ghost writes within one manager frame (fields %s)' % ','.join(str(e[0]) for e in gw))
+        if st[15] >= self.FIELD_TICKS:
+            why.append('a ghost write held the caller %d FRT ticks (a field is %d)' % (st[15], self.FIELD_TICKS))
+        rl, rp = obs['reload'], obs['report2']
+        if fault == 0:
+            if not (rl[0] == 1 and rl[1] == 1 and rp[7] == race1_ms and race1_ms > 0):
+                why.append('after the reset: ghost found %d, generation %d, race ms %d (want 1, 1, %d)' % (rl[0], rl[1], rp[7], race1_ms))
+            if st[5] != 0:   # FZX_REC_OK
+                why.append('save result %d (want OK, 0)' % st[5])
+        else:
+            if not (rl[0] == 0 and rp[7] == 0 and rl[3] == 0 and rl[4] == 0):
+                why.append('after the reset a ghost was accepted from a %s save (found %d, valid %d/%d)' % ('wrong-CRC' if fault == 1 else 'half', rl[0], rl[3], rl[4]))
+            if st[5] != 3:
+                why.append('the faulted save returned %d, want FAILED (3)' % st[5])
+        if obs['rec2'][0] != 0:
+            why.append('records not loaded after the reset (result %d)' % obs['rec2'][0])
+        self.add('ghost', name, not why, ('%s; fault %d' % ('; '.join(why), fault)) if why else
+                 'fault %d: 1 commit, %d ghost files (%d bytes each at most), writes %s fields apart, longest %d of %d FRT ticks a field; after the reset %s' % (
+                     fault, st[12], self.GH_CHUNK, ','.join(str(b[0] - a[0]) for a, b in zip(gw, gw[1:])) or '-', st[15], self.FIELD_TICKS,
+                     'the new ghost (generation %d, %d ms) read back' % (rl[1], rp[7]) if fault == 0 else 'no ghost accepted, records intact'),
+                 'EMULATOR; ghost_store, bup_log, rec_report at saved1 and race2_start', sink=sink)
+
+    def score_ghost(self, run, run_dir, build_dir, lines, mk, sym, host, sink):
+        name = run['name']
+        ok = result_kv(lines)[0].get('exit') == 'ok' and all(m in mk for m in ('results1', 'saved1', 'race2_t2000', 'results2'))   # 'exit' as the other script rows
+        self.add('script', name, ok, '%d marks, %s fields' % (len(mk), result_kv(lines)[0].get('fields', '-')), error_text(run_dir), sink=sink)
+        if not ok:
+            return
+        obs = self.ghost_observed(run_dir, build_dir, mk, sym)
+        if not host or host.get('finish_ms') is None:
+            self.add('ghost', name, False, '', 'no HOST finish for the race the ghost records', sink=sink)
+            return
+        race1_ms = int(host['finish_ms'])   # the cold race of the script is the loop's: the image's R01 HOST finish
+        self.ghost_check(name, run['fault'], obs, race1_ms, sink)
+        self.menus_check(name, lines, sink=sink)   # RESULTS keeps presenting through the name commit: 0 menu intervals over two
+
+    # -- Death Race (claude/modes C-169 item 4) -----------------------------------------------------------------------------
+    DR_SORTED_BAND, DR_ID_BAND, DR_ID_MIN = 40, 60, 24   # tools/modes_dr_check.py: the qualification band, fixed before the first native run
+
+    def death_observed(self, run_dir, build_dir, sym):
+        mem = Mem(run_dir, 'saved', sym)   # after the name entry: the field state is the race's (the results scene keeps it), the records are written
+        n = mem.words('fzx_field_event_count', 1)[0]
+        raw = mem.raw(sym['_fzx_field_events'], 8 * 96)
+        ev = [struct.unpack('>BBhi', raw[8 * i:8 * i + 8]) for i in range(min(n, 96))]   # agent, kind, by, tick
+        return dict(events=ev, event_count=n, field=list(mem.words('fzx_field_report', 16)), rec=list(mem.words('fzx_rec_report', 16)),
+                    scn=list(mem.words('fzx_scn_report', 32)), bup=list(mem.words('fzx_bup_log', 11)), bup0=Mem(run_dir, 'race_start', sym).words('fzx_bup_log', 1)[0])
+
+    def death_check(self, name, obs, ref, script_text, sink):
+        """The natural Death Race on the integrated image: no poke in the script, the race ends by the 29th retirement (end reason FINISH,
+        29 rivals retired, the player alive), one records commit, and the rivals' retirement ticks against the original code's reference (HOST,
+        seed 1) inside the qualification band (sorted ticks within 40, at least 24 of 29 by id within 60)."""
+        why = []
+        rt = {r['id']: r['retire_tick'] for r in ref['racers'] if r['id']}
+        # Both are ticks from the race start: the field's retire_tick (f->tick - f->start_tick) and the reference's report (its sim runs
+        # race_start_tick ticks of countdown first: ticks 1255 = 420 + the last retirement, 834).
+        nt = {e[0]: e[3] for e in obs['events'] if e[1] == 3 and e[0]}
+        if 'poke _veh' in script_text or 'poke _fzx_scn_force_end' in script_text:
+            why.append('the script forces retirements or the end (it must run the race as it is)')
+        if obs['event_count'] > 96:
+            why.append('event table overflowed (%d events)' % obs['event_count'])
+        if len(nt) != 29:
+            why.append('%d rivals retired in the event log (want 29)' % len(nt))
+        if obs['field'][12] < 29:
+            why.append('field reports %d retired (want 29)' % obs['field'][12])
+        if obs['scn'][13] != 1:
+            why.append('end reason %d (want FINISH, 1)' % obs['scn'][13])
+        if obs['rec'][10] != 1 or obs['rec'][11] != 0:
+            why.append('records: %d commits, %d already-recorded (want 1 and 0)' % (obs['rec'][10], obs['rec'][11]))
+        if obs['bup'][0] - obs['bup0'] != 1 or obs['bup'][4 + 5 * obs['bup0']] != 1:   # the boot's own first write (the empty table) is before the race
+            why.append('%d backup writes since the race start (kind %d), want exactly one records write' % (obs['bup'][0] - obs['bup0'], obs['bup'][4 + 5 * obs['bup0']] if obs['bup0'] < 2 else -1))
+        dev = nid = worst_id = 0
+        if len(nt) == 29 and len(rt) == 29:
+            ns, rs = sorted(nt.values()), sorted(rt.values())
+            dev = max(abs(a - b) for a, b in zip(ns, rs))
+            nid = sum(1 for i in rt if abs(nt[i] - rt[i]) <= self.DR_ID_BAND)
+            worst_id = max(abs(nt[i] - rt[i]) for i in rt)
+            if dev > self.DR_SORTED_BAND or nid < self.DR_ID_MIN:
+                why.append('retirement ticks: sorted max deviation %d (band %d), %d of 29 within %d by id (min %d)' % (
+                    dev, self.DR_SORTED_BAND, nid, self.DR_ID_BAND, self.DR_ID_MIN))
+        last = max(nt.values()) if nt else 0
+        self.add('death', name, not why, '; '.join(why) if why else
+                 '29 of 29 rivals retired by the fall (ticks %d..%d, HOST %d..%d), win at the 29th (tick %d, HOST %d); sorted max deviation %d, %d of 29 by id within %d (worst %d); '
+                 '1 records commit, 1 backup write' % (min(nt.values()), last, min(rt.values()), max(rt.values()), last, max(rt.values()), dev, nid, self.DR_ID_BAND, worst_id),
+                 'EMULATOR vs HOST (fzx-gp-ref --mode death, seed 1, %s); bands from tools/modes_dr_check.py' % ref.get('role', ''), sink=sink)
+
+    def score_death(self, run, run_dir, build_dir, lines, mk, sym, sink):
+        name = run['name']
+        ok = result_kv(lines)[0].get('exit') == 'ok' and all(m in mk for m in ('race_start', 'results', 'saved'))
+        self.add('script', name, ok, '%d marks, %s fields' % (len(mk), result_kv(lines)[0].get('fields', '-')), error_text(run_dir), sink=sink)
+        if not ok:
+            return
+        try:
+            ref = json.loads(Path(self.a.death_ref).read_text())
+        except (OSError, ValueError) as e:
+            self.add('death', name, False, 'no Death Race HOST reference (fails closed): %s' % e, sink=sink)
+            return
+        obs = self.death_observed(run_dir, build_dir, sym)
+        text = (self.ev / 'scripts' / ('x-%s' % run['script'])).read_text() if (self.ev / 'scripts' / ('x-%s' % run['script'])).is_file() else ''
+        self.death_check(name, obs, ref, text, sink)
+        self.menus_check(name, lines, sink=sink)
+        mem = Mem(run_dir, 'results', sym)
+        self.cadence_checks(name, frame_rows(Mem(run_dir, 'results', sym), self.lim['race_window_tick']), sink)
+        self.memory_checks(name, mem, result_kv(lines, 'results')[0], sink=sink)
 
     def determinism(self, name, dir_a, dir_b, dumps, sink=None, build_dir=None):
         """Two runs: per-field ticks and pixel hashes, work RAM, VRAM and stills identical. The matrix's
@@ -685,8 +1129,9 @@ class Gate:
         hosts = {}
         hdir = self.ev / 'host'
         slugs = set(r['course'] for r in runs if r.get('course'))
-        if any(r['kind'] == 'course' for r in runs):
-            slugs |= set(c['slug'] for c in courses)
+        if any(r['kind'] in ('course', 'practice') for r in runs):
+            slugs |= set(c['slug'] for r in runs if r['kind'] in ('course', 'practice') for c in courses
+                         if not isinstance(r.get('courses'), list) or c['slug'] in r['courses'])
         if a.controls:
             slugs |= {'mute-city-1'}
         by_slug = {c['slug']: c for c in m['courses']}
@@ -699,14 +1144,20 @@ class Gate:
         for r in runs:
             if not builds[r['image']]['ok']:
                 continue
-            if r['kind'] == 'course':
+            if r['kind'] in ('course', 'practice'):
                 for c in courses:
-                    rr = dict(r, name='course-%s' % c['slug'], course=c['slug'], image=c.get('image', r['image']))
+                    if isinstance(r.get('courses'), list) and c['slug'] not in r['courses']:
+                        continue   # a row that names its courses (the Practice rows: the Jack Cup, whose HOST rows are frozen)
+                    rr = dict(r, name='%s-%s' % (r['kind'], c['slug']), course=c['slug'], image=c.get('image', r['image']))
                     jobs.append((rr, 'script', self.script_for(r['script'], c['index'])))
             elif r['kind'] == 'race':
                 jobs.append((r, 'race', '-'))
                 if r.get('determinism'):
                     jobs.append((dict(r, name=r['name'] + '.2', repeat=True), 'race', '-'))
+            elif r['kind'] == 'death':
+                jobs.append((r, 'script', self.script_for(r['script'])))
+            elif r['kind'] == 'ghost':
+                jobs.append((r, 'script', self.script_for(r['script'], next(c['index'] for c in m['courses'] if c['slug'] == r['course']))))
             else:
                 rec = self.record_ms(hosts, builds[r['image']]['dir']) if r['kind'] == 'loop' else None
                 jobs.append((r, 'script', self.script_for(r['script'], record_ms=rec)))
@@ -757,8 +1208,9 @@ class Gate:
 
     def host(self, hdir, slug, driver, ahead=None, ticks=None):
         extra = [str(ahead) if ahead else '', str(ticks)] if ticks else [str(ahead)] if ahead else []
-        rc, out = self.stage_cmd('host', self.stage, wslpath(hdir), self.head['sha'][:12], slug, driver, *extra)
-        return host_ref(hdir / ('%s-%s%s%s.txt' % (slug, driver, '-a%s' % ahead if ahead else '', '-t%s' % ticks if ticks else '')))
+        rc, out = self.stage_cmd('host', self.stage, wslpath(hdir), self.head['sha'][:12], slug, driver, *extra, check=False)
+        f = Path(hdir) / ('%s-%s%s%s.txt' % (slug, driver, '-a%s' % ahead if ahead else '', '-t%s' % ticks if ticks else ''))
+        return host_ref(f) if f.is_file() else None
 
     def base_bins(self, base_sha, ident, head):
         """BIN hashes of the base's identity images: from the shared receipt cache, else built in this stage."""
@@ -863,7 +1315,7 @@ class Gate:
             if c['kind'] == 'race':
                 jobs.append((r, 'race', '-'))
             else:
-                idx = next((x['index'] for x in self.m['courses'] if x['slug'] == c.get('course')), None) if c['kind'] == 'course' else None
+                idx = next((x['index'] for x in self.m['courses'] if x['slug'] == c.get('course')), None) if c['kind'] in ('course', 'practice') else None
                 bd = self.ctl_builds[c['name']]['dir'] if c.get('vars') else builds[c['image']]['dir']
                 rec = self.record_ms(hosts, bd, c.get('record_offset', 0)) if c['kind'] == 'loop' else None
                 jobs.append((r, 'script', self.script_for(c['script'], idx, rec)))
@@ -884,6 +1336,63 @@ class Gate:
                     got = re.search(r'LEGACY off ([0-9a-f]{64})', out)
                     off = got.group(1) if got else ''
                 self.add('legacy', name, off.startswith(self.m['legacy']['recipe']), '%s vs recipe %s' % (off[:16], self.m['legacy']['recipe'][:16]), sink=sink)
+            elif chk == 'fixture' and c.get('reuse'):
+                rd = self.ev / 'runs' / c['reuse']
+                lines = read_result(rd)
+                cc = next(x for x in self.m['courses'] if x['slug'] == c['course'])
+                bd = builds[c['image']]['dir']
+                sym = load_syms(Path(bd) / 'fzs-engine.sym')
+                mut = PR_OBS_MUT.get(c['mutate'])
+                if c['mutate'] == 'noarchive':   # a BIN folder without its archived identity (a stand-in folder with only the BIN)
+                    tmp = self.ev / 'tmp' / 'noarchive'
+                    shutil.rmtree(tmp, ignore_errors=True)
+                    tmp.mkdir(parents=True)
+                    for f in ('fzs-engine.bin', 'fzs-engine.sym'):
+                        shutil.copy(Path(bd) / f, tmp / f)
+                    bd = str(tmp)
+                self.practice_fixture(name, rd, bd, lines, marks(lines), sym, dict(slug=cc['slug'], index=cc['index'], row=cc['index'], mode=5, cls=1), mutate=mut, sink=sink,
+                                      mutate_arch=PR_ARCH_MUT.get(c['mutate']))
+            elif chk == 'death' and c.get('reuse'):
+                rd = self.ev / 'runs' / c['reuse']
+                bd = builds[c['image']]['dir']
+                obs = copy.deepcopy(self.death_observed(rd, bd, load_syms(Path(bd) / 'fzs-engine.sym')))
+                ref = json.loads(Path(self.a.death_ref).read_text()) if c['mutate'] != 'noref' else None
+                text = (self.ev / 'scripts' / ('x-%s' % 'death_nat.txt')).read_text()
+                if c['mutate'] == 'ticks':
+                    obs['events'] = [(e[0], e[1], e[2], e[3] + 60 if e[1] == 3 else e[3]) for e in obs['events']]
+                elif c['mutate'] == 'short':
+                    k = next(i for i, e in enumerate(obs['events']) if e[1] == 3)
+                    del obs['events'][k]
+                elif c['mutate'] == 'commits': obs['rec'][10] = 2; obs['bup'][0] += 1
+                elif c['mutate'] == 'reason': obs['scn'][13] = 2
+                elif c['mutate'] == 'poke': text += chr(10) + 'poke _veh+120 0x01000002' + chr(10)
+                if ref is None:
+                    self.add('death', name, False, 'no Death Race HOST reference (fails closed)', sink=sink)
+                else:
+                    self.death_check(name, obs, ref, text, sink)
+            elif chk == 'ghost' and c.get('reuse'):
+                rd = self.ev / 'runs' / c['reuse']
+                bd = builds[c['image']]['dir']
+                lines = read_result(rd)
+                obs = copy.deepcopy(self.ghost_observed(rd, bd, marks(lines), load_syms(Path(bd) / 'fzs-engine.sym')))
+                race1_ms = int(self.record_ms(hosts, bd))
+                GH_MUT[c['mutate']](obs)
+                self.ghost_check(name, c['fault'], obs, race1_ms, sink)
+            elif chk == 'host' and c.get('practice_host'):
+                rd = self.ev / 'runs' / c['reuse']
+                lines = read_result(rd)
+                _, mchk = result_kv(lines, 'results')
+                href = self.host(self.ev / 'host', c['course'], '0.004,2.5')
+                m = c['practice_host']
+                if m == 'no-host':
+                    href = None
+                elif m == 'host-lacks':   # HOST's file lost the last expected checkpoint
+                    href = dict(href, chk=[x for x in href['chk'] if x[0] != self.practice_window()['end_tick'] // 256 * 256])
+                elif m == 'subset':       # the image captured only part of the window
+                    mchk = mchk[:-1]
+                elif m == 'late':         # the image's checkpoints stop short of the window end
+                    mchk = mchk[:len(mchk) // 2]
+                self.practice_host(name, mchk, href, c['course'], sink)
             elif chk == 'host' and c.get('reuse'):
                 rd = self.ev / 'runs' / c['reuse']
                 kv, chkl = result_kv(read_result(rd))
@@ -910,7 +1419,7 @@ class Gate:
                     host = hosts.get(hslug) if hslug else None
                     if hslug and host is None:
                         host = hosts[hslug] = self.host(self.ev / 'host', hslug, '0.004,2.5')
-                    self.score_scenes(dict(name=name, kind=c['kind']), rd, bd, host, sink=sink, host_label=hslug or '')
+                    self.score_scenes(dict(name=name, kind=c['kind'], course=c.get('course')), rd, bd, host, sink=sink, host_label=hslug or '')
             target = [r for r in sink if r['check'] == chk]
             # A control whose run or script dies before its check is scored has still failed; the table says which.
             failed = [r for r in sink if r['check'] in (chk, 'run', 'script') and r['status'] == 'FAIL']
@@ -1032,7 +1541,8 @@ class Rescore(Gate):
         return (cue, 'kept from the run') if cue.exists() else (None, 'not kept')
 
     def host(self, hdir, slug, driver, ahead=None, ticks=None):
-        return host_ref(Path(hdir) / ('%s-%s%s%s.txt' % (slug, driver, '-a%s' % ahead if ahead else '', '-t%s' % ticks if ticks else '')))
+        f = Path(hdir) / ('%s-%s%s%s.txt' % (slug, driver, '-a%s' % ahead if ahead else '', '-t%s' % ticks if ticks else ''))
+        return host_ref(f) if f.is_file() else None
 
     def execute(self, jobs):
         res = {}
@@ -1073,6 +1583,8 @@ def main():
     ap.add_argument('--harness', default=str(DEF_HARNESS))
     ap.add_argument('--bios', default=str(DEF_BIOS))
     ap.add_argument('--sh2zam', default=str(DEF_SH2ZAM))
+    ap.add_argument('--death-ref', default=str(DEF_DEATH), help='the Death Race HOST reference report (fzx-gp-ref --mode death, seed 1; tools/modes_death_regen.sh)')
+    ap.add_argument('--practice-expected', default=str(DEF_PRACTICE), help='the Practice fixture\'s expected rows (tools/practice_expected.py over the HOST reports)')
     ap.add_argument('--music', default=str(DEF_MUSIC),
                     help='bgm_cdda.py output (local, ROM-derived) for the shipping mixed-mode discs')
     ap.add_argument('--jobs', type=int, default=max(2, min(12, (os.cpu_count() or 4) - 2)))

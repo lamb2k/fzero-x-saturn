@@ -32,6 +32,10 @@ const fzx_course_info_t fzx_course_info[] = {
     ROW(21, 3, 2, "SAND OCEAN 2"),
     ROW(22, 4, 3, "PORT TOWN 2"),
     ROW(23, 5, 8, "BIG HAND"),
+#if ENG_MODES
+    /* Death Race (course id 54, ROM record 24): sector venue, Sector's music */
+    ROW(54, 0, 7, "DEATH RACE"),
+#endif
 };
 #undef ROW
 const uint32_t fzx_course_info_count = sizeof(fzx_course_info) / sizeof(fzx_course_info[0]);
@@ -63,6 +67,21 @@ static const fzx_course_index_t *course_index_row(uint32_t id) {
     return NULL;
 }
 
+#if ENG_MODES
+#include "course_practice.h"
+/* Practice's rival rows of the course in use (PRnn.BIN, big-endian int32 [class][vehicle][8]): disc data read at LOAD with the row,
+ * 3,840 B in high work RAM instead of 3,840 B a bundled course in the image (tools/course_practice_bundle.py). */
+#if ENG_LOW_COLD
+/* Read at the race's field load only (engine_field.c), never in a race frame: low work RAM (engine_low.x). */
+__attribute__((section(".bss.lowcold.practice_rows")))
+#endif
+static int32_t practice_rows[4][30][8] __attribute__((aligned(8)));
+const int32_t (*const fzx_practice_rows)[30][8] = practice_rows;
+static int32_t practice_loaded = -1;
+volatile uint32_t fzx_practice_load[4];   /* [0] loads, [1] last course id, [2] last result (1 ok), [3] cd retries seen (gate) */
+#endif
+
+#if !ENG_MODES
 bool fzx_course_use(uint32_t id) {
     const fzx_course_index_t *x = course_index_row(id);
     if (!x) return false;
@@ -77,6 +96,32 @@ bool fzx_course_use(uint32_t id) {
     fzx_cid_index = cid_row.row;
     return true;
 }
+#else
+bool fzx_course_use(uint32_t id) {
+    const fzx_course_index_t *x = course_index_row(id);
+    if (!x) return false;
+    if (id > 99u) return false;
+    const uintptr_t scratch = ((uintptr_t)sat_stub_data_end + 31u) & ~(uintptr_t)31u;
+    if (cid_loaded != (int32_t)id) {
+        cid_loaded = -1;
+        if (x->bytes != FZX_COURSE_ROW_BYTES) return false;
+        char name[12] = { 'C', 'I', 'D', (char)('0' + id / 10u), (char)('0' + id % 10u), '.', 'B', 'I', 'N', 0, 0, 0 };
+        if (!fzx_texture_cd_load(name, FZX_COURSE_ROW_BYTES, x->hash, &cid_row, (void *)scratch, 4096u)) return false;
+        if (cid_row.id != id || cid_row.row != (uint32_t)(x - fzx_course_index)) return false; /* the file is not this course's row */
+        cid_loaded = (int32_t)id;
+        fzx_cid_index = cid_row.row;
+    }
+    if (practice_loaded != (int32_t)id) {
+        practice_loaded = -1;
+        char name[12] = { 'P', 'R', (char)('0' + id / 10u), (char)('0' + id % 10u), '.', 'B', 'I', 'N', 0, 0, 0, 0 };
+        const bool ok = fzx_texture_cd_load(name, FZX_COURSE_PRACTICE_BYTES, fzx_course_practice_hash[x - fzx_course_index], practice_rows, (void *)scratch, 4096u);
+        ++fzx_practice_load[0]; fzx_practice_load[1] = id; fzx_practice_load[2] = ok;
+        if (!ok) return false;
+        practice_loaded = (int32_t)id;
+    }
+    return true;
+}
+#endif
 #endif
 
 const fzx_course_info_t *fzx_course_selected(void) {

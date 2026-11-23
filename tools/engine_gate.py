@@ -602,7 +602,9 @@ class Gate:
         else:
             courses = m['courses'] if mode == 'full' else [c for c in m['courses'] if c['slug'] == 'mute-city-1']
         ident = list(m['identity'][mode])
-        need = list(dict.fromkeys(ident + [r['image'] for r in runs]))
+        # A course may name its own image (the R03 look-ahead driver, tools/engine_gate_matrix.json) and HOST driver.
+        course_images = [c['image'] for c in courses if c.get('image')] if any(r['kind'] == 'course' for r in runs) else []
+        need = list(dict.fromkeys(ident + [r['image'] for r in runs] + course_images))
 
         # Builds (one after another in the stage).
         t0 = time.time()
@@ -627,7 +629,7 @@ class Gate:
 
         # The shipping mixed-mode disc (data + every CD audio track) for each sound-on image a run uses.
         t0 = time.time()
-        for img in dict.fromkeys(r['image'] for r in runs):
+        for img in dict.fromkeys([r['image'] for r in runs] + course_images):
             if m['images'][img].get('sound') and builds[img]['ok']:
                 cue, detail = self.mixed_disc(builds[img]['dir'])
                 self.discs[img] = cue
@@ -674,8 +676,9 @@ class Gate:
             slugs |= set(c['slug'] for c in courses)
         if a.controls:
             slugs |= {'mute-city-1'}
+        by_slug = {c['slug']: c for c in m['courses']}
         for slug in sorted(slugs):
-            hosts[slug] = self.host(hdir, slug, '0.004,2.5')
+            hosts[slug] = self.host(hdir, slug, by_slug.get(slug, {}).get('host_driver', '0.004,2.5'), by_slug.get(slug, {}).get('host_ahead'), by_slug.get(slug, {}).get('host_ticks'))
 
         # Harness runs.
         t0 = time.time()
@@ -685,7 +688,7 @@ class Gate:
                 continue
             if r['kind'] == 'course':
                 for c in courses:
-                    rr = dict(r, name='course-%s' % c['slug'], course=c['slug'])
+                    rr = dict(r, name='course-%s' % c['slug'], course=c['slug'], image=c.get('image', r['image']))
                     jobs.append((rr, 'script', self.script_for(r['script'], c['index'])))
             elif r['kind'] == 'race':
                 jobs.append((r, 'race', '-'))
@@ -739,9 +742,10 @@ class Gate:
             self.cleanup()
         return 0 if receipt['verdict'] == 'PASS' else 1
 
-    def host(self, hdir, slug, driver):
-        rc, out = self.stage_cmd('host', self.stage, wslpath(hdir), self.head['sha'][:12], slug, driver)
-        return host_ref(hdir / ('%s-%s.txt' % (slug, driver)))
+    def host(self, hdir, slug, driver, ahead=None, ticks=None):
+        extra = [str(ahead) if ahead else '', str(ticks)] if ticks else [str(ahead)] if ahead else []
+        rc, out = self.stage_cmd('host', self.stage, wslpath(hdir), self.head['sha'][:12], slug, driver, *extra)
+        return host_ref(hdir / ('%s-%s%s%s.txt' % (slug, driver, '-a%s' % ahead if ahead else '', '-t%s' % ticks if ticks else '')))
 
     def base_bins(self, base_sha, ident, head):
         """BIN hashes of the base's identity images: from the shared receipt cache, else built in this stage."""
@@ -1010,8 +1014,8 @@ class Rescore(Gate):
         cue = Path(build_dir) / 'mixed' / 'fzs-engine.cue'
         return (cue, 'kept from the run') if cue.exists() else (None, 'not kept')
 
-    def host(self, hdir, slug, driver):
-        return host_ref(Path(hdir) / ('%s-%s.txt' % (slug, driver)))
+    def host(self, hdir, slug, driver, ahead=None, ticks=None):
+        return host_ref(Path(hdir) / ('%s-%s%s%s.txt' % (slug, driver, '-a%s' % ahead if ahead else '', '-t%s' % ticks if ticks else '')))
 
     def execute(self, jobs):
         res = {}

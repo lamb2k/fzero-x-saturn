@@ -9,6 +9,15 @@
 #include "sh2zam/effect_pool_experimental.h"
 #include "sh2zam/divu_experimental.h"
 
+/* The effects' buffers live in low work RAM on the scenes image (ENG_LOW_COLD, engine_low.x: the high block is the
+ * master's headroom): the CPU reads and writes them only, never a DMA, and only a few hundred bytes of each are
+ * touched in a frame. The other images keep them in high work RAM. */
+#if defined(ENG_LOW_COLD) && ENG_LOW_COLD
+#define FX_LOW(n) __attribute__((section(".bss.lowcold.fx_" n)))
+#else
+#define FX_LOW(n)
+#endif
+
 #ifndef FZX_GUEST_MASK
 #define FZX_GUEST_MASK 0ull
 #endif
@@ -17,7 +26,7 @@ volatile uint32_t fzx_fx_report[16];
 volatile uint32_t fzx_fx_demand[2];
 volatile uint32_t fzx_fx_on_slave;
 #if ENG_FX_PROF
-uint16_t fzx_fx_prof[FZX_FX_PROF_ROWS][5];
+uint16_t fzx_fx_prof[FZX_FX_PROF_ROWS][5] FX_LOW("prof");   /* the profile build keeps its rows in low work RAM (they do not fit the high block of the 24-course image) */
 uint32_t fzx_fx_prof_row = FZX_FX_PROF_ROWS;
 /* [who: 0 master, 1 slave][0..4 the job's phases (player boosters, sparks, rival sort, rival boosters, order and copy), 5 the job, 6..13 the counters, 14 jobs] */
 volatile uint32_t fzx_fx_agg[2][16];
@@ -26,15 +35,6 @@ volatile uint32_t fzx_fx_sagg[8];
 #define FXP(k, v) do { if (fzx_fx_prof_row < FZX_FX_PROF_ROWS) fzx_fx_prof[fzx_fx_prof_row][k] = (uint16_t)(v); } while (0)
 #else
 #define FXP(k, v) do { } while (0)
-#endif
-
-/* The effects' buffers live in low work RAM on the scenes image (ENG_LOW_COLD, engine_low.x: the high block is the
- * master's headroom): the CPU reads and writes them only, never a DMA, and only a few hundred bytes of each are
- * touched in a frame. The other images keep them in high work RAM. */
-#if defined(ENG_LOW_COLD) && ENG_LOW_COLD
-#define FX_LOW(n) __attribute__((section(".bss.lowcold.fx_" n)))
-#else
-#define FX_LOW(n)
 #endif
 
 #define Q16(x) ((int32_t)((x) * 65536.0 + ((x) >= 0 ? 0.5 : -0.5)))

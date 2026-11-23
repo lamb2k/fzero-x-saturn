@@ -19,7 +19,9 @@ enum {
      * reject and corner selection; QUAD keeps texture setup and tiering. */
     FZX_RSP_QFETCH,FZX_RSP_QCULL,FZX_RSP_QPIECE,
     /* Version 3 (E0): cluster bounds tests (FZX_ROAD_STREAM_CLUSTERS). */
-    FZX_RSP_CLUSTER,FZX_RSP_PHASES
+    FZX_RSP_CLUSTER,
+    /* Version 4 (decals): the decals' corner projection, and a decal quad up to its piece (classify, size floor, level). */
+    FZX_RSP_GPROJ,FZX_RSP_GQUAD,FZX_RSP_PHASES
 };
 enum {
     FZX_RSPC_BOUNDARIES,FZX_RSPC_STEPPED,FZX_RSPC_QUAD_CLIPS,FZX_RSPC_PIECE_CLIPS,
@@ -33,6 +35,8 @@ enum {
     /* clusters tested, quads skipped by a culled cluster, and (audit builds)
      * skipped quads that would have drawn: must stay zero. */
     FZX_RSPC_CLUSTER_TESTS,FZX_RSPC_CLUSTER_SKIPS,FZX_RSPC_CLUSTER_FALSE,
+    /* Version 4 (decals): quads fetched, corners projected, culled by outcode, under the size floor, split into bands or strips. */
+    FZX_RSPC_DECALS,FZX_RSPC_DECAL_CORNERS,FZX_RSPC_DECAL_OUT,FZX_RSPC_DECAL_SMALL,FZX_RSPC_DECAL_SPLIT,FZX_RSPC_DECAL_DROP,
     FZX_RSPC_COUNTERS
 };
 #if FZX_ROAD_STREAM_PHASES

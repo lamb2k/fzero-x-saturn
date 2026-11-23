@@ -813,11 +813,12 @@ static bool gadget_run(draw_t *d,run_t *r){
     if(!w->gfirst)return true;
     const uint32_t q0=w->gfirst[r->first],q1=w->gfirst[r->last+1u];
     if(q1<=q0)return true;
+    FZX_RSP(GPROJ);
     const uint32_t used=d->stats->positions,n=(q1-q0)*4u;
-    if(n>w->vertex_capacity-used){d->stats->decal_dropped+=q1-q0;return true;}
+    if(n>w->vertex_capacity-used){d->stats->decal_dropped+=q1-q0;FZX_RSP_COUNT(DECAL_DROP,q1-q0);return true;}
     if(!sh2z_view_batch_center_divu(w->projected+used,&d->view,w->gpos+q0*4u,sizeof(*w->gpos),n))return fail(d,FZX_RS_PROJECT);
     r->goffset=(int32_t)used-(int32_t)(q0*4u);r->gdone=true;
-    d->stats->positions=used+n;d->stats->decal_corners+=n;return true;
+    d->stats->positions=used+n;d->stats->decal_corners+=n;FZX_RSP_COUNT(DECAL_CORNERS,n);FZX_RSP(BATCH);return true;
 }
 /* VDP1 maps a quad's bitmap along straight lines between corresponding points of two opposite edges, with no perspective. A decal
  * that is big on screen and runs far into the depth (a plate seen from just behind it, a strip's nearest quad) therefore shades wrongly
@@ -873,16 +874,16 @@ static bool decal_fine(draw_t *d,const vref_t v[4],unsigned q,const uint8_t *r){
 static bool decal_quad(draw_t *d,const sh2z_view_vertex_t *base,unsigned q){
     fzx_road_stream_draw_work_t *w=d->work;
     const vref_t v[4]={base,base+1,base+2,base+3};bool safe;
-    ++d->stats->decals;
-    if(classify(v,&safe)){++d->stats->culled;return true;}
+    ++d->stats->decals;FZX_RSP(GQUAD);FZX_RSP_COUNT(DECALS,1);
+    if(classify(v,&safe)){++d->stats->culled;FZX_RSP_COUNT(DECAL_OUT,1);return true;}
     /* The original draws these gadgets two-sided (aSetupCourseEffectTextureDL clears G_CULL_BACK) and lets its depth buffer hide them,
      * so there is no winding test: a decal seen from its back face draws, its bitmap mapped by the corners' own texture coordinates
      * exactly as the original's per-vertex coordinates would show it. A quad under the size floor (twice its screen area in pixels) is left out. */
     if(safe){int32_t a=area(v,4);if(a<0)a=-a;
-        if(a<=(int32_t)FZX_ROAD_GADGET_MIN_AREA){++d->stats->culled;++d->stats->decal_small;return true;}}
+        if(a<=(int32_t)FZX_ROAD_GADGET_MIN_AREA){++d->stats->culled;++d->stats->decal_small;FZX_RSP_COUNT(DECAL_SMALL,1);return true;}}
     const unsigned image=w->pack->count[FZX_RLD_IMAGES]+w->gquad[q*2u],flags=w->gquad[q*2u+1u];
     if(flags&6u){const unsigned level=decal_level(v,safe);
-        if(level){
+        if(level){FZX_RSP_COUNT(DECAL_SPLIT,1);
             if(flags&4u)return decal_fine(d,v,q,w->gfine+(flags>>8)*76u);
             return decal_bands(d,v,q,image,level>1u?4u:2u);}}
     return piece(d,v,q,0,image,image,0,w->images[image].variant[0].height,0,false);

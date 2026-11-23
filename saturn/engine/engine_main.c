@@ -732,11 +732,6 @@ static uint32_t bal_row = BAL_ROWS, bal_ratio;
  * try-claim bal_claim2; the master wins a tie). ENG_BAL_SPLIT=1 that; =2 (control) the slave always runs it; =3
  * (control) the master always does. The job's holder (the CPU that won bal_claim) runs the setup and the first half
  * and then claims the second half; the other CPU, when it has nothing else to do, waits for the setup and claims it. */
-/* The setup's early publication (the outer clip passed, positions stored): the other CPU may take the second half now. */
-static void bal_setup_ready(void *frame) {
-    BAL_BARRIER(); /* the setup's record is stored before it is announced */
-    bal.adone = (uint32_t)(uintptr_t)frame;
-}
 /* Slave as the other CPU (the master holds the job): wait for its setup, then the second half if it is ours. */
 static void bal_slave_half(uint32_t f) {
 #if ENG_BAL_SPLIT != 3
@@ -761,11 +756,10 @@ static void bal_slave_own(uint32_t f) {
     cpu_cache_purge(); /* the backdrop, sky lines and bank the master wrote after the kick */
     BAL_BARRIER();
     const uint16_t t0 = cpu_frt_count_get();
-    bool ok = fzx_clouds_split_setup(&commands_buf[CMD_FIRST], FZX_SLAVE_ROAD_RESERVE - 1u, &fzx_native_view, &fzx_source_backdrop,
-                                     bal_setup_ready, (void *)(uintptr_t)f);
+    bool ok = fzx_clouds_split_setup(&commands_buf[CMD_FIRST], FZX_SLAVE_ROAD_RESERVE - 1u, &fzx_native_view, &fzx_source_backdrop);
     BAL_BARRIER();
     bal.ok = ok ? 1u : 0u;
-    bal.adone = f; /* the setup is out (also when it ended early or failed: the master stops on bal.ok) */
+    bal.adone = f; /* the setup is out (also when it failed: the master stops on bal.ok) */
     if (ok) ok = fzx_clouds_split_half0(&fzx_native_view, &fzx_source_backdrop);
     const uint32_t n = fzx_clouds_split_count();
 #if ENG_BAL_SPLIT != 3
@@ -1118,10 +1112,9 @@ static void build(row_t *row, const fzx_engine_cam_t *cam, uint32_t tick, uint16
          * track and fills are done and the setup is out, or this one when it gets there first). */
         ++fzx_bal_split[7];
         const uint16_t sp0 = cpu_frt_count_get();
-        if (!fzx_clouds_split_setup(&commands[CMD_FIRST], FZX_SLAVE_ROAD_RESERVE - 1u, &fzx_native_view, &fzx_source_backdrop,
-                                    bal_setup_ready, (void *)(uintptr_t)bf))
+        if (!fzx_clouds_split_setup(&commands[CMD_FIRST], FZX_SLAVE_ROAD_RESERVE - 1u, &fzx_native_view, &fzx_source_backdrop))
             fail(23, "CLOUDS", fzx_clouds_rbg.fault);
-        BAL_BARRIER(); /* the setup's record is stored before it is announced (also when it ended early) */
+        BAL_BARRIER(); /* the setup's record is stored before it is announced */
         bal.adone = bf;
         const uint16_t sp1 = cpu_frt_count_get();
         if (!fzx_clouds_split_half0(&fzx_native_view, &fzx_source_backdrop))
@@ -1147,14 +1140,14 @@ static void build(row_t *row, const fzx_engine_cam_t *cam, uint32_t tick, uint16
          * of the fade bands, once the slave's setup is out, unless the slave claims it first. */
         const uint16_t th0 = cpu_frt_count_get();
         if (bal.adone != bf) { ++fzx_bal_split[14]; while (bal.adone != bf) {} }
-        /* The record is out early (the setup's outer clip passed), so bal.ok is not yet this frame's: a setup that
-         * fails is fatal at the master's collection below, whatever this part did. */
+        if (bal.ok) {
 #if ENG_BAL_SPLIT == 1
-        if (bal_claim2.want_b == bf) ++fzx_bal_split[2];
-        bal_b_mine = sh2z_claim_a(&bal_claim2, bf);
+            if (bal_claim2.want_b == bf) ++fzx_bal_split[2];
+            bal_b_mine = sh2z_claim_a(&bal_claim2, bf);
 #else
-        bal_b_mine = true;
+            bal_b_mine = true;
 #endif
+        }
         if (bal_b_mine) {
             fzx_clouds_split_b(&fzx_native_view, &fzx_source_backdrop);
             fzx_bal_split[10] += (uint16_t)(cpu_frt_count_get() - th0);

@@ -25,11 +25,7 @@ bool fzx_clouds_rbg_prepare(const fzx_view_t *,const RefBackdrop *,
  * quad, in that order. The parts' output together equals fzx_clouds_rbg_prepare's. SETUP stores what the bands need in
  * the split record; HALF1 reads it (and writes only the counters of its own out and its emit's context). */
 enum { FZX_CLOUDS_SETUP=1, FZX_CLOUDS_HALF0=2, FZX_CLOUDS_HALF1=4, FZX_CLOUDS_ALL=7 };
-/* bands: the setup passed the outer clip, so the fade bands may be started (the record's positions and inner are valid);
- * valid: the setup finished with bands wanted (visible lines): when 0 the second half's output is discarded (it ran
- * speculatively). ready (optional): called once, by the setup, as soon as bands is set, so the part-B CPU can start
- * before the mapping and the window are done. */
-typedef struct { int32_t positions[8][3]; int32_t inner; uint32_t bands,valid; void (*ready)(void *); void *ready_arg; } fzx_clouds_split_t;
+typedef struct { int32_t positions[8][3]; int32_t inner; uint32_t bands; } fzx_clouds_split_t;
 bool fzx_clouds_rbg_prepare_part(const fzx_view_t *,const RefBackdrop *,
                                  fzx_clouds_rbg_t *,fzx_floor_emit_fn,void *,unsigned parts,fzx_clouds_split_t *);
 #endif

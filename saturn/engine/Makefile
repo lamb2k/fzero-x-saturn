@@ -253,7 +253,8 @@ ENG_SND ?= $(if $(filter 1,$(FZX_E1_DRIVE)),$(if $(filter 1,$(ENG_CDDA)),0,1),0)
 # Only the scenes image has menus: On by default there with sound; ENG_SND_MENU=0 is the control (the image as it was).
 ENG_SND_MENU ?= $(if $(filter 1,$(ENG_SCENES)),$(filter 1,$(ENG_SND)),0)
 ENG_SND_MENU := $(if $(filter 1,$(ENG_SND_MENU)),1,0)
-# ENG_SND_MENU_TEST=1: capture-only test hooks (a disc read under a hold on the title screen, probe pads), never shipped.
+# ENG_SND_MENU_TEST=1: capture-only test hooks (a disc read under a hold on the title screen, probe words), never shipped;
+# 2: the same with engine_snd_leave stopping the menu effects too (the control of the effects-through-LOAD check).
 ENG_SND_MENU_TEST ?= 0
 # Course (tools/course_catalog.py): its asset set comes from generated/ for the first course and
 # from generated/courses/<ENG_COURSE> for the others; the music defaults to the course's own
@@ -451,7 +452,7 @@ SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter 0,$(E0_PRELUDE_WINDOW)),-pw0,)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter 0,$(E0_PRELUDE_DIV)),-pd0,)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter 1,$(ENG_CDDA)),-cdda$(ENG_CDDA_MUSIC)$(if $(filter-out 0,$(ENG_CDDA_LOOPTEST)),-lt$(ENG_CDDA_LOOPTEST),),)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter 1,$(ENG_SND)),-snd$(ENG_SND_MUSIC)$(if $(filter-out 0,$(ENG_SND_FADETEST)),-ft$(ENG_SND_FADETEST),),)
-SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter 1,$(ENG_SND_MENU_TEST)),-smt,)
+SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter-out 0,$(ENG_SND_MENU_TEST)),-smt$(ENG_SND_MENU_TEST),)
 # Master/slave balance (claude/balance); each 0 = the frame split as it was.
 # ENG_BAL_CLOUDS: the cloud prepare on either SH-2 (drive images, banks, ENG_PACE=4): 1 always on the
 #   slave after its track; 2 the slave takes it when its track ends before the master reaches it

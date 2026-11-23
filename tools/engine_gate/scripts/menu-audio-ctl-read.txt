@@ -1,0 +1,11 @@
+# Control of menu-audio.txt's disc check: the same read with no hold, music playing (poke 6). The reads-under-music
+# counter must count it. Needs ENG_SND_MENU_TEST=1.
+until 1 1 3000
+wait 4
+poke _fzx_menu_test+20 1
+wait 150
+mark r_title_music
+poke _fzx_menu_test 6
+untilword _fzx_menu_test 1 1 900
+wait 60
+mark r_read_done

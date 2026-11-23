@@ -490,7 +490,9 @@ void engine_snd_leave(uint32_t frames) {
 #if ENG_SND_MENU
     for (uint32_t s = 0; s < SH2Z_SND_SLOTS; ++s) {
         if (s == 16u || s == 17u) continue;
+#if ENG_SND_MENU_TEST != 2   /* 2: the control, leave stops them like every other voice */
         if (s >= ENG_SND_MENU_SLOT0 && s < ENG_SND_MENU_SLOT0 + ENG_SND_MENU_SLOTS) continue;   /* a confirm effect rings through LOAD */
+#endif
         sh2z_snd_stop(&snd, s);
     }
     engine_snd_menu_reset();

@@ -259,7 +259,7 @@ static bool race_regs_kept, retry_entering;
 #if ENG_SND_MENU_TEST
 /* Capture-only test hooks (ENG_SND_MENU_TEST=1, never shipped): the script pokes fzx_menu_test[0] and title_tick runs
  * [1]: a disc read under a hold, [2]: a hold granted then released unread (a cancel), [3]: a hold, then a newer music
- * request (select) before the release, [4]: music off, 0x1nn: post effect nn. [1] cycles completed, [2] reads done, [3] read result (1 ok), [4] frames the last
+ * request (select) before the release, [4]: music off, [6]: a read with no hold, [7]: a hold never released (controls), 0x1nn: post effect nn. [1] cycles completed, [2] reads done, [3] read result (1 ok), [4] frames the last
  * hold took to be granted, [5] 1: hold the title's demo timer off, [6] 1: no music requests, [7] 1: no effects. */
 volatile uint32_t fzx_menu_test[8] __attribute__((section(".bss.lowcold.menu_test")));
 #undef MENU_SE
@@ -567,8 +567,19 @@ static void menu_test_tick(void) {
     if (fzx_menu_test[5]) title_ticks = 100u;   /* hold the title's demo timer off while the script tests */
 #endif
     if (!cmd) { waited = 0; return; }
-    if (cmd & 0x100u) { engine_snd_menu_se(cmd & 0xFFu); fzx_menu_test[0] = 0; ++fzx_menu_test[1]; return; }   /* post one effect */
+    if (cmd & 0x100u) { if (!fzx_menu_test[7]) engine_snd_menu_se(cmd & 0xFFu); fzx_menu_test[0] = 0; ++fzx_menu_test[1]; return; }   /* post one effect */
     if (cmd == 4u) { engine_snd_menu_music(ENG_SND_BGM_NONE); fzx_menu_test[0] = 0; ++fzx_menu_test[1]; return; }   /* music off */
+    if (cmd == 6u) {   /* control: the same read with no hold (music playing) */
+        uintptr_t scratch = ((uintptr_t)sat_stub_data_end + 31u) & ~(uintptr_t)31u;
+        fzx_menu_test[3] = fzx_texture_cd_load("TITLE.PAK", FZX_TITLE_BYTES, FZX_TITLE_HASH, (void *)title_cart, (void *)scratch, 4096u) ? 1u : 2u;
+        ++fzx_menu_test[2]; fzx_menu_test[0] = 0; ++fzx_menu_test[1];
+        return;
+    }
+    if (cmd == 7u) {   /* control: a hold that is never released */
+        (void)engine_snd_disc_acquire();
+        fzx_menu_test[0] = 0; ++fzx_menu_test[1];
+        return;
+    }
     if (!engine_snd_disc_acquire()) { ++waited; return; }          /* granted: the drive is quiet */
     fzx_menu_test[4] = waited;
     if (cmd == 1u) {

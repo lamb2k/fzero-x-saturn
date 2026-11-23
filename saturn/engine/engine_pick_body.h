@@ -66,6 +66,14 @@ static uint8_t cap_kept[FZX_EPATH_MAX_CHUNKS], cap_wait[FZX_EPATH_MAX_CHUNKS];
 static uint16_t cap_list[CAP_LIST];
 static int32_t cap_depth[CAP_LIST];
 volatile uint32_t fzx_e0_cap_dropped;
+#if ENG_PICK_AHEAD
+/* ENG_PICK_AHEAD: while an early pick runs (cap_undo_on), the cap's changes are logged so they can be undone: the old state of
+ * every chunk the pick ranked (at most CAP_LIST), taken before the first change to it, and the frame counter. */
+typedef struct { uint32_t last; uint16_t chunk; uint8_t kept, wait; } cap_undo_t;
+static cap_undo_t cap_undo[CAP_LIST];
+static uint32_t cap_undo_n, cap_undo_frame, cap_undo_dropped;
+static bool cap_undo_on;
+#endif
 static uint32_t run_span(const sh2z_segmesh_run_t *r, uint32_t n) {
     return r->start == r->end ? n : (uint32_t)((r->end + n - r->start) % n);
 }
@@ -87,6 +95,9 @@ static bool cap_stable(const fzx_engine_pick_t *pv, uint32_t runs, RefRoadPlan *
     uint32_t kept = 0;
     for (uint32_t r = 0; r < m; ++r) {
         const uint32_t c = cap_list[r];
+#if ENG_PICK_AHEAD
+        if (cap_undo_on) { cap_undo[r].last = cap_last[c]; cap_undo[r].chunk = (uint16_t)c; cap_undo[r].kept = cap_kept[c]; cap_undo[r].wait = cap_wait[c]; cap_undo_n = r + 1u; }
+#endif
         if (cap_last[c] + 1u != cap_frame) { cap_kept[c] = r < N; cap_wait[c] = 0; }
         else if (cap_kept[c]) { if (r >= N + 2u) { cap_kept[c] = 0; cap_wait[c] = 0; } }
         else if (r + 2u < N) { if (++cap_wait[c] >= 4u) { cap_kept[c] = 1; cap_wait[c] = 0; } }
@@ -207,18 +218,16 @@ bool fzx_engine_slave_pick(void) {
  * on the same inputs the road job would use, so when the step takes the prediction the road job skips its pick (pre = 1) and
  * finds the plan, the run list and the cap's state exactly as its own pick would have left them. When the step does not take
  * the prediction (another tick count, another pad word, a restarted race) the early pick is undone, the cap's hysteresis
- * state restored to what it was before it, and the road job picks as before. */
-#if E0_CAP_STABLE
-static uint32_t early_cap_last[FZX_EPATH_MAX_CHUNKS], early_cap_frame, early_cap_dropped;
-static uint8_t early_cap_kept[FZX_EPATH_MAX_CHUNKS], early_cap_wait[FZX_EPATH_MAX_CHUNKS];
-#endif
+ * state restored (an undo log of what the pick changed) to what it was before it, and the road job picks as before. */
 static bool early_done, early_ok;
 bool fzx_engine_slave_pick_early(void) {
 #if E0_CAP_STABLE
-    memcpy(early_cap_last, cap_last, sizeof(cap_last)); early_cap_frame = cap_frame; early_cap_dropped = fzx_e0_cap_dropped;
-    memcpy(early_cap_kept, cap_kept, sizeof(cap_kept)); memcpy(early_cap_wait, cap_wait, sizeof(cap_wait));
+    cap_undo_frame = cap_frame; cap_undo_dropped = fzx_e0_cap_dropped; cap_undo_n = 0; cap_undo_on = true;
 #endif
     early_ok = fzx_engine_slave_pick();
+#if E0_CAP_STABLE
+    cap_undo_on = false;
+#endif
     early_done = true;
     return early_ok;
 }
@@ -234,8 +243,11 @@ bool fzx_engine_slave_pick_for_job(bool pre) {
     if (early_done) {
         early_done = false;
 #if E0_CAP_STABLE
-        memcpy(cap_last, early_cap_last, sizeof(cap_last)); cap_frame = early_cap_frame; fzx_e0_cap_dropped = early_cap_dropped;
-        memcpy(cap_kept, early_cap_kept, sizeof(cap_kept)); memcpy(cap_wait, early_cap_wait, sizeof(cap_wait));
+        for (uint32_t r = cap_undo_n; r-- > 0;) {   /* newest first: a chunk ranked twice ends at its oldest state */
+            const uint32_t c = cap_undo[r].chunk;
+            cap_last[c] = cap_undo[r].last; cap_kept[c] = cap_undo[r].kept; cap_wait[c] = cap_undo[r].wait;
+        }
+        cap_frame = cap_undo_frame; fzx_e0_cap_dropped = cap_undo_dropped;
 #endif
     }
     return fzx_engine_slave_pick();

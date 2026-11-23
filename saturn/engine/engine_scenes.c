@@ -1240,7 +1240,10 @@ static bool results_enter(void *u, uint32_t s) {
 static void results_tick(void *u, uint32_t s) {
     (void)u; (void)s;
 #if ENG_GHOST
-    fzx_ghost_race_pump();   /* the queued ghost save: one backup-RAM file this frame, so RESULTS keeps its cadence */
+    {   /* the queued ghost save: one backup-RAM file a manager frame (not one per catch-up step: a write that holds the frame would book more) */
+        static uint32_t pumped_at = 0xFFFFFFFFu;
+        if (frame_fields != pumped_at) { pumped_at = frame_fields; fzx_ghost_race_pump(); }
+    }
 #endif
     if (results->editing) { name_tick(); return; }
     if ((input.edges & PAD_C) && (results->save == FZX_REC_FULL || results->save == FZX_REC_FAILED)) {

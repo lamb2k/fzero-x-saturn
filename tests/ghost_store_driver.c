@@ -76,11 +76,11 @@ int main(void) {
     check(!fzx_records_ghost_load(&got), "no ghost on a fresh card");
     n_writes = 0;
     save_all(&g1, &pumps);
-    const int chunks = (int)((size1 + 511u) / 512u);
+    const int chunks = (int)((size1 + 1023u) / 1024u);
     check(pumps == chunks && n_writes == chunks, "a save is one write per chunk file and the head (every write counted)");
     int over = 0, heads = 0;
-    for (int i = 0; i < n_writes; ++i) { over |= write_log[i][0] > 512u; heads += (int)write_log[i][1]; }
-    check(!over, "every backup write is at most one chunk (512 bytes)");
+    for (int i = 0; i < n_writes; ++i) { over |= write_log[i][0] > 1024u; heads += (int)write_log[i][1]; }
+    check(!over, "every backup write is at most one chunk (1024 bytes)");
     check(heads == 1 && write_log[n_writes - 1][1] == 1u, "the head file is written once, last (the commit)");
     check(fzx_ghost_store[11] == 1u && fzx_ghost_store[13] == 1u && fzx_ghost_store[5] == FZX_REC_OK, "one save begun, one completed, result OK");
     check(fzx_records_ghost_load(&got) && got.race_ms == 104040u && got.generation == 1u && !memcmp(&got, &g1, 8) && fzx_ghost_valid(&got, size1) &&
@@ -96,7 +96,7 @@ int main(void) {
     static struct { char name[16]; uint8_t data[FZX_GHOST_HEAD_BYTES + FZX_GHOST_STREAM_MAX + 64]; uint32_t size; int used; } snap[NFILES];
     memcpy(snap, files, sizeof(files));
     const uint32_t size2 = FZX_GHOST_FILE_BYTES(&g2);
-    const int chunks2 = (int)((size2 + 511u) / 512u);
+    const int chunks2 = (int)((size2 + 1023u) / 1024u);
     int cuts_ok = 0, cuts = 0, saw_old = 0, saw_new = 0;
     for (int k = 0; k <= chunks2; ++k) {
         const pid_t pid = fork();

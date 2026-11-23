@@ -5,9 +5,13 @@
 
 typedef char fzx_ghost_head_size_check[offsetof(fzx_ghost_t, stream) == FZX_GHOST_HEAD_BYTES ? 1 : -1];
 
+/* CRC-32 (reflected, 0xEDB88320), a nibble at a time: the bitwise loop cost about 14 ms for a 4.7 KB ghost on the Saturn, and the save runs it
+ * twice in the frame of the name commit (the stamp, and the recording's own). The result is the same CRC. */
 static uint32_t crc32(const uint8_t *p, uint32_t n) {
+    static const uint32_t nib[16] = { 0x00000000u, 0x1DB71064u, 0x3B6E20C8u, 0x26D930ACu, 0x76DC4190u, 0x6B6B51F4u, 0x4DB26158u, 0x5005713Cu,
+                                      0xEDB88320u, 0xF00F9344u, 0xD6D6A3E8u, 0xCB61B38Cu, 0x9B64C2B0u, 0x86D3D2D4u, 0xA00AE278u, 0xBDBDF21Cu };
     uint32_t c = 0xFFFFFFFFu;
-    while (n--) { c ^= *p++; for (unsigned k = 0; k < 8u; ++k) c = (c >> 1) ^ (0xEDB88320u & (0u - (c & 1u))); }
+    while (n--) { c ^= *p++; c = (c >> 4) ^ nib[c & 15u]; c = (c >> 4) ^ nib[c & 15u]; }
     return ~c;
 }
 static uint32_t body_crc(const fzx_ghost_t *g) {

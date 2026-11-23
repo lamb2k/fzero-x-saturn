@@ -194,7 +194,7 @@ class Modes(unittest.TestCase):
         self.assertNotIn('FAIL', out)
         for name, f in {
             'head first': lambda t: t.replace('gw.next = gw.n > 1u ? 1u : 0u;', 'gw.next = 0u;'),
-            'chunks of 600': lambda t: t.replace('#define GH_CHUNK 512u', '#define GH_CHUNK 600u'),
+            'chunks of 1200': lambda t: t.replace('#define GH_CHUNK 1024u', '#define GH_CHUNK 1200u'),
             'no generation on the head': lambda t: t.replace('ghost_gen[gw.slot] = gw.gen;', ''),
         }.items():
             with self.subTest(name):

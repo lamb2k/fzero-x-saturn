@@ -308,12 +308,12 @@ fzx_rec_result_t fzx_records_credits_seen(void) {
 /* The Time Attack ghost: one slot kept as two slots (A, B), written alternately with a generation, as the records are.
  * A slot is a head file (FZXGHO_A: the first GH_CHUNK bytes of the ghost image, the 44-byte header and the start of the stream) and
  * its chunk files (FZXGHO_A01, ...02: GH_CHUNK bytes each, the last the remainder). A backup-RAM write blocks its caller for as long
- * as it takes (about a field for 512 bytes on the emulator), so the save is a queue: fzx_records_ghost_save_begin stamps the image, and
+ * as it takes (about half a field for 1 KB on the emulator), so the save is a queue: fzx_records_ghost_save_begin stamps the image, and
  * fzx_records_ghost_pump writes one chunk file per menu frame (RESULTS keeps presenting every two fields); the head file goes last and
  * is the commit. Until it is written the target slot is not a valid ghost (a stale head with new chunks fails the whole-image CRC and
  * the decode), so a power cut leaves the other slot, the previous best. A head file as large as the whole image (the first format)
  * is read as one piece. */
-#define GH_CHUNK 512u
+#define GH_CHUNK 1024u
 #define GH_MAX_CHUNKS ((FZX_GHOST_HEAD_BYTES + FZX_GHOST_STREAM_MAX + GH_CHUNK - 1u) / GH_CHUNK)
 static const char *const ghost_file[2] = { "FZXGHO_A", "FZXGHO_B" };
 static fzx_ghost_t ghost_io;            /* one image; high work RAM, like `io` */

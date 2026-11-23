@@ -6,7 +6,7 @@
 #include "engine_mode_entry.h"
 #include "engine_cup.h"
 
-static uint8_t avail(uint8_t c) { return c == 0 ? (FZX_AVAIL_TA | FZX_AVAIL_GP) : c == 1 ? FZX_AVAIL_TA : 0; }
+static uint8_t avail(uint8_t c) { return c == 0 ? (FZX_AVAIL_TA | FZX_AVAIL_GP | FZX_AVAIL_DEATH) : c == 1 ? FZX_AVAIL_TA : 0; }
 static bool machine_ok(uint16_t m) { return m < 30u; }
 static bool class_locked(uint8_t d) { return d < 3u; }
 static bool class_open(uint8_t d) { (void)d; return true; }

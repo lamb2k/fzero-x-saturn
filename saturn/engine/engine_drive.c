@@ -476,30 +476,31 @@ static uint32_t isqrt64(uint64_t v) {
 }
 
 #if ENG_PICK_AHEAD
-/* ENG_PICK_AHEAD: the camera of any body (the ahead stage computes the next frame's); `body` below is the parameter. */
+/* ENG_PICK_AHEAD: the camera of any body (the ahead stage computes the next frame's); BP is the body it reads. */
 static void camera_of(fzx_engine_cam_t *cam, const fzx_engine_cam_t *lens, const sh2z_vd_body_t *cam_body, uint32_t *roll_limited) {
-#define body (*cam_body)
+#define BP cam_body
 #define ROLL_LIMITED_INC (++*roll_limited)
 #else
 void fzx_drive_camera(fzx_engine_cam_t *cam, const fzx_engine_cam_t *lens) {
+#define BP (&body)
 #define ROLL_LIMITED_INC (++fzx_e1_roll_limited)
 #endif
 #if E1_CLOSEUP == 1
     /* Stills only: fzx_e1_cam_orbit 1 swings the chase camera 135 degrees around the car's
      * up axis (a front three-quarter view), 2 by 90 degrees (side); 0 is the chase camera. */
     int32_t orbit_f[3];
-    const int32_t *f = body.body[0], *u = body.body[1];
+    const int32_t *f = BP->body[0], *u = BP->body[1];
     if (fzx_e1_cam_orbit == 1u || fzx_e1_cam_orbit == 2u) {
         const int32_t oc = fzx_e1_cam_orbit == 1u ? -759250125 : 0, os = fzx_e1_cam_orbit == 1u ? 759250125 : 1073741824;
-        for (unsigned i = 0; i < 3u; ++i) orbit_f[i] = mul30(oc, f[i]) + mul30(os, body.body[2][i]);
+        for (unsigned i = 0; i < 3u; ++i) orbit_f[i] = mul30(oc, f[i]) + mul30(os, BP->body[2][i]);
         f = orbit_f;
     }
 #else
-    const int32_t *f = body.body[0], *u = body.body[1];
+    const int32_t *f = BP->body[0], *u = BP->body[1];
 #endif
     int32_t cf[3], cu[3], r0[3];
     for (unsigned i = 0; i < 3u; ++i) {
-        cam->eye[i] = body.pos[i] + mul30(EYE_F, f[i]) + mul30(EYE_U, u[i]);
+        cam->eye[i] = BP->pos[i] + mul30(EYE_F, f[i]) + mul30(EYE_U, u[i]);
         cf[i] = mul30(PITCH_C, f[i]) - mul30(PITCH_S, u[i]);
         cu[i] = mul30(PITCH_S, f[i]) + mul30(PITCH_C, u[i]);
     }
@@ -546,8 +547,8 @@ void fzx_drive_camera(fzx_engine_cam_t *cam, const fzx_engine_cam_t *lens) {
     } else { cam->xzn[0] = 1 << 30; cam->xzn[1] = 0; }
 }
 #undef ROLL_LIMITED_INC
+#undef BP
 #if ENG_PICK_AHEAD
-#undef body
 void fzx_drive_camera(fzx_engine_cam_t *cam, const fzx_engine_cam_t *lens) {
     uint32_t limited = 0;
     camera_of(cam, lens, &body, &limited);

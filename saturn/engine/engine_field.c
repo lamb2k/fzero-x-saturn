@@ -296,7 +296,27 @@ static void line_pose(const sh2z_track_state_t *t, int32_t pos[3], int32_t f[3],
 #if E2_FASTPOSE
 /* line_pose without renormalising: the station rows interpolated in Q1.14 (stations are
  * 64 units apart, so the rows stay unit length to well under 0.1%). Render only. */
+#if ENG_ATTACKS
+static void line_pose_fast_calc(const sh2z_track_state_t *t, int32_t pos[3], int16_t rows[3][3]);
+/* A pose is a function of the state's node, distance and lateral (and the line, fixed once loaded). The cars' poses for the picture and
+ * the contact's poses for the same tick's field state are asked for with the same state: the second asker takes the first's answer. */
+typedef struct { uint32_t node; int32_t dist, lateral, pos[3]; int16_t rows[3][3]; } pose_memo_t;
+static pose_memo_t pose_memo[FZX_FIELD_CARS];
 static void line_pose_fast(const sh2z_track_state_t *t, int32_t pos[3], int16_t rows[3][3]) {
+    const uintptr_t off = (uintptr_t)t - (uintptr_t)veh;
+    if (off >= sizeof(veh) || off % sizeof(veh[0])) { line_pose_fast_calc(t, pos, rows); return; }
+    pose_memo_t *m = &pose_memo[off / sizeof(veh[0])];
+    if (m->node != t->node || m->dist != t->dist || m->lateral != t->lateral) {
+        line_pose_fast_calc(t, m->pos, m->rows);
+        m->node = t->node; m->dist = t->dist; m->lateral = t->lateral;
+    }
+    pos[0] = m->pos[0]; pos[1] = m->pos[1]; pos[2] = m->pos[2];
+    for (int r = 0; r < 3; ++r) { rows[r][0] = m->rows[r][0]; rows[r][1] = m->rows[r][1]; rows[r][2] = m->rows[r][2]; }
+}
+static void line_pose_fast_calc(const sh2z_track_state_t *t, int32_t pos[3], int16_t rows[3][3]) {
+#else
+static void line_pose_fast(const sh2z_track_state_t *t, int32_t pos[3], int16_t rows[3][3]) {
+#endif
     const uint32_t n = t->node < line.count ? t->node : 0u, m = n + 1u < line.count ? n + 1u : 0u;
     const station_t *a = &stations[n], *b = &stations[m];
     const int32_t d = t->dist - nodes[n].start;
@@ -480,6 +500,9 @@ bool fzx_field_load(const sh2z_vd_track_t *track, const sh2z_vd_body_t *player) 
     }
 #endif
     memset(veh, 0, sizeof(veh)); memset(brain, 0, sizeof(brain));
+#if ENG_ATTACKS && E2_FASTPOSE
+    for (uint32_t i = 0; i < FZX_FIELD_CARS; ++i) pose_memo[i].node = 0xFFFFFFFFu;   /* no state has this node: the line changed */
+#endif
 #if E2_PACK
     player_crossed = 0; player_last_dist = -1;
 #endif

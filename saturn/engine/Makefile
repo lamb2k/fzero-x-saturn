@@ -805,7 +805,7 @@ endif
 # sky gradient need not be monotonic in brightness (a sunset), so sky bands pick their colour by distance.
 SH_CFLAGS += $(if $(filter 1,$(FZX_E1_DRIVE)),$(if $(filter 1,$(ENG_TUBES)),-DFZX_PHYS_TUBES=1,),)
 SH_CFLAGS += $(if $(filter 1,$(FZX_E1_DRIVE)),$(if $(filter-out 0,$(ENG_LOCATE_FAR)),-DSH2Z_VD_LOCATE_FAR=$(ENG_LOCATE_FAR) -DSH2Z_VD_LOCATE_FAR_RUN=$(ENG_LOCATE_FAR_RUN),),)
-SH_CFLAGS += $(if $(filter 1,$(FZX_E1_DRIVE)),$(if $(filter-out 0,$(ENG_LOCATE_DAMP)),-DSH2Z_VD_LOCATE_DAMP=$(ENG_LOCATE_DAMP),)$(if $(filter-out 0,$(ENG_LOCATE_FLIP)),-DSH2Z_VD_LOCATE_FLIP=$(ENG_LOCATE_FLIP),),)
+SH_CFLAGS += $(if $(filter 1,$(FZX_E1_DRIVE)),$(if $(filter-out 0,$(ENG_LOCATE_DAMP)),-DSH2Z_VD_LOCATE_DAMP=$(ENG_LOCATE_DAMP) ,)$(if $(filter-out 0,$(ENG_LOCATE_FLIP)),-DSH2Z_VD_LOCATE_FLIP=$(ENG_LOCATE_FLIP),),)
 SH_CFLAGS += $(if $(E4_PROW_ROWS),-DE0_PROW_ROWS=$(E4_PROW_ROWS)u,)
 SH_CFLAGS += $(if $(GCREL),-DENG_COURSE_SKYLINE=1 -DFZX_ROAD_STREAM_TEXTURE_LIMIT=240000u -DFZX_ROAD_STREAM_PACK_LIMIT=240000u -DFZX_SKY_LINEAR_PICK=1 -DENG_COURSE_INDEX=$(COURSE_INDEX_$(ENG_COURSE)),)
 ifeq ($(ENG_COURSE_SELECT),1)

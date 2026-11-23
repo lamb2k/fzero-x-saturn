@@ -920,6 +920,12 @@ static int32_t roster_focal;
  * 5 CLUT room), [1] sets bound, [2] near draws, [3] far draws, [4] cartridge base, [5] bytes,
  * [6] sets whose yaw bins climb (E2_EMIT_YAW). */
 volatile uint32_t fzx_e2_roster[8];
+#if FZX_FIELD_IDENT
+/* What each rival's sprites were bound from, read back by the Practice fixture: the machine (stock family) and the near set's
+ * address in the cartridge, per vehicle (0, the player, stays 0xFF / 0). */
+volatile uint8_t fzx_e2_roster_machine[FZX_FIELD_CARS];
+volatile uint32_t fzx_e2_roster_set[FZX_FIELD_CARS];
+#endif
 volatile uint32_t fzx_e2_far_scale = 0x5000; /* below this near-set scale (Q16) a rival draws its far set */
 static uint32_t be32(const uint8_t *e) { return ((uint32_t)e[0] << 24) | ((uint32_t)e[1] << 16) | ((uint32_t)e[2] << 8) | e[3]; }
 static const sh2z_rspr_set_t *roster_find(const uint8_t *pak, const char key[8], const char prof[4]) {
@@ -980,6 +986,9 @@ bool fzx_drive_roster_load(void *scratch, uint32_t scratch_bytes, uintptr_t cart
             for (uint32_t b = 0; b < (uint32_t)set->clut_count * 32u; b += 2u)
                 *(volatile uint16_t *)(clut_cpu + next * 32u + b) = (uint16_t)((src[b] << 8) | src[b + 1]);
             roster[id][k].set = set; roster[id][k].clut = (uint16_t)next; roster[id][k].scale_num = 0;
+#if FZX_FIELD_IDENT
+            if (k == 0u) { fzx_e2_roster_machine[id] = (uint8_t)fam; fzx_e2_roster_set[id] = (uint32_t)(uintptr_t)set; }
+#endif
 #if E2_EMIT_YAW
             roster[id][k].convex = sh2z_rspr_yaw_convex(set) ? 1u : 0u;
             fzx_e2_roster[6] += roster[id][k].convex; /* sets that climb */

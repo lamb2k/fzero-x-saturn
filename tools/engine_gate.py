@@ -12,7 +12,7 @@ a private WSL stage, runs them under the one Ymir harness (ymir-gate), scores th
 Exit status: 0 when every check passes (and, with --controls, every control fails as it should); 1 otherwise.
 Nothing ROM-derived leaves the stage or the evidence folder: the receipt holds hashes, counts and timings only.
 """
-import argparse, collections, concurrent.futures as cf, datetime, hashlib, json, os, re, shutil, struct, subprocess, sys, time
+import argparse, collections, concurrent.futures as cf, copy, datetime, hashlib, json, os, re, shutil, struct, subprocess, sys, time
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
@@ -34,6 +34,7 @@ DEF_RECEIPTS = local('FZX_GATE_RECEIPTS', 'receipts', EV_ROOT / 'host' / 'gate-r
 DEF_HARNESS = local('FZX_GATE_HARNESS', 'harness', HARNESS_DIR / 'ymir-gate.exe')
 DEF_BIOS = local('FZX_GATE_BIOS', 'bios', HARNESS_DIR / 'bios.bin')
 DEF_SH2ZAM = local('FZX_GATE_SH2ZAM', 'sh2zam', REPO.parent / 'SH2ZAM')
+DEF_PRACTICE = local('FZX_GATE_PRACTICE', 'practice_expected', EV_ROOT / 'host' / 'practice-expected' / 'practice-expected.json')
 DEF_MUSIC = local('FZX_GATE_MUSIC', 'music', EV_ROOT / 'host' / 'claude-snd' / 'music-all')
 DISTRO = os.environ.get('FZX_GATE_DISTRO', 'Ubuntu-24.04')
 FIELD_MS = 1000.0 / 59.94
@@ -230,6 +231,25 @@ def check_controls(matrix):
         raise SystemExit('matrix: ctl-smpc must keep expect_error, expect_open, expect_mark_not=title and its pair')
 
 
+def _swap(a, i, j):
+    a[i], a[j] = a[j], a[i]
+    return a
+
+
+# Practice fixture controls: each edits a copy of what the image reported (the expected rows are never touched).
+PR_OBS_MUT = {
+    'roster': lambda o: dict(o, roster=_swap(o['roster'], 1, 2)),          # two rivals' sprites swapped: still 29 distinct machines
+    'entrants': lambda o: dict(o, machine=_swap(o['machine'], 3, 4)),      # two rows' machines swapped in the field
+    'grid': lambda o: dict(o, grid=_swap(o['grid'], 3, 4)),                # still places 1..30, wrong order
+    'gridsrc': lambda o: dict(o, src=2),                                    # the right grid from the wrong source
+    'seed': lambda o: dict(o, ident=o['ident'][:2] + [o['ident'][2] + 1] + o['ident'][3:]),
+    'count': lambda o: dict(o, ident=o['ident'][:1] + [o['ident'][1] - 1] + o['ident'][2:]),
+}
+PR_ARCH_MUT = {
+    'bundle': lambda a: dict(a, bundle_rows_match=False, bundle_diffs=['control: a row of the linked bundle edited']),
+}
+
+
 class Gate:
     def __init__(self, args, matrix):
         self.a, self.m = args, matrix
@@ -285,6 +305,7 @@ class Gate:
             return dict(name=name, vars=vars_, ok=False, error=out[-1500:])
         if not self.a.keep:
             (d / 'fzs-engine.map').unlink(missing_ok=True)
+        self.archive_practice(d)
         return dict(name=name, vars=vars_, ok=True, bin=sha256(d / 'fzs-engine.bin'), dir=str(d),
                     outdir=(d / 'outdir.txt').read_text().strip())
 
@@ -429,6 +450,9 @@ class Gate:
     def host_check(self, name, kv, chk, host, full_final, sink=None, prefix='', against=''):
         """SH-2 against HOST: every checkpoint the image wrote equals HOST's, the finish (or retirement) matches, and
         for a race run to the reference's end, the final state hash too."""
+        if host is None:
+            self.add('host', name, False, 'no HOST reference (fails closed)', sink=sink)
+            return
         e1 = lambda i: kv.get('%s_fzx_e1_report%d' % (prefix, i), kv.get('e1_report%d' % i))
         n = len(chk)
         hostc = dict(host['chk'])
@@ -548,23 +572,117 @@ class Gate:
                 self.add('host', name, False, 'no RESULTS mark', error_text(run_dir), sink=sink)
         self.menus_check(name, lines, sink)
 
-    # -- Practice course rows (claude/modes; C-166 item 1) ----------------------------------------------------------------
-    def practice_rows(self):
-        """fzx_course_field_practice [course row][class][vehicle][8] from the stage's generated bundle (the rows the image links)."""
-        if getattr(self, '_pr_rows', None) is None:
-            rc, out = self.stage_cmd('cat', self.stage, 'generated/courses/select/course_practice.c', check=False)
-            vals = [int(x) for x in re.findall(r'-?\d+', out.split('= {', 1)[1])] if rc == 0 and '= {' in out else []
-            self._pr_rows = vals if len(vals) == 6 * 4 * 30 * 8 else []
-        return self._pr_rows
+    # -- Practice course rows (claude/modes; C-166 item 1, C-169 item 1) ---------------------------------------------------
+    # The expectation is the HOST reference's own rows (tools/practice_expected.py reads the four fzx-gp-ref reports per course),
+    # never the stage's generated bundle: that is the file the image links, and a bundle that agrees with itself says nothing. The
+    # image's live state at race_start (the field's identity, the machines its rows and its sprites were built from, the grid and
+    # where it came from) is compared with it exactly. The expected file and the stage bundle's identity are archived next to
+    # the BIN (practice-identity.json) when the image is built, so a rescore needs neither the stage nor the current tree.
+    PR_CLASSES = 4
 
-    def practice_fixture(self, name, run_dir, build_dir, lines, mk, sym, want, mutate=None, sink=None):
+    @staticmethod
+    def parse_practice_rows(text):
+        vals = [int(x) for x in re.findall(r'-?\d+', text.split('= {', 1)[1])] if '= {' in text else []
+        return vals
+
+    def archive_practice(self, d):
+        """After a build whose image carries the live field identity: write practice-identity.json (BIN hash, the expected rows
+        and their hash, the stage bundle's text hashes, and whether the bundle's rows equal the expected ones)."""
+        d = Path(d)
+        if '_fzx_field_ident' not in (d / 'fzs-engine.sym').read_text():
+            return
+        sys.path.insert(0, str(TOOLS))
+        import practice_expected
+        doc = dict(schema='fzx-practice-identity-1', bin=sha256(d / 'fzs-engine.bin'))
+        try:
+            exp = practice_expected.load(self.a.practice_expected)
+            doc['expected'] = exp
+            doc['expected_sha256'] = exp['sha256']
+        except (SystemExit, OSError, ValueError) as e:
+            doc['error'] = 'expected rows: %s' % e
+            (d / 'practice-identity.json').write_text(json.dumps(doc, indent=1, sort_keys=True) + '\n')
+            return
+        texts = {}
+        for n in ('course_practice.c', 'course_practice.h', 'course_practice.receipt'):
+            rc, out = self.stage_cmd('cat', self.stage, 'generated/courses/select/' + n, check=False)
+            texts[n] = out if rc == 0 else None
+        doc['bundle'] = {n: (hashlib.sha256(t.encode()).hexdigest() if t is not None else None) for n, t in texts.items()}
+        diffs = []
+        rows = self.parse_practice_rows(texts['course_practice.c'] or '')
+        n = len(self.m['courses'])
+        if len(rows) != n * self.PR_CLASSES * 30 * 8:
+            diffs.append('the stage bundle has %d values, want %d' % (len(rows), n * self.PR_CLASSES * 30 * 8))
+        else:
+            for c in self.m['courses']:
+                for k in range(self.PR_CLASSES):
+                    e = exp['courses'].get(c['slug'], {}).get(str(k))
+                    if e is None:
+                        diffs.append('%s class %d: not in the expected rows' % (c['slug'], k))
+                        continue
+                    base = (c['index'] * self.PR_CLASSES + k) * 240
+                    vr = [rows[base + 8 * i:base + 8 * i + 8] for i in range(30)]
+                    got = dict(grid=[v[0] for v in vr], energy=[v[3] for v in vr], machine=[v[5] for v in vr])
+                    for key in ('grid', 'energy', 'machine'):
+                        if got[key] != e[key]:
+                            diffs.append('%s class %d %s' % (c['slug'], k, key))
+        doc['bundle_diffs'] = diffs[:12]
+        doc['bundle_rows_match'] = not diffs
+        (d / 'practice-identity.json').write_text(json.dumps(doc, indent=1, sort_keys=True) + '\n')
+
+    @staticmethod
+    def practice_archive(build_dir):
+        p = Path(build_dir) / 'practice-identity.json'
+        if not p.is_file():
+            return None, 'no practice-identity.json next to the BIN (the image was not built by this gate with the expected rows)'
+        doc = json.loads(p.read_text())
+        if doc.get('error'):
+            return None, doc['error']
+        if doc.get('bin') != sha256(Path(build_dir) / 'fzs-engine.bin'):
+            return None, 'the archived identity is of another BIN'
+        sys.path.insert(0, str(TOOLS))
+        import practice_expected
+        if doc['expected'].get('sha256') != practice_expected.digest(doc['expected']) or doc.get('expected_sha256') != doc['expected']['sha256']:
+            return None, 'the archived expected rows do not match their hash'
+        return doc, ''
+
+    def practice_observed(self, mem, sym):
+        """The live state at race_start, as the image holds it."""
+        return dict(
+            ident=list(mem.words('fzx_field_ident', 8)),
+            machine=list(mem.raw(sym['_fzx_field_machine'], 30)),
+            roster=list(mem.raw(sym['_fzx_e2_roster_machine'], 30)),
+            roster_set=list(mem.words('fzx_e2_roster_set', 30)),
+            grid=list(mem.raw(sym['_fzx_field_grid'], 30)),
+            src=mem.words('fzx_field_grid_src', 1)[0],
+            report=mem.words('fzx_field_report', 16)[0])
+
+    @staticmethod
+    def first_diff(got, want):
+        d = [i for i in range(min(len(got), len(want))) if got[i] != want[i]]
+        return '%d of %d differ (first at vehicle %d: %s, want %s)' % (len(d), len(want), d[0], got[d[0]], want[d[0]]) if d else 'length %d, want %d' % (len(got), len(want))
+
+    def practice_fixture(self, name, run_dir, build_dir, lines, mk, sym, want, mutate=None, sink=None, mutate_arch=None):
         """The Practice fixture at RACE entry: the mode, class, course and pack identity, the player's machine and skin, the slider
-        bits, the loaded field, its start grid and the 29 distinct opponents (the machines of the rows the image links).
-        want: slug, index, mode, cls. mutate: a control's edit of the parsed rows (a missing opponent)."""
+        bits, and the live field against the frozen expected row: the vehicle count, the seed, the 30 entrants (the machine each
+        vehicle's row and each rival's sprites were built from) and the ordered start grid, which must come from the course header
+        (fzx_field_grid_src 1) and equal the HOST grid exactly. Fails closed on a missing archive, expected row or mark.
+        want: slug, index, row, mode, cls. mutate: a control's edit of a copy of the observed state (the oracle is never touched)."""
         why = []
         if 'race_start' not in mk:
             self.add('fixture', name, False, 'no race_start mark', error_text(run_dir), sink=sink)
             return False
+        arch, err = self.practice_archive(build_dir)
+        if arch is not None and mutate_arch:
+            arch = mutate_arch(copy.deepcopy(arch))
+        if arch is None:
+            self.add('fixture', name, False, 'FIXTURE FAILED, %s' % err, 'the expected rows are archived with the BIN when the gate builds it', sink=sink)
+            return False
+        exp = arch['expected']['courses'].get(want['slug'], {}).get(str(want['cls']))
+        if exp is None:
+            self.add('fixture', name, False, 'FIXTURE FAILED, no expected row for %s class %d' % (want['slug'], want['cls']), sink=sink)
+            return False
+        if not arch.get('bundle_rows_match'):
+            why.append('the linked bundle differs from the HOST rows (%s)' % '; '.join(arch.get('bundle_diffs', [])[:3]))
         mem = Mem(run_dir, 'race_start', sym)
         ses = struct.unpack('>HBBHBBBBBBI', mem.raw(sym['_fzx_session'], 16))
         version, mode, course, machine, skin, players, diff, cup, pr, conf, slider = ses
@@ -576,36 +694,76 @@ class Gate:
             why.append('course %d, want %d (%s)' % (course, want['index'], want['slug']))
         if mem.words('fzx_cid_index', 1)[0] != want['row']:
             why.append('course row %d, want %d' % (mem.words('fzx_cid_index', 1)[0], want['row']))
-        if machine != 0 or skin != 1 or slider != 0:
-            why.append('player machine %d skin %d slider bits %x, want 0 / 1 / 0' % (machine, skin, slider))
-        rep = mem.words('fzx_field_report', 16)
-        if rep[0] != 1:
-            why.append('field not loaded (report %d: solo or failed)' % rep[0])
-        grid = list(mem.raw(sym['_fzx_field_grid'], 30))
-        src = mem.words('fzx_field_grid_src', 1)[0]
-        if sorted(grid) != list(range(1, 31)):
-            why.append('start grid is not places 1..30')
-        rows = self.practice_rows()
-        opp = None
-        if not rows:
-            why.append('no practice bundle in the stage')
-        else:
-            if mutate:
-                rows = mutate(list(rows))
-            base = (want['row'] * 4 + want['cls']) * 240
-            vr = [rows[base + 8 * i:base + 8 * i + 8] for i in range(30)]
-            opp = [v[5] for v in vr[1:]]
-            if len(set(opp)) != 29 or vr[0][5] in opp or any(v[3] <= 0 for v in vr):
-                why.append('the 29 opponents are not 29 distinct machines with energy (%d distinct)' % len(set(opp)))
-            if src == 1 and grid != [v[0] for v in vr]:
-                why.append('start grid differs from the rows')
+        if machine != exp['machine'][0] or skin != 1 or slider != 0:
+            why.append('player machine %d skin %d slider bits %x, want %d / 1 / 0' % (machine, skin, slider, exp['machine'][0]))
+        obs = self.practice_observed(mem, sym)
+        if mutate:
+            obs = mutate(copy.deepcopy(obs))
+        ident = obs['ident']
+        if obs['report'] != 1:
+            why.append('field not loaded (report %d: solo or failed)' % obs['report'])
+        if ident[0] != 0x46494431:
+            why.append('no live field identity (magic %08x)' % ident[0])
+        if ident[1] != exp['count']:
+            why.append('field count %d, want %d' % (ident[1], exp['count']))
+        if ident[2] != exp['seed']:
+            why.append('field seed %d, want %d' % (ident[2], exp['seed']))
+        if (ident[3], ident[4], ident[5]) != (want['row'], want['cls'], want['mode']):
+            why.append('the field was built for row %d class %d mode %d, want %d / %d / %d' % (ident[3], ident[4], ident[5], want['row'], want['cls'], want['mode']))
+        if obs['machine'] != exp['machine']:
+            why.append('the field\'s entrants: %s' % self.first_diff(obs['machine'], exp['machine']))
+        if obs['roster'][1:] != exp['machine'][1:]:
+            why.append('the sprites\' roster: %s' % self.first_diff(obs['roster'][1:], exp['machine'][1:]))
+        rs = obs['roster_set'][1:]
+        mach = obs['roster'][1:]
+        if (len(set(rs)) != len(set(mach)) or any(x == 0 or x & 3 for x in rs)
+                or any((rs[a] == rs[b]) != (mach[a] == mach[b]) for a in range(len(rs)) for b in range(a))):
+            why.append('rival sprite sets are not one per machine')
+        if obs['src'] != 1:
+            why.append('grid source %d, want 1 (the course header)' % obs['src'])
+        if obs['grid'] != exp['grid']:
+            why.append('start grid: %s' % self.first_diff(obs['grid'], exp['grid']))
         ok = not why
-        seen = 'mode %d class %d course %d, row %d, machine %d skin %d, field %s, grid places %s, %d distinct opponents' % (
-            mode, diff, course, mem.words('fzx_cid_index', 1)[0], machine, skin, 'loaded' if rep[0] == 1 else 'NOT loaded',
-            '1..30' if sorted(grid) == list(range(1, 31)) else 'WRONG', len(set(opp or []))) + (' (grid = rows)' if src == 1 else '')
+        seen = 'mode %d class %d course %d, row %d, machine %d skin %d, field %s of %d, seed %d, entrants and sprites = HOST rows %s, grid from the header = HOST grid %s' % (
+            mode, diff, course, mem.words('fzx_cid_index', 1)[0], machine, skin, 'loaded' if obs['report'] == 1 else 'NOT loaded', ident[1], ident[2],
+            'yes' if obs['machine'] == exp['machine'] and obs['roster'][1:] == exp['machine'][1:] else 'NO',
+            'yes' if obs['src'] == 1 and obs['grid'] == exp['grid'] else 'NO')
         self.add('fixture', name, ok, ('Practice %s: %s' % (want['slug'], seen)) if ok else ('FIXTURE FAILED, %s; seen: %s' % ('; '.join(why), seen)),
-                 ('opponent machines %s' % ' '.join(map(str, sorted(opp or [])))) if ok else 'asked: Practice (mode %d) class %d, %s' % (want['mode'], want['cls'], want['slug']), sink=sink)
+                 ('expected rows %s (HOST reports); opponent machines %s' % (arch['expected_sha256'][:12], ' '.join(map(str, sorted(exp['machine'][1:]))))) if ok
+                 else 'asked: Practice (mode %d) class %d, %s' % (want['mode'], want['cls'], want['slug']), sink=sink)
         return ok
+
+    def practice_window(self):
+        w = self.m.get('practice')
+        if not w:
+            raise SystemExit('matrix: no "practice" section (checkpoint period and window end)')
+        text = (GATE / 'scripts' / 'course_pr.txt').read_text()
+        if 'poke _fzx_e0_hold_tick %d
+' % w['end_tick'] not in text:
+            raise SystemExit('matrix: practice end_tick %d is not the window course_pr.txt holds at' % w['end_tick'])
+        return w
+
+    def practice_host(self, name, mchk, host, host_label, sink):
+        """SH-2 against HOST at the Practice window's checkpoints. Fails closed: the HOST reference must exist and hold every expected
+        checkpoint, the image must have written exactly the expected set (period and end tick are the matrix's, not whatever
+        happened to be captured), and each pair must agree."""
+        w = self.practice_window()
+        want = list(range(w['checkpoint_period'], w['end_tick'] + 1, w['checkpoint_period']))
+        if host is None or not host.get('chk'):
+            self.add('host', name, False, 'no HOST reference (fails closed)', 'expected checkpoints at ticks %s' % want, sink=sink)
+            return
+        hostc = dict(host['chk'])
+        miss_host = [t for t in want if t not in hostc]
+        got = [t for t, _ in mchk]
+        same = sum(1 for t, h in mchk if hostc.get(t) == h)
+        ok = not miss_host and got == want and same == len(want)
+        why = []
+        if miss_host:
+            why.append('HOST lacks %d of the expected checkpoints (%s)' % (len(miss_host), ','.join(map(str, miss_host[:4]))))
+        if got != want:
+            why.append('the image wrote ticks %s, expected %s' % (','.join(map(str, got[:20])) or 'none', '%d..%d every %d (%d)' % (want[0], want[-1], w['checkpoint_period'], len(want))))
+        self.add('host', name, ok, ('checkpoints %d/%d equal (HOST %s; the expected set %d..%d every %d; no finish in Practice)' % (
+            same, len(want), host_label, want[0], want[-1], w['checkpoint_period'])) if ok else ('HOST CHECK FAILED: %s; %d/%d equal' % ('; '.join(why) or 'a checkpoint differs', same, len(want))), sink=sink)
 
     def score_practice(self, run, run_dir, build_dir, lines, mk, sym, host, host_label, sink):
         """Practice course row: the fixture at RACE entry, then the cadence, margin and memory of the tick-420 window up to the explicit
@@ -618,10 +776,7 @@ class Gate:
         self.practice_fixture(name, run_dir, build_dir, lines, mk, sym, want, sink=sink)
         if 'results' in mk:
             mkv, mchk = result_kv(lines, 'results')
-            if host is not None:
-                hostc = dict(host['chk'])
-                same = sum(1 for t, h in mchk if hostc.get(t) == h)
-                self.add('host', name, bool(mchk) and same == len(mchk), 'checkpoints %d/%d equal (HOST %s; no finish in Practice)' % (same, len(mchk), host_label or slug), sink=sink)
+            self.practice_host(name, mchk, host, host_label or slug, sink)
             mem = Mem(run_dir, 'results', sym)
             self.cadence_checks(name, frame_rows(mem, self.lim['race_window_tick']), sink)
             self.memory_checks(name, mem, mkv, sink)
@@ -834,8 +989,9 @@ class Gate:
         return 0 if receipt['verdict'] == 'PASS' else 1
 
     def host(self, hdir, slug, driver):
-        rc, out = self.stage_cmd('host', self.stage, wslpath(hdir), self.head['sha'][:12], slug, driver)
-        return host_ref(hdir / ('%s-%s.txt' % (slug, driver)))
+        rc, out = self.stage_cmd('host', self.stage, wslpath(hdir), self.head['sha'][:12], slug, driver, check=False)
+        f = Path(hdir) / ('%s-%s.txt' % (slug, driver))
+        return host_ref(f) if f.is_file() else None
 
     def base_bins(self, base_sha, ident, head):
         """BIN hashes of the base's identity images: from the shared receipt cache, else built in this stage."""
@@ -967,8 +1123,31 @@ class Gate:
                 cc = next(x for x in self.m['courses'] if x['slug'] == c['course'])
                 bd = builds[c['image']]['dir']
                 sym = load_syms(Path(bd) / 'fzs-engine.sym')
-                mut = {'roster': lambda rows: [x if not (j % 240 == 5 + 8 * 2) else rows[j - 8] for j, x in enumerate(rows)]}[c['mutate']]
-                self.practice_fixture(name, rd, bd, lines, marks(lines), sym, dict(slug=cc['slug'], index=cc['index'], row=cc['index'], mode=5, cls=1), mutate=mut, sink=sink)
+                mut = PR_OBS_MUT.get(c['mutate'])
+                if c['mutate'] == 'noarchive':   # a BIN folder without its archived identity (a stand-in folder with only the BIN)
+                    tmp = self.ev / 'tmp' / 'noarchive'
+                    shutil.rmtree(tmp, ignore_errors=True)
+                    tmp.mkdir(parents=True)
+                    for f in ('fzs-engine.bin', 'fzs-engine.sym'):
+                        shutil.copy(Path(bd) / f, tmp / f)
+                    bd = str(tmp)
+                self.practice_fixture(name, rd, bd, lines, marks(lines), sym, dict(slug=cc['slug'], index=cc['index'], row=cc['index'], mode=5, cls=1), mutate=mut, sink=sink,
+                                      mutate_arch=PR_ARCH_MUT.get(c['mutate']))
+            elif chk == 'host' and c.get('practice_host'):
+                rd = self.ev / 'runs' / c['reuse']
+                lines = read_result(rd)
+                _, mchk = result_kv(lines, 'results')
+                href = self.host(self.ev / 'host', c['course'], '0.004,2.5')
+                m = c['practice_host']
+                if m == 'no-host':
+                    href = None
+                elif m == 'host-lacks':   # HOST's file lost the last expected checkpoint
+                    href = dict(href, chk=[x for x in href['chk'] if x[0] != self.practice_window()['end_tick'] // 256 * 256])
+                elif m == 'subset':       # the image captured only part of the window
+                    mchk = mchk[:-1]
+                elif m == 'late':         # the image's checkpoints stop short of the window end
+                    mchk = mchk[:len(mchk) // 2]
+                self.practice_host(name, mchk, href, c['course'], sink)
             elif chk == 'host' and c.get('reuse'):
                 rd = self.ev / 'runs' / c['reuse']
                 kv, chkl = result_kv(read_result(rd))
@@ -1113,7 +1292,8 @@ class Rescore(Gate):
         return (cue, 'kept from the run') if cue.exists() else (None, 'not kept')
 
     def host(self, hdir, slug, driver):
-        return host_ref(Path(hdir) / ('%s-%s.txt' % (slug, driver)))
+        f = Path(hdir) / ('%s-%s.txt' % (slug, driver))
+        return host_ref(f) if f.is_file() else None
 
     def execute(self, jobs):
         res = {}
@@ -1154,6 +1334,7 @@ def main():
     ap.add_argument('--harness', default=str(DEF_HARNESS))
     ap.add_argument('--bios', default=str(DEF_BIOS))
     ap.add_argument('--sh2zam', default=str(DEF_SH2ZAM))
+    ap.add_argument('--practice-expected', default=str(DEF_PRACTICE), help='the Practice fixture\'s expected rows (tools/practice_expected.py over the HOST reports)')
     ap.add_argument('--music', default=str(DEF_MUSIC),
                     help='bgm_cdda.py output (local, ROM-derived) for the shipping mixed-mode discs')
     ap.add_argument('--jobs', type=int, default=max(2, min(12, (os.cpu_count() or 4) - 2)))

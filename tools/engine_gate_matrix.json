@@ -10,6 +10,10 @@
   "menu_worst_fields": 2,
   "race_window_tick": 420
  },
+ "practice": {
+  "checkpoint_period": 256,
+  "end_tick": 3780
+ },
  "images": {
   "e0": {
    "vars": [],
@@ -467,12 +471,122 @@
   {
    "name": "ctl-pr-roster",
    "check": "fixture",
-   "how": "the Practice rows with one opponent replaced by another machine (28 distinct opponents): the roster fails",
+   "how": "a copy of the observed roster with two rivals' sprite machines swapped (still 29 distinct machines; the frozen expected row is untouched): the roster fails",
    "image": "scenes-drv",
    "kind": "practice",
    "course": "mute-city-1",
    "reuse": "course-mute-city-1",
    "mutate": "roster"
+  },
+  {
+   "name": "ctl-pr-entrants",
+   "check": "fixture",
+   "how": "a copy of the observed field entrants with two rows' machines swapped: the field fails",
+   "image": "scenes-drv",
+   "kind": "practice",
+   "course": "mute-city-1",
+   "reuse": "course-mute-city-1",
+   "mutate": "entrants"
+  },
+  {
+   "name": "ctl-pr-grid",
+   "check": "fixture",
+   "how": "a copy of the observed grid with two places swapped (still places 1..30): the exact grid compare fails",
+   "image": "scenes-drv",
+   "kind": "practice",
+   "course": "mute-city-1",
+   "reuse": "course-mute-city-1",
+   "mutate": "grid"
+  },
+  {
+   "name": "ctl-pr-gridsrc",
+   "check": "fixture",
+   "how": "the observed grid source reported as a cup's reversed finish (2) with the grid itself right: the intended source is required",
+   "image": "scenes-drv",
+   "kind": "practice",
+   "course": "mute-city-1",
+   "reuse": "course-mute-city-1",
+   "mutate": "gridsrc"
+  },
+  {
+   "name": "ctl-pr-seed",
+   "check": "fixture",
+   "how": "a copy of the observed field seed plus one: the seed fails",
+   "image": "scenes-drv",
+   "kind": "practice",
+   "course": "mute-city-1",
+   "reuse": "course-mute-city-1",
+   "mutate": "seed"
+  },
+  {
+   "name": "ctl-pr-count",
+   "check": "fixture",
+   "how": "a copy of the observed vehicle count minus one: the count fails",
+   "image": "scenes-drv",
+   "kind": "practice",
+   "course": "mute-city-1",
+   "reuse": "course-mute-city-1",
+   "mutate": "count"
+  },
+  {
+   "name": "ctl-pr-bundle",
+   "check": "fixture",
+   "how": "the archived bundle identity says a row of the linked bundle differs from the HOST rows: the fixture fails",
+   "image": "scenes-drv",
+   "kind": "practice",
+   "course": "mute-city-1",
+   "reuse": "course-mute-city-1",
+   "mutate": "bundle"
+  },
+  {
+   "name": "ctl-pr-noarchive",
+   "check": "fixture",
+   "how": "the BIN folder without its archived expected rows: the fixture fails closed",
+   "image": "scenes-drv",
+   "kind": "practice",
+   "course": "mute-city-1",
+   "reuse": "course-mute-city-1",
+   "mutate": "noarchive"
+  },
+  {
+   "name": "ctl-pr-nohost",
+   "check": "host",
+   "how": "no HOST reference for the course: the host check fails closed",
+   "image": "scenes-drv",
+   "kind": "practice",
+   "course": "mute-city-1",
+   "reuse": "course-mute-city-1",
+   "practice_host": "no-host"
+  },
+  {
+   "name": "ctl-pr-hostlack",
+   "check": "host",
+   "how": "HOST's file lacking its last expected checkpoint: the host check fails closed",
+   "image": "scenes-drv",
+   "kind": "practice",
+   "course": "mute-city-1",
+   "reuse": "course-mute-city-1",
+   "practice_host": "host-lacks"
+  },
+  {
+   "name": "ctl-pr-subset",
+   "check": "host",
+   "how": "the image's checkpoints with the last one missing (the rest agree with HOST): a subset does not pass",
+   "image": "scenes-drv",
+   "kind": "practice",
+   "course": "mute-city-1",
+   "reuse": "course-mute-city-1",
+   "practice_host": "subset"
+  },
+  {
+   "name": "ctl-pr-short",
+   "check": "host",
+   "how": "the image's checkpoints stopping at half the window: an early end does not pass",
+   "image": "scenes-drv",
+   "kind": "practice",
+   "course": "mute-city-1",
+   "reuse": "course-mute-city-1",
+   "practice_host": "late"
   }
  ],
  "regenerate": [

@@ -394,6 +394,10 @@ static void grid_places(void) {
 }
 #endif
 
+#if FZX_FIELD_IDENT
+volatile uint32_t fzx_field_ident[8];
+volatile uint8_t fzx_field_machine[30];
+#endif
 bool fzx_field_load(const sh2z_vd_track_t *track, const sh2z_vd_body_t *player) {
     memset((void *)fzx_field_report, 0, sizeof(fzx_field_report));
 #if ENG_MODES
@@ -617,6 +621,17 @@ bool fzx_field_load(const sh2z_vd_track_t *track, const sh2z_vd_body_t *player) 
     }
 #endif
     sh2z_field_init(&field, &line, &params, veh, brain, order, slot_of, rank_order, FZX_FIELD_CARS, CSEL(field_seed,FZX_RIVALS_FIELD_SEED));
+#if FZX_FIELD_IDENT
+    /* The live field's identity for the gate's Practice fixture (tools/engine_gate.py practice_fixture): what the field was built
+     * from, read back after the build rather than from the generated bundle. */
+    fzx_field_ident[0] = FZX_FIELD_IDENT_MAGIC;
+    fzx_field_ident[1] = field.count;
+    fzx_field_ident[2] = CSEL(field_seed,FZX_RIVALS_FIELD_SEED);
+    fzx_field_ident[3] = (uint32_t)fzx_cid_index;
+    fzx_field_ident[4] = (uint32_t)fzx_session.difficulty & 3u;
+    fzx_field_ident[5] = (uint32_t)(mode_now ? mode_now->menu_mode : 0xFFu);
+    for (uint32_t i = 0; i < FZX_FIELD_CARS; ++i) fzx_field_machine[i] = (uint8_t)FIELD_ROWS[i][5];
+#endif
 #if ENG_RIVAL_BEHAVE
     for (uint32_t i = 0; i < FZX_FIELD_CARS; ++i) { prev_flags[i] = veh[i].flags; prev_credit[i] = brain[i].ko_credit; }
 #endif

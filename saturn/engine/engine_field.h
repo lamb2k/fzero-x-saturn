@@ -94,6 +94,20 @@ bool fzx_field_load(const sh2z_vd_track_t *track, const sh2z_vd_body_t *player);
  * reversed finish (GP rounds after the first). */
 extern volatile uint8_t fzx_field_grid[30];
 extern volatile uint32_t fzx_field_grid_src;
+#ifndef FZX_FIELD_IDENT
+#define FZX_FIELD_IDENT 0
+#endif
+#if defined(ENG_MODES) && ENG_MODES && defined(ENG_COURSE_SELECT) && ENG_COURSE_SELECT && E2_PACK
+#undef FZX_FIELD_IDENT
+#define FZX_FIELD_IDENT 1
+/* The live field's identity, written after the field is built (the Practice fixture reads it back at race_start): [0] magic
+ * FZX_FIELD_IDENT_MAGIC, [1] the field's vehicle count, [2] the seed it was initialised with, [3] the course row, [4] the class
+ * raced, [5] the session's menu mode; fzx_field_machine[i] is the machine (column 5 of the row the field was built from) of
+ * vehicle i, 0 the player's slot. */
+#define FZX_FIELD_IDENT_MAGIC 0x46494431u /* "FID1" */
+extern volatile uint32_t fzx_field_ident[8];
+extern volatile uint8_t fzx_field_machine[30];
+#endif
 #if defined(ENG_MODES) && ENG_MODES
 /* Rivals whose vehicle is retired now (0 for a solo field). */
 unsigned fzx_field_retired_now(void);

@@ -263,6 +263,48 @@ void fzx_atk_test_touch(uint32_t i, uint32_t since) { body[i].toucher = 0; body[
 #endif
 
 /* ---- contact ------------------------------------------------------------------------------- */
+/* sh2z_bc_field_resolve (SH2ZAM body-contact-1) with the pair function's first test done in the walk: sh2z_bc_pair returns 0 with
+ * no effect when any axis of the two positions differs by more than the reach, so a pair that fails it is not called. The walk, its
+ * order, the pairs tested (counted before the test, as the library does) and every call that does anything are the library's own;
+ * in a dense pack most pairs fail on the first axis and the call (three 64-bit differences) is what the walk used to cost. */
+static uint32_t resolve_pairs(sh2z_bc_field_t *f, const uint8_t *ord, const int32_t *alo, int32_t len, const sh2z_bc_rules_t *r) {
+    const uint32_t n = f->count;
+    const int32_t half_len = len / 2, reach = r->reach;
+    uint32_t touching = 0u, tested = 0u;
+    for (uint32_t s = 0u; s < n; s++) {
+        const uint32_t i = ord[s];
+        const sh2z_bc_body_t *bi = &f->body[i];
+        if (!(bi->flags & SH2Z_BC_ACTIVE)) continue;
+        for (uint32_t k = 1u; k < n; k++) {
+            const uint32_t j = ord[s + k < n ? s + k : s + k - n];
+            int32_t gap = alo[i] - alo[j];
+            if (gap > half_len) gap -= len;
+            else if (gap <= -half_len) gap += len;
+            if (gap > r->reach_long) break;
+            if (gap < 0 || (gap == 0 && s + k >= n)) continue;
+            const sh2z_bc_body_t *bj = &f->body[j];
+            if (!(bj->flags & SH2Z_BC_ACTIVE)) continue;
+            tested++;
+            int64_t d = (int64_t)bj->pos[0] - bi->pos[0];
+            if (d > reach || d < -reach) continue;
+            d = (int64_t)bj->pos[1] - bi->pos[1];
+            if (d > reach || d < -reach) continue;
+            d = (int64_t)bj->pos[2] - bi->pos[2];
+            if (d > reach || d < -reach) continue;
+            const uint32_t lo = i < j ? i : j, hi = i < j ? j : i;
+            const uint32_t idx = hi * (hi - 1u) / 2u + lo;
+            const uint32_t ev = sh2z_bc_pair(&f->body[lo], &f->body[hi], lo, hi, f->last[idx] != 0u && f->last[idx] + 1u == f->tick, r);
+            if (ev & SH2Z_BC_EV_TOUCH) {
+                f->last[idx] = f->tick;
+                touching++;
+                if (ev & SH2Z_BC_EV_FIRST) f->contacts++;
+            }
+        }
+    }
+    f->tested = tested;
+    return touching;
+}
+
 void fzx_atk_contact(const sh2z_vd_body_t *p, sh2z_vd_contact_t *out) {
     memset(out, 0, sizeof(*out));
     player_flags_pre = p->flags;   /* before this tick's steps: what every KO credit of the tick reads */
@@ -347,7 +389,7 @@ void fzx_atk_contact(const sh2z_vd_body_t *p, sh2z_vd_contact_t *out) {
         if (r->mode & M_CRASHED) b->flags |= SH2Z_BC_WEAK;
     }
     PROF(3); APROF(2, sp);
-    const uint32_t touching = sh2z_bc_field_resolve(&bcf, order, along, length, &rules);
+    const uint32_t touching = resolve_pairs(&bcf, order, along, length, &rules);
     PROF(4); APROF(3, sp);
     fzx_atk_report[1] = bcf.tested; fzx_atk_report[2] = touching; fzx_atk_report[0] = bcf.contacts;
     /* The player: everything through its own step. */

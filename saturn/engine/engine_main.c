@@ -99,7 +99,10 @@ volatile uint32_t fzx_e0_rsp_counts[FZX_RSPC_COUNTERS];
 /* and one record per frame row (diagnostic builds only, in the free high work
  * RAM): the 16 phase times (slave timer units, saturated), the 19 counters,
  * then quads, chunks, positions, culled, clipped, tiers 0..3 and commands. */
-enum { E0_PROW_ROWS = 4608u, E0_PROW_WORDS = 45u };
+#ifndef E0_PROW_ROWS
+#define E0_PROW_ROWS 4608u /* E4_PROW_ROWS (Makefile): fewer rows for a diagnostic image that has to fit the phase table beside a big course */
+#endif
+enum { E0_PROW_WORDS = 45u };
 uint16_t fzx_e0_prow[E0_PROW_ROWS][E0_PROW_WORDS];
 static void prow_fill(uint32_t index) {
     if (index >= E0_PROW_ROWS) return;
@@ -1865,6 +1868,17 @@ bool fzx_race_frame(void) {
         build(row, cam, shown, kicked);
 #else
         build(row, &path.cams[shown - 1u], shown, kicked);
+#endif
+#if ENG_PHYS_AHEAD && FZX_E1_DRIVE
+        /* The next frame's physics, in the time this frame would wait for VDP1 (the previous frame is still being drawn):
+         * the step at the top of the loop takes the result (engine_drive.c). Nothing reads the player's state through it. */
+        if (!fzx_e0_done && vdp1_sync_busy()) {
+            const uint16_t a0 = cpu_frt_count_get();
+            fzx_drive_ahead_prepare(2u);
+            const uint16_t at = (uint16_t)(cpu_frt_count_get() - a0);
+            fzx_e1_ahead[4] += at;
+            if (at > fzx_e1_ahead[5]) fzx_e1_ahead[5] = at;
+        } else ++fzx_e1_ahead[6];
 #endif
 #if FZX_VDP1_DBANK
         {

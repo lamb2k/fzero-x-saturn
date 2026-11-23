@@ -16,6 +16,18 @@ if [ "$TUBES" = 1 ]; then
     OUT=$OUT-tubes
     EXTRA=(-DFZX_PHYS_TUBES=1 "$S/src/sh2zam_vehicle_dynamics2.c")
 fi
+# The engine's closest-point search stop (SH2ZAM vehicle-dynamics-6; saturn/engine/Makefile ENG_LOCATE_FAR): the
+# HOST reference runs the same search. LOCATE_FAR=0 is the earlier search; LOCATE_COUNT=1 also prints
+# "locate_stops N" (searches the stop ended) on stderr and builds into build/<cc><opt>[-tubes]-count.
+LOCATE_FAR=${LOCATE_FAR:-128}
+LOCATE_FAR_RUN=${LOCATE_FAR_RUN:-8}
+if [ "$LOCATE_FAR" != 0 ]; then
+    EXTRA+=(-DSH2Z_VD_LOCATE_FAR="$LOCATE_FAR" -DSH2Z_VD_LOCATE_FAR_RUN="$LOCATE_FAR_RUN")
+fi
+if [ "${LOCATE_COUNT:-0}" = 1 ]; then
+    OUT=$OUT-count
+    EXTRA+=(-DFZX_LOCATE_COUNT=1 -include "$ROOT/tools/physics_host/locate_count.h")
+fi
 mkdir -p "$OUT"
 "$CC" -std=c11 $OPT -Wall -Wextra -Werror -I"$S/include" -I"$S/src" -I"$ROOT/saturn" \
     "$ROOT/tools/physics_host/physics_main.c" "$ROOT/saturn/physics_native.c" \

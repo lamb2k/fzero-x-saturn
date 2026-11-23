@@ -29,6 +29,12 @@
 #include "physics_native.h"
 #include "engine/drive_ahead.h"
 
+#ifdef FZX_LOCATE_COUNT
+/* LOCATE_COUNT=1 builds (tools/physics_host/build.sh): the closest-point searches that the SH2ZAM stop
+ * (SH2Z_VD_LOCATE_FAR) ended, counted by the library's hook (locate_count.h, included first on the command line). */
+unsigned fzx_phys_locate_stops;
+#endif
+
 static uint64_t hash = 0xCBF29CE484222325ull;
 
 static void mix(const void* data, size_t size) {
@@ -286,5 +292,8 @@ int main(int argc, char** argv) {
         }
         printf("ticks %d final %016llx hash %016llx\n", tick, (unsigned long long) hash, (unsigned long long) keep);
     }
+#ifdef FZX_LOCATE_COUNT
+    fprintf(stderr, "locate_stops %u\n", fzx_phys_locate_stops);
+#endif
     return 0;
 }

@@ -296,6 +296,15 @@ ENG_TUBES ?= $(if $(filter sand-ocean-1 big-blue-1,$(ENG_COURSE)),1,$(if $(filte
 ifeq ($(filter 0 1,$(ENG_TUBES)),)
 $(error ENG_TUBES must be 0 or 1)
 endif
+# ENG_LOCATE_FAR / ENG_LOCATE_FAR_RUN (E1 drive images; SH2ZAM vehicle-dynamics-6, SH2Z_VD_LOCATE_FAR): the
+# closest-point search of the player's physics stops when its residual stays above FAR units for RUN passes in
+# a row. A body over a gap (Fire Field's big jump, 380 units off the line) has no closest point and the search ran
+# all 99 passes every tick (about 20 ms on the master). On for every course; the default 128 units and 8 passes
+# stop no search on the other 23 courses (host counter 0). ENG_LOCATE_FAR=0 builds the earlier search (the
+# control that shows the cost), ENG_LOCATE_FAR=3 with ENG_LOCATE_FAR_RUN=1 the stop that changes a normal course.
+ENG_LOCATE_FAR ?= 128
+ENG_LOCATE_FAR_RUN ?= 8
+
 # ENG_RIVAL_SURFACE (field images with the rival pack, E2_PACK=1): the rivals meet the course's surface
 # (SH2ZAM line-field-4): its zones (plates, low grip, rough ground, recharge strips), its pipes and cylinders
 # as tubes (no edge, the lateral wraps round; the cars drawn round the tube), and the final dash on the
@@ -472,6 +481,10 @@ EMIT_SWITCHES := $(E2_EMIT_PROF)$(E2_EMIT_HINT)$(E2_EMIT_CMD)$(E2_EMIT_SHADOW)$(
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter-out 0,$(subst 0,,$(EMIT_SWITCHES))),-em$(EMIT_SWITCHES),)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter-out 00000,$(BAL_SWITCHES)),-bal$(BAL_SWITCHES),)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter-out 0,$(ENG_BAL_SPLIT)),s$(ENG_BAL_SPLIT),)
+# ENG_PHYS_AHEAD (claude/speed-5): the next frame's physics ticks are computed in the master's idle time at the end of the
+# frame (engine_drive.c); the step takes them when the tick count, the start and the pad word agree. 0: steps in the frame.
+ENG_PHYS_AHEAD ?= 1
+SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter 1,$(ENG_PHYS_AHEAD)),-ahd,)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter 0,$(E0_FLOOR_NEAR0)),-fn0,)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter-out mute-city-1,$(ENG_COURSE)),-$(ENG_COURSE),)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(E1_DRIVER_KH),-kh$(E1_DRIVER_KH),)
@@ -480,6 +493,7 @@ SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(E1_RACE_TICKS),-rt$(E1_RACE_TICKS),)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(E1_DRIVER_TARGET),-tg$(E1_DRIVER_TARGET),)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter 1,$(ENG_COURSE_SELECT)),-sel,)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter 1,$(ENG_TUBES)),-tubes,)
+SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter-out 128,$(ENG_LOCATE_FAR)),-lf$(ENG_LOCATE_FAR),)$(if $(filter-out 8,$(ENG_LOCATE_FAR_RUN)),-lr$(ENG_LOCATE_FAR_RUN),)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter 0,$(ENG_RIVAL_SURFACE)),-rs0,)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter 1,$(ENG_RIVAL_BEHAVE)),-beh,)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter 1,$(ENG_RIVAL_CLASS)),-cls,)
@@ -598,7 +612,7 @@ endif
 SH_CFLAGS += -DENG_DSP_BANDS=$(ENG_DSP_BANDS) -DENG_DSP_BANDS_CHECK=$(ENG_DSP_BANDS_CHECK) -DENG_DSP_BANDS_CORRUPT=$(ENG_DSP_BANDS_CORRUPT)
 endif
 
-SH_CFLAGS += -DENG_BAL_CLOUDS=$(ENG_BAL_CLOUDS) -DENG_BAL_EARLY=$(ENG_BAL_EARLY) -DENG_BAL_FORCE=$(ENG_BAL_FORCE) -DENG_BAL_HASH=$(ENG_BAL_HASH) -DENG_BAL_PREWARM=$(ENG_BAL_PREWARM) -DENG_BAL_SPLIT=$(ENG_BAL_SPLIT)
+SH_CFLAGS += -DENG_BAL_CLOUDS=$(ENG_BAL_CLOUDS) -DENG_BAL_EARLY=$(ENG_BAL_EARLY) -DENG_BAL_FORCE=$(ENG_BAL_FORCE) -DENG_BAL_HASH=$(ENG_BAL_HASH) -DENG_BAL_PREWARM=$(ENG_BAL_PREWARM) -DENG_BAL_SPLIT=$(ENG_BAL_SPLIT) -DENG_PHYS_AHEAD=$(ENG_PHYS_AHEAD)
 SH_CFLAGS += -DENG_CADENCE_STALL_CONTROL=$(ENG_CADENCE_STALL_CONTROL)
 SH_CFLAGS += -DENG_PACE=$(ENG_PACE) $(if $(filter 3,$(ENG_PACE)),-DENG_VDP1_INTERVAL=$(ENG_VDP1_INTERVAL),) $(if $(filter 4,$(ENG_PACE)),-DENG_PACE_LEAD=$(ENG_PACE_LEAD) -DENG_PACE_EARLY_CONTROL=$(ENG_PACE_EARLY_CONTROL) -DENG_PACE_HUD_LEAD=$(ENG_PACE_HUD_LEAD),) -DFZX_ENGINE=1 -DFZX_FRAME_PROFILE=1 -DFZX_VDP1_DBANK=$(FZX_VDP1_DBANK) \
     -DFZX_VDP1_DBANK_STALE=$(FZX_VDP1_DBANK_STALE) -DFZX_ROAD_STREAM_CLUT_ALIGN=$(ENG_CLUT_ALIGN) -DENG_CLUT_ALIGN=$(ENG_CLUT_ALIGN) -DENG_CLUT_RACE_CONTROL=$(ENG_CLUT_RACE_CONTROL) -DFZX_ROAD_STREAM_GUARD_MARGIN=$(E0_GUARD_MARGIN) -DFZX_ROAD_STREAM_LINE_START=$(E0_LINE_START) -DFZX_RBG_NEAR0=$(E0_FLOOR_NEAR0) \
@@ -716,6 +730,8 @@ endif
 # may use a larger track texture budget (tools/road_bake.py --texture-limit; placement checked at load); its
 # sky gradient need not be monotonic in brightness (a sunset), so sky bands pick their colour by distance.
 SH_CFLAGS += $(if $(filter 1,$(FZX_E1_DRIVE)),$(if $(filter 1,$(ENG_TUBES)),-DFZX_PHYS_TUBES=1,),)
+SH_CFLAGS += $(if $(filter 1,$(FZX_E1_DRIVE)),$(if $(filter-out 0,$(ENG_LOCATE_FAR)),-DSH2Z_VD_LOCATE_FAR=$(ENG_LOCATE_FAR) -DSH2Z_VD_LOCATE_FAR_RUN=$(ENG_LOCATE_FAR_RUN),),)
+SH_CFLAGS += $(if $(E4_PROW_ROWS),-DE0_PROW_ROWS=$(E4_PROW_ROWS)u,)
 SH_CFLAGS += $(if $(GCREL),-DENG_COURSE_SKYLINE=1 -DFZX_ROAD_STREAM_TEXTURE_LIMIT=240000u -DFZX_ROAD_STREAM_PACK_LIMIT=240000u -DFZX_SKY_LINEAR_PICK=1 -DENG_COURSE_INDEX=$(COURSE_INDEX_$(ENG_COURSE)),)
 ifeq ($(ENG_COURSE_SELECT),1)
 ifneq ($(ENG_SCENES),1)

@@ -748,7 +748,8 @@ PRACTICE_RECEIPT_CHECK := $(shell sh ../../tools/check_receipt.sh $(G)/courses/s
 ifneq ($(strip $(PRACTICE_RECEIPT_CHECK)),)
 $(error Missing or stale practice bundle: run tools/course_practice_bundle.py <courses>)
 endif
-SH_SRCS += $(G)/courses/select/course_practice.c
+# The rows themselves are disc files (PRnn.BIN, read at LOAD); the image links only their hashes.
+SH_SRCS += $(G)/courses/select/course_practice_index.c
 endif
 SH_CFLAGS += -DENG_COURSE_SELECT=1 -I$(G)/courses/select -DFZX_ROAD_STREAM_HIGH_BYTES=131072u -DFZX_ROAD_STREAM_TEXTURE_LIMIT=262144u -DFZX_ROAD_STREAM_PACK_LIMIT=240000u
 endif
@@ -832,6 +833,9 @@ ifeq ($(E2_PACK),1)
 endif
 ifeq ($(ENG_COURSE_SELECT),1)
 	while read -r src name; do cp "$(G)/$$src" "$(IMAGE_DIRECTORY)/$$name"; done < $(G)/courses/select/files.txt
+ifeq ($(ENG_MODES),1)
+	while read -r src name; do cp "$(G)/$$src" "$(IMAGE_DIRECTORY)/$$name"; done < $(G)/courses/select/files_practice.txt
+endif
 endif
 ifeq ($(E2_ROSTER),1)
 	cp $(G)/roster/ROSTER.PAK "$(IMAGE_DIRECTORY)/"

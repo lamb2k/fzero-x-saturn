@@ -65,18 +65,40 @@ static const fzx_course_index_t *course_index_row(uint32_t id) {
     return NULL;
 }
 
+#if ENG_MODES
+#include "course_practice.h"
+/* Practice's rival rows of the course in use (PRnn.BIN, big-endian int32 [class][vehicle][8]): disc data read at LOAD with the row,
+ * 3,840 B in high work RAM instead of 3,840 B a bundled course in the image (tools/course_practice_bundle.py). */
+static int32_t practice_rows[4][30][8] __attribute__((aligned(8)));
+const int32_t (*const fzx_practice_rows)[30][8] = practice_rows;
+static int32_t practice_loaded = -1;
+volatile uint32_t fzx_practice_load[4];   /* [0] loads, [1] last course id, [2] last result (1 ok), [3] cd retries seen (gate) */
+#endif
+
 bool fzx_course_use(uint32_t id) {
     const fzx_course_index_t *x = course_index_row(id);
     if (!x) return false;
-    if (cid_loaded == (int32_t)id) return true;
-    cid_loaded = -1;
-    if (x->bytes != FZX_COURSE_ROW_BYTES || id > 99u) return false;
-    char name[12] = { 'C', 'I', 'D', (char)('0' + id / 10u), (char)('0' + id % 10u), '.', 'B', 'I', 'N', 0, 0, 0 };
+    if (id > 99u) return false;
     const uintptr_t scratch = ((uintptr_t)sat_stub_data_end + 31u) & ~(uintptr_t)31u;
-    if (!fzx_texture_cd_load(name, FZX_COURSE_ROW_BYTES, x->hash, &cid_row, (void *)scratch, 4096u)) return false;
-    if (cid_row.id != id || cid_row.row != (uint32_t)(x - fzx_course_index)) return false; /* the file is not this course's row */
-    cid_loaded = (int32_t)id;
-    fzx_cid_index = cid_row.row;
+    if (cid_loaded != (int32_t)id) {
+        cid_loaded = -1;
+        if (x->bytes != FZX_COURSE_ROW_BYTES) return false;
+        char name[12] = { 'C', 'I', 'D', (char)('0' + id / 10u), (char)('0' + id % 10u), '.', 'B', 'I', 'N', 0, 0, 0 };
+        if (!fzx_texture_cd_load(name, FZX_COURSE_ROW_BYTES, x->hash, &cid_row, (void *)scratch, 4096u)) return false;
+        if (cid_row.id != id || cid_row.row != (uint32_t)(x - fzx_course_index)) return false; /* the file is not this course's row */
+        cid_loaded = (int32_t)id;
+        fzx_cid_index = cid_row.row;
+    }
+#if ENG_MODES
+    if (practice_loaded != (int32_t)id) {
+        practice_loaded = -1;
+        char name[12] = { 'P', 'R', (char)('0' + id / 10u), (char)('0' + id % 10u), '.', 'B', 'I', 'N', 0, 0, 0, 0 };
+        const bool ok = fzx_texture_cd_load(name, FZX_COURSE_PRACTICE_BYTES, fzx_course_practice_hash[x - fzx_course_index], practice_rows, (void *)scratch, 4096u);
+        ++fzx_practice_load[0]; fzx_practice_load[1] = id; fzx_practice_load[2] = ok;
+        if (!ok) return false;
+        practice_loaded = (int32_t)id;
+    }
+#endif
     return true;
 }
 #endif

@@ -641,6 +641,18 @@ class Gate:
                     for key in ('grid', 'energy', 'machine'):
                         if got[key] != e[key]:
                             diffs.append('%s class %d %s' % (c['slug'], k, key))
+        # The rows the image reads are the disc files PRnn.BIN: equal to the record the comparison above used, for every bundled course.
+        import base64, struct
+        for k0 in range(min(len(rows) // per, max(c['index'] for c in want_courses) + 1) if rows else 0):   # the bundle's rows are the catalog order
+            cid = k0
+            rc, out = self.stage_cmd('catb', self.stage, 'generated/courses/select/PR%02d.BIN' % cid, check=False)
+            try:
+                blob = base64.b64decode(out.strip()) if rc == 0 else b''
+            except ValueError:
+                blob = b''
+            vals = list(struct.unpack('>%di' % (len(blob) // 4), blob)) if blob and len(blob) % 4 == 0 else None
+            if vals != rows[k0 * per:(k0 + 1) * per]:
+                diffs.append('PR%02d.BIN is not the bundle record (%s)' % (cid, 'missing' if not blob else 'differs'))
         doc['bundle_diffs'] = diffs[:12]
         doc['bundle_rows_match'] = not diffs
         (d / 'practice-identity.json').write_text(json.dumps(doc, indent=1, sort_keys=True) + '\n')

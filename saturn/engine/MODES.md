@@ -39,7 +39,10 @@ Options, unknown) is refused. The table is `engine_modes.c`; `tests/test_modes.p
   card line-field-14 (hand-over). With the prototype rule the native field on HOST retires 29 of 29 in 6 seeds, sorted retire
   ticks within 14 ticks of the reference (band fixed before measuring: 40), and the controls (rule off, reach 40 ticks, fall time 60
   ticks, one global pace) fail. Per-rival pace comes from the reference's speed before take-off (`tools`-side field header).
-- **Practice rows:** `generated/courses/select/course_practice.c` (tools/course_practice_bundle.py), from four reference runs of the
+- **Practice rows:** disc files `PRnn.BIN` (3,840 B a bundled course: [class][vehicle][8] big-endian), read at LOAD with the course's identity row
+  into high work RAM (`fzx_practice_rows`, engine_courses.c) and checked against the FNV-1a the image keeps (`course_practice_index.c`); 24 courses
+  of rows in the image would have been 92 KB. `course_practice.c` is the readable record of the same values (not linked; the gate reads it).
+  tools/course_practice_bundle.py writes them, from four reference runs of the
   original code as Practice per course (`fzx-gp-ref --mode practice`, difficulties 0..3, the shipped field seed). The Grand Prix
   class rows are not touched.
 

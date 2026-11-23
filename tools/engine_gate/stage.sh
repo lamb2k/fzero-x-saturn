@@ -8,6 +8,7 @@
 #   stage.sh receipts STAGE                  print STALE lines for generated receipts that do not match w/
 #   stage.sh build STAGE OUT LABEL VARS...   build saturn/engine with VARS; copy BIN/ISO/CUE/SYM/MAP to OUT/LABEL
 #   stage.sh legacy STAGE OUT LABEL KIND     KIND recipe (4b4cacb2) or off (bb5f0fc5): build and copy the BIN
+#   stage.sh catb STAGE RELPATH              base64 of one Practice row file PRnn.BIN (the rows the image reads from the disc)
 #   stage.sh cat STAGE RELPATH               print the stage's generated/courses/select/course_practice.c (the gate's Practice fixture)
 #   stage.sh host STAGE OUT KEY SLUG [DRIVER [AHEAD [TICKS]]] HOST checkpoints (fzx-phys --checkpoints 256, tubes build, built once
 #                                            per KEY = tree id) for SLUG's R01 race
@@ -167,6 +168,10 @@ PY
 cat)   # cat STAGE RELPATH: one generated file of the stage's work tree (the Practice bundle the gate's fixture reads), nothing else
   f=${3:?}
   case "$f" in generated/courses/select/course_practice.c) cat "$S/w/$f";; *) echo "cat: path not allowed" >&2; exit 9;; esac
+  ;;
+catb)   # catb STAGE RELPATH: one Practice row file (generated/courses/select/PRnn.BIN), base64 on one line
+  f=${3:?}
+  case "$f" in generated/courses/select/PR[0-9][0-9].BIN) base64 -w0 "$S/w/$f";; *) echo "catb: path not allowed" >&2; exit 9;; esac
   ;;
 *) echo "unknown command $cmd" >&2; exit 2;;
 esac

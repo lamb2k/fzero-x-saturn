@@ -297,26 +297,94 @@ static void line_pose(const sh2z_track_state_t *t, int32_t pos[3], int32_t f[3],
 /* line_pose without renormalising: the station rows interpolated in Q1.14 (stations are
  * 64 units apart, so the rows stay unit length to well under 0.1%). Render only. */
 #if ENG_ATTACKS
-static void line_pose_fast_calc(const sh2z_track_state_t *t, int32_t pos[3], int16_t rows[3][3]);
 /* A pose is a function of the state's node, distance and lateral (and the line, fixed once loaded). The cars' poses for the picture and
- * the contact's poses for the same tick's field state are asked for with the same state: the second asker takes the first's answer. */
-typedef struct { uint32_t node; int32_t dist, lateral, pos[3]; int16_t rows[3][3]; } pose_memo_t;
+ * the contact's poses for the same tick's field state are asked for with the same state: the second asker takes the first's answer.
+ * The memo keeps the position and the rows apart (have: 1 position, 2 rows): the contact asks for the position of every candidate and
+ * for the rows (forward, up, left) of the few bodies that reach a pair in range. */
+typedef struct { uint32_t node; int32_t dist, lateral, pos[3]; int16_t rows[3][3]; uint32_t have; } pose_memo_t;
 static pose_memo_t pose_memo[FZX_FIELD_CARS];
-static void line_pose_fast(const sh2z_track_state_t *t, int32_t pos[3], int16_t rows[3][3]) {
+enum { POSE_POS = 1, POSE_ROWS = 2 };
+/* The interpolation of line_pose_fast, with the two 64-bit products of the position done in 32 bits and the same bits: floor(x * y / 2^14)
+ * for y = yh * 2^14 + yl (0 <= yl < 2^14) is x * yh + floor(x * yl / 2^14) exactly, and the cast to int32 keeps the low 32 bits of both
+ * forms. The lateral is Q8 (times 256 into Q16: yh = lateral >> 6, yl = (lateral & 63) << 8); the hover (and the tube radius sums) are Q16. */
+static inline __attribute__((always_inline)) void pose_calc(const sh2z_track_state_t *t, int32_t pos[3], int16_t rows[3][3], const unsigned want) {
+    const uint32_t n = t->node < line.count ? t->node : 0u, m = n + 1u < line.count ? n + 1u : 0u;
+    const station_t *a = &stations[n], *b = &stations[m];
+    const int32_t d = t->dist - nodes[n].start;
+    int32_t fr = (int32_t)(((uint64_t)(uint32_t)(d < 0 ? 0 : d) * nodes[n].inv_span) >> 16);
+    if (fr > 65535) fr = 65535;
+#if RIVAL_TUBES
+    int32_t sn, cs;
+    const int tube = tube_at(n, t->lateral, &sn, &cs);
+    if (tube) {   /* as line_pose, in Q1.14 */
+        const int32_t r = wq16(nodes[n].half_width), s14 = sn >> 16, c14 = cs >> 16;
+        const int32_t rad = tube == 2 ? r + hover : r - hover;   /* Q16: the car's offset along the turned up row is rad (negated for a pipe) */
+        const int32_t rad_h = rad >> 14, rad_l = rad & 0x3fff;
+        for (int c = 0; c < 3; ++c) {
+            const int32_t u = a->up[c] + (int32_t)((((int32_t)b->up[c] - a->up[c]) * fr) >> 16);
+            const int32_t l = a->left[c] + (int32_t)((((int32_t)b->left[c] - a->left[c]) * fr) >> 16);
+            const int32_t nu = tube == 2 ? (u * c14 - l * s14) >> 14 : (u * c14 + l * s14) >> 14;
+            if (want & POSE_ROWS) {
+                const int32_t f = a->fwd[c] + (int32_t)((((int32_t)b->fwd[c] - a->fwd[c]) * fr) >> 16);
+                const int32_t nl = tube == 2 ? (l * c14 + u * s14) >> 14 : (l * c14 - u * s14) >> 14;
+                rows[0][c] = (int16_t)f; rows[1][c] = (int16_t)nu; rows[2][c] = (int16_t)nl;
+            }
+            if (want & POSE_POS) {
+                const uint32_t off = (uint32_t)nu * (uint32_t)rad_h + (uint32_t)((nu * rad_l) >> 14);
+                pos[c] = (int32_t)((uint32_t)a->pos[c] + (uint32_t)(int32_t)(((int64_t)(b->pos[c] - a->pos[c]) * fr) >> 16)
+                                   + (tube == 2 ? off : 0u - off));
+            }
+        }
+        return;
+    }
+#endif
+    const int32_t lat_h = t->lateral >> 6, lat_l = (t->lateral & 63) * 256;
+    const int32_t hov_h = hover >> 14, hov_l = hover & 0x3fff;
+    for (int c = 0; c < 3; ++c) {
+        const int32_t u = a->up[c] + (int32_t)((((int32_t)b->up[c] - a->up[c]) * fr) >> 16);
+        const int32_t l = a->left[c] + (int32_t)((((int32_t)b->left[c] - a->left[c]) * fr) >> 16);
+        if (want & POSE_ROWS) {
+            const int32_t f = a->fwd[c] + (int32_t)((((int32_t)b->fwd[c] - a->fwd[c]) * fr) >> 16);
+            rows[0][c] = (int16_t)f; rows[1][c] = (int16_t)u; rows[2][c] = (int16_t)l;
+        }
+        if (want & POSE_POS) {
+            const uint32_t lat_t = (uint32_t)l * (uint32_t)lat_h + (uint32_t)((l * lat_l) >> 14);
+            const uint32_t hov_t = (uint32_t)u * (uint32_t)hov_h + (uint32_t)((u * hov_l) >> 14);
+            pos[c] = (int32_t)((uint32_t)a->pos[c] + (uint32_t)(int32_t)(((int64_t)(b->pos[c] - a->pos[c]) * fr) >> 16) - lat_t + hov_t);
+        }
+    }
+}
+/* The memo slot of a vehicle's state, or NULL for a state that is not a vehicle's (computed without it). A slot that holds another state is
+ * emptied first. */
+static pose_memo_t *pose_slot(const sh2z_track_state_t *t) {
     const uintptr_t off = (uintptr_t)t - (uintptr_t)veh;
-    if (off >= sizeof(veh) || off % sizeof(veh[0])) { line_pose_fast_calc(t, pos, rows); return; }
+    if (off >= sizeof(veh) || off % sizeof(veh[0])) return NULL;
     pose_memo_t *m = &pose_memo[off / sizeof(veh[0])];
     if (m->node != t->node || m->dist != t->dist || m->lateral != t->lateral) {
-        line_pose_fast_calc(t, m->pos, m->rows);
-        m->node = t->node; m->dist = t->dist; m->lateral = t->lateral;
+        m->node = t->node; m->dist = t->dist; m->lateral = t->lateral; m->have = 0;
+    }
+    return m;
+}
+static void line_pose_pos(const sh2z_track_state_t *t, int32_t pos[3]) {
+    pose_memo_t *m = pose_slot(t);
+    if (!m) { pose_calc(t, pos, NULL, POSE_POS); return; }
+    if (!(m->have & POSE_POS)) { pose_calc(t, m->pos, NULL, POSE_POS); m->have |= POSE_POS; }
+    pos[0] = m->pos[0]; pos[1] = m->pos[1]; pos[2] = m->pos[2];
+}
+static void line_pose_fast(const sh2z_track_state_t *t, int32_t pos[3], int16_t rows[3][3]) {
+    pose_memo_t *m = pose_slot(t);
+    if (!m) { pose_calc(t, pos, rows, POSE_POS | POSE_ROWS); return; }
+    if (m->have != (POSE_POS | POSE_ROWS)) {
+        if (!m->have) pose_calc(t, m->pos, m->rows, POSE_POS | POSE_ROWS);
+        else if (m->have == POSE_POS) pose_calc(t, NULL, m->rows, POSE_ROWS);
+        else pose_calc(t, m->pos, NULL, POSE_POS);
+        m->have = POSE_POS | POSE_ROWS;
     }
     pos[0] = m->pos[0]; pos[1] = m->pos[1]; pos[2] = m->pos[2];
     for (int r = 0; r < 3; ++r) { rows[r][0] = m->rows[r][0]; rows[r][1] = m->rows[r][1]; rows[r][2] = m->rows[r][2]; }
 }
-static void line_pose_fast_calc(const sh2z_track_state_t *t, int32_t pos[3], int16_t rows[3][3]) {
 #else
 static void line_pose_fast(const sh2z_track_state_t *t, int32_t pos[3], int16_t rows[3][3]) {
-#endif
     const uint32_t n = t->node < line.count ? t->node : 0u, m = n + 1u < line.count ? n + 1u : 0u;
     const station_t *a = &stations[n], *b = &stations[m];
     const int32_t d = t->dist - nodes[n].start;
@@ -350,6 +418,7 @@ static void line_pose_fast(const sh2z_track_state_t *t, int32_t pos[3], int16_t 
                - (int32_t)((l * lat) >> 14) + (int32_t)(((int64_t)u * hover) >> 14);
     }
 }
+#endif
 #endif
 
 #if E2_PACK
@@ -649,7 +718,7 @@ bool fzx_field_load(const sh2z_vd_track_t *track, const sh2z_vd_body_t *player) 
         params.contact_lat = 0;
         params.wall_energy = 0;
         fzx_atk_field_t a;
-        a.field = &field; a.veh = veh; a.brain = brain; a.line = &line; a.pose = line_pose_fast;
+        a.field = &field; a.veh = veh; a.brain = brain; a.line = &line; a.pose = line_pose_fast; a.pose_pos = line_pose_pos;
         a.config = &fzx_rivals_field[0][0]; a.config_stride = (uint32_t)(sizeof(fzx_rivals_field[0]) / sizeof(fzx_rivals_field[0][0]));
         a.count = FZX_FIELD_CARS;
         fzx_atk_init(&a, FZX_RIVALS_FIELD_SEED);

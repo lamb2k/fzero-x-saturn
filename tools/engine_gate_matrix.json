@@ -11,6 +11,10 @@
   "race_window_tick": 420,
   "root_entries": 384
  },
+ "practice": {
+  "checkpoint_period": 256,
+  "end_tick": 3780
+ },
  "images": {
   "e0": {
    "vars": [],
@@ -95,16 +99,6 @@
    "note": "scenes, R03 look-ahead driver (White Land 1 retires under R01); sound on",
    "sound": true
   },
-  "scenes-drv-r03": {
-   "vars": [
-    "FZX_E1_DRIVE=1",
-    "ENG_SCENES=1",
-    "E1_DRIVER=2"
-   ],
-   "kind": "scenes",
-   "note": "scenes, R03 look-ahead driver (White Land 1 retires under R01); sound on",
-   "sound": true
-  },
   "scenes-drv-ff": {
    "vars": [
     "FZX_E1_DRIVE=1",
@@ -114,6 +108,19 @@
    ],
    "kind": "scenes",
    "note": "scenes, R01-t driver, lateral target 90 (Fire Field retires under R01); sound on",
+   "sound": true
+  },
+  "scenes-drv-ffh": {
+   "vars": [
+    "FZX_E1_DRIVE=1",
+    "ENG_SCENES=1",
+    "E1_DRIVER=1",
+    "E1_DRIVER_KL=0.0044",
+    "E1_DRIVER_KH=2.75",
+    "E1_DRIVER_TARGET=100.0"
+   ],
+   "kind": "scenes",
+   "note": "scenes, Fire Field human-line driver kl 0.0044 kh 2.75 target 100 (ff-gap lane: a line with five 99-pass closest-point searches in a row at the jump); sound on",
    "sound": true
   },
   "scenes-drv-rc2": {
@@ -270,6 +277,14 @@
    "tubes": false,
    "image": "scenes-drv-ff",
    "host_driver": "0.004,2.5,0,460,90.0"
+  },
+  {
+   "slug": "fire-field",
+   "row": "fire-field-h",
+   "index": 12,
+   "tubes": false,
+   "image": "scenes-drv-ffh",
+   "host_driver": "0.0044,2.75,0,460,100.0"
   },
   {
    "slug": "silence-2",
@@ -456,6 +471,65 @@
    "modes": [
     "full"
    ]
+  },
+  {
+   "name": "practice-*",
+   "image": "scenes-drv",
+   "kind": "practice",
+   "script": "course_pr.txt",
+   "courses": [
+    "mute-city-1",
+    "silence-1",
+    "sand-ocean-1",
+    "devils-forest-1",
+    "big-blue-1",
+    "port-town-1"
+   ],
+   "modes": [
+    "full"
+   ]
+  },
+  {
+   "name": "ghost-f0",
+   "image": "scenes-drv",
+   "kind": "ghost",
+   "script": "ghost_ta_f0.txt",
+   "course": "mute-city-1",
+   "fault": 0,
+   "modes": [
+    "full"
+   ]
+  },
+  {
+   "name": "ghost-f1",
+   "image": "scenes-drv",
+   "kind": "ghost",
+   "script": "ghost_ta_f1.txt",
+   "course": "mute-city-1",
+   "fault": 1,
+   "modes": [
+    "full"
+   ]
+  },
+  {
+   "name": "ghost-f2",
+   "image": "scenes-drv",
+   "kind": "ghost",
+   "script": "ghost_ta_f2.txt",
+   "course": "mute-city-1",
+   "fault": 2,
+   "modes": [
+    "full"
+   ]
+  },
+  {
+   "name": "death-natural",
+   "image": "scenes-drv",
+   "kind": "death",
+   "script": "death_nat.txt",
+   "modes": [
+    "full"
+   ]
   }
  ],
  "controls": [
@@ -638,6 +712,305 @@
    "script": "cancel.txt",
    "disc": "data",
    "against": "cancel"
+  },
+  {
+   "name": "ctl-pr-course",
+   "check": "fixture",
+   "how": "the Practice row asked for Mute City, the race entered Silence: the course identity fails even though the run times are normal",
+   "image": "scenes-drv",
+   "kind": "practice",
+   "course": "mute-city-1",
+   "script": "course_pr_wrong.txt"
+  },
+  {
+   "name": "ctl-pr-solo",
+   "check": "fixture",
+   "how": "the Practice row asked for, the race entered as Time Attack (solo, lighter): the mode identity fails whatever its timings",
+   "image": "scenes-drv",
+   "kind": "practice",
+   "course": "mute-city-1",
+   "script": "course_pr_ta.txt"
+  },
+  {
+   "name": "ctl-pr-roster",
+   "check": "fixture",
+   "how": "a copy of the observed roster (the 30 entrants' machines) with two rivals swapped (still 29 distinct machines; the frozen expected row is untouched): the roster fails",
+   "image": "scenes-drv",
+   "kind": "practice",
+   "course": "mute-city-1",
+   "reuse": "practice-mute-city-1",
+   "mutate": "roster"
+  },
+  {
+   "name": "ctl-pr-energy",
+   "check": "fixture",
+   "how": "a copy of the observed energy ceilings with two rivals swapped: the live entrants fail",
+   "image": "scenes-drv",
+   "kind": "practice",
+   "course": "mute-city-1",
+   "reuse": "practice-mute-city-1",
+   "mutate": "energy"
+  },
+  {
+   "name": "ctl-pr-chase",
+   "check": "fixture",
+   "how": "a copy of the observed chase targets with two rivals swapped: the live entrants fail",
+   "image": "scenes-drv",
+   "kind": "practice",
+   "course": "mute-city-1",
+   "reuse": "practice-mute-city-1",
+   "mutate": "chase"
+  },
+  {
+   "name": "ctl-pr-standing",
+   "check": "fixture",
+   "how": "a copy of the vehicles' start positions with two swapped (the grid array itself right): the order they stand in fails",
+   "image": "scenes-drv",
+   "kind": "practice",
+   "course": "mute-city-1",
+   "reuse": "practice-mute-city-1",
+   "mutate": "standing"
+  },
+  {
+   "name": "ctl-pr-entrants",
+   "check": "fixture",
+   "how": "a copy of the observed field entrants with two rows' machines swapped: the field fails",
+   "image": "scenes-drv",
+   "kind": "practice",
+   "course": "mute-city-1",
+   "reuse": "practice-mute-city-1",
+   "mutate": "entrants"
+  },
+  {
+   "name": "ctl-pr-grid",
+   "check": "fixture",
+   "how": "a copy of the observed grid with two places swapped (still places 1..30): the exact grid compare fails",
+   "image": "scenes-drv",
+   "kind": "practice",
+   "course": "mute-city-1",
+   "reuse": "practice-mute-city-1",
+   "mutate": "grid"
+  },
+  {
+   "name": "ctl-pr-gridsrc",
+   "check": "fixture",
+   "how": "the observed grid source reported as a cup's reversed finish (2) with the grid itself right: the intended source is required",
+   "image": "scenes-drv",
+   "kind": "practice",
+   "course": "mute-city-1",
+   "reuse": "practice-mute-city-1",
+   "mutate": "gridsrc"
+  },
+  {
+   "name": "ctl-pr-seed",
+   "check": "fixture",
+   "how": "a copy of the observed field seed plus one: the seed fails",
+   "image": "scenes-drv",
+   "kind": "practice",
+   "course": "mute-city-1",
+   "reuse": "practice-mute-city-1",
+   "mutate": "seed"
+  },
+  {
+   "name": "ctl-pr-count",
+   "check": "fixture",
+   "how": "a copy of the observed vehicle count minus one: the count fails",
+   "image": "scenes-drv",
+   "kind": "practice",
+   "course": "mute-city-1",
+   "reuse": "practice-mute-city-1",
+   "mutate": "count"
+  },
+  {
+   "name": "ctl-pr-bundle",
+   "check": "fixture",
+   "how": "the archived bundle identity says a row of the linked bundle differs from the HOST rows: the fixture fails",
+   "image": "scenes-drv",
+   "kind": "practice",
+   "course": "mute-city-1",
+   "reuse": "practice-mute-city-1",
+   "mutate": "bundle"
+  },
+  {
+   "name": "ctl-pr-noarchive",
+   "check": "fixture",
+   "how": "the BIN folder without its archived expected rows: the fixture fails closed",
+   "image": "scenes-drv",
+   "kind": "practice",
+   "course": "mute-city-1",
+   "reuse": "practice-mute-city-1",
+   "mutate": "noarchive"
+  },
+  {
+   "name": "ctl-pr-nohost",
+   "check": "host",
+   "how": "no HOST reference for the course: the host check fails closed",
+   "image": "scenes-drv",
+   "kind": "practice",
+   "course": "mute-city-1",
+   "reuse": "practice-mute-city-1",
+   "practice_host": "no-host"
+  },
+  {
+   "name": "ctl-pr-hostlack",
+   "check": "host",
+   "how": "HOST's file lacking its last expected checkpoint: the host check fails closed",
+   "image": "scenes-drv",
+   "kind": "practice",
+   "course": "mute-city-1",
+   "reuse": "practice-mute-city-1",
+   "practice_host": "host-lacks"
+  },
+  {
+   "name": "ctl-pr-subset",
+   "check": "host",
+   "how": "the image's checkpoints with the last one missing (the rest agree with HOST): a subset does not pass",
+   "image": "scenes-drv",
+   "kind": "practice",
+   "course": "mute-city-1",
+   "reuse": "practice-mute-city-1",
+   "practice_host": "subset"
+  },
+  {
+   "name": "ctl-pr-short",
+   "check": "host",
+   "how": "the image's checkpoints stopping at half the window: an early end does not pass",
+   "image": "scenes-drv",
+   "kind": "practice",
+   "course": "mute-city-1",
+   "reuse": "practice-mute-city-1",
+   "practice_host": "late"
+  },
+  {
+   "name": "ctl-gh-frames",
+   "check": "ghost",
+   "how": "two ghost files written in one manager frame (the second at the first one's field): the one-file-a-frame check fails",
+   "image": "scenes-drv",
+   "kind": "ghost",
+   "course": "mute-city-1",
+   "reuse": "ghost-f0",
+   "fault": 0,
+   "mutate": "frames"
+  },
+  {
+   "name": "ctl-gh-commits",
+   "check": "ghost",
+   "how": "two ghost saves counted for one name commit: the exactly-one-commit check fails",
+   "image": "scenes-drv",
+   "kind": "ghost",
+   "course": "mute-city-1",
+   "reuse": "ghost-f0",
+   "fault": 0,
+   "mutate": "commits"
+  },
+  {
+   "name": "ctl-gh-readback",
+   "check": "ghost",
+   "how": "the reset finds no ghost in the backup RAM after a good save: the durable read-back check fails",
+   "image": "scenes-drv",
+   "kind": "ghost",
+   "course": "mute-city-1",
+   "reuse": "ghost-f0",
+   "fault": 0,
+   "mutate": "readback"
+  },
+  {
+   "name": "ctl-gh-ms",
+   "check": "ghost",
+   "how": "the ghost read back after the reset is one millisecond off the race that made it: the read-back check fails",
+   "image": "scenes-drv",
+   "kind": "ghost",
+   "course": "mute-city-1",
+   "reuse": "ghost-f0",
+   "fault": 0,
+   "mutate": "ms"
+  },
+  {
+   "name": "ctl-gh-big",
+   "check": "ghost",
+   "how": "a ghost write of 2048 bytes (two chunks in one write): the chunk-size check fails",
+   "image": "scenes-drv",
+   "kind": "ghost",
+   "course": "mute-city-1",
+   "reuse": "ghost-f0",
+   "fault": 0,
+   "mutate": "big"
+  },
+  {
+   "name": "ctl-gh-held",
+   "check": "ghost",
+   "how": "a ghost write holding the caller one whole field: the blocking check fails",
+   "image": "scenes-drv",
+   "kind": "ghost",
+   "course": "mute-city-1",
+   "reuse": "ghost-f0",
+   "fault": 0,
+   "mutate": "held"
+  },
+  {
+   "name": "ctl-gh-nofault",
+   "check": "ghost",
+   "how": "the half-written save's slot read back as a valid ghost after the reset (observed state altered): the no-ghost-accepted check fails",
+   "image": "scenes-drv",
+   "kind": "ghost",
+   "course": "mute-city-1",
+   "reuse": "ghost-f2",
+   "fault": 2,
+   "mutate": "accepted"
+  },
+  {
+   "name": "ctl-dr-ticks",
+   "check": "death",
+   "how": "every rival retires 60 ticks later than it did (the table or the fall rule off): the retirement band check fails",
+   "image": "scenes-drv",
+   "kind": "death",
+   "reuse": "death-natural",
+   "mutate": "ticks"
+  },
+  {
+   "name": "ctl-dr-short",
+   "check": "death",
+   "how": "one rival never retires in the event log (28 of 29): the 29-retired check fails",
+   "image": "scenes-drv",
+   "kind": "death",
+   "reuse": "death-natural",
+   "mutate": "short"
+  },
+  {
+   "name": "ctl-dr-commits",
+   "check": "death",
+   "how": "two records commits for the one win: the exactly-one-commit check fails",
+   "image": "scenes-drv",
+   "kind": "death",
+   "reuse": "death-natural",
+   "mutate": "commits"
+  },
+  {
+   "name": "ctl-dr-reason",
+   "check": "death",
+   "how": "the race ended with a retire, not the win: the end-reason check fails",
+   "image": "scenes-drv",
+   "kind": "death",
+   "reuse": "death-natural",
+   "mutate": "reason"
+  },
+  {
+   "name": "ctl-dr-poke",
+   "check": "death",
+   "how": "the script forces the retirements by poking the vehicles: the natural-end check fails",
+   "image": "scenes-drv",
+   "kind": "death",
+   "reuse": "death-natural",
+   "mutate": "poke"
+  },
+  {
+   "name": "ctl-dr-noref",
+   "check": "death",
+   "how": "no HOST reference file: the check fails closed",
+   "image": "scenes-drv",
+   "kind": "death",
+   "reuse": "death-natural",
+   "mutate": "noref"
   }
  ],
  "regenerate": [

@@ -624,3 +624,68 @@ real pin: 82,335 ms equal to HOST (+5.885% before the half-pipe).
 | mute-city-2 | finish 97479 ms, HOST 97479 (checkpoints 25/25 equal) | 0/3061/0 | 21.7 / 29.53 / 31.38 | 24.79 | 27.44 | 11.79 | 328 | 40.1600 FAIL | 53,464 | 86,720 |
 | big-blue-2 | finish 80008 ms, HOST 80008 (checkpoints 21/21 equal) | 0/2537/0 | 21.8 / 28.24 / 31.36 | 25.52 | 26.19 | 10.57 | 324 | 38.4060 FAIL | 53,464 | 86,992 |
 | white-land-1 | finish 111775 ms, HOST 111775 (checkpoints 28/28 equal) | 0/3490/0 | 21.65 / 28.44 / 29.87 | 27.37 | 24.9 | 9.82 | 322 | 38.6814 FAIL | 52,184 | 86,952 |
+
+
+## 13. The 24 courses on the modes image (lane `claude/modes`, modes-7, 2026-11-23)
+
+The shipping image now has the modes (ENG_MODES on: Time Attack with the ghost, Practice, Death Race, Grand Prix rows) and all 24 courses
+and Death Race on one disc. `ENG_MODES=0` is byte-identical to the engine's own images (all nine default images, engine `cb84173`). The
+work RAM numbers are in MODES.md ("The 24-course image and its memory"): the road arena `FZX_ROAD_STREAM_HIGH_BYTES` is **114,688 B** on this
+image (131,072 B on the engine's), the ghost buffers and Practice rows are in low work RAM.
+
+**Result (EMULATOR, Ymir; timing MODELLED), gate `m7-c24`, 24 `course-*` rows (kind `course`, `course.txt`), default image.** Every course:
+HOST finish equal to the millisecond (or the retire at HOST's tick) and every checkpoint equal, 0 intervals over two fields at 23 courses,
+master stack unused 34,060..35,368 B (floor 20,480), slave 5,448 B, 0 guard trips. Margin (critical p99 x 1.36 against 33.3 ms) passes at 21
+courses and fails at Mute City 2, Big Blue 2 and White Land 1 (over-limit content already on the engine; reported, not tuned). Fire Field
+keeps its known cadence fail (6 intervals of 3F+, worst 4F, critical max 64.1 ms), identical to the `ENG_MODES=0` run (0/3143/6 in both).
+
+Two comparisons with the same course rows built with `ENG_MODES=0` (`m7-m0c24`, the engine's code with the 24-course bundle):
+- **Whole race, as the rows run.** Critical p99 is lower on the modes image at every course (largest rise -0.0036 ms at Big Blue 2; most
+  courses -0.4 to -3.2 ms). This is not a like-for-like comparison and does not show a gain: with no mode probe SELECT starts the modes image in
+  Time Attack, a solo race (the ghost, no 29-rival field), while the `ENG_MODES=0` image races the field.
+- **Practice window, both with the field** (`m7-hon` modes image, Practice entered through SELECT (`course_pr.txt`) against `m7-hm0`, the
+  `ENG_MODES=0` image held at drive tick 3780 by `course_h.txt`; scored over ticks 420..3780, timing only, no HOST check): critical
+  mean differs by +0.02 ms on average (median -0.01, -0.49 to +0.80), p99 by +0.11 ms on average (-0.71 to +0.91). **8 of 23 courses are
+  over the +0.30 ms p99 rule** (Port Town 1 +0.91, Red Canyon 2 +0.63, Mute City 1 +0.54, Big Blue 1 +0.53, White Land 2 +0.44, Sand Ocean 2
+  +0.37, Red Canyon 1 +0.33, Sector Alpha +0.32), and 15 are at or below it. The rise and fall are both of master time, in both
+  directions across courses, so there is no common cost of the modes code; the Practice field is its own data (`PRnn.BIN` rows: machine,
+  energy and chase target of each rival from the original code) and is not the field the `ENG_MODES=0` image races, so the two arms do not
+  run the same rivals. Big Hand has no window (it retires at tick 1460). Left for the integrator's ruling.
+
+| Course | Host: finish vs HOST (checkpoints) | Intervals 1F/2F/3F+ | Critical mean / p99 / max ms | p99 x 1.36 ms (limit 33.3) | Stack unused B | Road arena peak B | Practice window: modes p99 / ENG_MODES=0 p99 / delta ms |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| big-blue-1 | finish 126928 ms, HOST 126928 (checkpoints 32/32 equal) | 0/3944/0 over two 0 | 16.57 / 19.41 / 20.06 | 26.3976 PASS | 35,368 | 86,584 | 22.58 / 22.05 / +0.53 OVER |
+| big-blue-2 | finish 80008 ms, HOST 80008 (checkpoints 21/21 equal) | 0/2537/0 over two 0 | 18.05 / 25.34 / 27.47 | 34.4663 FAIL | 35,368 | 90,864 | 25.35 / 25.37 / -0.01 |
+| big-hand | retires as HOST (tick 1460) (checkpoints 6/6 equal) | 0/657/0 over two 0 | 15.52 / 18.59 / 18.86 | 25.2786 PASS | 35,368 | 112,944 | n/a (retires at tick 1460, before the window) |
+| devils-forest-1 | finish 108038 ms, HOST 108038 (checkpoints 28/28 equal) | 0/3378/0 over two 0 | 17.21 / 21.15 / 22.78 | 28.7651 PASS | 35,368 | 92,432 | 21.94 / 22.25 / -0.31 |
+| devils-forest-2 | finish 109503 ms, HOST 109503 (checkpoints 28/28 equal) | 0/3422/0 over two 0 | 17.2 / 19.26 / 19.87 | 26.1982 PASS | 35,368 | 92,696 | 22.48 / 22.27 / +0.20 |
+| devils-forest-3 | finish 97137 ms, HOST 97137 (checkpoints 25/25 equal) | 0/3051/0 over two 0 | 16.28 / 22.76 / 23.7 | 30.9497 PASS | 35,368 | 87,592 | 23.28 / 23.99 / -0.71 |
+| fire-field | finish 100521 ms, HOST 100521 (checkpoints 26/26 equal) | 0/3143/6 over two 6 | 15.73 / 20.87 / 64.1 | 28.3765 PASS | 35,360 | 86,432 | 23.52 / 23.46 / +0.06 |
+| mute-city-1 | finish 104040 ms, HOST 104040 (checkpoints 27/27 equal) | 0/3258/0 over two 0 | 17.05 / 21.93 / 26.02 | 29.8290 PASS | 35,368 | 91,232 | 23.50 / 22.96 / +0.54 OVER |
+| mute-city-2 | finish 97479 ms, HOST 97479 (checkpoints 25/25 equal) | 0/3061/0 over two 0 | 17.48 / 25.74 / 27.16 | 35.0059 FAIL | 35,368 | 90,592 | 25.87 / 25.87 / -0.00 |
+| mute-city-3 | finish 133428 ms, HOST 133428 (checkpoints 33/33 equal) | 0/4139/0 over two 0 | 16.85 / 19.69 / 21.13 | 26.7808 PASS | 34,060 | 85,328 | 22.37 / 22.79 / -0.42 |
+| port-town-1 | retires as HOST (tick 6328) (checkpoints 25/25 equal) | 0/3091/0 over two 0 | 16.37 / 20.87 / 26.28 | 28.3769 PASS | 35,368 | 95,472 | 22.21 / 21.31 / +0.91 OVER |
+| port-town-2 | finish 131043 ms, HOST 131043 (checkpoints 33/33 equal) | 0/4068/0 over two 0 | 16.19 / 20.41 / 22.3 | 27.7583 PASS | 35,368 | 93,208 | 21.67 / 21.81 / -0.14 |
+| rainbow-road | finish 167651 ms, HOST 167651 (checkpoints 42/42 equal) | 0/5166/0 over two 0 | 16.32 / 19.47 / 20.59 | 26.4830 PASS | 35,368 | 112,280 | 21.73 / 21.70 / +0.03 |
+| red-canyon-1 | finish 97580 ms, HOST 97580 (checkpoints 25/25 equal) | 0/3064/0 over two 0 | 15.71 / 17.75 / 20.15 | 24.1354 PASS | 35,368 | 69,680 | 21.06 / 20.73 / +0.33 OVER |
+| red-canyon-2 | finish 117720 ms, HOST 117720 (checkpoints 30/30 equal) | 0/3668/0 over two 0 | 16.64 / 21.83 / 24.06 | 29.6824 PASS | 35,368 | 92,584 | 23.48 / 22.85 / +0.63 OVER |
+| sand-ocean-1 | finish 92553 ms, HOST 92553 (checkpoints 24/24 equal) | 0/2913/0 over two 0 | 16.98 / 23.23 / 24.47 | 31.5912 PASS | 35,368 | 86,056 | 23.97 / 23.72 / +0.25 |
+| sand-ocean-2 | finish 120334 ms, HOST 120334 (checkpoints 30/30 equal) | 0/3747/0 over two 0 | 16.4 / 22.04 / 23.62 | 29.9680 PASS | 35,368 | 112,080 | 22.97 / 22.60 / +0.37 OVER |
+| sector-alpha | finish 98843 ms, HOST 98843 (checkpoints 25/25 equal) | 0/3102/0 over two 0 | 15.16 / 19.81 / 22.23 | 26.9406 PASS | 35,368 | 96,720 | 23.00 / 22.68 / +0.32 OVER |
+| sector-beta | finish 125856 ms, HOST 125856 (checkpoints 32/32 equal) | 0/3912/0 over two 0 | 16.9 / 23.41 / 25.63 | 31.8343 PASS | 35,368 | 98,872 | 23.59 / 23.46 / +0.13 |
+| silence-1 | finish 90563 ms, HOST 90563 (checkpoints 23/23 equal) | 0/2853/0 over two 0 | 16.87 / 20.34 / 21.51 | 27.6648 PASS | 35,368 | 77,344 | 22.51 / 22.75 / -0.24 |
+| silence-2 | finish 117586 ms, HOST 117586 (checkpoints 30/30 equal) | 0/3664/0 over two 0 | 16.52 / 19.66 / 22.06 | 26.7312 PASS | 35,368 | 104,880 | 22.89 / 23.08 / -0.19 |
+| space-plant | finish 144276 ms, HOST 144276 (checkpoints 36/36 equal) | 0/4465/0 over two 0 | 16.33 / 19.5 / 21.42 | 26.5184 PASS | 35,368 | 112,456 | 22.70 / 22.66 / +0.05 |
+| white-land-1 | finish 111775 ms, HOST 111775 (checkpoints 28/28 equal) | 0/3490/0 over two 0 | 17.68 / 25.05 / 26.33 | 34.0679 FAIL | 34,088 | 90,824 | 25.53 / 25.74 / -0.21 |
+| white-land-2 | finish 82335 ms, HOST 82335 (checkpoints 22/22 equal) | 0/2607/0 over two 0 | 16.65 / 19.34 / 20.61 | 26.3059 PASS | 35,368 | 91,408 | 23.18 / 22.74 / +0.44 OVER |
+
+Table columns: the whole-race `m7-c24` rows, and in the last column the Practice-window p99 of the modes image, of the `ENG_MODES=0` image and
+their difference (OVER above +0.30 ms). Road arena peak is the largest `fzx_road_stream_high_used`; the arena is 114,688 B, so Big Hand has
+1,744 B of headroom, Space Plant 2,232 B, Rainbow Road 2,408 B and Sand Ocean 2 2,608 B (they were 109,072, 108,584, 108,408 and 108,208 B in
+section 12; the rise is the gadget decals and the engine changes since, not split out). A course past the arena fails its road load (TRACK LOAD).
+
+Gate rows kept: the engine's `course-*` rows (kind `course`, all 24) are back in `tools/engine_gate_matrix.json`; the Practice rows are
+`practice-*` (kind `practice`, the six Jack Cup courses, run names `practice-<slug>`; the `ctl-pr-*` controls reuse `practice-mute-city-1`).
+The gate's run name follows the row's kind, so the two sets cannot clash. Final gate on the merged head `19894ba` (stage `claude-gate-modes7m`,
+`m7-fin`, `--full --controls`, runs race, loop, reset, cancel, practice, ghost and death; the course rows are `m7-c24`): PASS, 158 checks
+PASS, 47 of 47 controls fail as they must, legacy `4b4cacb2` and `bb5f0fc5` unchanged.

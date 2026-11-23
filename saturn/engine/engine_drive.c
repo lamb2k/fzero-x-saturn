@@ -2,6 +2,13 @@
 #include <stdio.h>
 #include <string.h>
 #include <stddef.h>
+#ifndef ENG_GHOST
+#define ENG_GHOST 0
+#endif
+#if ENG_GHOST
+#define FZX_GHOST_RACE_API
+#include "engine_ghost.h"
+#endif
 #include "engine_drive.h"
 #if ENG_SND
 #include "engine_snd.h"
@@ -16,6 +23,12 @@
 #include "engine_scenes.h"
 #include "machine_tuning.h"
 #endif
+#endif
+#ifndef ENG_MODES
+#define ENG_MODES 0
+#endif
+#if ENG_MODES
+#include "engine_modes.h"
 #endif
 #include "course_select.h"
 #include "racer_sprites_identity.h"
@@ -161,6 +174,9 @@ static uint32_t finish_timer;
 #define AFTER_ARG(a)
 #endif
 static void after_step(AFTER_PARAM) {
+#if ENG_GHOST
+    fzx_ghost_tick(&body); /* modes: after each committed tick, in the order step_once has it (the look-ahead only steps copies) */
+#endif
 #if ENG_FX
     fzx_fx_tick(&body, course.vehicle.max_energy, accel); /* race effects: read only (the same state and place as before the look-ahead) */
 #endif
@@ -207,6 +223,9 @@ static void step_once(sh2z_vd_input_t *in) {
 #else
 static void step_once(sh2z_vd_input_t *in) {
     fzx_phys_step(&course, &body, &fzx_phys_rules, in);
+#if ENG_GHOST
+    fzx_ghost_tick(&body);
+#endif
 #if ENG_FX
     fzx_fx_tick(&body, course.vehicle.max_energy, (in->pressed & SH2Z_VD_BTN_ACCEL) != 0u); /* race effects: read only */
 #endif
@@ -733,6 +752,12 @@ bool fzx_drive_load(void *scratch, uint32_t scratch_bytes) {
     }
 #endif
 #endif
+#if ENG_MODES && ENG_SCENES
+    {   /* Practice and Death Race never finish at the lap count (racer.c: the lap wraps); the lap-time ring holds 8. */
+        const fzx_mode_rules_t *rules = fzx_mode_rules(fzx_session.menu_mode);
+        if (rules && rules->endless) course.track.laps = 99;
+    }
+#endif
     body = course.start; prev_n64 = 0; ticks = 0;
 #if ENG_PHYS_AHEAD
     ahead.valid = 0;
@@ -741,6 +766,9 @@ bool fzx_drive_load(void *scratch, uint32_t scratch_bytes) {
 #endif
 #endif
     memset(&pad_state, 0, sizeof(pad_state));
+#if ENG_GHOST
+    fzx_ghost_race_begin();
+#endif
 #if E1_FIELD
 #if E2_PACK
     if (!fzx_field_pack_load(scratch, scratch_bytes)) { fzx_e1_status = 10; return false; }
@@ -828,6 +856,9 @@ void fzx_drive_reset(void) {
 #if ENG_PICK_AHEAD
     ahead.view = 0; ahead.kept = 0;
 #endif
+#endif
+#if ENG_GHOST
+    fzx_ghost_race_begin();
 #endif
 #if E1_FIELD && ENG_BAL_EARLY
     field_pending = 0; /* player states a left race never handed to the field */
@@ -1237,6 +1268,12 @@ static int32_t roster_focal;
  * 5 CLUT room), [1] sets bound, [2] near draws, [3] far draws, [4] cartridge base, [5] bytes,
  * [6] sets whose yaw bins climb (E2_EMIT_YAW). */
 volatile uint32_t fzx_e2_roster[8];
+#if FZX_FIELD_IDENT
+/* What each rival's sprites were bound from, read back by the Practice fixture: the machine (stock family) and the near set's
+ * address in the cartridge, per vehicle (0, the player, stays 0xFF / 0). */
+volatile uint8_t fzx_e2_roster_machine[FZX_FIELD_CARS];
+volatile uint32_t fzx_e2_roster_set[FZX_FIELD_CARS];
+#endif
 volatile uint32_t fzx_e2_far_scale = 0x5000; /* below this near-set scale (Q16) a rival draws its far set */
 static uint32_t be32(const uint8_t *e) { return ((uint32_t)e[0] << 24) | ((uint32_t)e[1] << 16) | ((uint32_t)e[2] << 8) | e[3]; }
 static const sh2z_rspr_set_t *roster_find(const uint8_t *pak, const char key[8], const char prof[4]) {
@@ -1297,6 +1334,9 @@ bool fzx_drive_roster_load(void *scratch, uint32_t scratch_bytes, uintptr_t cart
             for (uint32_t b = 0; b < (uint32_t)set->clut_count * 32u; b += 2u)
                 *(volatile uint16_t *)(clut_cpu + next * 32u + b) = (uint16_t)((src[b] << 8) | src[b + 1]);
             roster[id][k].set = set; roster[id][k].clut = (uint16_t)next; roster[id][k].scale_num = 0;
+#if FZX_FIELD_IDENT
+            if (k == 0u) { fzx_e2_roster_machine[id] = (uint8_t)fam; fzx_e2_roster_set[id] = (uint32_t)(uintptr_t)set; }
+#endif
 #if E2_EMIT_YAW
             roster[id][k].convex = sh2z_rspr_yaw_convex(set) ? 1u : 0u;
             fzx_e2_roster[6] += roster[id][k].convex; /* sets that climb */

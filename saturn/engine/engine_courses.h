@@ -24,4 +24,8 @@ const fzx_course_info_t *fzx_course_selected(void);
 /* ENG_COURSE_SELECT: one disc carries every catalog course's packs; LOAD selects the set. */
 #include <stdbool.h>
 bool fzx_course_use(uint32_t id);   /* false: not bundled */
+#if ENG_MODES
+/* The Practice rival rows of the course fzx_course_use selected: [class][vehicle][8] (rivals_field.h columns), from its PRnn.BIN. */
+extern const int32_t (*const fzx_practice_rows)[30][8];
+#endif
 #endif

@@ -1,0 +1,38 @@
+# Control (ctl-pr-course): the same script as course_pr.txt but it enters Silence (0x201), whatever course the gate asks for.
+# course probe would reset a mode that lists fewer courses), confirm through LOAD, race the player in driver mode against the full Practice field
+# (29 opponents) to an explicit end-of-window mark at drive tick 3780 (the Practice race in this harness ends by itself between drive tick 6126 and 7176 on the five courses measured, so the window stays well inside it) (Practice has no finish), then leave through the pause menu (START, DOWN,
+# DOWN, A = QUIT) and mark the exit. The gate asserts the mode, class, course, machine, skin, slider bits, field and start grid at race_start
+# (engine_gate.py practice_fixture), scores the tick-420 window up to `results`, and checks that QUIT wrote no race record.
+# engine_gate.py substitutes COURSE (two hex digits).
+until 1 1 2000
+mark title
+wait 220
+pad 0800 2
+until 2 1 600
+wait 4
+pad 0040 3
+wait 6
+poke _fzx_scn_probe 0x451
+wait 3
+poke _fzx_scn_probe 0x201
+wait 3
+mark select
+pad 0400 2
+until 4 1 4000
+mark race_start
+poke _fzx_e0_hold_tick 3780
+untilword _fzx_input_count 0 3780 12000
+wait 8
+mark results
+poke _fzx_e0_hold_tick 0
+wait 4
+pad 0800 2
+wait 6
+pad 2000 2
+wait 4
+pad 2000 2
+wait 4
+pad 0400 2
+until 5 1 1200
+wait 6
+mark quit

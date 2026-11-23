@@ -9,6 +9,7 @@
 /* ---- 11.1 Course catalog ---------------------------------------------------------------- */
 #define FZX_AVAIL_TA 0x01u /* the build has the course's packs and Time Attack race path */
 #define FZX_AVAIL_GP 0x02u /* ... and its GP field and results path */
+#define FZX_AVAIL_DEATH 0x04u /* the Death Race course (id 54): the only course Death Race runs on (racer.c: the mode's own course) */
 typedef struct {
     uint8_t course;        /* stable original course ID (cup c, round r = 6c + r) */
     uint8_t display_key;   /* index into C8's menu-name table */

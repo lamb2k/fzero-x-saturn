@@ -63,9 +63,48 @@ with the base's receipt.
 | `audio` | INFO: audio peak, non-zero samples and hash of each sound-on run | yes | yes |
 | `receipts` | INFO: stale generated receipts; the regenerated ROM-free outputs and whether they moved | yes | yes |
 
+**Practice (claude/modes, ENG_MODES on by default).** The `practice-*` rows (kind `practice`, `course_pr.txt`, the six Jack Cup courses; run
+names `practice-<slug>`, so they never clash with the engine's 24-course `course-<slug>` rows) are Practice / Standard rows: a Time Attack race is solo and
+lighter than a field, so each course is entered through SELECT as Practice (probe `0x451`, then the course probe `0x2nn`, the
+order matters: a mode probe after the course probe can reset the course) and raced against the full 29-opponent field. The window is
+the tick-420 window to an explicit end mark (`results`, drive tick 3780: the Practice race in the harness ends by itself between drive
+tick 6126 and 7176 on the five courses measured, so the window stays well inside it); the matrix's `practice` section holds that end
+tick and the checkpoint period (256) and the gate refuses a script whose hold tick differs. The `exit` check quits through the pause
+menu (START, DOWN, DOWN, A) and requires RESULTS and unchanged record file generations: zero race-record writes.
+
+*The fixture (C-169).* The expectation is frozen from the HOST reference alone: `tools/practice_expected.py REPORTS_DIR OUT.json` reads
+the four `fzx-gp-ref --mode practice` reports per course (`tools/modes_practice_regen.sh` keeps them) and writes, per course and class,
+the vehicle count, the seed, and per vehicle id the machine, grid place, energy ceiling and chase target. The file is ROM-derived: it
+lives in the evidence folder (`--practice-expected`, default `host/practice-expected/practice-expected.json`), never in git. When the
+gate builds an image with the live field identity it archives `practice-identity.json` beside the BIN (the BIN's hash, the expected rows
+and their hash, the stage bundle's hashes, and whether the bundle's rows equal the expected ones), so a rescore needs neither the stage
+nor the tree. At RACE entry `practice_fixture` reads the image's own state and compares it with the archived rows: the session (mode 5,
+class 1, course and row, machine 0, skin 1, slider bits 0); `fzx_field_ident` (the vehicle count 30, the seed it was initialised with, the
+row, class and mode it was built for); `fzx_field_live` (per vehicle: the machine of its row, its energy ceiling, its chase target and its
+start position); the grid source, which must be 1 (the course header) with `fzx_field_grid` equal to the HOST grid in order; and the
+rivals' start positions, which must order the vehicles by the HOST grid places. An image with the sprite roster (`E2_ROSTER`) is also
+compared on each rival's bound sprites. It fails closed: no archive, no expected row, or no mark fails the row. The `host` check asks
+for exactly the checkpoints the matrix's period and end tick give (256, 512 ... 3584), every one present in HOST's file and equal; a
+missing HOST reference, a HOST file lacking one, or an image that captured a subset or stopped early fails.
+Controls, all failing `fixture` or `host` as they must: `ctl-pr-course`, `ctl-pr-solo` (real runs); on a copy of the observed state
+(the frozen rows are never touched) `ctl-pr-roster`, `-entrants`, `-energy`, `-chase`, `-standing`, `-grid` (still places 1..30),
+`-gridsrc` (the right grid from the wrong source), `-seed`, `-count`; `ctl-pr-bundle` (the archive says a linked row differs),
+`ctl-pr-noarchive`; and for `host` `ctl-pr-nohost`, `-hostlack`, `-subset`, `-short`. The Practice bundle comes from
+`tools/modes_practice_regen.sh` (run it in a clean stage after `tools/course_bundle.py`). Grand Prix cost is C-138's six live Jack
+rounds; Time Attack cost is the standalone rows.
+
+**24 courses (the `course-*` rows, kind `course`, `course.txt`, `courses: all`).** Every one of the 24 courses is raced from the shipped scenes
+image (default modes on) against its own HOST reference, and the matrix still lists the six Practice rows under the distinct name `practice-*`.
+The `memory` row's note prints `road arena peak`: the largest `fzx_road_stream_high_used` of the run, against the arena
+`FZX_ROAD_STREAM_HIGH_BYTES` (114,688 B on the modes image; 131,072 B on the engine's: the 24-course image with the modes
+needed 16,384 B of the gap, saturn/engine/MODES.md). A course whose peak passes the arena fails the run (TRACK LOAD).
+A modes-versus-`ENG_MODES=0` comparison of the 24 rows is run with two matrix copies (the second adds `ENG_MODES=0` to the images'
+`vars`, stage `claude-gate-modes7id`); the rule is that no course's critical p99 grows by more than 0.30 ms.
+
 **Courses.** All six Jack Cup courses are raced from the shipped scenes image, chosen in SELECT with probe
 `0x2nn`. Two are tube courses: Sand Ocean and Big Blue. Each course is judged against its own HOST reference, which
 the gate makes from that course's physics pack in the stage. Port Town's R01 driver retires, as HOST's does.
+A course entry may carry its own `row` name: `fire-field-h` is Fire Field raced under the human-line driver (kl 0.0044, kh 2.75, target 100: five 99-pass closest-point searches in a row at the jump; image `scenes-drv-ffh`, ff-gap lane), next to the R01-t row `fire-field`; its HOST reference is made with the same driver.
 
 **Sound and the disc.** Sound moves the disc drive: music plays from CD audio tracks, so a sound-on run on a
 data-only CUE never seeks data after real CD-DA playback (C-093). The gate therefore assembles the shipping
@@ -162,6 +201,20 @@ Never change a limit after seeing a result. A change needs the integrator, and t
 
 Ymir slows down with 12 or more parallel jobs: one Mute City race takes 2.7 min alone and about 5 min under load.
 Lower `--jobs` when other lanes share the machine.
+
+**Ghost storage (claude/modes C-169 item 3).** `ghost-f0`, `-f1`, `-f2` run `ghost_ta_f0/1/2.txt` (Time Attack, Mute City: race, new best, name entry,
+soft reset, race again with the ghost read back): fault 0 none, 1 a wrong-CRC save, 2 a save stopped half way. The `ghost` check reads
+`fzx_bup_log` (fields in and out, bytes and kind of each backup write), `fzx_ghost_store` and `fzx_rec_report` at `saved1`, and the reload at
+`race2_start`: exactly one records commit and one ghost save begun; every ghost file at most one chunk (1 KB), consecutive ghost writes at least
+two fields apart (one per manager frame), none holding the caller a whole field (FRT ticks); after the reset the whole new ghost (generation,
+race ms equal the HOST finish) for fault 0, no ghost accepted and the records intact for faults 1 and 2; and `menus` 0 over two through the commit.
+Controls `ctl-gh-frames`, `-commits`, `-readback`, `-ms`, `-big`, `-held`, `-nofault` alter the observed state of a run and must fail.
+
+**Death Race natural end (claude/modes C-169 item 4).** `death-natural` runs `death_nat.txt` (mode probe `0x423`, no poke): the `death` check wants
+29 retirements in the field's event log (`fzx_field_events`), end reason FINISH, one records commit, and the rivals' retirement ticks against the
+original code's reference (`--death-ref`, `fzx-gp-ref --mode death`, seed 1; tools/modes_death_regen.sh) inside the qualification band of
+tools/modes_dr_check.py (sorted ticks within 40, 24 of 29 by id within 60). Controls `ctl-dr-ticks`, `-short`, `-commits`, `-reason`, `-poke`,
+`-noref`. Ticks are counted from the race start on both sides (the reference's sim ran 420 ticks of countdown first: its `ticks` 1255 = 420 + 834).
 
 ## Baseline
 

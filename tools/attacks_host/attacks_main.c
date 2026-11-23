@@ -25,6 +25,7 @@
  * contact fzx_atk_player_clear cannot clear also waits behind the queued field tick, and the player's share of that contact (push, damage,
  * regain, hit) is added to the contact of the tick one later (--lag N: N ticks later; N = 8 is the outcome check's control). Every rival's
  * side of the contact is exact and in the original order, so the rivals' words differ only through the player's different path.
+ * --first N: the first frame has N ticks (default: --frame; the image's field loop steps one tick in its first frame, so its HOST reference is --first 1).
  * --lag-drop 1 (any order) drops the player's share of every contact (the outcome check's other control). --seed S replaces the field's
  * and the attacks' seeds (HOST only; without it the engine's own, so every reference is unchanged); the --report JSON then also holds
  * the final place of every slot ("places", 1-based, the field's rank at the last tick).
@@ -222,7 +223,7 @@ static int credit_tests(const sh2z_vd_body_t *start) {
 
 int main(int argc, char **argv) {
     const char *phys = NULL, *report = NULL, *trace = NULL;
-    int driver = 1, ticks_max = 9460, vis = 1, ai = 1, diff = 1, saturn = 0, lagorder = 0, frame = 2, clear_check = 0, gate = 0, credit_test = 0;
+    int driver = 1, ticks_max = 9460, vis = 1, ai = 1, diff = 1, saturn = 0, lagorder = 0, frame = 2, first = 0, clear_check = 0, gate = 0, credit_test = 0;
     for (int i = 1; i + 1 < argc; i += 2) {
         if (!strcmp(argv[i], "--phys")) phys = argv[i + 1];
         else if (!strcmp(argv[i], "--rivals")) rivals_path = argv[i + 1];
@@ -243,11 +244,13 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[i], "--lag")) { lag_n = atoi(argv[i + 1]); if (lag_n < 1 || lag_n >= LAG_MAX) die("--lag is 1..15"); }
         else if (!strcmp(argv[i], "--lag-drop")) lag_drop = atoi(argv[i + 1]);
         else if (!strcmp(argv[i], "--frame")) frame = atoi(argv[i + 1]);
+        else if (!strcmp(argv[i], "--first")) first = atoi(argv[i + 1]);
         else if (!strcmp(argv[i], "--clear-check")) clear_check = atoi(argv[i + 1]);
         else if (!strcmp(argv[i], "--gate")) gate = atoi(argv[i + 1]);
         else if (!strcmp(argv[i], "--credit-test")) credit_test = atoi(argv[i + 1]);
         else die("unknown argument");
     }
+    if (first <= 0) first = frame;   /* default: whole frames from tick 0; --first 1 is the field image (its first frame steps one tick) */
     if (!phys || !rivals_path) die("usage: fzx-atk --phys PHYS.PAK --rivals RIVALS.PAK ...");
     size_t n;
     unsigned char *image = read_all(phys, &n);
@@ -324,7 +327,7 @@ int main(int argc, char **argv) {
         if (saturn) {
             if (q_n >= 8u) q_run();
             q_body[q_n] = body; q_contact[q_n] = 0u; ++q_n;
-            if ((t + 1u) % (uint32_t)frame == 0u) {   /* the frame's end: the queue after the kick, then the next contact */
+            if ((t + 1u) >= (uint32_t)first && (t + 1u - (uint32_t)first) % (uint32_t)frame == 0u) {   /* the frame's end: the queue after the kick, then the next contact */
                 q_run();
                 if (t + 1u < (uint32_t)ticks_max && driver != 2) {   /* the hunter reads the attack state first */
                     fzx_atk_hold_hooks(true); fzx_atk_contact(&body, &ahead); fzx_atk_hold_hooks(false);

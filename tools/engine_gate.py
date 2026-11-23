@@ -395,22 +395,29 @@ class Gate:
             self._atk[k] = ' _fzx_atk_chk' in (Path(build_dir) / 'fzs-engine.sym').read_text()
         return self._atk[k]
 
-    def host_atk(self, slug):
-        if slug not in self.hosts_atk:
+    def is_scenes(self, build_dir):
+        """True for a scenes image (its race starts with whole two-tick frames); the other race images step one tick in their first
+        frame (engine_main.c: `if (!tick) advance = 1`), which only the frame grouping of approximation P1 (ENG_ATK_LAG) sees."""
+        return ' _fzx_scn_ctl' in (Path(build_dir) / 'fzs-engine.sym').read_text()
+
+    def host_atk(self, slug, first=0):
+        """first: ticks of the first frame (fzx-atk --first), 0 for whole frames; the reference of a field image is --first 1."""
+        key = slug if not first else '%s-f%d' % (slug, first)
+        if key not in self.hosts_atk:
             hdir = self.ev / 'host'
             # The course's own driver, as the fzx-phys references have it (matrix host_driver / host_ahead / host_ticks): '-' is "none".
             c = {x['slug']: x for x in self.m['courses']}.get(slug, {})
             self.stage_cmd('hostatk', self.stage, wslpath(hdir), self.head['sha'][:12], slug, c.get('host_driver', '0.004,2.5'),
-                           str(c.get('host_ahead') or '-'), str(c.get('host_ticks') or '-'))
-            self.hosts_atk[slug] = host_ref(hdir / ('%s-atk.txt' % slug))
-        return self.hosts_atk[slug]
+                           str(c.get('host_ahead') or '-'), str(c.get('host_ticks') or '-'), str(first or '-'))
+            self.hosts_atk[key] = host_ref(hdir / ('%s-atk%s.txt' % (slug, '' if not first else '-f%d' % first)))
+        return self.hosts_atk[key]
 
     def pick(self, hosts, slug, build_dir):
         """The HOST reference of a course for an image: fzx-atk for an image with attacks, fzx-phys otherwise."""
         if not slug:
             return None
         if self.is_atk(build_dir):
-            return self.host_atk(slug)
+            return self.host_atk(slug, 0 if self.is_scenes(build_dir) else 1)
         return hosts.get(slug)
 
     def script_for(self, name, course_index=None, record_ms=None):
@@ -1074,10 +1081,14 @@ class Rescore(Gate):
     def host(self, hdir, slug, driver, ahead=None, ticks=None):
         return host_ref(Path(hdir) / ('%s-%s%s%s.txt' % (slug, driver, '-a%s' % ahead if ahead else '', '-t%s' % ticks if ticks else '')))
 
-    def host_atk(self, slug):
-        if slug not in self.hosts_atk:
-            self.hosts_atk[slug] = host_ref(self.ev / 'host' / ('%s-atk.txt' % slug))
-        return self.hosts_atk[slug]
+    def is_scenes(self, build_dir):
+        return ' _fzx_scn_ctl' in (Path(build_dir) / 'fzs-engine.sym').read_text()
+
+    def host_atk(self, slug, first=0):
+        key = slug if not first else '%s-f%d' % (slug, first)
+        if key not in self.hosts_atk:
+            self.hosts_atk[key] = host_ref(self.ev / 'host' / ('%s-atk%s.txt' % (slug, '' if not first else '-f%d' % first)))
+        return self.hosts_atk[key]
 
     def execute(self, jobs):
         res = {}

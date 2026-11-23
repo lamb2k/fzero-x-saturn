@@ -19,8 +19,15 @@ mkdir -p "$OUT"
 DEFS="-DE1_FIELD=29 -DE2_PACK=1 -DE2_FASTPOSE=1 -DE2_LOD=1 -DE2_LOD_NEAR=1000,3000,8000 -DENG_ATTACKS=1 -DFZX_ATK_HOST_TESTS=1"
 DEFS="$DEFS -DENG_RIVAL_SURFACE=1 -DENG_RIVAL_BEHAVE=1 -DENG_RIVAL_CLASS=0 -DENG_RIVAL_RECHARGE=${RECHARGE:-$(grep -q line-field-15 "$S/include/sh2zam/line_field_experimental.h" && echo 1 || echo 0)} -DFZX_PHYS_TUBES=$TUBES"
 EXTRA=()
+# The engine's closest-point search stop (saturn/engine/Makefile ENG_LOCATE_FAR, SH2ZAM vehicle-dynamics-6): the HOST reference runs the same search.
+# LOCATE_FAR=0 builds the earlier search.
+LOCATE_FAR=${LOCATE_FAR:-128}
+LOCATE_FAR_RUN=${LOCATE_FAR_RUN:-8}
+if [ "$LOCATE_FAR" != 0 ]; then
+    EXTRA+=(-DSH2Z_VD_LOCATE_FAR="$LOCATE_FAR" -DSH2Z_VD_LOCATE_FAR_RUN="$LOCATE_FAR_RUN")
+fi
 if [ "$TUBES" = 1 ]; then
-    EXTRA=("$S/src/sh2zam_vehicle_dynamics2.c" "$S/src/sh2zam_vehicle_contact2.c")
+    EXTRA+=("$S/src/sh2zam_vehicle_dynamics2.c" "$S/src/sh2zam_vehicle_contact2.c")
 fi
 "$CC" -std=gnu11 $OPT -Wall -Wextra -Werror -Wno-type-limits $DEFS "$@" -I"$ROOT/tools/attacks_host/include" -I"$S/include" -I"$S/src" \
     -I"$ROOT/saturn" -I"$ROOT/saturn/engine" -I"$G/rivals" -I"$AG/attacks" \

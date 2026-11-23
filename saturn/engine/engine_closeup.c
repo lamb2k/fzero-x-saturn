@@ -12,6 +12,7 @@
  * mach3d_identity.h is indexed by family, pack_bytes 0 = no pack). Work RAM and the VDP1
  * region take the largest pack the image may load; the loaded pack's sizes are in `loaded`. */
 #include "mach3d_identity.h"
+#include "engine_scenes.h"
 #ifndef FZX_P3_BASELINE
 #if FZX_GUEST_MASK
 #include "guest_machine_identity.h"
@@ -187,12 +188,14 @@ uint32_t fzx_closeup_load_family(const vdp1_vram_partitions_t *parts, uint32_t c
     if (!fzx_closeup_has_family(family)) { fzx_ab_report[0] = 6; return 0; } /* no pack for this family */
 #ifndef FZX_P3_BASELINE
     const fzx_mach3d_identity_t *e = family_pack(family);
+    const uint8_t *body = fzx_scn_body_color(family, e->body);
 #else
     const fzx_mach3d_identity_t *e = &fzx_mach3d_identity[family];
+    const uint8_t *body = e->body;
 #endif
     file[6] = (char)('0' + family / 10u); file[7] = (char)('0' + family % 10u);
     const pack_id_t id = { file, e->pack_bytes, e->pack_fnv, e->metadata_bytes, e->metadata_fnv, e->texel_bytes,
-                           e->palette_bytes, e->gouraud_bytes, { e->body[0], e->body[1], e->body[2] } };
+                           e->palette_bytes, e->gouraud_bytes, { body[0], body[1], body[2] } };
     return load_pack(&id, parts, ceiling, scratch, scratch_bytes);
 }
 /* A retry: per-race draw state back to its start; the pack stays. */

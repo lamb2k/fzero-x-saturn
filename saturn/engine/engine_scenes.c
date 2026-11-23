@@ -203,6 +203,7 @@ static const char *machine_name(unsigned id) {
     return id < sizeof(names)/sizeof(names[0]) && (id < 33 || machine_allowed(id)) ? names[id] : "MACHINE";
 }
 static float select_balance;
+static uint8_t select_skin;
 #endif
 
 static void session_defaults(void) {
@@ -231,7 +232,7 @@ static bool session_edit(uint32_t machine_id, uint32_t course) {
     fzx_session.machine_id = (uint16_t)machine_id;
     fzx_session.course = (uint8_t)course;
 #ifndef FZX_P3_BASELINE
-    fzx_session.skin = machine_id >= 33u ? 0u : 1u;
+    fzx_session.skin = machine_id >= 33u ? 0u : select_skin;
     memcpy(&fzx_session.slider_bits, &select_balance, sizeof(select_balance));
 #endif
     fzx_session.confirmed = 1;
@@ -240,10 +241,21 @@ static bool session_edit(uint32_t machine_id, uint32_t course) {
 
 uint32_t fzx_scn_player_family(void) { return fzx_session.machine_id; }
 
+#ifndef FZX_P3_BASELINE
+const uint8_t *fzx_scn_body_color(uint32_t family, const uint8_t fallback[3]) {
+    if (fzx_session.confirmed && fzx_session.machine_id == family && family < 30 && fzx_session.skin < 4)
+        return settings_rgb[family][fzx_session.skin];
+    return fallback;
+}
+#endif
+
 /* ---- the manager --------------------------------------------------------- */
 static sh2z_scene_seq_t seq;
 static sh2z_scene_input_t input;
 static uint32_t frame_fields, steps_this_frame, chord_latched, own_frames, run_counter;
+#ifndef FZX_P3_BASELINE
+static uint8_t resident_skin;
+#endif
 static uint32_t resident_key;   /* 0: nothing resident; else family + 1 */
 static bool retry_pending, text_dirty;
 /* VDP2 registers at boot (dbgio's NBG3, black back screen): the baseline every scene's
@@ -709,29 +721,38 @@ _Static_assert(GRID_MAX_SPRITES + 1 <= FZX_SCN_MENU_SPAN, "machine grid exceeds 
 static uint8_t grid_slot, grid_pick;
 static bool from_grid, grid_uploaded;
 static unsigned grid_run_at, grid_pixels;
-_Static_assert(SETTINGS_BYTES <= PAGES_UI_BYTES, "settings exceed the shared cartridge bank");
+typedef struct { uint16_t units, x, y; uint8_t width8, height; } grid_patch_t;
+_Static_assert(sizeof(grid_patch_t) == 8, "grid descriptor layout");
+_Static_assert(SETTINGS_MAX_COMMANDS <= FZX_SCN_MENU_SPAN, "settings command budget");
+_Static_assert(SETTINGS_MAX_BYTES <= PAGES_UI_BYTES, "settings exceed the shared cartridge bank");
 static uint8_t cached_settings_id;
 static bool stock_settings(void) { return from_grid && grid_pick < 30u; }
 static bool settings_preload(uint32_t budget) {
     if (!stock_settings()) return select_preload(budget);
+    const settings_bank_t *bank = &settings_banks[grid_pick];
     if (loaded_bank != BANK_SETTINGS || cached_settings_id != grid_pick) {
         uintptr_t scratch = ((uintptr_t)sat_stub_data_end + 31u) & ~(uintptr_t)31u;
-        if (!fzx_texture_cd_load_range("SETTINGS.PAK", 30u*SETTINGS_BYTES, grid_pick*SETTINGS_BYTES,
-                                       SETTINGS_BYTES, settings_hash[grid_pick], (void *)pages_base(),
+        if (!fzx_texture_cd_load_range("SETTINGS.PAK", SETTINGS_FILE_BYTES, bank->offset,
+                                       bank->bytes, bank->hash, (void *)pages_base(),
                                        (void *)scratch, 4096u))
             fault(63, "SETTINGS BANK");
         cached_settings_id = grid_pick;
         loaded_bank = BANK_SETTINGS;
     }
-    return art_preload(budget, pages_base(), SETTINGS_BYTES);
+    return art_preload(budget, pages_base(), bank->descriptors);
 }
 static unsigned settings_span(vdp1_cmdt_t *span, unsigned capacity) {
     if (!stock_settings()) return select_span(span, capacity);
-    if (capacity < 2u) return 0;
+    const settings_bank_t *bank = &settings_banks[grid_pick];
+    const unsigned first = bank->first[select_skin], end = bank->first[select_skin+1];
+    if (capacity < 2u + end - first) return 0;
     sprite(span, 0, 320, 224, 0, 0);
+    const grid_patch_t *patch = (const grid_patch_t *)(pages_base() + bank->descriptors);
+    for (unsigned i = first; i < end; ++i)
+        sprite(span+1+i-first, patch[i].units*8u, patch[i].width8*8u, patch[i].height, patch[i].x, patch[i].y);
     const unsigned step = (unsigned)(select_balance * 128.f + 0.5f);
-    sprite(span+1, 320u*224u*2u, 16, 11, 154 + (int)step, 78);
-    return 2;
+    sprite(span+1+end-first, 320u*224u*2u + select_skin*16u*11u*2u, 16, 11, 154 + (int)step, 78);
+    return 2 + end - first;
 }
 static const fzx_scn_menu_hooks_t select_hooks = {settings_preload, title_cancel, settings_span};
 static void grid_cancel(void) {
@@ -759,8 +780,7 @@ static bool grid_preload(uint32_t budget) {
     } while ((uint16_t)(cpu_frt_count_get() - start) < budget/2u);
     return false;
 }
-typedef struct { uint16_t units, x, y; uint8_t width8, height; } grid_patch_t;
-_Static_assert(sizeof(grid_patch_t) == 8, "grid descriptor layout");
+
 static unsigned grid_span(vdp1_cmdt_t *span, unsigned capacity) {
     unsigned first = grid_first[grid_slot], end = grid_first[grid_slot+1];
     if (end - first + 1 > capacity) return 0;
@@ -860,6 +880,9 @@ static bool select_enter(void *u, uint32_t s) {
     (void)sh2z_arena_alloc(&menu_arena, 1024u, 16u);
 #ifndef FZX_P3_BASELINE
     cursor = from_grid ? grid_pick : (machine_allowed(fzx_session.machine_id) ? fzx_session.machine_id : 0);
+    select_skin = stock_settings() ? 0u : 1u;
+    if (stock_settings() && fzx_session.confirmed && fzx_session.machine_id == cursor)
+        select_skin = fzx_session.skin & 3u;
     memcpy(&select_balance, &fzx_session.slider_bits, sizeof(select_balance));
 #else
     cursor = 0;
@@ -950,11 +973,15 @@ static void select_tick(void *u, uint32_t s) {
         } while (!machine_allowed(cursor));
         text_dirty = true;
     }
+    if (stock_settings()) {
+        if (input.edges & PAD_R) select_skin = (select_skin + 1u) & 3u;
+        else if (input.edges & PAD_L) select_skin = (select_skin + 3u) & 3u;
+    }
     float previous = select_balance;
     if (input.edges & PAD_X) select_balance = 0;
     else if (input.edges & PAD_Z) select_balance = 1;
-    else if ((input.held & PAD_L) || (stock_settings() && (input.held & PAD_LEFT))) select_balance -= 1.f/128.f;
-    else if ((input.held & PAD_R) || (stock_settings() && (input.held & PAD_RIGHT))) select_balance += 1.f/128.f;
+    else if (input.held & (stock_settings() ? PAD_LEFT : PAD_L)) select_balance -= 1.f/128.f;
+    else if (input.held & (stock_settings() ? PAD_RIGHT : PAD_R)) select_balance += 1.f/128.f;
     if (select_balance < 0) select_balance = 0;
     if (select_balance > 1) select_balance = 1;
     if (previous != select_balance) text_dirty = true;
@@ -1658,7 +1685,11 @@ static void load_tick(void *u, uint32_t s) {
 #else
     const uint32_t key = family + 1u;
 #endif
-    if (retry_pending && resident_key == key) {
+    bool resident = resident_key == key;
+#ifndef FZX_P3_BASELINE
+    resident = resident && resident_skin == fzx_session.skin;
+#endif
+    if (retry_pending && resident) {
         /* Retry: everything is resident; only race-local state goes back to its start. */
         fzx_drive_reset();
         fzx_closeup_reset();
@@ -1727,6 +1758,9 @@ static void load_tick(void *u, uint32_t s) {
         bar_total = fzx_cd_stats[0] - s0;
         race_regs_kept = false; retry_entering = false;
         resident_key = key;
+#ifndef FZX_P3_BASELINE
+        resident_skin = fzx_session.skin;
+#endif
         ++fzx_scn_report[8];
         fzx_scn_report[11] = 1;
     }

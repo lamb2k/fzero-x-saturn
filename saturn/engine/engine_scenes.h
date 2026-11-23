@@ -85,6 +85,9 @@ bool fzx_scn_lease_free(void);
 extern volatile uint32_t fzx_scn_ctl[8];
 /* The machine family LOAD loads the 3D player pack for. */
 uint32_t fzx_scn_player_family(void);
+#ifndef FZX_P3_BASELINE
+const uint8_t *fzx_scn_body_color(uint32_t family, const uint8_t fallback[3]);
+#endif
 
 /* engine_main.c (shared text with the plain image's main). */
 uint32_t video_fields_get(void);

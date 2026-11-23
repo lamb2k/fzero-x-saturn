@@ -175,14 +175,16 @@ The baker reconstructs the stationary grid from thirty C8 selections at
 4-bit patches for each selected machine. The engine owns navigation and draws
 the resulting VDP1 sprites. The machine name, weight, selected pilot and
 original grades come from the same C8 view as the selection highlight.
-Stock settings load one original C8 entry view for the selected machine.
-The engine draws the balance arrow separately. Left/right or L/R adjust
-balance, X/Z select its limits, B cancels and A commits. The guest picker
-uses the engine's text and portrait panel. Stock model rotation and four-skin
-selection remain open.
+Stock settings load one checked CD bank for the selected machine. It holds the
+original entry picture, the three other source paint schemes as RGB555 patches,
+and the four balance arrows. L/R cycle paint, left/right adjust balance, X/Z
+select its limits, B cancels and A commits. Selecting a scheme requires no CD
+read. The race close-up uses the confirmed machine's original RGB body colour.
+Each scheme currently shows one pose. The guest picker uses its portrait panel.
 
-Bake the thirty settings pages from the same private capture set. The
-route1 endpoint views supply the uncovered track behind the moving arrow.
+Bake with the qualified all30-2, stock-skins and route1 reference captures.
+The two route1 endpoints uncover the track behind the arrow. The stock-skins
+route presses and releases R through all four schemes for every machine.
 
 ```sh
 python tools/engine_machine_settings.py "$FZX_EVIDENCE/emu/machine-menu" generated/machine_settings

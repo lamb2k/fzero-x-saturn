@@ -811,13 +811,19 @@ static void select_tick(void *u, uint32_t s) {
     else if (input.held & PAD_R) select_balance += 1.f/128.f;
     if (select_balance < 0) select_balance = 0;
     if (select_balance > 1) select_balance = 1;
+#if ENG_SND_MENU
     if (previous != select_balance) {
         text_dirty = true;
         if ((int)(previous * 10.f) != (int)(select_balance * 10.f)) MENU_SE(22u); /* the original: each tenth crossed */
     }
+#else
+    if (previous != select_balance) text_dirty = true;
+#endif
     if (input.edges & PAD_A) {
         if (session_edit(cursor, course_cursor)) { snd_event(2); MENU_SE(62u); MENU_SE(33u); retry_pending = false; (void)request(FZX_SCN_LOAD, RANK_GOTO); }
+#if ENG_SND_MENU
         else MENU_SE(32u);
+#endif
 #else
     uint32_t n = 0, visible[MACHINE_COUNT];
     for (unsigned i = 0; i < MACHINE_COUNT; ++i) if (machine_allowed(machines[i].id)) visible[n++] = i;
@@ -828,9 +834,15 @@ static void select_tick(void *u, uint32_t s) {
     cursor = visible[at];
     if (input.edges & PAD_A) {
         if (session_edit(machines[cursor].id, course_cursor)) { snd_event(2); MENU_SE(62u); MENU_SE(33u); retry_pending = false; (void)request(FZX_SCN_LOAD, RANK_GOTO); }
+#if ENG_SND_MENU
         else MENU_SE(32u);
 #endif
+#endif
+#if ENG_SND_MENU
     } else if (input.edges & PAD_B) { MENU_SE(16u); (void)request(FZX_SCN_TITLE, RANK_GOTO); }
+#else
+    } else if (input.edges & PAD_B) (void)request(FZX_SCN_TITLE, RANK_GOTO);
+#endif
 }
 static void select_draw(void) {
     if (!text_dirty) return;

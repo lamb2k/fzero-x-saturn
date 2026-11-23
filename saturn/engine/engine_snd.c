@@ -487,15 +487,15 @@ void engine_snd_leave(uint32_t frames) {
     voices_live = 0u;
     sh2z_snd_queue_close(&queue);
     sh2z_cdda_fade(&cd, frames);
+#if ENG_SND_MENU
     for (uint32_t s = 0; s < SH2Z_SND_SLOTS; ++s) {
         if (s == 16u || s == 17u) continue;
-#if ENG_SND_MENU
         if (s >= ENG_SND_MENU_SLOT0 && s < ENG_SND_MENU_SLOT0 + ENG_SND_MENU_SLOTS) continue;   /* a confirm effect rings through LOAD */
-#endif
         sh2z_snd_stop(&snd, s);
     }
-#if ENG_SND_MENU
     engine_snd_menu_reset();
+#else
+    for (uint32_t s = 0; s < SH2Z_SND_SLOTS; ++s) if (s != 16u && s != 17u) sh2z_snd_stop(&snd, s);
 #endif
     for (unsigned p = 0; p < SND_RACE_EVENT_PARTS; ++p) { player_slot[p] = -1; rival_slot[0][p] = -1; rival_slot[1][p] = -1; }
     cpu_intc_mask_set(mask);

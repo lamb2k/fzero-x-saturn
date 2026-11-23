@@ -377,7 +377,12 @@ bool fzx_fx_stage(const fzx_view_t *view, const fzx_engine_cam_t *cam, const fzx
         const uint32_t id = c->id;
         if (id >= CARS) continue;
         boost_t *o = &snap_b[snap_n];
-        const int32_t depth = view_depth(&v, c->pos);
+        /* sh2z_ep_depth inline: the staged frame's depth of the car, saturated to 32 bits */
+        const int64_t dz = (int64_t)v.r[2][0] * (int32_t)((uint32_t)c->pos[0] - (uint32_t)v.eye[0]) +
+                           (int64_t)v.r[2][1] * (int32_t)((uint32_t)c->pos[1] - (uint32_t)v.eye[1]) +
+                           (int64_t)v.r[2][2] * (int32_t)((uint32_t)c->pos[2] - (uint32_t)v.eye[2]);
+        const int64_t dq = dz >> 16;
+        const int32_t depth = dq > INT32_MAX ? INT32_MAX : dq < INT32_MIN ? INT32_MIN : (int32_t)dq;
         if (depth <= 0 || depth > NEAR_BOOST * 16384) continue;
         if (id == 0u) {
             if (pl.flags & (SH2Z_VD_CRASHED | SH2Z_VD_SPINNING)) continue;
@@ -409,7 +414,8 @@ bool fzx_fx_stage(const fzx_view_t *view, const fzx_engine_cam_t *cam, const fzx
             o->flare = 0;
         }
         if (!o->row[0]) { ++fzx_fx_report[15]; continue; }
-        for (int a = 0; a < 3; ++a) { o->pos[a] = c->pos[a]; for (int r = 0; r < 3; ++r) o->basis[r][a] = c->basis[r][a]; }
+        o->pos[0] = c->pos[0]; o->pos[1] = c->pos[1]; o->pos[2] = c->pos[2];
+        memcpy(o->basis, c->basis, sizeof(o->basis));
         o->depth = depth; o->id = (uint8_t)id;
         ++snap_n;
     }

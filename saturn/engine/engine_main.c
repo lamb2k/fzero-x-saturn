@@ -1158,11 +1158,6 @@ static void build(row_t *row, const fzx_engine_cam_t *cam, uint32_t tick, uint16
 #endif
 #endif
 
-#if ENG_FX && E1_FIELD && E2_EARLY
-    /* The effects: the master takes the job if the slave has not (it is still on its track). */
-    fx_mine = sh2z_claim_a(&fx_claim, fx_tag);
-    if (fx_mine) fx_stage_n = fzx_fx_job(fx_stage_cmds, FZX_FX_SLOTS);
-#endif
     const uint16_t t1 = cpu_frt_count_get();
 #if E0_QUEUE_STRESS
     road_count = 0;
@@ -1171,6 +1166,13 @@ static void build(row_t *row, const fzx_engine_cam_t *cam, uint32_t tick, uint16
         fail(27, "TRACK", fzx_road_stream_stats.fault * 100u + fzx_slave_road_status);
 #endif
     row->wait_road_ticks = (uint16_t)(cpu_frt_count_get() - t1);
+#if ENG_FX && E1_FIELD && E2_EARLY
+    /* The effects: the slave emits them after its track and before it signals done (it has the slack: the master is the
+     * longer chain in every measured row), so the master's own emit would only lengthen its chain. The master takes the
+     * job here only if the slave has not (never expected; the claim keeps the frame whole either way). */
+    fx_mine = sh2z_claim_a(&fx_claim, fx_tag);
+    if (fx_mine) fx_stage_n = fzx_fx_job(fx_stage_cmds, FZX_FX_SLOTS);
+#endif
 #if E0_ROAD_HASH
     /* Verification builds only: FNV over this frame's road commands (the user clip first) and Gouraud words, per frame row. */
     if (row >= rows && (uint32_t)(row - rows) < row_capacity && (uint32_t)(row - rows) < 4608u) {

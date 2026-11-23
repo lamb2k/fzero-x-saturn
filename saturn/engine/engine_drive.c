@@ -258,12 +258,22 @@ static struct {
     FzxPadState pad_after;
     uint16_t prev_after[AHEAD_MAX];
     sh2z_vd_body_t after[AHEAD_MAX];
+#if ENG_PICK_AHEAD
+    /* ENG_PICK_AHEAD: the camera of the state the prediction ends in, computed with the lens and orbit named here, and the
+     * tick and outer bit the next frame will show; view = a camera was computed, kept = the step took the prediction. */
+    fzx_engine_cam_t cam;
+    uint32_t view, kept, limited, orbit_key, tick_after, outer_after;
+    int32_t lens_key[3];
+#endif
 } ahead;
 /* [0] prepared, [1] taken, [2] pad word differed, [3] tick count or start differed, [4] master FRT units spent preparing,
  * [5] the longest prepare (FRT units), [6] frames the loop did not prepare (VDP1 idle). */
 volatile uint32_t fzx_e1_ahead[8];
 void fzx_drive_ahead_prepare(uint32_t req) {
     ahead.valid = 0;
+#if ENG_PICK_AHEAD
+    ahead.view = 0; ahead.kept = 0;
+#endif
     if (!req || req > AHEAD_MAX) return;
     sh2z_vd_body_t b = body;
     uint16_t pv = prev_n64;
@@ -327,6 +337,9 @@ void fzx_drive_step(uint32_t n) {
             }
             ++fzx_e1_ahead[1];
             taken = true;
+#if ENG_PICK_AHEAD
+            ahead.kept = 1;
+#endif
         }
     }
     if (!taken)
@@ -462,23 +475,32 @@ static uint32_t isqrt64(uint64_t v) {
     return (uint32_t)r;
 }
 
+#if ENG_PICK_AHEAD
+/* ENG_PICK_AHEAD: the camera of any body (the ahead stage computes the next frame's); BP is the body it reads. */
+static void camera_of(fzx_engine_cam_t *cam, const fzx_engine_cam_t *lens, const sh2z_vd_body_t *cam_body, uint32_t *roll_limited) {
+#define BP cam_body
+#define ROLL_LIMITED_INC (++*roll_limited)
+#else
 void fzx_drive_camera(fzx_engine_cam_t *cam, const fzx_engine_cam_t *lens) {
+#define BP (&body)
+#define ROLL_LIMITED_INC (++fzx_e1_roll_limited)
+#endif
 #if E1_CLOSEUP == 1
     /* Stills only: fzx_e1_cam_orbit 1 swings the chase camera 135 degrees around the car's
      * up axis (a front three-quarter view), 2 by 90 degrees (side); 0 is the chase camera. */
     int32_t orbit_f[3];
-    const int32_t *f = body.body[0], *u = body.body[1];
+    const int32_t *f = BP->body[0], *u = BP->body[1];
     if (fzx_e1_cam_orbit == 1u || fzx_e1_cam_orbit == 2u) {
         const int32_t oc = fzx_e1_cam_orbit == 1u ? -759250125 : 0, os = fzx_e1_cam_orbit == 1u ? 759250125 : 1073741824;
-        for (unsigned i = 0; i < 3u; ++i) orbit_f[i] = mul30(oc, f[i]) + mul30(os, body.body[2][i]);
+        for (unsigned i = 0; i < 3u; ++i) orbit_f[i] = mul30(oc, f[i]) + mul30(os, BP->body[2][i]);
         f = orbit_f;
     }
 #else
-    const int32_t *f = body.body[0], *u = body.body[1];
+    const int32_t *f = BP->body[0], *u = BP->body[1];
 #endif
     int32_t cf[3], cu[3], r0[3];
     for (unsigned i = 0; i < 3u; ++i) {
-        cam->eye[i] = body.pos[i] + mul30(EYE_F, f[i]) + mul30(EYE_U, u[i]);
+        cam->eye[i] = BP->pos[i] + mul30(EYE_F, f[i]) + mul30(EYE_U, u[i]);
         cf[i] = mul30(PITCH_C, f[i]) - mul30(PITCH_S, u[i]);
         cu[i] = mul30(PITCH_S, f[i]) + mul30(PITCH_C, u[i]);
     }
@@ -507,7 +529,7 @@ void fzx_drive_camera(fzx_engine_cam_t *cam, const fzx_engine_cam_t *lens) {
                 cu[0] = (int32_t)(((int64_t)r0[1] * cf[2] - (int64_t)r0[2] * cf[1]) >> 30);
                 cu[1] = (int32_t)(((int64_t)r0[2] * cf[0] - (int64_t)r0[0] * cf[2]) >> 30);
                 cu[2] = (int32_t)(((int64_t)r0[0] * cf[1] - (int64_t)r0[1] * cf[0]) >> 30);
-                ++fzx_e1_roll_limited;
+                ROLL_LIMITED_INC;
             }
         }
     }
@@ -524,6 +546,76 @@ void fzx_drive_camera(fzx_engine_cam_t *cam, const fzx_engine_cam_t *lens) {
         cam->xzn[1] = (int32_t)(((int64_t)cf[2] << 30) / (int64_t)n);
     } else { cam->xzn[0] = 1 << 30; cam->xzn[1] = 0; }
 }
+#undef ROLL_LIMITED_INC
+#undef BP
+#if ENG_PICK_AHEAD
+void fzx_drive_camera(fzx_engine_cam_t *cam, const fzx_engine_cam_t *lens) {
+    uint32_t limited = 0;
+    camera_of(cam, lens, &body, &limited);
+    fzx_e1_roll_limited += limited;
+}
+#endif
+#if ENG_PICK_AHEAD
+#if !ENG_PHYS_AHEAD
+#error ENG_PICK_AHEAD needs ENG_PHYS_AHEAD
+#endif
+/* The next frame's camera, tick and outer bit from the state the prediction ends in. False when there is no prediction. */
+bool fzx_drive_ahead_view(const fzx_engine_cam_t *lens, const fzx_engine_cam_t **cam, uint32_t *tick, uint32_t *outer) {
+    if (!ahead.valid || !ahead.n) return false;
+    const sh2z_vd_body_t *b = &ahead.after[ahead.n - 1u];
+#if ENG_PICK_AHEAD_CONTROL == 2
+    b = &body; /* control (diagnostic only): the camera of the state before the prediction, used as if it were the predicted one:
+                * the pick sees a stale view and the picture must differ */
+#endif
+    uint32_t limited = 0;
+    camera_of(&ahead.cam, lens, b, &limited);
+    ahead.limited = limited;
+    ahead.lens_key[0] = lens->focal[0]; ahead.lens_key[1] = lens->focal[1]; ahead.lens_key[2] = lens->tan_half;
+#if E1_CLOSEUP == 1
+    ahead.orbit_key = fzx_e1_cam_orbit;
+#else
+    ahead.orbit_key = 0;
+#endif
+    ahead.tick_after = ahead.from_ticks + ahead.n;
+    ahead.tick_after = ahead.tick_after ? ahead.tick_after : 1u;
+#if FZX_PHYS_TUBES
+    {   /* fzx_drive_outer() on the predicted state */
+        const uint32_t n = b->node < course.track.count ? b->node : 0u;
+        uint32_t o = 1u;
+        if (course.nodes[n].shape == SH2Z_VD_SHAPE_PIPE || course.nodes[n].shape == SH2Z_VD_SHAPE_TUNNEL)
+            o = (b->t < course.joins[n].prev_end || course.joins[n].next_start < b->t) ? 1u : 0u;
+        ahead.outer_after = o;
+    }
+#else
+    ahead.outer_after = 1u;
+#endif
+    ahead.view = 1;
+    *cam = &ahead.cam; *tick = ahead.tick_after; *outer = ahead.outer_after;
+    return true;
+}
+/* This frame's camera: the prediction's when the step took it (so the state is the one it was computed from) and the lens and
+ * orbit are the same; else computed now. True: the camera, tick and outer bit are the ones the early pick used. */
+bool fzx_drive_camera_ahead(fzx_engine_cam_t *cam, const fzx_engine_cam_t *lens) {
+    const bool use = ahead.kept && ahead.view && ahead.lens_key[0] == lens->focal[0] && ahead.lens_key[1] == lens->focal[1] &&
+                     ahead.lens_key[2] == lens->tan_half &&
+#if E1_CLOSEUP == 1
+                     ahead.orbit_key == fzx_e1_cam_orbit &&
+#endif
+                     ahead.tick_after == (ticks ? ticks : 1u);
+    ahead.kept = 0; ahead.view = 0;
+#if ENG_PICK_AHEAD_CONTROL == 1
+    /* control (diagnostic only): every third early pick is declared unused, so the road job undoes it and picks again; the
+     * picture must equal the default's */
+    static uint32_t control_n;
+    if (use && ++control_n % 3u == 0u) { fzx_drive_camera(cam, lens); return false; }
+#endif
+    if (!use) { fzx_drive_camera(cam, lens); return false; }
+    *cam = ahead.cam; /* focal and tan_half are the lens's: the key matched */
+    fzx_e1_roll_limited += ahead.limited;
+    return true;
+}
+#endif
+
 
 /* ---- player sprite (claude/racer-sprites 45b74b7 draw16 path, through the slot cache) --
  * SPRITE-RACERS-PLAN.md section 9.4 (SH2ZAM sprite-cache-1):
@@ -616,6 +708,9 @@ bool fzx_drive_load(void *scratch, uint32_t scratch_bytes) {
     body = course.start; prev_n64 = 0; ticks = 0;
 #if ENG_PHYS_AHEAD
     ahead.valid = 0;
+#if ENG_PICK_AHEAD
+    ahead.view = 0; ahead.kept = 0;
+#endif
 #endif
     memset(&pad_state, 0, sizeof(pad_state));
 #if E1_FIELD
@@ -702,6 +797,9 @@ void fzx_drive_reset(void) {
     body = course.start; prev_n64 = 0; ticks = 0; finish_timer = 0;
 #if ENG_PHYS_AHEAD
     ahead.valid = 0;
+#if ENG_PICK_AHEAD
+    ahead.view = 0; ahead.kept = 0;
+#endif
 #endif
 #if E1_FIELD && ENG_BAL_EARLY
     field_pending = 0; /* player states a left race never handed to the field */

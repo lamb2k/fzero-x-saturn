@@ -12,8 +12,14 @@ volatile uint32_t fzx_slave_road_guard_trips,fzx_slave_road_guard_first_job,fzx_
 
 typedef struct {
     uint32_t seq,done,ok,count,ticks,frt_ready,ratio,sp;
+#if ENG_PICK_AHEAD
+    uint32_t pick_only;   /* 1: the job is the early pick alone (no args) */
+#endif
     fzx_slave_road_args_t args;
 } job_t;
+#if ENG_PICK_AHEAD
+static volatile uint32_t pick_pending;   /* master: an early pick job was started and not yet seen done */
+#endif
 /* Linked at 0x2xxxxxxx (libyaul .uncached): both CPUs read memory. */
 static volatile job_t job __uncached;
 
@@ -46,6 +52,16 @@ static void slave_entry(void){
     cpu_cache_purge();
     if(!job.frt_ready){cpu_frt_init(CPU_FRT_CLOCK_DIV_128);job.frt_ready=1;}
     BARRIER(); /* the payload is read after the notification */
+#if ENG_PICK_AHEAD && defined(FZX_ENGINE)
+    if(job.pick_only){
+        extern bool fzx_engine_slave_pick_early(void);
+        const bool pok=fzx_engine_slave_pick_early();
+        job.ok=pok;
+        BARRIER();
+        job.done=job.seq;
+        return;
+    }
+#endif
     const fzx_slave_road_args_t a=job.args;
     uint32_t n=0;
     job.sp=(uint32_t)(uintptr_t)&n;
@@ -55,8 +71,13 @@ static void slave_entry(void){
     const uint16_t t0=cpu_frt_count_get();
 #ifdef FZX_ENGINE
     /* Engine line: the slave picks the visible track, then builds it. */
+#if ENG_PICK_AHEAD
+    extern bool fzx_engine_slave_pick_for_job(bool pre);
+    const bool ok=fzx_engine_slave_pick_for_job(a.pre!=0u)&&
+#else
     extern bool fzx_engine_slave_pick(void);
     const bool ok=fzx_engine_slave_pick()&&
+#endif
         fzx_road_stream_native(a.commands,a.capacity,a.view,a.eye,a.plan,a.pa,a.pb,a.pixels,a.shades,&n);
 #else
     const bool ok=fzx_road_stream_native(a.commands,a.capacity,a.view,a.eye,a.plan,a.pa,a.pb,a.pixels,a.shades,&n);
@@ -92,6 +113,9 @@ void fzx_slave_road_init(void){
     const uint8_t cks=*(volatile uint8_t *)0xfffffe92u&3u;
     job.ratio=cks==0?16u:cks==1?4u:1u;
     job.seq=0;job.done=0;job.frt_ready=0;job.sp=0;
+#if ENG_PICK_AHEAD
+    job.pick_only=0;pick_pending=0;
+#endif
     fzx_slave_road_jobs=0;fzx_slave_road_late=0;
     fzx_slave_road_wait_sum=0;fzx_slave_road_wait_max=0;
     fzx_slave_road_busy_sum=0;fzx_slave_road_busy_max=0;
@@ -102,7 +126,29 @@ void fzx_slave_road_init(void){
     fzx_slave_road_status=1;
 }
 
+#if ENG_PICK_AHEAD
+void fzx_slave_road_pick_wait(void){
+    if(!pick_pending)return;
+    /* The pick takes a few ms; a slave that never answers is the same fault as a stuck road job. */
+    for(uint32_t spins=0;job.done!=job.seq;++spins)
+        if(spins>200000000u){fzx_slave_road_status=9;break;}
+    pick_pending=0;
+}
+void fzx_slave_road_pick_start(void){
+    fzx_slave_road_pick_wait();
+    job.pick_only=1;
+    BARRIER();
+    job.seq=job.seq+1u;
+    BARRIER();
+    pick_pending=1;
+    cpu_dual_slave_notify();
+}
+#endif
 void fzx_slave_road_start(const fzx_slave_road_args_t *args){
+#if ENG_PICK_AHEAD
+    fzx_slave_road_pick_wait();
+    job.pick_only=0;
+#endif
     job.args=*args;
     BARRIER(); /* the complete payload is stored before the sequence number */
     job.seq=job.seq+1u;

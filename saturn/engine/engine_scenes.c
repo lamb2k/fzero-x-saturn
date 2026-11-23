@@ -259,8 +259,8 @@ static bool race_regs_kept, retry_entering;
 #if ENG_SND_MENU_TEST
 /* Capture-only test hooks (ENG_SND_MENU_TEST=1, never shipped): the script pokes fzx_menu_test[0] and title_tick runs
  * [1]: a disc read under a hold, [2]: a hold granted then released unread (a cancel), [3]: a hold, then a newer music
- * request (select) before the release, [4]: no music requests at all (effects alone), [5]: no effects. [1] state,
- * [2] reads done, [3] read result (1 ok), [4] fields the hold took to be granted. */
+ * request (select) before the release. [1] cycles completed, [2] reads done, [3] read result (1 ok), [4] frames the last
+ * hold took to be granted, [5] 1: hold the title's demo timer off, [6] 1: no music requests, [7] 1: no effects. */
 volatile uint32_t fzx_menu_test[8] __attribute__((section(".bss.lowcold.menu_test")));
 #undef MENU_SE
 #undef MENU_MUSIC
@@ -563,8 +563,10 @@ static bool title_enter(void *u, uint32_t s) {
 static void menu_test_tick(void) {
     static uint32_t waited;
     const uint32_t cmd = fzx_menu_test[0];
-    if (!cmd) { fzx_menu_test[1] = 0; waited = 0; return; }
-    fzx_menu_test[1] = 1;
+#ifndef FZX_P3_BASELINE
+    if (fzx_menu_test[5] && title_ticks < 100u) title_ticks = 100u;   /* hold the title's demo timer off while the script tests */
+#endif
+    if (!cmd) { waited = 0; return; }
     if (!engine_snd_disc_acquire()) { ++waited; return; }          /* granted: the drive is quiet */
     fzx_menu_test[4] = waited;
     if (cmd == 1u) {
@@ -573,7 +575,7 @@ static void menu_test_tick(void) {
         ++fzx_menu_test[2];
     } else if (cmd == 3u) engine_snd_menu_music(15u);
     engine_snd_disc_release();
-    fzx_menu_test[0] = 0; fzx_menu_test[1] = 2; waited = 0;
+    fzx_menu_test[0] = 0; ++fzx_menu_test[1]; waited = 0;
 }
 #endif
 static void title_tick(void *u, uint32_t s) {

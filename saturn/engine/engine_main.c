@@ -868,8 +868,7 @@ void fzx_engine_slave_after(void) {
     {
         const uint32_t tag = fx_tag;
         bool purged = false;
-        for (unsigned jj = FZX_FX_JOBS; jj-- > 0;) {   /* the slave from the last job down */
-            const unsigned j = jj;
+        for (unsigned j = 0; j < FZX_FX_JOBS; ++j) {   /* the slave from the first job up */
             if (!sh2z_claim_b(&fx_claim[j], tag)) continue;
             if (!purged) { cpu_cache_purge(); purged = true; } /* the staged frame, ring and states the master wrote */
             fzx_fx_job(j);
@@ -1299,7 +1298,7 @@ static void build(row_t *row, const fzx_engine_cam_t *cam, uint32_t tick, uint16
 
 #if ENG_FX && E1_FIELD && E2_EARLY
     /* The effects: the master takes each job the slave has not (it is still on its track). */
-    for (unsigned j = 0; j < FZX_FX_JOBS; ++j) {   /* the master from the first job up */
+    for (unsigned j = 0; j < FZX_FX_JOBS; ++j) {   /* the master from the first job up too (measured: it beat the opposite orders) */
         fx_mine[j] = sh2z_claim_a(&fx_claim[j], fx_tag);
         if (fx_mine[j]) fzx_fx_job(j);
     }

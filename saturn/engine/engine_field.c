@@ -525,7 +525,12 @@ bool fzx_field_load(const sh2z_vd_track_t *track, const sh2z_vd_body_t *player) 
 #endif
         sh2z_track_state_t ps;
         sh2z_field_grid_slot(&line, GRID_PLACE(0, FIELD_ROWS[0]) - 1u, U(146), U(100), U(50), 4, &ps);
-        const int64_t shift = ((int64_t)veh[0].t.lap * line.length + veh[0].t.dist) - ((int64_t)ps.lap * line.length + ps.dist);
+        int64_t shift = ((int64_t)veh[0].t.lap * line.length + veh[0].t.dist) - ((int64_t)ps.lap * line.length + ps.dist);
+#if ENG_MODES
+        /* Death Race: the rivals' absolute positions matter (where the air runs are), not their places relative to the player, who starts at the
+         * line rather than on his 30th place: with the player's shift the 29 stood 2,300 units further on than in the original and fell 60 ticks early. */
+        if (mode_now && mode_now->win_all_retired) shift = 0;
+#endif
         for (uint32_t i = 0; i < FZX_FIELD_CARS; ++i) {
             const int32_t *cf = FIELD_ROWS[i];
             const int32_t ms = cf[1], chase = cf[2], maxe = cf[3], aggr = cf[4];

@@ -22,7 +22,7 @@ def sha(data):
     return hashlib.sha256(data).hexdigest()
 
 
-def stage(source, output, fx_output):
+def stage(source, output, fx_output=ROOT / "generated/fx"):
     output_location(fx_output)
     output_location(output)
     output.mkdir(parents=True, exist_ok=True)

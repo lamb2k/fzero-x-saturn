@@ -64,14 +64,30 @@ with the base's receipt.
 
 **Courses (claude/modes, ENG_MODES on by default).** The `course-*` rows are Practice / Standard rows: a Time Attack race is solo and
 lighter than a field, so each course is entered through SELECT as Practice (probe `0x451`, then the course probe `0x2nn`, the
-order matters: a mode probe after the course probe can reset the course) and raced against the full 29-opponent field. At RACE entry
-`practice_fixture` asserts the session (mode 5, class 1, the course and its row in the Practice bundle, machine 0, skin 1, slider bits
-0), the loaded field (not solo), the start grid (places 1..30) and 29 distinct opponents with energy, from the rows the image links
-(`generated/courses/select/course_practice.c`, read through `stage.sh cat`). The window is the tick-420 window to an explicit end mark
-(`results`, drive tick 3780: the Practice race in the harness ends by itself between drive tick 6126 and 7176 on the five courses measured, so the window stays well inside it); `host` compares the SH-2 checkpoints with HOST's and asks for no finish. The
-`exit` check quits through the pause menu (START, DOWN, DOWN, A) and requires RESULTS and unchanged record file generations: zero
-race-record writes. Controls: `ctl-pr-course` (the race enters Silence for a Mute City row), `ctl-pr-solo` (Time Attack, solo) and
-`ctl-pr-roster` (one opponent replaced: 28 distinct) must each fail the `fixture` check. The Practice bundle comes from
+order matters: a mode probe after the course probe can reset the course) and raced against the full 29-opponent field. The window is
+the tick-420 window to an explicit end mark (`results`, drive tick 3780: the Practice race in the harness ends by itself between drive
+tick 6126 and 7176 on the five courses measured, so the window stays well inside it); the matrix's `practice` section holds that end
+tick and the checkpoint period (256) and the gate refuses a script whose hold tick differs. The `exit` check quits through the pause
+menu (START, DOWN, DOWN, A) and requires RESULTS and unchanged record file generations: zero race-record writes.
+
+*The fixture (C-169).* The expectation is frozen from the HOST reference alone: `tools/practice_expected.py REPORTS_DIR OUT.json` reads
+the four `fzx-gp-ref --mode practice` reports per course (`tools/modes_practice_regen.sh` keeps them) and writes, per course and class,
+the vehicle count, the seed, and per vehicle id the machine, grid place, energy ceiling and chase target. The file is ROM-derived: it
+lives in the evidence folder (`--practice-expected`, default `host/practice-expected/practice-expected.json`), never in git. When the
+gate builds an image with the live field identity it archives `practice-identity.json` beside the BIN (the BIN's hash, the expected rows
+and their hash, the stage bundle's hashes, and whether the bundle's rows equal the expected ones), so a rescore needs neither the stage
+nor the tree. At RACE entry `practice_fixture` reads the image's own state and compares it with the archived rows: the session (mode 5,
+class 1, course and row, machine 0, skin 1, slider bits 0); `fzx_field_ident` (the vehicle count 30, the seed it was initialised with, the
+row, class and mode it was built for); `fzx_field_live` (per vehicle: the machine of its row, its energy ceiling, its chase target and its
+start position); the grid source, which must be 1 (the course header) with `fzx_field_grid` equal to the HOST grid in order; and the
+rivals' start positions, which must order the vehicles by the HOST grid places. An image with the sprite roster (`E2_ROSTER`) is also
+compared on each rival's bound sprites. It fails closed: no archive, no expected row, or no mark fails the row. The `host` check asks
+for exactly the checkpoints the matrix's period and end tick give (256, 512 ... 3584), every one present in HOST's file and equal; a
+missing HOST reference, a HOST file lacking one, or an image that captured a subset or stopped early fails.
+Controls, all failing `fixture` or `host` as they must: `ctl-pr-course`, `ctl-pr-solo` (real runs); on a copy of the observed state
+(the frozen rows are never touched) `ctl-pr-roster`, `-entrants`, `-energy`, `-chase`, `-standing`, `-grid` (still places 1..30),
+`-gridsrc` (the right grid from the wrong source), `-seed`, `-count`; `ctl-pr-bundle` (the archive says a linked row differs),
+`ctl-pr-noarchive`; and for `host` `ctl-pr-nohost`, `-hostlack`, `-subset`, `-short`. The Practice bundle comes from
 `tools/modes_practice_regen.sh` (run it in a clean stage after `tools/course_bundle.py`). Grand Prix cost is C-138's six live Jack
 rounds; Time Attack cost is the standalone rows.
 

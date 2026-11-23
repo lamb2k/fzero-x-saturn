@@ -270,7 +270,12 @@ class Gate:
         self.stage_cmd('tree', self.stage, wslpath(tar), sub)
         regen = []
         for g in self.m.get('regenerate', []):
-            rc, out = self.stage_cmd('regen', self.stage, g['receipt'], *g['cmd'].replace('{engine_pin}', pin).split(), check=False)
+            # The driver supplies the recipe even for older base trees. The
+            # generators and SH2ZAM pin it invokes belong to the staged tree.
+            args = g['cmd'].replace('{engine_pin}', pin).split()
+            if '{view_regen}' in args:
+                args[args.index('{view_regen}')] = wslpath(TOOLS / 'regen_view_receipts.sh')
+            rc, out = self.stage_cmd('regen', self.stage, g['receipt'], *args, check=False)
             regen.append(out.splitlines()[-1] if out else 'REGEN %s rc %d' % (g['receipt'], rc))
         _, out = self.stage_cmd('receipts', self.stage)
         stale = [l.split()[1] for l in out.splitlines() if l.startswith('STALE ')]

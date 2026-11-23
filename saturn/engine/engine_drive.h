@@ -62,7 +62,11 @@ void fzx_drive_step(uint32_t ticks);
 #if ENG_PHYS_AHEAD
 /* ENG_PHYS_AHEAD: compute the next `ticks` ticks on a copy of the state, for the next fzx_drive_step to take. */
 void fzx_drive_ahead_prepare(uint32_t ticks);
-extern volatile uint32_t fzx_e1_ahead[12];
+#if defined(ENG_ATTACKS) && ENG_ATTACKS
+extern volatile uint32_t fzx_e1_ahead[12]; /* [8], [9]: the contact run ahead after the picture (engine_drive.c) */
+#else
+extern volatile uint32_t fzx_e1_ahead[8];
+#endif
 #endif
 #if ENG_BAL_EARLY
 /* ENG_BAL_EARLY: fzx_drive_step keeps the player's state after each tick and the rival

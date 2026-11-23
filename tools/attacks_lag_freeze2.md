@@ -37,3 +37,11 @@ The 24 permutations, not one X: an exact arm cannot be told apart from lag by on
 ## Run
 `oc2run.sh oc2 run --arms lag,l8,drop --blocks 0-3` then `oc2run.sh oc2 score --blocks 0-3` (score.txt = score-n20000.txt). Scored once. Pass: P1 stays default on.
 Fail: `ENG_ATK_LAG ?= 0`, the gate's HOST reference to `--order canonical`, report.
+
+## Result (scored once, 2026-11-23; evidence host\claude-acost3\oc2\score-n20000.txt, agg-*.json)
+VERDICT lag: FAIL. 10 of 30 rows break the rule: the place statistic P in 6 of 6 cells (P(lag,A) 0.0073 to 0.0361 against P(B,A) 0.0016 to 0.0028, tolerance 0.005)
+and player damage in 4 of 6 (Mute City 1 d3 0.0056, Sand Ocean 1 d1 0.0116, Sand Ocean 1 d3 0.0174, Big Blue 1 d3 0.0093 of max energy against 0.0002 to 0.0008 for B-A;
+tolerance 0.005); the rival counts (KO, retired) and player KOs pass in every cell.
+Controls: l8 breaks 12 of 30 rows, drop breaks 26 of 30: the check discriminates (calibration: exact arms 0 of 720 rows, worst slack 0.452; lag's worst slack 6.79).
+Ruling applied: P1 is off. ENG_ATK_LAG ?= 0, the gate's HOST reference is `fzx-atk --order canonical`. The lagged arm stays buildable (ENG_ATK_LAG=1) for a later redesign; it is not a default.
+Also found on the way: the balance-off control image ctl-margin failed to build with ENG_ATK_LAG on (lag_have undeclared without the field queue); fixed at 09fa5a5, moot now that the default is 0.

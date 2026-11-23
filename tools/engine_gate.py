@@ -417,7 +417,7 @@ class Gate:
         if not slug:
             return None
         if self.is_atk(build_dir):
-            return self.host_atk(slug, 0 if self.is_scenes(build_dir) else 1)
+            return self.host_atk(slug, 0)   # canonical order: the frame grouping (--first) only matters to an ENG_ATK_LAG=1 image
         return hosts.get(slug)
 
     def script_for(self, name, course_index=None, record_ms=None):

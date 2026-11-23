@@ -165,8 +165,8 @@ PY
   echo "HOST $slug $driver $(grep -E '^(ticks|finish_ms)' "$f" | tr '\n' ' ')"
   ;;
 hostatk)
-  # hostatk STAGE OUT KEY SLUG: the HOST reference of an image built with ENG_ATTACKS (tools/attacks_host, fzx-atk --order lag --gate 1, the R01 driver; --order lag is
-  # the image's default ENG_ATK_LAG=1, approximation P1; an image built with ENG_ATK_LAG=0 is the canonical order):
+  # hostatk STAGE OUT KEY SLUG: the HOST reference of an image built with ENG_ATTACKS (tools/attacks_host, fzx-atk --order canonical --gate 1, the R01 driver; the default image has ENG_ATK_LAG=0,
+  # approximation P1 having failed its outcome check; an image built with ENG_ATK_LAG=1 is --order lag [--first 1]):
   # body checkpoints, attack words, the final body hash, the player's finish. One fzx-atk per course (its rivals pack is compiled in),
   # built with tubes for every course as the scenes images' physics is (vehicle-dynamics-2 gives road courses the same bits).
   out=${3:?}; key=${4:?}; slug=${5:?}; driver=${6:-0.004,2.5}; ahead=${7:--}; ticks=${8:--}; first=${9:--}
@@ -181,7 +181,7 @@ hostatk)
     cp tools/attacks_host/build/gcc-O2-gate-$key-$slug/fzx-atk "$hb/fzx-atk-$slug"
   fi
   mkdir -p "$out"
-  "$hb/fzx-atk-$slug" --phys "$g/physics/PHYS.PAK" --rivals "$g/rivals/RIVALS.PAK" --driver 1 --drive "$driver" $da $tk --order lag $fr --gate 1 > "$out/$slug-atk$fs.txt" 2> "$out/$slug-atk$fs.err"
+  "$hb/fzx-atk-$slug" --phys "$g/physics/PHYS.PAK" --rivals "$g/rivals/RIVALS.PAK" --driver 1 --drive "$driver" $da $tk --order canonical $fr --gate 1 > "$out/$slug-atk$fs.txt" 2> "$out/$slug-atk$fs.err"
   echo "HOSTATK $slug$fs $(grep -E '^(ticks|finish_ms)' "$out/$slug-atk$fs.txt" | paste -sd' ' -)"
   ;;
 *) echo "unknown command $cmd" >&2; exit 2;;

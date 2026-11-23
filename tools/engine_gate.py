@@ -910,7 +910,7 @@ class Gate:
     DR_SORTED_BAND, DR_ID_BAND, DR_ID_MIN = 40, 60, 24   # tools/modes_dr_check.py: the qualification band, fixed before the first native run
 
     def death_observed(self, run_dir, build_dir, sym):
-        mem = Mem(run_dir, 'results', sym)
+        mem = Mem(run_dir, 'saved', sym)   # after the name entry: the field state is the race's (the results scene keeps it), the records are written
         n = mem.words('fzx_field_event_count', 1)[0]
         raw = mem.raw(sym['_fzx_field_events'], 8 * 96)
         ev = [struct.unpack('>BBhi', raw[8 * i:8 * i + 8]) for i in range(min(n, 96))]   # agent, kind, by, tick
@@ -923,8 +923,9 @@ class Gate:
         seed 1) inside the qualification band (sorted ticks within 40, at least 24 of 29 by id within 60)."""
         why = []
         rt = {r['id']: r['retire_tick'] for r in ref['racers'] if r['id']}
-        start = ref['race_start_tick']
-        nt = {e[0]: e[3] + start for e in obs['events'] if e[1] == 3 and e[0]}
+        # Both are ticks from the race start: the field's retire_tick (f->tick - f->start_tick) and the reference's report (its sim runs
+        # race_start_tick ticks of countdown first: ticks 1255 = 420 + the last retirement, 834).
+        nt = {e[0]: e[3] for e in obs['events'] if e[1] == 3 and e[0]}
         if 'poke _veh' in script_text or 'poke _fzx_scn_force_end' in script_text:
             why.append('the script forces retirements or the end (it must run the race as it is)')
         if obs['event_count'] > 96:
@@ -954,7 +955,7 @@ class Gate:
 
     def score_death(self, run, run_dir, build_dir, lines, mk, sym, sink):
         name = run['name']
-        ok = result_kv(lines)[0].get('exit') == 'ok' and all(m in mk for m in ('race_start', 'results'))
+        ok = result_kv(lines)[0].get('exit') == 'ok' and all(m in mk for m in ('race_start', 'results', 'saved'))
         self.add('script', name, ok, '%d marks, %s fields' % (len(mk), result_kv(lines)[0].get('fields', '-')), error_text(run_dir), sink=sink)
         if not ok:
             return

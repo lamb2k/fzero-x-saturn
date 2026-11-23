@@ -1162,7 +1162,7 @@ bool fzx_road_stream_steal_merge(const fzx_road_thief_t *t,const RefRoadPlan *pl
     fzx_road_stream_vdp1_t *dest,uint16_t *dest_shades,uint32_t shade_offset,uint32_t *added){
     *added=0;
     if(t->fault)return false;
-    if(!t->ngroups)return true;
+    if(!t->ngroups)return slave_chunks==plan->visible_chunks;
     if(slave_chunks+t->chunks!=plan->visible_chunks||n+t->commands>limit||
        (uint64_t)shade_offset+(uint64_t)(n+t->commands)*8u>0x80000u)return false;
     uint32_t at=n;

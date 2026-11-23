@@ -222,7 +222,10 @@ volatile uint32_t fzx_e0_hold_tick;
 /* Diagnostic (E2_PROF=1; changes timing slightly): the master's phases per frame row, FRT units:
  * [0] backdrop + skyline (VDP2 words), [1] present wait + sky lines, [2] clouds, [3] skyline draw,
  * [4] floor, [5] field poses and selection, [6] 3D cars, [7] sprite emit and sort. */
-enum { E2_PROF_ROWS = 6144u };
+#ifndef E4_PROF_ROWS
+#define E4_PROF_ROWS 6144u /* Makefile E4_PROF_ROWS: fewer rows so the table fits beside a big course's arena */
+#endif
+enum { E2_PROF_ROWS = E4_PROF_ROWS };
 uint16_t fzx_e2_prof[E2_PROF_ROWS][8];
 static uint32_t prof_row;
 #define PROF_MARK(v) uint16_t v = cpu_frt_count_get()

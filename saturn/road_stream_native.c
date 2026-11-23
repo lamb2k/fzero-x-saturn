@@ -445,13 +445,14 @@ void fzx_road_stream_steal_run(const fzx_view_t *view,const int32_t eye[3],const
     ++fzx_road_steal_report[0];
     const uint16_t t0=cpu_frt_count_get();
     /* The slave's setup (plan, fog, ramps) is published at split_rec.ready; a slave that ends first has nothing left to claim. */
-    while(split_rec.ready!=tag){if(slave_done())return;}
+    while(split_rec.ready!=tag){if(slave_done()||(uint16_t)(cpu_frt_count_get()-t0)>50000u)return;} /* bounded: the finish has its own timeout */
     /* Stale lines: the plan (written by the slave's pick), the colour key, and the tables when it rebuilt them. */
     cpu_cache_area_purge((void *)plan,sizeof(*plan));
     if(thief.seen_gen!=split_rec.gen){
         thief.seen_gen=split_rec.gen;
         cpu_cache_area_purge(&work->fog,(size_t)((uintptr_t)(&work->mix_valid+1)-(uintptr_t)&work->fog));
     } else cpu_cache_area_purge(work->ramp_key,sizeof(work->ramp_key));
+    if(capacity-1>FZX_ROAD_STREAM_MAX_DRAWS)capacity=FZX_ROAD_STREAM_MAX_DRAWS+1; /* as the slave's build does */
     sh2z_view_center_t center;fzx_road_stream_emit_t emit;
     if(!fzx_view16_from_source_center(&center,view,eye)||
        !fzx_road_stream_emit_setup(&emit,commands+1,capacity-1,pixels,CSEL(lod_tex_bytes,FZX_ROAD_LOD_TEXTURE_BYTES),
@@ -463,7 +464,6 @@ void fzx_road_stream_steal_run(const fzx_view_t *view,const int32_t eye[3],const
     fzx_road_steal_report[5]+=(uint16_t)(cpu_frt_count_get()-t0);
 }
 bool fzx_road_stream_steal_merge_job(const RefRoadPlan *plan,vdp1_cmdt_t *commands,void *shades,uint32_t *count){
-    if(!thief.ngroups&&!thief.fault)return true;
     const uint16_t t0=cpu_frt_count_get();
     if(split_rec.abort){++fzx_road_steal_report[7];return true;} /* the slave drew the whole frame again: the thief's groups are dropped */
     if(!count||!*count)return false;

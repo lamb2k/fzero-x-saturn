@@ -623,7 +623,7 @@ bool fzx_field_load(const sh2z_vd_track_t *track, const sh2z_vd_body_t *player) 
 #endif
 #if ENG_MODES
     if (mode_now) {
-        if (mode_now->endless && !mode_now->win_all_retired) params.laps = FZX_ENDLESS_LAPS;
+        if (mode_now->endless) params.laps = FZX_ENDLESS_LAPS;
         if (mode_now->rival_energy_q8 != 256u)
             for (uint32_t i = 1; i < FZX_FIELD_CARS; ++i)
                 veh[i].max_energy = veh[i].energy = (int32_t)(((int64_t)veh[i].max_energy * mode_now->rival_energy_q8) >> 8);

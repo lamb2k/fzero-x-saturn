@@ -23,6 +23,11 @@ EXTRA=()
 # LOCATE_FAR=0 builds the earlier search.
 LOCATE_FAR=${LOCATE_FAR:-128}
 LOCATE_FAR_RUN=${LOCATE_FAR_RUN:-8}
+# SH2ZAM vehicle-dynamics-7 (ENG_LOCATE_DAMP / ENG_LOCATE_FLIP): the same two search changes as the engine.
+LOCATE_DAMP=${LOCATE_DAMP:-8}
+LOCATE_FLIP=${LOCATE_FLIP:-3}
+if [ "$LOCATE_DAMP" != 0 ]; then EXTRA+=(-DSH2Z_VD_LOCATE_DAMP="$LOCATE_DAMP"); fi
+if [ "$LOCATE_FLIP" != 0 ]; then EXTRA+=(-DSH2Z_VD_LOCATE_FLIP="$LOCATE_FLIP"); fi
 if [ "$LOCATE_FAR" != 0 ]; then
     EXTRA+=(-DSH2Z_VD_LOCATE_FAR="$LOCATE_FAR" -DSH2Z_VD_LOCATE_FAR_RUN="$LOCATE_FAR_RUN")
 fi

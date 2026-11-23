@@ -202,7 +202,7 @@ Controls `ctl-gh-frames`, `-commits`, `-readback`, `-ms`, `-big`, `-held`, `-nof
 29 retirements in the field's event log (`fzx_field_events`), end reason FINISH, one records commit, and the rivals' retirement ticks against the
 original code's reference (`--death-ref`, `fzx-gp-ref --mode death`, seed 1; tools/modes_death_regen.sh) inside the qualification band of
 tools/modes_dr_check.py (sorted ticks within 40, 24 of 29 by id within 60). Controls `ctl-dr-ticks`, `-short`, `-commits`, `-reason`, `-poke`,
-`-noref`. At the time of writing the parity part FAILS on the integrated image: see saturn/engine/MODES.md "Death Race: open".
+`-noref`. Ticks are counted from the race start on both sides (the reference's sim ran 420 ticks of countdown first: its `ticks` 1255 = 420 + 834).
 
 ## Baseline
 

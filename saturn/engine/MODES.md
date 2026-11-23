@@ -103,13 +103,9 @@ right); Master is skipped until it is open.
   diagnostic): grid, machines and chase from the report; each rival's pace the mean distance a tick over the 30 ticks before its first air tick, by
   id (`tools/death_field_header.py`, C-169 item 2); energy the full value (the mode halves it). The rule is SH2ZAM line-field-14 (pin 3188d32):
   `gap_reach_ticks 19`, `fall_ticks 127`, set in `engine_field.c` for the mode. The Death rows are in every class of the course row and in `PR54.BIN`.
-- **No distance LOD** in the mode: with it five of the 29 ran past the first air run and retired on lap 2 (EMULATOR, tick 1400, HOST 834).
-- **Open: retirement timing.** On the scenes image the 29 rivals do retire by the fall and the win is the 29th retirement, one records commit, cadence
-  30 fps with 0 intervals over two, master stack 25 KB unused (EMULATOR, MODELLED timing). But the retirement ticks differ from the reference's:
-  counted from the race start (the field's `retire_tick`) the engine retires at 680..764 and the reference at 317..414 (reference tick minus its
-  race start 420), constant offset about 355 +- 20. The SH2ZAM line field run in the HOST harness with the same rows, pack, length and seed lands
-  within -11..+16 ticks of the reference (that is the qualification, which is only about the harness). The same with an idle player (no
-  driver), and with 3 laps instead of 99 or with the LOD back on (then five rivals also run past the first air run): so not the player, the lap
-  count or the LOD. The engine rivals fall at about 18,000 units where the harness falls at about 8,000, which reads as a start gating difference
-  (a constant delay) rather than a pace difference. Not found yet: dump agent positions at field tick 300 from the engine and from the harness
-  and compare; the gate row `death-natural` fails on this until it is closed (the check adds the 420 the reference's ticks carry).
+- **No distance LOD** in the mode: with it (focus on the driving player) five of the 29 ran past the first air run and retired on lap 2 (EMULATOR,
+  tick 1400 against the reference's 834); without it all 29 fall on the first lap.
+- **No shift to the player's place** in the mode: the field builder moves every rival by the player's distance from his own grid slot (so places
+  stay relative to him). Death Race's player is 30th on the grid but starts at the line, so the 29 stood 2,300 units too far on and fell 60 ticks
+  early. Rivals keep their absolute slots now: retirement ticks (from the race start, as the reference's) are within -11..+31 of the reference
+  by rank (EMULATOR vs HOST, seed 1; the qualification band is 40). Found by comparing against the HOST harness, which has no player shift.

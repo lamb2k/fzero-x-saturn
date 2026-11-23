@@ -1,0 +1,38 @@
+# Menu audio, effects alone (docs/MENU_AUDIO.md): music is turned off, then each effect is posted in a quiet window.
+# Needs ENG_SND_MENU_TEST=1 and the mixed-mode disc.
+until 1 1 3000
+wait 4
+poke _fzx_menu_test+20 1
+poke _fzx_menu_test+24 1
+poke _fzx_menu_test 4
+untilword _fzx_menu_test 1 1 900
+wait 150
+mark f_quiet
+poke _fzx_menu_test 0x11E
+untilword _fzx_menu_test 1 2 900
+mark f_se30
+wait 120
+poke _fzx_menu_test 0x110
+untilword _fzx_menu_test 1 3 900
+wait 160
+mark f_se16
+poke _fzx_menu_test 0x121
+untilword _fzx_menu_test 1 4 900
+wait 160
+mark f_se33
+poke _fzx_menu_test 0x120
+untilword _fzx_menu_test 1 5 900
+wait 120
+mark f_se32
+poke _fzx_menu_test 0x116
+untilword _fzx_menu_test 1 6 900
+wait 120
+mark f_se22
+poke _fzx_menu_test 0x13E
+untilword _fzx_menu_test 1 7 900
+wait 200
+mark f_se62
+poke _fzx_menu_test 0x111
+untilword _fzx_menu_test 1 8 900
+mark f_unknown
+wait 60

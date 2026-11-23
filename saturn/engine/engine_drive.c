@@ -96,14 +96,15 @@ static double dot30(const int32_t a[3], const int32_t b[3]) {
 #ifndef E1_DRIVER_TARGET
 #define E1_DRIVER_TARGET 0.0f
 #endif
-static signed char driver_stick(void) {
-    const float lateral = (float)(sh2z_vd_body_lateral(&body) / 65536.0);
-    const float heading = (float)dot30(body.body[0], body.road[2]);
+static signed char driver_stick_of(const sh2z_vd_body_t *b) {
+    const float lateral = (float)(sh2z_vd_body_lateral(b) / 65536.0);
+    const float heading = (float)dot30(b->body[0], b->road[2]);
     float steer = E1_DRIVER_KL * (lateral - E1_DRIVER_TARGET) + E1_DRIVER_KH * heading;
     if (steer > 1.0f) steer = 1.0f;
     if (steer < -1.0f) steer = -1.0f;
     return (signed char)(steer >= 0.0f ? (int)(steer * 63.0f + 0.5f) : -(int)(-steer * 63.0f + 0.5f));
 }
+static signed char driver_stick(void) { return driver_stick_of(&body); }
 
 #if E1_FIELD
 /* Close-up 3D-N: the rival field steps after the player, every tick (FRT time summed for the frame row). */
@@ -132,8 +133,8 @@ void fzx_drive_field_run(void) {}
 void (*volatile fzx_drive_finish_hook)(uint32_t timer, uint32_t tick);
 static uint32_t finish_timer;
 #endif
-static void step_once(sh2z_vd_input_t *in) {
-    fzx_phys_step(&course, &body, &fzx_phys_rules, in);
+/* Everything after the physics of one tick: the sound's read, the field's copy, the count, the finish hook and the checkpoint. */
+static void after_step(void) {
 #if ENG_SND
     engine_snd_tick(&body, &course.vehicle, course.track.laps); /* reads the state only */
 #endif
@@ -169,8 +170,114 @@ static void step_once(sh2z_vd_input_t *in) {
         fzx_e1_report[8] = ticks / CHECKPOINT_EVERY;
     }
 }
+static void step_once(sh2z_vd_input_t *in) {
+    fzx_phys_step(&course, &body, &fzx_phys_rules, in);
+    after_step();
+}
+
+/* The pad word of this frame (the override the scripts poke, else the Saturn pad). */
+static uint16_t pad_read(void) {
+    uint16_t pad = 0;
+    const uint32_t o = fzx_e1_pad_override;
+    if (o & 0x10000u) pad = (uint16_t)o;
+    else {
+        smpc_peripheral_digital_t d = {0};
+        smpc_peripheral_process();
+        smpc_peripheral_digital_port(1, &d);
+        if (d.connected) pad = d.pressed.raw; /* Yaul: "pressed" is the current state */
+    }
+    return pad;
+}
+
+#if ENG_PHYS_AHEAD
+/* ENG_PHYS_AHEAD (claude/speed-5): the next frame's physics ticks are computed in the master's idle time at the end of
+ * this frame (fzx_drive_ahead_prepare, called by the loop while VDP1's previous frame is still being drawn) on a copy of the
+ * player's state, and the next fzx_drive_step takes them instead of stepping: the player's state, the tick count, the sound's
+ * read, the field's copy, the finish hook and the checkpoints all happen there, in the same order and on the same states as
+ * before, so nothing else sees a state ahead of the picture. A step that finds the prediction wrong (another tick count, the
+ * race restarted, another pad word) throws the copy away and steps as before; the pad is read again at the step, so a held
+ * button is never older than before. */
+enum { AHEAD_MAX = 4u };
+static struct {
+    uint32_t valid, req, n, from_ticks;
+    uint16_t pad;
+    FzxPadState pad_after;
+    uint16_t prev_after[AHEAD_MAX];
+    sh2z_vd_body_t after[AHEAD_MAX];
+} ahead;
+/* [0] prepared, [1] taken, [2] pad word differed, [3] tick count or start differed, [4] master FRT units spent preparing,
+ * [5] the longest prepare (FRT units), [6] frames the loop did not prepare (VDP1 idle). */
+volatile uint32_t fzx_e1_ahead[8];
+void fzx_drive_ahead_prepare(uint32_t req) {
+    ahead.valid = 0;
+    if (!req || req > AHEAD_MAX) return;
+    sh2z_vd_body_t b = body;
+    uint16_t pv = prev_n64;
+    uint32_t k = 0, t = ticks;
+    if (fzx_e1_driver) {
+        for (; k < req && t < RACE_END_TICK; ++k, ++t) {
+            uint16_t button = t >= RACE_START_TICK ? N64_A : 0u;
+            signed char sx = 0;
+            if (b.intro == 0) {
+#if E1_DRIVER == 2
+                sx = fzx_e1_driver == 2u ? fzx_drive_ahead(&course.track, &b, 0.1f, &button) : driver_stick_of(&b);
+#else
+                sx = driver_stick_of(&b);
+#endif
+                if (E1_DRIVER_BOOST > 0 && t % E1_DRIVER_BOOST == 0u) button |= N64_B;
+            }
+            sh2z_vd_input_t in;
+            in.held = fzx_phys_buttons_n64(button);
+            in.pressed = fzx_phys_buttons_n64((uint16_t)((pv ^ button) & button));
+            in.released = fzx_phys_buttons_n64((uint16_t)((pv ^ button) & pv));
+            in.stick_x = sx; in.stick_y = 0;
+            pv = button;
+            fzx_phys_step(&course, &b, &fzx_phys_rules, &in);
+            ahead.after[k] = b; ahead.prev_after[k] = pv;
+        }
+    } else {
+        FzxPadState ps = pad_state;
+        sh2z_vd_input_t in;
+        ahead.pad = pad_read();
+        fzx_phys_pad(&ps, ahead.pad, &in);
+        for (; k < req; ++k) {
+            fzx_phys_step(&course, &b, &fzx_phys_rules, &in);
+            ahead.after[k] = b;
+            in.pressed = 0; in.released = 0;
+        }
+        ahead.pad_after = ps;
+    }
+    ahead.req = req; ahead.n = k; ahead.from_ticks = ticks; ahead.valid = 1;
+    ++fzx_e1_ahead[0];
+}
+#endif
 
 void fzx_drive_step(uint32_t n) {
+#if ENG_PHYS_AHEAD
+    bool taken = false;
+    if (ahead.valid) {
+        const bool same = ahead.from_ticks == ticks && ahead.req == n;
+        ahead.valid = 0;
+        if (!same) ++fzx_e1_ahead[3];
+        else if (!fzx_e1_driver && pad_read() != ahead.pad) ++fzx_e1_ahead[2];
+        else {
+            if (!fzx_e1_driver) pad_state = ahead.pad_after;
+            for (uint32_t k = 0; k < ahead.n; ++k) {
+                body = ahead.after[k];
+                if (fzx_e1_driver) prev_n64 = ahead.prev_after[k];
+                after_step();
+                if (fzx_e1_driver && ticks == RACE_END_TICK) {
+                    const uint64_t h = fnv64_body(&body);
+                    fzx_e1_report[5] = ticks; fzx_e1_report[6] = (uint32_t)(h >> 32); fzx_e1_report[7] = (uint32_t)h;
+                }
+            }
+            ++fzx_e1_ahead[1];
+            taken = true;
+        }
+    }
+    if (!taken)
+#endif
+    {
     if (fzx_e1_driver) {
         for (uint32_t k = 0; k < n && ticks < RACE_END_TICK; ++k) {
             uint16_t button = ticks >= RACE_START_TICK ? N64_A : 0u;
@@ -196,21 +303,14 @@ void fzx_drive_step(uint32_t n) {
             }
         }
     } else if (n) {
-        uint16_t pad = 0;
-        const uint32_t o = fzx_e1_pad_override;
-        if (o & 0x10000u) pad = (uint16_t)o;
-        else {
-            smpc_peripheral_digital_t d = {0};
-            smpc_peripheral_process();
-            smpc_peripheral_digital_port(1, &d);
-            if (d.connected) pad = d.pressed.raw; /* Yaul: "pressed" is the current state */
-        }
+        const uint16_t pad = pad_read();
         sh2z_vd_input_t in;
         fzx_phys_pad(&pad_state, pad, &in);
         for (uint32_t k = 0; k < n; ++k) {
             step_once(&in);
             in.pressed = 0; in.released = 0; /* one edge per press: the later ticks hold */
         }
+    }
     }
     fzx_e1_report[0] = ticks; fzx_e1_report[1] = (uint32_t)body.laps_done; fzx_e1_report[2] = (uint32_t)body.race_time;
     fzx_e1_report[3] = (body.flags & SH2Z_VD_FINISHED) ? 1u : 0u; fzx_e1_report[4] = (uint32_t)body.speed;
@@ -416,6 +516,9 @@ bool fzx_drive_load(void *scratch, uint32_t scratch_bytes) {
 #endif
 #endif
     body = course.start; prev_n64 = 0; ticks = 0;
+#if ENG_PHYS_AHEAD
+    ahead.valid = 0;
+#endif
     memset(&pad_state, 0, sizeof(pad_state));
 #if E1_FIELD
 #if E2_PACK
@@ -499,6 +602,9 @@ static void field_state_reset(void);
 #endif
 void fzx_drive_reset(void) {
     body = course.start; prev_n64 = 0; ticks = 0; finish_timer = 0;
+#if ENG_PHYS_AHEAD
+    ahead.valid = 0;
+#endif
 #if E1_FIELD && ENG_BAL_EARLY
     field_pending = 0; /* player states a left race never handed to the field */
 #endif

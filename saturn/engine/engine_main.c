@@ -1253,7 +1253,7 @@ static void build(row_t *row, const fzx_engine_cam_t *cam, uint32_t tick, uint16
 #endif
 #endif
 
-#if FZX_E1_DRIVE && E1_FIELD && E2_EARLY && ENG_BAL_EARLY && defined(ENG_ATTACKS) && ENG_ATTACKS && defined(ENG_ATK_DEFER) && ENG_ATK_DEFER
+#if FZX_E1_DRIVE && E1_FIELD && E2_EARLY && ENG_BAL_EARLY && defined(ENG_ATTACKS) && ENG_ATTACKS && defined(ENG_ATK_DEFER) && ENG_ATK_DEFER && !ENG_PHYS_AHEAD
     {   /* The next tick's contact while the slave builds the track (engine_drive.c), as physics time. */
         const uint16_t a0 = cpu_frt_count_get();
         fzx_drive_contact_ahead();
@@ -1887,6 +1887,17 @@ bool fzx_race_frame(void) {
         /* The next frame's physics, in the time this frame would wait for VDP1 (the previous frame is still being drawn):
          * the step at the top of the loop takes the result (engine_drive.c). Nothing reads the player's state through it. */
         if (!fzx_e0_done && vdp1_sync_busy()) {
+#if E1_FIELD && E2_EARLY && ENG_BAL_EARLY && defined(ENG_ATTACKS) && ENG_ATTACKS && defined(ENG_ATK_DEFER) && ENG_ATK_DEFER
+            {   /* The next tick's contact (engine_drive.c, fzx_drive_contact_ahead) runs here too, after the picture is built: it reads the
+                 * field after its last tick and the player's state, which is what the next step finds. A frame that does not run it
+                 * (VDP1 idle) takes the contact live in the step, with the same result. */
+                const uint16_t c0 = cpu_frt_count_get();
+                fzx_drive_contact_ahead();
+                const uint16_t ct = (uint16_t)(cpu_frt_count_get() - c0);
+                fzx_e1_ahead[8] += ct;
+                if (ct > fzx_e1_ahead[9]) fzx_e1_ahead[9] = ct;
+            }
+#endif
             const uint16_t a0 = cpu_frt_count_get();
             fzx_drive_ahead_prepare(2u);
             const uint16_t at = (uint16_t)(cpu_frt_count_get() - a0);

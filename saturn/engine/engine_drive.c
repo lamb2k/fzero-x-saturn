@@ -240,8 +240,9 @@ static struct {
 } ahead;
 /* [0] prepared, [1] ticks taken, [2] pad word differed, [3] tick count or start differed, [4] master FRT units spent preparing,
  * [5] the longest prepare (FRT units), [6] frames the loop did not prepare (VDP1 idle), [7] ticks stepped because the contact
- * gave the player something (the prediction dropped from there). */
-volatile uint32_t fzx_e1_ahead[8];
+ * gave the player something (the prediction dropped from there), [8] master FRT units spent on the contact run ahead after the
+ * picture (ENG_ATTACKS), [9] the longest. */
+volatile uint32_t fzx_e1_ahead[12];
 static inline bool ahead_take(bool contact_zero) {
     if (!ahead.valid) return false;
     if (ahead.cursor < ahead.n && contact_zero) {

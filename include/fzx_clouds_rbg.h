@@ -16,4 +16,17 @@ typedef struct {
 
 bool fzx_clouds_rbg_prepare(const fzx_view_t *,const RefBackdrop *,
                             fzx_clouds_rbg_t *,fzx_floor_emit_fn,void *);
+#ifndef ENG_BAL_SPLIT
+#define ENG_BAL_SPLIT 0
+#endif
+#if ENG_BAL_SPLIT
+/* ENG_BAL_SPLIT (engine, claude/speed-2): the same prepare in parts that may run on different SH-2s. SETUP is everything
+ * up to the fade bands (parameter B, window, the inner band), HALF0 and HALF1 the fade bands of the two sides of the
+ * quad, in that order. The parts' output together equals fzx_clouds_rbg_prepare's. SETUP stores what the bands need in
+ * the split record; HALF1 reads it (and writes only the counters of its own out and its emit's context). */
+enum { FZX_CLOUDS_SETUP=1, FZX_CLOUDS_HALF0=2, FZX_CLOUDS_HALF1=4, FZX_CLOUDS_ALL=7 };
+typedef struct { int32_t positions[8][3]; int32_t inner; uint32_t bands; } fzx_clouds_split_t;
+bool fzx_clouds_rbg_prepare_part(const fzx_view_t *,const RefBackdrop *,
+                                 fzx_clouds_rbg_t *,fzx_floor_emit_fn,void *,unsigned parts,fzx_clouds_split_t *);
+#endif
 #endif

@@ -216,5 +216,11 @@ and it never writes either.
   (the 3), NA_SE_9 at 160 (the 2), NA_SE_10 at 100 (the 1) and NA_SE_11 at 40 (GO); the demo fanfare (Audio_StartDemo) at timer 460
   and the course music at timer 1. None are in the engine's 9-event race bank, so this lane draws the sign only; the menu-audio
   lane needs these triggers (all on the player-0 intro timer, not while paused).
+- **Cost (EMULATOR, timing MODELLED; Mute City field race, sound off, whole race from tick 1).** Critical-path p99 19.871 to 20.049 ms
+  (+0.178), max 21.638 to 21.900 ms, every presentation interval 2 fields in both arms, final picture and all 36 HOST checkpoints
+  identical. The cost is in the 230 intro rows only: +0.37 ms while the sign is off screen, about +2.9 ms while it is drawn
+  (115 frames; the projection of its 92 vertices and the per-quad work of `fzx_countdown_draw`). Their own p99 is 21.7 ms against the
+  24.485 ms limit.
 - **Reports.** `fzx_cdn_report` (`engine_countdown.h`): status, frames drawn, most commands, refusals (expected 0), commands dropped
-  (expected 0), FRT ticks of a build.
+  (expected 0), FRT ticks of a build, of the pose and of the drawing. The gate's `countdown` check reads it; `ctl-countdown` is an
+  image built with `ENG_COUNTDOWN=0`.

@@ -53,4 +53,32 @@ void engine_snd_idle(void);
 /* Called by the disc loader before each data read: [0] reads, [1] reads while music was not quiet. */
 extern volatile uint32_t engine_snd_disc[2];
 void engine_snd_disc_read(void);
+#ifndef ENG_SND_MENU
+#define ENG_SND_MENU 0
+#endif
+#if ENG_SND_MENU
+/* Menu audio (docs/MENU_AUDIO.md, claude/menu-audio). Music ids are the game's own (include/sfx.h BgmId). */
+#define ENG_SND_BGM_TITLE 14u
+#define ENG_SND_BGM_SELECT 15u
+#define ENG_SND_BGM_OPTION 16u
+#define ENG_SND_BGM_NONE 0xFFu
+/* The game's own system effect numbers (Audio_TriggerSystemSE; 22 is the player channel's balance tick, the same
+ * note of the same instrument on either channel). */
+#define ENG_SND_SE_CURSOR 30u
+#define ENG_SND_SE_BACK 16u
+#define ENG_SND_SE_SELECT 33u
+#define ENG_SND_SE_START 62u
+#define ENG_SND_SE_REFUSE 32u
+#define ENG_SND_SE_BALANCE 22u
+#define ENG_SND_MENU_SLOT0 20u   /* effect slots 20..23; the race's one-shots are 6..15, its voices 18..19 */
+#define ENG_SND_MENU_SLOTS 4u
+extern volatile uint32_t engine_snd_menu_report[8];
+bool engine_snd_menu_load(void *scratch, uint32_t scratch_bytes);
+void engine_snd_menu_music(uint32_t music_id);
+void engine_snd_menu_se(uint32_t na_se_id);
+bool engine_snd_disc_acquire(void);
+void engine_snd_disc_release(void);
+void engine_snd_menu_frame(void);
+void engine_snd_menu_reset(void);
+#endif
 #endif

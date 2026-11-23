@@ -8,3 +8,7 @@
 *(.rodata.card_tracks)
 *(.rodata.card_cells)
 *(.rodata.stock_machine)
+/* Menu audio (ENG_SND_MENU, engine_snd.c): its functions, effect table and state (.bss.lowcold.snd_menu) run and are
+ * read only outside a race. Hand-listed: the cold-function census list above is generated and does not name them. */
+*(.text.fzx_snd_menu)
+*(.rodata.fzx_snd_menu)

@@ -87,6 +87,12 @@ static uint32_t roster_inflate_fnv(uint32_t family, unsigned prof) {
 #include "sh2zam/vehicle_dynamics_experimental.h"
 #if ENG_SND
 #include "engine_snd.h"
+#if ENG_SND_MENU
+/* Reference binding of the menu audio contract (docs/MENU_AUDIO.md, claude/menu-audio): enough to prove the path
+ * end to end; the front end's own binding replaces these calls, one producer per UI action. */
+#define MENU_SE(id) engine_snd_menu_se(id)
+#define MENU_MUSIC(id) engine_snd_menu_music(id)
+#endif
 /* Music fades (frames): before LOAD's first disc read, and out of a race into RESULTS. */
 #define SND_LOAD_FADE 30u
 #define SND_RACE_FADE 60u
@@ -246,6 +252,10 @@ static bool retry_pending, text_dirty;
  * by the placeholder screens). */
 static vdp2_ioregs_t baseline_regs, race_regs;
 static bool race_regs_kept, retry_entering;
+#ifndef MENU_SE
+#define MENU_SE(id) ((void)0)
+#define MENU_MUSIC(id) ((void)0)
+#endif
 static uint32_t snd_epoch_queue[8], snd_count;
 
 static void fault(uint32_t code, const char *text) {
@@ -534,6 +544,7 @@ static bool title_enter(void *u, uint32_t s) {
     (void)u; (void)s;
     (void)sh2z_arena_alloc(&menu_arena, 512u, 16u);
 #endif
+    MENU_MUSIC(14u);
     text_dirty = true;
     return true;
 }
@@ -566,7 +577,7 @@ static void title_tick(void *u, uint32_t s) {
         }
     }
 #else
-    if (input.edges & PAD_START) { snd_event(1); (void)request(FZX_SCN_SELECT, RANK_GOTO); }
+    if (input.edges & PAD_START) { snd_event(1); MENU_SE(62u); (void)request(FZX_SCN_SELECT, RANK_GOTO); }
     else if (input.edges & PAD_B) (void)request(FZX_SCN_RECORDS, RANK_GOTO);
 #endif
 }
@@ -637,6 +648,7 @@ static unsigned options_span(vdp1_cmdt_t *span, unsigned capacity) {
 static bool panel_enter(void *u, uint32_t scene) {
     (void)u;
     if (scene == FZX_SCN_MODES) mode_cursor = fzx_session.menu_mode ? 1u : 0u;
+    MENU_MUSIC(15u);
     text_dirty = true;
     return true;
 }
@@ -688,6 +700,7 @@ static bool select_enter(void *u, uint32_t s) {
     for (unsigned i = 0; i < MACHINE_COUNT; ++i) if (machines[i].id == fzx_session.machine_id) cursor = i;
 #endif
     select_mode = jack_ready() ? fzx_session.menu_mode : 1u;
+    MENU_MUSIC(15u);
 #ifndef FZX_P3_BASELINE
     if (picked_mode) {
         select_mode = mode_cursor;
@@ -739,7 +752,7 @@ static void select_tick(void *u, uint32_t s) {
     }
     if (select_mode && (input.repeat & (PAD_LEFT | PAD_RIGHT))) {
         const uint8_t c = fzx_course_step(course_cursor, (input.repeat & PAD_LEFT) ? -1 : 1, mode_avail(select_mode));
-        if (c != FZX_COURSE_NONE && c != course_cursor) { course_cursor = c; text_dirty = true; }
+        if (c != FZX_COURSE_NONE && c != course_cursor) { course_cursor = c; text_dirty = true; MENU_SE(30u); }
     }
     if (probe & 0x200u) {
         /* Script hook (claude/courses): course `probe & 0xFF` under the cursor, if the mode lists it. */
@@ -754,6 +767,7 @@ static void select_tick(void *u, uint32_t s) {
             cursor = (cursor + ((input.repeat & PAD_DOWN) ? 1u : 34u)) % 35u;
         } while (!machine_allowed(cursor));
         text_dirty = true;
+        MENU_SE(30u);
     }
     float previous = select_balance;
     if (input.edges & PAD_X) select_balance = 0;
@@ -762,9 +776,13 @@ static void select_tick(void *u, uint32_t s) {
     else if (input.held & PAD_R) select_balance += 1.f/128.f;
     if (select_balance < 0) select_balance = 0;
     if (select_balance > 1) select_balance = 1;
-    if (previous != select_balance) text_dirty = true;
+    if (previous != select_balance) {
+        text_dirty = true;
+        if ((int)(previous * 10.f) != (int)(select_balance * 10.f)) MENU_SE(22u); /* the original: each tenth crossed */
+    }
     if (input.edges & PAD_A) {
-        if (session_edit(cursor, course_cursor)) { snd_event(2); retry_pending = false; (void)request(FZX_SCN_LOAD, RANK_GOTO); }
+        if (session_edit(cursor, course_cursor)) { snd_event(2); MENU_SE(62u); MENU_SE(33u); retry_pending = false; (void)request(FZX_SCN_LOAD, RANK_GOTO); }
+        else MENU_SE(32u);
 #else
     uint32_t n = 0, visible[MACHINE_COUNT];
     for (unsigned i = 0; i < MACHINE_COUNT; ++i) if (machine_allowed(machines[i].id)) visible[n++] = i;
@@ -774,9 +792,10 @@ static void select_tick(void *u, uint32_t s) {
     if (input.repeat & PAD_UP) { at = (at + n - 1u) % n; text_dirty = true; }
     cursor = visible[at];
     if (input.edges & PAD_A) {
-        if (session_edit(machines[cursor].id, course_cursor)) { snd_event(2); retry_pending = false; (void)request(FZX_SCN_LOAD, RANK_GOTO); }
+        if (session_edit(machines[cursor].id, course_cursor)) { snd_event(2); MENU_SE(62u); MENU_SE(33u); retry_pending = false; (void)request(FZX_SCN_LOAD, RANK_GOTO); }
+        else MENU_SE(32u);
 #endif
-    } else if (input.edges & PAD_B) (void)request(FZX_SCN_TITLE, RANK_GOTO);
+    } else if (input.edges & PAD_B) { MENU_SE(16u); (void)request(FZX_SCN_TITLE, RANK_GOTO); }
 }
 static void select_draw(void) {
     if (!text_dirty) return;
@@ -1761,6 +1780,9 @@ static bool boot_enter(void *u, uint32_t s) {
     (void)u; (void)s;
 #ifndef FZX_P3_BASELINE
     if (!title_cache()) fault(62, "TITLE PACK");
+#if ENG_SND_MENU
+    (void)engine_snd_menu_load((void *)(((uintptr_t)sat_stub_data_end + 31u) & ~(uintptr_t)31u), 4096u); /* silent menu on failure */
+#endif
     fzx_scn_menu_hooks_set(FZX_SCN_TITLE, &title_hooks);
     fzx_scn_menu_hooks_set(FZX_SCN_SELECT, &select_hooks);
     fzx_scn_menu_hooks_set(FZX_SCN_MODES, &modes_hooks);

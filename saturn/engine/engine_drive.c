@@ -53,8 +53,8 @@ uint32_t fzx_atk_prof_row = FZX_ATK_PROF_ROWS;
 #ifndef ENG_ATK_LAG
 #define ENG_ATK_LAG 0
 #endif
-#if ENG_ATK_LAG && !(ENG_ATK_DEFER && ENG_ATTACKS)
-#error ENG_ATK_LAG needs ENG_ATTACKS and ENG_ATK_DEFER
+#if ENG_ATK_LAG && !(ENG_ATK_DEFER && ENG_ATTACKS && E1_FIELD && ENG_BAL_EARLY)
+#error ENG_ATK_LAG needs ENG_ATTACKS, ENG_ATK_DEFER and the field queue (E1_FIELD, ENG_BAL_EARLY)
 #endif
 #ifndef E1_DRIVER
 #define E1_DRIVER 0

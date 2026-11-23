@@ -183,10 +183,10 @@ E2_EMIT_YAW ?= $(if $(filter 1,$(E2_EMIT_POSE)),$(E2_EMIT_EXACT),0)
 #   tables (tools/attacks_tables.py, local) and an SH2ZAM checkout with body-contact-1. Default 1 on every image that has
 #   the field (owner, 2026-11-22: "close enough"); 0 is the identity arm (the images without attacks, as before this switch).
 ENG_ATK_DEFER ?= 1
-# ENG_ATK_LAG (approximation P1, lane claude/attacks-cost-3; needs ENG_ATTACKS=1 and ENG_ATK_DEFER=1): a second tick whose contact is not provably clear
+# ENG_ATK_LAG (approximation P1, lane claude/attacks-cost-3; needs ENG_ATTACKS=1, ENG_ATK_DEFER=1 and ENG_BAL_EARLY=1, the field queue it uses): a second tick whose contact is not provably clear
 #   waits behind the field tick too, and the player's share of it (push, damage, regain, hit) reaches the player one tick later. Rivals exact.
 #   1 default with attacks (coordinator ruling 2026-11-23); 0 is the exact arm (attacks-cost-2).
-ENG_ATK_LAG ?= $(if $(and $(filter 1,$(ENG_ATTACKS)),$(filter 1,$(ENG_ATK_DEFER))),1,0)
+ENG_ATK_LAG ?= $(if $(and $(filter 1,$(ENG_ATTACKS)),$(filter 1,$(ENG_ATK_DEFER)),$(filter 1,$(ENG_BAL_EARLY))),1,0)
 ENG_ATTACKS ?= $(if $(filter-out 0,$(E1_FIELD)),$(if $(and $(filter 1,$(E2_PACK)),$(filter 1,$(E2_FASTPOSE))),1,0),0)
 # ENG_PACE: frame pacing. 0 as built (a frame as soon as it is ready); 1 adaptive (a two-field gap
 #   after a VDP1 draw longer than a field); 2 the 30 fps lock (presents never one field apart);

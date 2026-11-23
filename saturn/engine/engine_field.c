@@ -86,6 +86,7 @@ static void field_class_pick(void) {
  * the final dash, as the HOST bands were checked with (ref/rivals_gp_main.c). */
 #include "rivals_zones.h"
 #include "sh2zam/trig12_experimental.h"
+#include "sh2zam/divu_experimental.h"
 #define RIVAL_TUBES 1
 static sh2z_field_zone_t zones[FZX_RIVALS_ZONE_MAX];
 static sh2z_field_surface_t surface;
@@ -183,7 +184,14 @@ static void frame30(int32_t f[3], int32_t u[3], const int32_t fwd[3], const int3
 static int tube_at(uint32_t n, int32_t lateral, int32_t *s, int32_t *c) {
     const uint16_t shape = (uint16_t)(nodes[n].flags & 0x01c0u);
     if ((shape != 0x0080u && shape != 0x00c0u) || !nodes[n].half_width) return 0;
+#if ENG_ATTACKS
+    /* 4096 / 2 pi: the same truncating quotient on the SH-2 divider. The software 64-bit divide (libgcc __divdi3) cost every pose on a
+     * tube node; the divider's answer is trunc(n / d) whenever it fits, and it fits here: |n| = |lateral| * 10430 stays far below
+     * d * 2^31 (d = half_width << 12 >= 4096) for any lateral inside a road a few widths wide. */
+    const int32_t a12 = sh2z_divu_div64((int64_t)lateral * 10430, (int32_t)((uint32_t)nodes[n].half_width << 12), NULL);
+#else
     const int32_t a12 = (int32_t)(((int64_t)lateral * 10430) / ((int64_t)nodes[n].half_width << 12)); /* 4096 / 2 pi */
+#endif
     sh2z_sincos12_u30((uint32_t)a12, s, c);
     return shape == 0x0080u ? 1 : 2;
 }

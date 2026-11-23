@@ -279,7 +279,17 @@ void fzx_atk_contact(const sh2z_vd_body_t *p, sh2z_vd_contact_t *out) {
     /* Physical order by current distance: last tick's order, nearly sorted, fixed by insertion. The key
      * (distance down, index up) is a strict order, so the result does not depend on the starting
      * permutation (attacks-4 started from the field's order: the same result). */
-    for (uint32_t i = 0; i < n; ++i) along[i] = F.veh[i].t.dist;
+    /* One pass over the vehicles gathers what the sort and the candidate walk read (distance, lateral, current on this tick). */
+    int32_t lat[FZX_ATK_MAX];
+    uint8_t cand[FZX_ATK_MAX], cur[FZX_ATK_MAX];
+    {
+        const uint32_t tick = F.field->tick;
+        for (uint32_t i = 0; i < n; ++i) {
+            const sh2z_vehicle_t *v = &F.veh[i];
+            along[i] = v->t.dist; lat[i] = v->t.lateral; cand[i] = 0;
+            cur[i] = (uint8_t)(i == 0u || (v->flags & SH2Z_VEH_EXTERNAL) || F.brain[i].last_tick == tick);
+        }
+    }
     for (uint32_t s = 1; s < n; ++s) {
         const uint8_t k = order[s]; uint32_t j = s;
         while (j > 0 && (along[order[j - 1]] < along[k] || (along[order[j - 1]] == along[k] && order[j - 1] > k))) { order[j] = order[j - 1]; --j; }
@@ -292,10 +302,6 @@ void fzx_atk_contact(const sh2z_vd_body_t *p, sh2z_vd_contact_t *out) {
      * current on this tick take part (the player, rivals driven here, and agents the field stepped on
      * its last tick): far from the player the field's level of detail steps agents every 2, 4 or 8
      * ticks, and a pair is resolved on the ticks both are current, as line-field-1's own contact did. */
-    uint8_t cand[FZX_ATK_MAX], cur[FZX_ATK_MAX];
-    memset(cand, 0, sizeof(cand));
-    for (uint32_t i = 0; i < n; ++i)
-        cur[i] = (uint8_t)(i == 0u || (F.veh[i].flags & SH2Z_VEH_EXTERNAL) || F.brain[i].last_tick == F.field->tick);
     for (uint32_t s = 0; s < n; ++s) {
         const uint32_t a = order[s];
         if (!cur[a]) continue;
@@ -306,7 +312,7 @@ void fzx_atk_contact(const sh2z_vd_body_t *p, sh2z_vd_contact_t *out) {
             else if (gap <= -half) gap += length;
             if (gap > PRE_Q8) break;
             if (gap < 0 || !cur[b]) continue;
-            if (iabs(F.veh[a].t.lateral - F.veh[b].t.lateral) <= PRE_Q8) cand[a] = cand[b] = 1;
+            if (iabs(lat[a] - lat[b]) <= PRE_Q8) cand[a] = cand[b] = 1;
         }
     }
     PROF(2); APROF(1, sp);

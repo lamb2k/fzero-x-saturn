@@ -563,6 +563,10 @@ void fzx_drive_camera(fzx_engine_cam_t *cam, const fzx_engine_cam_t *lens) {
 bool fzx_drive_ahead_view(const fzx_engine_cam_t *lens, const fzx_engine_cam_t **cam, uint32_t *tick, uint32_t *outer) {
     if (!ahead.valid || !ahead.n) return false;
     const sh2z_vd_body_t *b = &ahead.after[ahead.n - 1u];
+#if ENG_PICK_AHEAD_CONTROL == 2
+    b = &body; /* control (diagnostic only): the camera of the state before the prediction, used as if it were the predicted one:
+                * the pick sees a stale view and the picture must differ */
+#endif
     uint32_t limited = 0;
     camera_of(&ahead.cam, lens, b, &limited);
     ahead.limited = limited;
@@ -599,6 +603,12 @@ bool fzx_drive_camera_ahead(fzx_engine_cam_t *cam, const fzx_engine_cam_t *lens)
 #endif
                      ahead.tick_after == (ticks ? ticks : 1u);
     ahead.kept = 0; ahead.view = 0;
+#if ENG_PICK_AHEAD_CONTROL == 1
+    /* control (diagnostic only): every third early pick is declared unused, so the road job undoes it and picks again; the
+     * picture must equal the default's */
+    static uint32_t control_n;
+    if (use && ++control_n % 3u == 0u) { fzx_drive_camera(cam, lens); return false; }
+#endif
     if (!use) { fzx_drive_camera(cam, lens); return false; }
     *cam = ahead.cam; /* focal and tan_half are the lens's: the key matched */
     fzx_e1_roll_limited += ahead.limited;

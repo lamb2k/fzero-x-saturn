@@ -69,6 +69,11 @@ extern volatile uint32_t fzx_e1_ahead[8];
 #ifndef ENG_PICK_AHEAD
 #define ENG_PICK_AHEAD 0
 #endif
+/* Controls (diagnostic only): 1 declares every third early pick unused (the undo path; the picture must equal the default's),
+ * 2 gives the early pick the camera of the state before the prediction (a stale view; the picture must differ). */
+#ifndef ENG_PICK_AHEAD_CONTROL
+#define ENG_PICK_AHEAD_CONTROL 0
+#endif
 #if ENG_PICK_AHEAD
 /* After fzx_drive_ahead_prepare: the camera, shown tick and outer bit of the predicted frame (false: no prediction). */
 bool fzx_drive_ahead_view(const fzx_engine_cam_t *lens, const fzx_engine_cam_t **cam, uint32_t *tick, uint32_t *outer);

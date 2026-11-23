@@ -738,8 +738,7 @@ class Gate:
         if not w:
             raise SystemExit('matrix: no "practice" section (checkpoint period and window end)')
         text = (GATE / 'scripts' / 'course_pr.txt').read_text()
-        if 'poke _fzx_e0_hold_tick %d
-' % w['end_tick'] not in text:
+        if ('poke _fzx_e0_hold_tick %d' + chr(10)) % w['end_tick'] not in text:
             raise SystemExit('matrix: practice end_tick %d is not the window course_pr.txt holds at' % w['end_tick'])
         return w
 

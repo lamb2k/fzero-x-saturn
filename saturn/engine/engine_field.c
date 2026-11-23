@@ -1,6 +1,12 @@
 /* Engine E1 close-up 3D-N test: the rival field (see engine_field.h). */
 #include <string.h>
 #include "engine_field.h"
+#ifdef FZX_ATK_HOST_TESTS
+extern uint32_t fzx_host_seed;   /* fzx-atk --seed (tools/attacks_host): 0 keeps the engine's own seeds */
+#define FIELD_SEED_OF(def) (fzx_host_seed ? fzx_host_seed : (def))
+#else
+#define FIELD_SEED_OF(def) (def)
+#endif
 #include "engine_atk_prof.h"
 #include "sh2zam/line_field_experimental.h"
 #include "sh2zam/unit30_experimental.h"
@@ -614,7 +620,7 @@ bool fzx_field_load(const sh2z_vd_track_t *track, const sh2z_vd_body_t *player) 
      * source grid (146 back, 100 per place, 4 columns of 100), shifted so the player's own
      * place is where E1's physics puts the player. */
     {
-        uint32_t rs = CSEL(field_seed,FZX_RIVALS_FIELD_SEED) * 2654435761u + 12345u;
+        uint32_t rs = FIELD_SEED_OF(CSEL(field_seed,FZX_RIVALS_FIELD_SEED)) * 2654435761u + 12345u;
 #define RND() (rs ^= rs << 13, rs ^= rs >> 17, rs ^= rs << 5, rs)
 #if defined(ENG_SCENES) && ENG_SCENES
         /* The grid is anchored on the player, as for round one: the pack's start body stays where it
@@ -711,7 +717,7 @@ bool fzx_field_load(const sh2z_vd_track_t *track, const sh2z_vd_body_t *player) 
         fzx_field_event_count = 0;
     }
 #endif
-    sh2z_field_init(&field, &line, &params, veh, brain, order, slot_of, rank_order, FZX_FIELD_CARS, CSEL(field_seed,FZX_RIVALS_FIELD_SEED));
+    sh2z_field_init(&field, &line, &params, veh, brain, order, slot_of, rank_order, FZX_FIELD_CARS, FIELD_SEED_OF(CSEL(field_seed,FZX_RIVALS_FIELD_SEED)));
 #if ENG_RIVAL_BEHAVE
     for (uint32_t i = 0; i < FZX_FIELD_CARS; ++i) { prev_flags[i] = veh[i].flags; prev_credit[i] = brain[i].ko_credit; }
 #endif
@@ -727,7 +733,7 @@ bool fzx_field_load(const sh2z_vd_track_t *track, const sh2z_vd_body_t *player) 
         a.field = &field; a.veh = veh; a.brain = brain; a.line = &line; a.pose = line_pose_fast; a.pose_pos = line_pose_pos;
         a.config = &fzx_rivals_field[0][0]; a.config_stride = (uint32_t)(sizeof(fzx_rivals_field[0]) / sizeof(fzx_rivals_field[0][0]));
         a.count = FZX_FIELD_CARS;
-        fzx_atk_init(&a, FZX_RIVALS_FIELD_SEED);
+        fzx_atk_init(&a, FIELD_SEED_OF(FZX_RIVALS_FIELD_SEED));
     }
 #endif
     fzx_field_report[0] = 1;

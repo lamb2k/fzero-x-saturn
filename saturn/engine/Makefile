@@ -183,6 +183,10 @@ E2_EMIT_YAW ?= $(if $(filter 1,$(E2_EMIT_POSE)),$(E2_EMIT_EXACT),0)
 #   tables (tools/attacks_tables.py, local) and an SH2ZAM checkout with body-contact-1. Default 1 on every image that has
 #   the field (owner, 2026-11-22: "close enough"); 0 is the identity arm (the images without attacks, as before this switch).
 ENG_ATK_DEFER ?= 1
+# ENG_ATK_LAG (approximation P1, lane claude/attacks-cost-3; needs ENG_ATTACKS=1 and ENG_ATK_DEFER=1): a second tick whose contact is not provably clear
+#   waits behind the field tick too, and the player's share of it (push, damage, regain, hit) reaches the player one tick later. Rivals exact.
+#   1 default with attacks (coordinator ruling 2026-11-23); 0 is the exact arm (attacks-cost-2).
+ENG_ATK_LAG ?= $(if $(and $(filter 1,$(ENG_ATTACKS)),$(filter 1,$(ENG_ATK_DEFER))),1,0)
 ENG_ATTACKS ?= $(if $(filter-out 0,$(E1_FIELD)),$(if $(and $(filter 1,$(E2_PACK)),$(filter 1,$(E2_FASTPOSE))),1,0),0)
 # ENG_PACE: frame pacing. 0 as built (a frame as soon as it is ready); 1 adaptive (a two-field gap
 #   after a VDP1 draw longer than a field); 2 the 30 fps lock (presents never one field apart);
@@ -459,6 +463,7 @@ SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter 0,$(E0_PRELUDE_DIV)),-pd0,)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter 1,$(ENG_CDDA)),-cdda$(ENG_CDDA_MUSIC)$(if $(filter-out 0,$(ENG_CDDA_LOOPTEST)),-lt$(ENG_CDDA_LOOPTEST),),)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter 1,$(ENG_SND)),-snd$(ENG_SND_MUSIC)$(if $(filter-out 0,$(ENG_SND_FADETEST)),-ft$(ENG_SND_FADETEST),),)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter 1,$(ENG_ATTACKS)),-atk$(if $(filter 0,$(ENG_ATK_DEFER)),0,),)
+SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(and $(filter 1,$(ENG_ATTACKS)),$(filter 0,$(ENG_ATK_LAG))),-lag0,)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter 1,$(ENG_RIVAL_RECHARGE)),-rch,)
 # Master/slave balance (claude/balance); each 0 = the frame split as it was.
 # ENG_BAL_CLOUDS: the cloud prepare on either SH-2 (drive images, banks, ENG_PACE=4): 1 always on the
@@ -639,6 +644,7 @@ endif
 # 0 is the control (contact before every step, as attacks-4).
 ifeq ($(ENG_ATTACKS),1)
 SH_CFLAGS += -DENG_ATK_DEFER=$(ENG_ATK_DEFER)
+SH_CFLAGS += -DENG_ATK_LAG=$(ENG_ATK_LAG)
 endif
 SH_CFLAGS += -DENG_BAL_CLOUDS=$(ENG_BAL_CLOUDS) -DENG_BAL_EARLY=$(ENG_BAL_EARLY) -DENG_BAL_FORCE=$(ENG_BAL_FORCE) -DENG_BAL_HASH=$(ENG_BAL_HASH) -DENG_BAL_PREWARM=$(ENG_BAL_PREWARM) -DENG_BAL_SPLIT=$(ENG_BAL_SPLIT) -DENG_PHYS_AHEAD=$(ENG_PHYS_AHEAD)
 SH_CFLAGS += -DENG_CADENCE_STALL_CONTROL=$(ENG_CADENCE_STALL_CONTROL)

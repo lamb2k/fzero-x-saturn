@@ -4,7 +4,8 @@
  *
  *   fzx-atk --phys PHYS.PAK --rivals RIVALS.PAK [--driver 1|2] [--drive KL,KH[,0,460[,TARGET]]] [--drive-ahead LOOK] [--ticks N] [--vis 0|1] [--ai 0|1]
  *           [--difficulty D] [--report OUT.json] [--trace OUT.tsv] [--mutate NAME]
- *           [--order canonical|saturn] [--frame N] [--clear-check 1] [--gate 1] [--credit-test 1]
+ *           [--order canonical|saturn|lag] [--frame N] [--clear-check 1] [--gate 1] [--credit-test 1]
+ *           [--seed S] [--lag N] [--lag-drop 1]
  *
  * --driver 1 is the R01 closed-loop driver (the image's E1_DRIVER=1), 2 the scripted hunter. --drive sets the gains of the R01 driver
  * (the image's E1_DRIVER_KL, _KH, _TARGET; the engine gate matrix's host_driver of the course), --drive-ahead the R03 look-ahead driver
@@ -19,6 +20,14 @@
  * --order canonical. --clear-check 1 (canonical order) tests fzx_atk_player_clear on every tick, with and
  * without a pending field tick, against the contact that follows: "clear ... violations 0" is required, and
  * a build with -DFZX_ATK_CLEAR_NOMOTION=1 (the travel bound dropped) is its failing control.
+ *
+ * --order lag is --order saturn with approximation P1 (lane claude/attacks-cost-3, the image's ENG_ATK_LAG): a second tick of a frame whose
+ * contact fzx_atk_player_clear cannot clear also waits behind the queued field tick, and the player's share of that contact (push, damage,
+ * regain, hit) is added to the contact of the tick one later (--lag N: N ticks later; N = 8 is the outcome check's control). Every rival's
+ * side of the contact is exact and in the original order, so the rivals' words differ only through the player's different path.
+ * --lag-drop 1 (any order) drops the player's share of every contact (the outcome check's other control). --seed S replaces the field's
+ * and the attacks' seeds (HOST only; without it the engine's own, so every reference is unchanged); the --report JSON then also holds
+ * the final place of every slot ("places", 1-based, the field's rank at the last tick).
  *
  * --gate 1 prints the reference the engine gate reads for an image built with ENG_ATTACKS (tools/engine_gate.py): "chk N H" the body
  * hash every 256 ticks (the image's fzx_e1_checkpoints), "achk N H" the attack and field words (fzx_atk_chk), "ticks T final H hash 0" the
@@ -44,6 +53,7 @@
 #include "drive_ahead.h"
 
 static const char *rivals_path;
+uint32_t fzx_host_seed;   /* --seed: read by engine_field.c under FZX_ATK_HOST_TESTS (0: the engine's own seeds) */
 static void swap16(uint8_t *p) { const uint8_t t = p[0]; p[0] = p[1]; p[1] = t; }
 static void swap32(uint8_t *p) { uint8_t t = p[0]; p[0] = p[3]; p[3] = t; t = p[1]; p[1] = p[2]; p[2] = t; }
 
@@ -106,20 +116,45 @@ static unsigned char *read_all(const char *path, size_t *n) {
 static uint64_t ns_now(void) { struct timespec ts; clock_gettime(CLOCK_MONOTONIC, &ts); return (uint64_t)ts.tv_sec * 1000000000ull + (uint64_t)ts.tv_nsec; }
 static uint64_t t_contact, t_step, t_field;
 static uint32_t ko_hook_calls;
-/* --order saturn: the image's queue (engine_drive.c), field ticks and waiting contacts in order. */
+/* --order saturn: the image's queue (engine_drive.c), field ticks and waiting contacts in order. q_contact: 0 a field tick, 1 a cleared
+ * contact (its player share must be zero), 2 a lagged one (--order lag: its player share is held for a later tick). */
 static sh2z_vd_body_t q_body[8];
 static uint8_t q_contact[8];
+static uint32_t q_tick[8];
 static unsigned q_n, q_contacts;
 static uint32_t q_bad;
+static int lag_n = 1;
+static int lag_drop;
+enum { LAG_MAX = 16 };
+static sh2z_vd_contact_t lag_c[LAG_MAX];
+static uint32_t lag_due[LAG_MAX];
+static unsigned lag_count;
+static uint32_t lag_applied;
+static int nonzero(const sh2z_vd_contact_t *c);
 static void q_run(void) {
     for (unsigned k = 0; k < q_n; ++k) {
         if (q_contact[k]) {
             sh2z_vd_contact_t c;
             fzx_atk_contact(&q_body[k], &c);
-            if (c.push[0] | c.push[1] | c.push[2] | c.damage | c.hit | c.regain) ++q_bad;
+            if (q_contact[k] == 2u) {
+                if (lag_count < LAG_MAX) { lag_c[lag_count] = c; lag_due[lag_count] = q_tick[k] + (uint32_t)lag_n; ++lag_count; }
+            } else if (nonzero(&c)) ++q_bad;
         } else fzx_field_tick(&q_body[k]);
     }
     q_n = 0; q_contacts = 0;
+}
+/* The shares that fall due at tick t join its contact. */
+static void lag_apply(uint32_t t, sh2z_vd_contact_t *c) {
+    unsigned keep = 0;
+    for (unsigned k = 0; k < lag_count; ++k) {
+        if (lag_due[k] > t) { lag_c[keep] = lag_c[k]; lag_due[keep] = lag_due[k]; ++keep; continue; }
+        const sh2z_vd_contact_t *l = &lag_c[k];
+        if (!nonzero(l)) continue;
+        for (unsigned i = 0; i < 3u; ++i) c->push[i] += l->push[i];
+        c->damage += l->damage; c->regain += l->regain; c->hit |= l->hit;
+        ++lag_applied;
+    }
+    lag_count = keep;
 }
 static int player_clear(const sh2z_vd_body_t *b, bool pending) {
     int32_t d, l;
@@ -127,6 +162,7 @@ static int player_clear(const sh2z_vd_body_t *b, bool pending) {
     return fzx_atk_player_clear(b, d, l, pending);
 }
 static int nonzero(const sh2z_vd_contact_t *c) { return (c->push[0] | c->push[1] | c->push[2] | c->damage | c->hit | c->regain) != 0; }
+static unsigned af_rank(unsigned i) { return fzx_atk_field()->veh[i].rank; }
 static void ko_hook(uint32_t victim) { (void)victim; ++ko_hook_calls; }
 
 /* ---- the KO credit rules, case by case (--credit-test) ---- */
@@ -186,7 +222,7 @@ static int credit_tests(const sh2z_vd_body_t *start) {
 
 int main(int argc, char **argv) {
     const char *phys = NULL, *report = NULL, *trace = NULL;
-    int driver = 1, ticks_max = 9460, vis = 1, ai = 1, diff = 1, saturn = 0, frame = 2, clear_check = 0, gate = 0, credit_test = 0;
+    int driver = 1, ticks_max = 9460, vis = 1, ai = 1, diff = 1, saturn = 0, lagorder = 0, frame = 2, clear_check = 0, gate = 0, credit_test = 0;
     for (int i = 1; i + 1 < argc; i += 2) {
         if (!strcmp(argv[i], "--phys")) phys = argv[i + 1];
         else if (!strcmp(argv[i], "--rivals")) rivals_path = argv[i + 1];
@@ -202,7 +238,10 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[i], "--difficulty")) diff = atoi(argv[i + 1]);
         else if (!strcmp(argv[i], "--report")) report = argv[i + 1];
         else if (!strcmp(argv[i], "--trace")) trace = argv[i + 1];
-        else if (!strcmp(argv[i], "--order")) saturn = !strcmp(argv[i + 1], "saturn");
+        else if (!strcmp(argv[i], "--order")) { lagorder = !strcmp(argv[i + 1], "lag"); saturn = lagorder || !strcmp(argv[i + 1], "saturn"); }
+        else if (!strcmp(argv[i], "--seed")) fzx_host_seed = (uint32_t)strtoul(argv[i + 1], NULL, 0);
+        else if (!strcmp(argv[i], "--lag")) { lag_n = atoi(argv[i + 1]); if (lag_n < 1 || lag_n >= LAG_MAX) die("--lag is 1..15"); }
+        else if (!strcmp(argv[i], "--lag-drop")) lag_drop = atoi(argv[i + 1]);
         else if (!strcmp(argv[i], "--frame")) frame = atoi(argv[i + 1]);
         else if (!strcmp(argv[i], "--clear-check")) clear_check = atoi(argv[i + 1]);
         else if (!strcmp(argv[i], "--gate")) gate = atoi(argv[i + 1]);
@@ -231,7 +270,7 @@ int main(int argc, char **argv) {
     uint32_t t = 0;
     sh2z_vd_contact_t ahead;
     int ahead_ok = 0;
-    uint32_t deferred = 0, aheads = 0, clear0 = 0, clear1 = 0, viol0 = 0, viol1 = 0;
+    uint32_t deferred = 0, lagged = 0, aheads = 0, clear0 = 0, clear1 = 0, viol0 = 0, viol1 = 0;
     int32_t retire_tick = -1;
     int pred0 = 0, pred1 = 0;
     for (; t < (uint32_t)ticks_max; ++t) {
@@ -260,7 +299,11 @@ int main(int argc, char **argv) {
             else if (q_n == 1u && !q_contacts && player_clear(&body, true)) {
                 q_body[q_n] = body; q_contact[q_n] = 1u; ++q_n; ++q_contacts; ++deferred;
                 memset(&contact, 0, sizeof(contact));
+            } else if (lagorder && q_n == 1u && !q_contacts) {   /* P1: not provably clear; the player's share of the contact lags */
+                q_body[q_n] = body; q_contact[q_n] = 2u; q_tick[q_n] = t; ++q_n; ++q_contacts; ++lagged;
+                memset(&contact, 0, sizeof(contact));
             } else { q_run(); fzx_atk_contact(&body, &contact); }
+            if (lagorder) lag_apply(t, &contact);
         } else {
             if (clear_check) { pred0 = player_clear(&body, false); clear0 += (uint32_t)pred0; }
             fzx_atk_contact(&body, &contact);
@@ -269,6 +312,7 @@ int main(int argc, char **argv) {
                 if (pred1 && nonzero(&contact)) ++viol1;
             }
         }
+        if (lag_drop) memset(&contact, 0, sizeof(contact));
         const uint64_t a1 = ns_now();
 #if FZX_PHYS_TUBES
         sh2z_vd_step2_contact(&body, &course.track2, &course.vehicle, &fzx_phys_rules, &in, &contact);
@@ -301,7 +345,7 @@ int main(int argc, char **argv) {
     }
     if (saturn) {
         q_run();
-        fprintf(stderr, "saturn order: frame %d, deferred %u, ahead %u, deferred with a player output %u\n", frame, deferred, aheads, q_bad);
+        fprintf(stderr, "saturn order: frame %d, deferred %u, lagged %u (shares applied %u), ahead %u, deferred with a player output %u\n", frame, deferred, lagged, lag_applied, aheads, q_bad);
     }
     if (clear_check) printf("clear now %u violations %u; clear behind a field tick %u violations %u\n", clear0, viol0, clear1, viol1);
     if (tf) fclose(tf);
@@ -347,9 +391,11 @@ int main(int argc, char **argv) {
         fprintf(o, " \"contacts\": %u, \"cpu_side\": %u, \"cpu_spin\": %u, \"hits\": %u, \"player_hits\": %u, \"held_off_screen\": %u, \"player_damage\": %u, \"hash\": \"%08x\",\n",
                 fzx_atk_report[0], fzx_atk_report[6], fzx_atk_report[7], fzx_atk_report[8], fzx_atk_report[12], fzx_atk_report[9],
                 fzx_atk_report[10], fzx_atk_report[14]);
-        fprintf(o, " \"kos_log\": [");
+        fprintf(o, " \"player_max_q8\": %d,\n \"kos_log\": [", (int)fzx_atk_field()->config[3]);
         const unsigned nk = fzx_atk_report[3] < FZX_ATK_KO_LOG ? fzx_atk_report[3] : FZX_ATK_KO_LOG;
         for (unsigned i = 0; i < nk; ++i) fprintf(o, "%s[%u, %u, %u]", i ? ", " : "", fzx_atk_kos[i].tick, fzx_atk_kos[i].victim, fzx_atk_kos[i].attacker);
+        fprintf(o, "],\n \"places\": [");
+        for (unsigned i = 0; i < FZX_FIELD_CARS; ++i) fprintf(o, "%s%u", i ? ", " : "", af_rank(i) + 1u);
         fprintf(o, "],\n \"retire\": [");
         for (unsigned i = 0; i < FZX_FIELD_CARS; ++i) fprintf(o, "%s[%d, %u]", i ? ", " : "", fzx_atk_retire_tick[i], fzx_atk_retire_place[i]);
         fprintf(o, "]}\n");

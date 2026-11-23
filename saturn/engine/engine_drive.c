@@ -47,6 +47,15 @@ uint32_t fzx_atk_prof_row = FZX_ATK_PROF_ROWS;
 #ifndef ENG_ATK_DEFER
 #define ENG_ATK_DEFER 0
 #endif
+/* ENG_ATK_LAG (approximation P1, claude/attacks-cost-3; needs ENG_ATK_DEFER): a second tick of a frame whose contact fzx_atk_player_clear
+ * cannot clear waits behind the queued field tick like a cleared one, and the player's share of that contact (push, damage, regain, hit)
+ * reaches the player one tick later, in the next step's contact. Every rival's side of the contact is exact and in the original order. */
+#ifndef ENG_ATK_LAG
+#define ENG_ATK_LAG 0
+#endif
+#if ENG_ATK_LAG && !(ENG_ATK_DEFER && ENG_ATTACKS)
+#error ENG_ATK_LAG needs ENG_ATTACKS and ENG_ATK_DEFER
+#endif
 #ifndef E1_DRIVER
 #define E1_DRIVER 0
 #endif
@@ -160,12 +169,17 @@ static unsigned field_contacts;
 #if ENG_ATK_DEFER
 /* [0] contacts deferred, [1] live, [2] deferred with a player output (must stay 0), [3] deferral tests,
  * [4] contacts run ahead, [5] ahead contacts taken, [6] ahead contact found with a queue (must stay 0). */
-volatile uint32_t fzx_atk_defer_report[8];
+volatile uint32_t fzx_atk_defer_report[ENG_ATK_LAG ? 10 : 8];
 /* The next tick's contact, run after this frame's field ticks while the slave builds the track
  * (fzx_drive_contact_ahead): it reads only the field after its last tick and the player's state now,
  * which nothing changes before the next step_once takes it. */
 static sh2z_vd_contact_t ahead_contact;
 static uint8_t ahead_ok;
+#if ENG_ATK_LAG
+/* The player's share of a lagged contact (field_contact[k] == 2), held until the next step. */
+static sh2z_vd_contact_t lag_share;
+static uint8_t lag_have;
+#endif
 #endif
 #endif
 void fzx_drive_field_run(void) {
@@ -175,6 +189,12 @@ void fzx_drive_field_run(void) {
         if (field_contact[k]) {
             sh2z_vd_contact_t c;
             fzx_atk_contact(&field_bodies[k], &c);
+#if ENG_ATK_LAG
+            if (field_contact[k] == 2u) {
+                lag_share = c;
+                lag_have = 1u;
+            } else
+#endif
 #if ENG_ATK_DEFER
             if (c.push[0] | c.push[1] | c.push[2] | c.damage | c.hit | c.regain) ++fzx_atk_defer_report[2];
 #endif
@@ -325,6 +345,15 @@ static void step_once(sh2z_vd_input_t *in) {
             deferred = true;
             ++fzx_atk_defer_report[0];
         }
+#if ENG_ATK_LAG
+        else {
+            /* P1: not provably clear. The contact still waits behind the field tick (rivals exact); the player's share lags one tick. */
+            field_bodies[field_pending] = body; field_contact[field_pending] = 2u; ++field_pending; ++field_contacts;
+            memset(&contact, 0, sizeof(contact));
+            deferred = true;
+            ++fzx_atk_defer_report[7];
+        }
+#endif
     }
 #endif
     if (!deferred) {
@@ -339,6 +368,16 @@ static void step_once(sh2z_vd_input_t *in) {
     }
 #else
     fzx_atk_contact(&body, &contact);
+#endif
+#if ENG_ATK_LAG
+    if (lag_have) {   /* the player's share of the lagged contact of the tick before (P1) */
+        lag_have = 0u;
+        if (lag_share.push[0] | lag_share.push[1] | lag_share.push[2] | lag_share.damage | lag_share.hit | lag_share.regain) {
+            for (unsigned c = 0; c < 3u; ++c) contact.push[c] += lag_share.push[c];
+            contact.damage += lag_share.damage; contact.regain += lag_share.regain; contact.hit |= lag_share.hit;
+            ++fzx_atk_defer_report[8];
+        }
+    }
 #endif
 #if ENG_PHYS_AHEAD
     if (!ahead_take(!(contact.push[0] | contact.push[1] | contact.push[2] | contact.damage | contact.hit | contact.regain)))
@@ -969,6 +1008,9 @@ void fzx_drive_reset(void) {
     field_contacts = 0;
 #if ENG_ATK_DEFER
     ahead_ok = 0; /* a contact run ahead for a tick the left race never took (its held hooks are dropped) */
+#if ENG_ATK_LAG
+    lag_have = 0;
+#endif
 #endif
 #endif
 #endif

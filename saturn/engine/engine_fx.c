@@ -151,8 +151,58 @@ static const int16_t *booster_row(uint32_t machine) {
 typedef sh2z_ep_spot_t pt1_t;
 static int32_t fy_ratio;   /* sh2z_ep_ratio of the frame's view */
 #define view_depth(v, p) sh2z_ep_depth((v), (p))
-#define proj1(v, p, o) sh2z_ep_spot((v), fy_ratio, (p), (o))
 #define px1(o, l) sh2z_ep_spot_pixels((o), (l))
+
+#if SH2Z_DIVU_NATIVE
+static int32_t spot_rows[3][3];
+static bool spot_rows_fit;
+
+/* The frame proves each row's absolute sum is at most 65535. The exact
+ * 64-bit dot fits signed 48 bits, so its Q16 floor is MACH:MACL bits 47:16. */
+static inline int32_t spot_dot(const int32_t row[3], const int32_t delta[3]) {
+    const int32_t *r = row, *d = delta;
+    int32_t hi, floor;
+    __asm__ volatile(
+        "clrmac\n\t"
+        "mac.l @%[r]+, @%[d]+\n\t"
+        "mac.l @%[r]+, @%[d]+\n\t"
+        "mac.l @%[r]+, @%[d]+\n\t"
+        "sts mach, %[hi]\n\t"
+        "sts macl, %[floor]\n\t"
+        "xtrct %[hi], %[floor]"
+        : [r] "+&r" (r), [d] "+&r" (d), [hi] "=&r" (hi), [floor] "=&r" (floor)
+        : "m" (*(const int32_t (*)[3])row), "m" (*(const int32_t (*)[3])delta)
+        : "mach", "macl");
+    return floor;
+}
+
+static bool proj1(const sh2z_ep_view_t *v, const int32_t p[3], pt1_t *out) {
+    uint32_t sr;
+    __asm__ volatile("stc sr, %0" : "=r" (sr));
+    if (!spot_rows_fit || (sr & 2u)) return sh2z_ep_spot(v, fy_ratio, p, out);
+    const int32_t d[3] = {
+        (int32_t)((uint32_t)p[0] - (uint32_t)v->eye[0]),
+        (int32_t)((uint32_t)p[1] - (uint32_t)v->eye[1]),
+        (int32_t)((uint32_t)p[2] - (uint32_t)v->eye[2]),
+    };
+    const int32_t z = spot_dot(spot_rows[2], d);
+    if (z <= v->near_z || z <= 0) return false;
+    sh2z_divu_t division;
+    sh2z_divu_start64(&division, v->focal_x >> 16, (uint32_t)v->focal_x << 16, z);
+    const int32_t tx = spot_dot(spot_rows[0], d), ty = spot_dot(spot_rows[1], d);
+    const int32_t sx = sh2z_divu_finish(&division, NULL);
+    const int32_t sy = (int32_t)(((int64_t)sx * fy_ratio) >> 16);
+    /* The high half of a signed 32x32 product is at most 31 signed bits. */
+    const int32_t x = v->center_x + (int32_t)(((int64_t)tx * sx) >> 32);
+    const int32_t y = v->center_y + (int32_t)(-((int64_t)ty * sy) >> 32);
+    if (x < -v->guard || x >= v->width + v->guard) return false;
+    if (y < -v->guard || y >= v->height + v->guard) return false;
+    *out = (pt1_t){.x = x, .y = y, .depth = z, .scale = sy};
+    return true;
+}
+#else
+#define proj1(v, p, o) sh2z_ep_spot((v), fy_ratio, (p), (o))
+#endif
 
 /* The source's machineLod != 0 (on the player's screen within 2,500 units), from the last frame's view. */
 static bool visible(const int32_t pos[3]) {
@@ -389,6 +439,17 @@ bool fzx_fx_stage(const fzx_view_t *view, const fzx_engine_cam_t *cam, const fzx
         const int32_t q = view->rotation[i][j];
         v.r[i][j] = (int16_t)((q >= 0 ? q + 32768 : -(-q + 32768)) / 65536);
     }
+#if SH2Z_DIVU_NATIVE
+    spot_rows_fit = true;
+    for (unsigned i = 0; i < 3u; ++i) {
+        unsigned bound = 0;
+        for (unsigned j = 0; j < 3u; ++j) {
+            spot_rows[i][j] = v.r[i][j];
+            bound += (unsigned)__builtin_abs(v.r[i][j]);
+        }
+        if (bound > 65535u) spot_rows_fit = false;
+    }
+#endif
     for (unsigned i = 0; i < 3u; ++i) v.eye[i] = cam->eye[i];
     v.focal_x = view->focal[0]; v.focal_y = view->focal[1];
     v.center_x = (int16_t)((view->center[0] + 32768) >> 16); v.center_y = (int16_t)(((view->center[1] + 32768) >> 16) - 1);

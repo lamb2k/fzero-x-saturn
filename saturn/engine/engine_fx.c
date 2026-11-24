@@ -329,7 +329,7 @@ static unsigned snap_boost_weight(const boost_t *o) {
     return (unsigned)o->row[0] * (tail ? 8u : 5u);
 }
 
-bool fzx_fx_stage(const fzx_view_t *view, const fzx_engine_cam_t *cam, const fzx_field_car_t *cars, unsigned n,
+bool fzx_fx_stage(const fzx_view_t *view, const fzx_engine_cam_t *cam, const fzx_field_car_t *cars, const int32_t *car_depth, unsigned n,
                   uint32_t player_machine) {
     snap_ok = false;
     if (fzx_fx_report[0] != 1 || !pl_ok) return false;
@@ -392,12 +392,9 @@ bool fzx_fx_stage(const fzx_view_t *view, const fzx_engine_cam_t *cam, const fzx
         const uint32_t id = c->id;
         if (id >= CARS) continue;
         boost_t *o = &snap_b[snap_n];
-        /* sh2z_ep_depth inline: the staged frame's depth of the car, saturated to 32 bits */
-        const int64_t dz = (int64_t)v.r[2][0] * (int32_t)((uint32_t)c->pos[0] - (uint32_t)v.eye[0]) +
-                           (int64_t)v.r[2][1] * (int32_t)((uint32_t)c->pos[1] - (uint32_t)v.eye[1]) +
-                           (int64_t)v.r[2][2] * (int32_t)((uint32_t)c->pos[2] - (uint32_t)v.eye[2]);
-        const int64_t dq = dz >> 16;
-        const int32_t depth = dq > INT32_MAX ? INT32_MAX : dq < INT32_MIN ? INT32_MIN : (int32_t)dq;
+        /* Share the sprite cull depth when it was computed with the same rounded camera row.
+         * The close-up cars and builds without sprite culling still need their own depth. */
+        const int32_t depth = car_depth[k] == INT32_MIN ? sh2z_ep_depth(&v, c->pos) : car_depth[k];
         if (depth <= 0 || depth > NEAR_BOOST * 16384) continue;
         if (id == 0u) {
             if (pl.flags & (SH2Z_VD_CRASHED | SH2Z_VD_SPINNING)) continue;

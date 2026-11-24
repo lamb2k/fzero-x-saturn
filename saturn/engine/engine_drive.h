@@ -97,7 +97,11 @@ unsigned fzx_drive_sprites(vdp1_cmdt_t *commands, unsigned capacity, const fzx_v
 /* Every car of the field, far to near: sprites through the slot cache, 3D cars from
  * their staged commands (staged[slot], staged_n[slot]); returns commands written. */
 unsigned fzx_drive_cars(vdp1_cmdt_t *commands, unsigned capacity, const fzx_view_t *view, const fzx_engine_cam_t *cam,
-                        const fzx_field_car_t *cars, unsigned n, const vdp1_cmdt_t *const *staged, const uint16_t *staged_n);
+                        const fzx_field_car_t *cars, unsigned n, const vdp1_cmdt_t *const *staged, const uint16_t *staged_n
+#if ENG_FX
+                        , int32_t *fx_depth
+#endif
+                        );
 extern volatile uint32_t fzx_field_sim_ticks, fzx_field_draw[8];
 #if defined(E2_EMIT_LINK) && E2_EMIT_LINK
 /* E2_EMIT_LINK: fzx_drive_cars leaves the 3D cars' staged commands where they are and lists the

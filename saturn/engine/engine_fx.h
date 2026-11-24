@@ -64,7 +64,7 @@ void fzx_fx_tick(const sh2z_vd_body_t *player, int32_t max_energy, bool accel_pr
 /* Every frame on the master after the cars are staged: the emit's inputs (view, the player, the
  * rivals' boosts) are copied. player_machine is the rendered machine id of the player. False: nothing
  * to emit. */
-bool fzx_fx_stage(const fzx_view_t *view, const fzx_engine_cam_t *cam, const fzx_field_car_t *cars, unsigned n,
+bool fzx_fx_stage(const fzx_view_t *view, const fzx_engine_cam_t *cam, const fzx_field_car_t *cars, const int32_t *car_depth, unsigned n,
                   uint32_t player_machine);
 /* The staged frame is emitted as jobs of about equal cost (0: the player's boosters, the sparks and the nearest
  * rivals; then the next rivals in turn), each on either SH-2

@@ -1075,9 +1075,11 @@ static void field_stage(const fzx_engine_cam_t *cam) {
 #if E2_PROF
     vp = v1;
 #endif
-    field_stage_n = fzx_drive_cars(field_stage_cmds, DRIVE_SLOTS, &fzx_native_view, cam, field_cars, ncars, car_stage_p, car_stage_n);
 #if ENG_FX
-    (void)fzx_fx_stage(&fzx_native_view, cam, field_cars, field_stage_n ? ncars : 0u,
+    int32_t fx_depth[FZX_FIELD_CARS];
+    field_stage_n = fzx_drive_cars(field_stage_cmds, DRIVE_SLOTS, &fzx_native_view, cam, field_cars, ncars,
+                                   car_stage_p, car_stage_n, fx_depth);
+    (void)fzx_fx_stage(&fzx_native_view, cam, field_cars, fx_depth, field_stage_n ? ncars : 0u,
 #if ENG_SCENES
                        fzx_scn_player_family());
 #else
@@ -1087,6 +1089,8 @@ static void field_stage(const fzx_engine_cam_t *cam) {
         const uint32_t t = (fx_tag + 1u) & SH2Z_CLAIM_TAG_MAX;
         fx_tag = t ? t : 1u;
     }
+#else
+    field_stage_n = fzx_drive_cars(field_stage_cmds, DRIVE_SLOTS, &fzx_native_view, cam, field_cars, ncars, car_stage_p, car_stage_n);
 #endif
     field_stage_c3d = (uint16_t)(v1 - v0);
     field_stage_emit = (uint16_t)(cpu_frt_count_get() - v1);

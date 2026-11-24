@@ -1407,7 +1407,11 @@ static bool shadow_place(sh2z_rspr_place_t *place, const int32_t ground[3], cons
 #endif
 
 unsigned fzx_drive_cars(vdp1_cmdt_t *commands, unsigned capacity, const fzx_view_t *view, const fzx_engine_cam_t *cam,
-                        const fzx_field_car_t *cars, unsigned n, const vdp1_cmdt_t *const *staged, const uint16_t *staged_n) {
+                        const fzx_field_car_t *cars, unsigned n, const vdp1_cmdt_t *const *staged, const uint16_t *staged_n
+#if ENG_FX
+                        , int32_t *fx_depth
+#endif
+                        ) {
     if (fzx_e1_status != 1 || capacity < 2u) { ++fzx_e1_report[11]; return 0; }
 #if E2_EMIT_PROF
     const uint16_t ep_start = cpu_frt_count_get();
@@ -1489,15 +1493,26 @@ unsigned fzx_drive_cars(vdp1_cmdt_t *commands, unsigned capacity, const fzx_view
     const int64_t ty_ = (int64_t)(cy - view->clip[1]) << 16, by = (int64_t)(view->clip[3] - cy) << 16;
 #endif
     uint32_t c_behind = 0, c_far = 0, c_off = 0;
+#if ENG_FX
+    /* With this coefficient bound, the raw Q14 dot cannot overflow after its 16-bit shift. */
+    const int16_t *look = racer_camera.r[2];
+    const bool fx_depth_fits = __builtin_abs(look[0]) + __builtin_abs(look[1]) + __builtin_abs(look[2]) <= 65535;
+#endif
 #endif
     for (unsigned i = 0; i < n; ++i) {
         item_t *it = &items[i];
+#if ENG_FX
+        fx_depth[i] = INT32_MIN;
+#endif
 #if E2_CULL
         if (cars[i].id != 0 && !cars[i].is3d) {
             const int32_t d[3] = { (int32_t)((uint32_t)cars[i].pos[0] - (uint32_t)racer_camera.eye[0]),
                                    (int32_t)((uint32_t)cars[i].pos[1] - (uint32_t)racer_camera.eye[1]),
                                    (int32_t)((uint32_t)cars[i].pos[2] - (uint32_t)racer_camera.eye[2]) };
             const int32_t tz = cull_dot(racer_camera.r[2], d);
+#if ENG_FX
+            if (fx_depth_fits) fx_depth[i] = tz;
+#endif
             uint8_t reason = 0;
             int64_t qx = 0, qy = 0;
             if (tz <= racer_camera.near_z || tz <= 0) reason = 1;

@@ -544,6 +544,15 @@
    "pokes": "*_fzx_sky_stack_start+4096=0@600"
   },
   {
+   "name": "ctl-fx",
+   "check": "fx",
+   "how": "the effects' status word cleared at tick 2 (every effect off from then on): a race with 0 effect commands",
+   "image": "field",
+   "kind": "race",
+   "course": "mute-city-1",
+   "pokes": "*_fzx_fx_report=0@2"
+  },
+  {
    "name": "ctl-guard",
    "check": "memory",
    "how": "the slave stack's first guard word overwritten at tick 600",

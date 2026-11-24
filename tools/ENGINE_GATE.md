@@ -57,6 +57,7 @@ with the base's receipt.
 | `cancel` | loads cancelled at 30, 100 and 180 fields return to TITLE (load state 3), and the next cold load races | sound on | sound on and off |
 | `menus` | no menu frame over two fields: `fzx_scn_ctl[7]` is 0 and `[6]` is at most 2 at every mark | every scenes run | every scenes run |
 | `memory` | master stack unused >= 20,480 B, slave stack >= 4,096 B, 0 guard trips | every race | every race |
+| `fx` | an image built with the race effects (`fzx_fx_report` exists) emitted effect commands over the race (status 1, most commands in a frame > 0); every race and course row | yes | yes |
 | `load` | INFO: the cold LOAD fields | | each course |
 | `disc` | every sound-on image runs from the shipping mixed-mode disc: data track 1 plus all 21 CD audio tracks (`tools/disc_cdda.py --ids all`), validated: the image's compiled track table equals the music manifest, the CUE lists 22 tracks (MODE1/2352, then AUDIO), each file has its TOC length | every sound-on run | every sound-on run |
 | `audio` | INFO: audio peak, non-zero samples and hash of each sound-on run | yes | yes |
@@ -88,6 +89,7 @@ table says so.
 | ctl-host | host | the field race against HOST driven at heading gain 2.6 |
 | ctl-determinism | determinism | the field race against the balance-off race |
 | ctl-stack | memory | a word written into the painted master stack 4 KB above its floor at tick 600 |
+| ctl-fx | fx | the effects' status word cleared at tick 2 (a race with 0 effect commands) |
 | ctl-guard | memory | the slave stack's first guard word cleared at tick 600 |
 | ctl-loop | loop | the retry race forced to retire |
 | ctl-record | loop | the loop waits for a Mute City record 1 ms off the image's HOST finish (`RECORD_MS` + 1), so the wait times out; it counts only when the harness error is that record wait (`RECORD_MS` + 1) after mark `results1` and before `saved1` (`expect_error`, `expect_mark`, `expect_mark_not`) |

@@ -449,6 +449,7 @@ class Gate:
         if host is not None:
             self.host_check(name, kv, chk, host, full_final=True, sink=sink)
         self.memory_checks(name, mem, kv, sink)
+        self.fx_check(name, mem, sink)
         return fr
 
     def cadence_checks(self, name, fr, sink=None, margin=True):
@@ -496,6 +497,18 @@ class Gate:
         ok = ms >= self.lim['master_stack_min'] and ss >= self.lim['slave_stack_min'] and trips <= self.lim['slave_guard_trips']
         self.add('memory', name, ok, 'master stack unused %d B, slave %d B, guard trips %d' % (ms, ss, trips),
                  'floors %d / %d / %d' % (self.lim['master_stack_min'], self.lim['slave_stack_min'], self.lim['slave_guard_trips']), sink=sink)
+
+    def fx_check(self, name, mem, sink=None):
+        """An image built with the race effects (ENG_FX: fzx_fx_report exists) must draw them. fzx_fx_report[2] is the most
+        effect commands added to one frame, [0] the load status (1 ok), [5] the frames the player boosted, [7] the most
+        booster commands in a frame. Once a physics path (the look-ahead) bypassed the effects' tick hook and the race ran
+        with every effect silent (0 commands) and every other check green."""
+        if not mem.has('fzx_fx_report'):
+            return
+        r = mem.words('fzx_fx_report', 16)
+        self.add('fx', name, r[0] == 1 and r[2] > 0,
+                 'status %d, most effect commands in a frame %d, player boost frames %d, most booster commands %d' % (r[0], r[2], r[5], r[7]),
+                 'an ENG_FX image must emit effect commands over the race window (fzx_fx_report)', sink=sink)
 
     def rootdir_check(self, name, mem, build_dir, sink=None):
         """The image's root file list (texture_cd kept[]) holds every file on the disc and fits its 384 slots. The list once lost
@@ -592,6 +605,7 @@ class Gate:
                 mem = Mem(run_dir, 'results', sym)
                 self.cadence_checks(name, frame_rows(mem, self.lim['race_window_tick']), sink)
                 self.memory_checks(name, mem, mkv, sink)
+                self.fx_check(name, mem, sink)
                 self.rootdir_check(name, mem, build_dir, sink)
                 load = result_kv(lines, 'race_start')[0].get('_fzx_scn_report10')
                 self.add('load', name, True, 'cold LOAD %s fields' % load, info=True, sink=sink)

@@ -32,6 +32,12 @@
 #if E1_FIELD
 #include "engine_field.h"
 #endif
+#ifndef ENG_FX
+#define ENG_FX 0
+#endif
+#if ENG_FX
+#include "engine_fx.h"
+#endif
 
 #ifndef E1_DRIVER
 #define E1_DRIVER 0
@@ -147,7 +153,17 @@ static uint32_t finish_timer;
 #endif
 #if ENG_PHYS_AHEAD
 /* Everything after the physics of one tick: the sound's read, the field's copy, the count, the finish hook and the checkpoint. */
-static void after_step(void) {
+#if ENG_FX
+#define AFTER_PARAM bool accel
+#define AFTER_ARG(a) (a)
+#else
+#define AFTER_PARAM void
+#define AFTER_ARG(a)
+#endif
+static void after_step(AFTER_PARAM) {
+#if ENG_FX
+    fzx_fx_tick(&body, course.vehicle.max_energy, accel); /* race effects: read only (the same state and place as before the look-ahead) */
+#endif
 #if ENG_SND
     engine_snd_tick(&body, &course.vehicle, course.track.laps); /* reads the state only */
 #endif
@@ -185,12 +201,15 @@ static void after_step(void) {
 }
 static void step_once(sh2z_vd_input_t *in) {
     fzx_phys_step(&course, &body, &fzx_phys_rules, in);
-    after_step();
+    after_step(AFTER_ARG((in->pressed & SH2Z_VD_BTN_ACCEL) != 0u));
 }
 
 #else
 static void step_once(sh2z_vd_input_t *in) {
     fzx_phys_step(&course, &body, &fzx_phys_rules, in);
+#if ENG_FX
+    fzx_fx_tick(&body, course.vehicle.max_energy, (in->pressed & SH2Z_VD_BTN_ACCEL) != 0u); /* race effects: read only */
+#endif
 #if ENG_SND
     engine_snd_tick(&body, &course.vehicle, course.track.laps); /* reads the state only */
 #endif
@@ -257,6 +276,9 @@ static struct {
     uint16_t pad;
     FzxPadState pad_after;
     uint16_t prev_after[AHEAD_MAX];
+#if ENG_FX
+    uint8_t accel[AHEAD_MAX];   /* the accelerator press of each tick (the race effects' flare) */
+#endif
     sh2z_vd_body_t after[AHEAD_MAX];
 #if ENG_PICK_AHEAD
     /* ENG_PICK_AHEAD: the camera of the state the prediction ends in, computed with the lens and orbit named here, and the
@@ -298,6 +320,9 @@ void fzx_drive_ahead_prepare(uint32_t req) {
             pv = button;
             fzx_phys_step(&course, &b, &fzx_phys_rules, &in);
             ahead.after[k] = b; ahead.prev_after[k] = pv;
+#if ENG_FX
+            ahead.accel[k] = (in.pressed & SH2Z_VD_BTN_ACCEL) != 0u;
+#endif
         }
     } else {
         FzxPadState ps = pad_state;
@@ -307,6 +332,9 @@ void fzx_drive_ahead_prepare(uint32_t req) {
         for (; k < req; ++k) {
             fzx_phys_step(&course, &b, &fzx_phys_rules, &in);
             ahead.after[k] = b;
+#if ENG_FX
+            ahead.accel[k] = (in.pressed & SH2Z_VD_BTN_ACCEL) != 0u;
+#endif
             in.pressed = 0; in.released = 0;
         }
         ahead.pad_after = ps;
@@ -329,7 +357,7 @@ void fzx_drive_step(uint32_t n) {
             for (uint32_t k = 0; k < ahead.n; ++k) {
                 body = ahead.after[k];
                 if (fzx_e1_driver) prev_n64 = ahead.prev_after[k];
-                after_step();
+                after_step(AFTER_ARG(ahead.accel[k] != 0u));
                 if (fzx_e1_driver && ticks == RACE_END_TICK) {
                     const uint64_t h = fnv64_body(&body);
                     fzx_e1_report[5] = ticks; fzx_e1_report[6] = (uint32_t)(h >> 32); fzx_e1_report[7] = (uint32_t)h;
@@ -1379,7 +1407,11 @@ static bool shadow_place(sh2z_rspr_place_t *place, const int32_t ground[3], cons
 #endif
 
 unsigned fzx_drive_cars(vdp1_cmdt_t *commands, unsigned capacity, const fzx_view_t *view, const fzx_engine_cam_t *cam,
-                        const fzx_field_car_t *cars, unsigned n, const vdp1_cmdt_t *const *staged, const uint16_t *staged_n) {
+                        const fzx_field_car_t *cars, unsigned n, const vdp1_cmdt_t *const *staged, const uint16_t *staged_n
+#if ENG_FX
+                        , int32_t *fx_depth
+#endif
+                        ) {
     if (fzx_e1_status != 1 || capacity < 2u) { ++fzx_e1_report[11]; return 0; }
 #if E2_EMIT_PROF
     const uint16_t ep_start = cpu_frt_count_get();
@@ -1461,15 +1493,26 @@ unsigned fzx_drive_cars(vdp1_cmdt_t *commands, unsigned capacity, const fzx_view
     const int64_t ty_ = (int64_t)(cy - view->clip[1]) << 16, by = (int64_t)(view->clip[3] - cy) << 16;
 #endif
     uint32_t c_behind = 0, c_far = 0, c_off = 0;
+#if ENG_FX
+    /* With this coefficient bound, the raw Q14 dot cannot overflow after its 16-bit shift. */
+    const int16_t *look = racer_camera.r[2];
+    const bool fx_depth_fits = __builtin_abs(look[0]) + __builtin_abs(look[1]) + __builtin_abs(look[2]) <= 65535;
+#endif
 #endif
     for (unsigned i = 0; i < n; ++i) {
         item_t *it = &items[i];
+#if ENG_FX
+        fx_depth[i] = INT32_MIN;
+#endif
 #if E2_CULL
         if (cars[i].id != 0 && !cars[i].is3d) {
             const int32_t d[3] = { (int32_t)((uint32_t)cars[i].pos[0] - (uint32_t)racer_camera.eye[0]),
                                    (int32_t)((uint32_t)cars[i].pos[1] - (uint32_t)racer_camera.eye[1]),
                                    (int32_t)((uint32_t)cars[i].pos[2] - (uint32_t)racer_camera.eye[2]) };
             const int32_t tz = cull_dot(racer_camera.r[2], d);
+#if ENG_FX
+            if (fx_depth_fits) fx_depth[i] = tz;
+#endif
             uint8_t reason = 0;
             int64_t qx = 0, qy = 0;
             if (tz <= racer_camera.near_z || tz <= 0) reason = 1;

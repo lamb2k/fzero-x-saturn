@@ -83,6 +83,12 @@ static uint32_t roster_inflate_fnv(uint32_t family, unsigned prof) {
 }
 #endif
 #include "engine_drive.h"
+#ifndef ENG_FX
+#define ENG_FX 0
+#endif
+#if ENG_FX
+#include "engine_fx.h"
+#endif
 #include "sh2zam/scene_experimental.h"
 #include "sh2zam/vehicle_dynamics_experimental.h"
 #if ENG_SND
@@ -160,6 +166,12 @@ fzx_session_t fzx_session;
 fzx_run_result_t fzx_scn_result;
 
 /* ---- arenas ---------------------------------------------------------------- */
+/* The menu scenes' structures (a few hundred bytes of each scene's arena; nothing reads it in a race, and no DMA reads
+ * it). With the race effects (ENG_FX) the scenes image keeps it in low work RAM: the effects' buffers took the
+ * master's headroom (lane fx-3). */
+#if ENG_FX && ENG_LOW_COLD
+__attribute__((section(".bss.lowcold.menu_heap")))
+#endif
 static uint8_t menu_heap[8192] __attribute__((aligned(16)));
 static uint8_t race_heap[1024] __attribute__((aligned(16)));
 static sh2z_arena_t menu_arena, race_arena;
@@ -1452,6 +1464,9 @@ static void load_tick(void *u, uint32_t s) {
         /* Retry: everything is resident; only race-local state goes back to its start. */
         fzx_drive_reset();
         fzx_closeup_reset();
+#if ENG_FX
+        fzx_fx_reset();
+#endif
         retry_entering = race_regs_kept;
         memset((void *)fzx_scn_load_fields, 0, sizeof(fzx_scn_load_fields));
         fzx_scn_report[11] = 2;

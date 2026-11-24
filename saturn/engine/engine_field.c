@@ -338,6 +338,11 @@ static void player_into_field(const sh2z_vd_body_t *p) {
 
 volatile uint32_t fzx_e2_report[16];
 #if E2_PACK
+#if ENG_LOW_COLD
+/* The rivals pack (about 81 KB) is read only by fzx_field_load, at LOAD and at a retry (it copies the line nodes and
+ * station poses into `nodes` and `stations`); no race frame reads it: low work RAM (engine_low.x, engine_low_bss.ld). */
+__attribute__((section(".bss.lowcold.field_pack_buf")))
+#endif
 static uint32_t pack_buf[(CMAX(FZX_COURSE_MAX_RIVALS_BYTES,FZX_RIVALS_PACK_BYTES) + 7u) / 4u] __attribute__((aligned(8)));
 static bool pack_ok;
 bool fzx_field_pack_load(void *scratch, uint32_t scratch_bytes) {

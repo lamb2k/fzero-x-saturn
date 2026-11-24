@@ -5,6 +5,7 @@
  *   road_native.c  entries         the road pack load's root list
  *   engine_records.c table         the records table, read and written by the scenes
  *   engine_drive.c pack_buf        the physics pack, parsed once at LOAD by fzx_phys_load
+ *   engine_field.c field_pack_buf  the rivals pack (about 81 KB), read by fzx_field_load at LOAD and at a retry (lane mem-1)
  * Not here: anything the SCU DMA or a CD transfer reads or writes (VDP1 command lists, sector buffers), and the
  * backup library's buffers (bup, records io). */
 *(.bss.lowcold.*)

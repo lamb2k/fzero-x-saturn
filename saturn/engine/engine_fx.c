@@ -598,35 +598,42 @@ void fzx_fx_job(unsigned job) {
     jo->ticks = (uint16_t)(cpu_frt_count_get() - t0);
 }
 
-/* On the master after both jobs are done (slave_mask bit j: job j ran on the slave): the two sorted lists merged
- * far to near (job 0 first among equal bands, the original emit order) into dst, at most capacity (the farthest
- * go first when over). Returns the count. */
+/* The master reads a slave job only after its cache lines have been purged. */
+static unsigned job_count(unsigned job, unsigned slave_mask) {
+    const volatile fx_out_t *result = (const volatile fx_out_t *)((uintptr_t)&job_out[job] | CPU_CACHE_THROUGH);
+    const unsigned count = result->n;
+    if (((slave_mask >> job) & 1u) && count) {
+        job_buf_t *buffer = &job_buf[job];
+        cpu_cache_area_purge(buffer, sizeof(buffer->ord) + sizeof(buffer->key) + count * sizeof(vdp1_cmdt_t));
+    }
+    return count;
+}
+
+static inline void copy_effect(vdp1_cmdt_t *dst, const vdp1_cmdt_t *src) {
+    const uint32_t *w = (const uint32_t *)(const void *)src;
+    uint32_t *d = (uint32_t *)(void *)dst;
+    d[0] = w[0]; d[1] = w[1]; d[2] = w[2]; d[3] = w[3];
+    d[4] = w[4]; d[5] = w[5]; d[6] = w[6]; d[7] = w[7] & 0xffff0000u;
+}
+
+/* Merge the two sorted command lists far to near. Job 0 wins a tie. Drop the
+ * farthest commands first when capacity is short. */
 unsigned fzx_fx_collect(vdp1_cmdt_t *dst, unsigned capacity, unsigned slave_mask) {
-    const uint32_t *base[FZX_FX_JOBS];
-    const uint8_t *ord[FZX_FX_JOBS], *bnd[FZX_FX_JOBS];
-    unsigned n[FZX_FX_JOBS], idx[FZX_FX_JOBS], total = 0;
-    uint32_t key[FZX_FX_JOBS];
-    for (unsigned j = 0; j < FZX_FX_JOBS; ++j) {
-        const volatile fx_out_t *o = (const volatile fx_out_t *)((uintptr_t)&job_out[j] | CPU_CACHE_THROUGH);
-        n[j] = o->n; idx[j] = 0; total += n[j];
-        /* the slave's lists are in memory (write-through): purge this CPU's copies of the order and of the commands
-         * used (the buffer's first 2 x 64 B, then n commands) and read them cached */
-        if (((slave_mask >> j) & 1u) && n[j]) cpu_cache_area_purge(&job_buf[j], sizeof(job_buf[j].ord) + sizeof(job_buf[j].key) + n[j] * sizeof(vdp1_cmdt_t));
-        base[j] = (const uint32_t *)(const void *)job_buf[j].cmd;
-        ord[j] = job_buf[j].ord; bnd[j] = job_buf[j].key;
-        key[j] = n[j] ? bnd[j][0] : 0x100u;
+    _Static_assert(FZX_FX_JOBS == 2u, "two effect command lists");
+    const job_buf_t *left = &job_buf[0], *right = &job_buf[1];
+    const unsigned left_count = job_count(0, slave_mask), right_count = job_count(1, slave_mask);
+    const unsigned total = left_count + right_count;
+    unsigned l = 0, r = 0, out = 0;
+    for (unsigned skip = total > capacity ? total - capacity : 0u; skip; --skip) {
+        if (r == right_count || (l < left_count && left->key[l] <= right->key[r])) ++l;
+        else ++r;
     }
-    unsigned skip = total > capacity ? total - capacity : 0u, out = 0;
-    for (unsigned c = 0; c < total; ++c) {
-        unsigned j = 0;
-        for (unsigned q = 1; q < FZX_FX_JOBS; ++q) if (key[q] < key[j]) j = q;   /* the first job among equal bands */
-        const uint32_t *w = base[j] + 8u * ord[j][idx[j]];
-        key[j] = ++idx[j] < n[j] ? bnd[j][idx[j]] : 0x100u;
-        if (skip) { --skip; continue; }
-        uint32_t *d = (uint32_t *)(void *)&dst[out++];
-        d[0] = w[0]; d[1] = w[1]; d[2] = w[2]; d[3] = w[3]; d[4] = w[4]; d[5] = w[5]; d[6] = w[6];
-        d[7] = w[7] & 0xffff0000u;
+    while (l < left_count && r < right_count) {
+        if (left->key[l] <= right->key[r]) copy_effect(&dst[out++], &left->cmd[left->ord[l++]]);
+        else copy_effect(&dst[out++], &right->cmd[right->ord[r++]]);
     }
+    while (l < left_count) copy_effect(&dst[out++], &left->cmd[left->ord[l++]]);
+    while (r < right_count) copy_effect(&dst[out++], &right->cmd[right->ord[r++]]);
     return out;
 }
 

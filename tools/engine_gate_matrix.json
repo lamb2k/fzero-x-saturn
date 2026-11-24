@@ -9,6 +9,7 @@
   "slave_guard_trips": 0,
   "menu_worst_fields": 2,
   "race_window_tick": 420,
+  "countdown": {"drawn_min": 100, "commands_max": 30, "first_min": 458, "last_max": 3},
   "root_entries": 384
  },
  "images": {
@@ -25,7 +26,8 @@
    ],
    "kind": "race",
    "note": "29 rivals, driver; sound on (default)",
-   "sound": true
+   "sound": true,
+   "countdown": true
   },
   "field-snd0": {
    "vars": [
@@ -35,7 +37,8 @@
    ],
    "kind": "race",
    "note": "field, sound off",
-   "sound": false
+   "sound": false,
+   "countdown": true
   },
   "field-pad": {
    "vars": [
@@ -43,7 +46,8 @@
    ],
    "kind": "race",
    "note": "field as shipped (pad), identity only",
-   "sound": true
+   "sound": true,
+   "countdown": true
   },
   "drive": {
    "vars": [
@@ -53,7 +57,8 @@
    ],
    "kind": "race",
    "note": "player alone, driver",
-   "sound": true
+   "sound": true,
+   "countdown": true
   },
   "roster": {
    "vars": [
@@ -64,7 +69,8 @@
    ],
    "kind": "race",
    "note": "field with the roster sprites",
-   "sound": true
+   "sound": true,
+   "countdown": true
   },
   "scenes": {
    "vars": [
@@ -533,6 +539,17 @@
    "how": "the field race against the balance-off control race (one switch apart)",
    "reuse": "race-field",
    "against": "ctl-margin"
+  },
+  {
+   "name": "ctl-countdown",
+   "check": "countdown",
+   "how": "field image built with ENG_COUNTDOWN=0: no sign, so the report is absent",
+   "image": "field",
+   "kind": "race",
+   "course": "mute-city-1",
+   "vars": [
+    "ENG_COUNTDOWN=0"
+   ]
   },
   {
    "name": "ctl-stack",

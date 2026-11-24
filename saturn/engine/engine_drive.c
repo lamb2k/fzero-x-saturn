@@ -3,6 +3,12 @@
 #include <string.h>
 #include <stddef.h>
 #include "engine_drive.h"
+#ifndef ENG_COUNTDOWN
+#define ENG_COUNTDOWN 0
+#endif
+#if ENG_COUNTDOWN
+#include "engine_countdown.h"
+#endif
 #if ENG_SND
 #include "engine_snd.h"
 #endif
@@ -1830,7 +1836,13 @@ void fzx_drive_hud_prepare(void) {
              (unsigned long)laps, (unsigned long)(ms / 60000u), (unsigned long)((ms / 1000u) % 60u),
              (unsigned long)((ms / 10u) % 100u));
     if (body.flags & SH2Z_VD_FINISHED) snprintf(hud_str[1], sizeof(hud_str[1]), "[4;14HFINISH");
+#if ENG_COUNTDOWN
+    /* The original's sign draws the countdown (engine_countdown.c); the text digits stay only when its charts did not load, on the
+     * original's thresholds. */
+    else if (body.intro > 0 && fzx_cdn_report[0] != 1u) snprintf(hud_str[1], sizeof(hud_str[1]), "[4;14H%s", body.intro > 220 ? "      " : body.intro > 160 ? "  3   " : body.intro > 100 ? "  2   " : body.intro > 40 ? "  1   " : " GO   ");
+#else
     else if (body.intro > 0) snprintf(hud_str[1], sizeof(hud_str[1]), "[4;14H%s", body.intro > 180 ? "      " : body.intro > 120 ? "  3   " : body.intro > 60 ? "  2   " : "  1   ");
+#endif
     else snprintf(hud_str[1], sizeof(hud_str[1]), "[4;14H      ");
     hud_ready = 1u;
 }

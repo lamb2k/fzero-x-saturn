@@ -186,3 +186,41 @@ Private evidence under `$FZX_EVIDENCE`: `host/countdown/native-on-fit`,
 `emu/countdown/texture-control-first/negative-control.json`. Runtime evidence
 is EMULATOR; timings are MODELLED; HARDWARE remains UNRUN. Sound and complete
 entry/race/results/retry acceptance remain unfinished.
+
+## Engine line: the sign on the engine's race images (ENG_COUNTDOWN)
+
+The engine keeps the original's 460-tick start delay (`body.intro` counts 460 down to 0 as `gRaceIntroTimer` does) and, with
+`ENG_COUNTDOWN=1` (the default on the drive images that carry the 3D player, `FZX_E1_DRIVE=1` and `E1_CLOSEUP=1`), draws the
+original's sign over it: `saturn/engine/engine_countdown.c`. Nothing here is the C8 scene: the engine reads its own body and camera,
+and it never writes either.
+
+- **Art.** The same 23 planar quads and RGB5 charts as above, baked by `tools/countdown_engine_pack.py` into
+  `generated/countdown_engine` (ROM-derived, local, with a receipt). The 20 frame/grate quads' charts are baked at half the source
+  step in both directions (the face is small on screen); the two Mr. Zero panels and the digit panel keep the source step. The pack is
+  36,864 bytes of VDP1 VRAM (the full-step pack is 70,400). It sits directly below the 3D player's region, so it needs no
+  slot-pool room. The worst course (Space Plant) leaves 66,048 bytes there; a course with less than the pack's size loads without
+  the sign (status 7) and the HUD's text digits stay.
+- **Pose.** The original's: rows 0.2 * (Z, Y, X') with Y the racer's up axis, X the camera's backward axis, Z = Y x X, X' = Z x Y;
+  origin = position + (v - height) * up + 50 * forward - v * camera forward, with v = 33 + 1500 s^2 and s = (timer - 220) / 240 above
+  220, v = 33 for 31..220, s = (30 - timer) / 30 for 30 down to 1. Integer maths (Q30 axes, Q16.16 distances).
+- **Panels.** Black above timer 220, then 3 (220..161), 2 (160..101), 1 (100..41), GO (40..1), hidden at 0. The mouth is open for
+  210..220, 150..160, 90..100 and 40 down to 1. The placeholder HUD digits are drawn only when the sign did not load.
+- **Where the cost goes.** The per-frame build runs in the master's idle time, counted in `phys_ticks`, for the 460 intro ticks only.
+  Work (about 7 KB) and the 2,352-byte metadata are in low work RAM ahead of the frame rows. The slave's `fzx_bal_rows` (12 KB) moved
+  to low work RAM to give back the code's high work RAM.
+- **Camera.** The engine's chase camera is rigid; the original's swoops in from far behind for the first 280 ticks. The sign is
+  placed from the camera exactly as the original places it, so it matches the original once the camera has settled (timer 220
+  and below); during the swoop the sign's path is the engine camera's, not the original's. The settled sign is the original's size
+  and centred like it; it sits about 10 pixels lower on a 224-line picture because the engine's settled camera pitch differs.
+- **Sounds (not done here).** The original's countdown sounds (racer.c) are system sound effects: NA_SE_47 when the timer is 220
+  (the 3), NA_SE_9 at 160 (the 2), NA_SE_10 at 100 (the 1) and NA_SE_11 at 40 (GO); the demo fanfare (Audio_StartDemo) at timer 460
+  and the course music at timer 1. None are in the engine's 9-event race bank, so this lane draws the sign only; the menu-audio
+  lane needs these triggers (all on the player-0 intro timer, not while paused).
+- **Cost (EMULATOR, timing MODELLED; Mute City field race, sound off, whole race from tick 1).** Critical-path p99 19.871 to 20.049 ms
+  (+0.178), max 21.638 to 21.900 ms, every presentation interval 2 fields in both arms, final picture and all 36 HOST checkpoints
+  identical. The cost is in the 230 intro rows only: +0.37 ms while the sign is off screen, about +2.9 ms while it is drawn
+  (115 frames; the projection of its 92 vertices and the per-quad work of `fzx_countdown_draw`). Their own p99 is 21.7 ms against the
+  24.485 ms limit.
+- **Reports.** `fzx_cdn_report` (`engine_countdown.h`): status, frames drawn, most commands, refusals (expected 0), commands dropped
+  (expected 0), FRT ticks of a build, of the pose and of the drawing. The gate's `countdown` check reads it; `ctl-countdown` is an
+  image built with `ENG_COUNTDOWN=0`.

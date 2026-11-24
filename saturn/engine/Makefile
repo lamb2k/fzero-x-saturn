@@ -527,6 +527,12 @@ SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter 1,$(ENG_PICK_AHEAD)),-pka,)
 # the early pick the camera of the state before the prediction (a stale view; the picture must differ).
 ENG_PICK_AHEAD_CONTROL ?= 0
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter-out 0,$(ENG_PICK_AHEAD_CONTROL)),-pkc$(ENG_PICK_AHEAD_CONTROL),)
+# ENG_COUNTDOWN (claude/countdown): the original 3, 2, 1, GO sign on the drive images (engine_countdown.c, docs/COUNTDOWN.md). Its
+# charts (COUNTDN.PAK, COUNTDTX.PAK from generated/countdown_engine) go to VDP1 VRAM below the 3D player's region, its work and
+# metadata to low work RAM ahead of the frame rows; the pose comes from the body and the camera, the panels from body.intro.
+# 0 builds the code as it was.
+ENG_COUNTDOWN ?= $(if $(filter 1,$(FZX_E1_DRIVE)),$(if $(filter 1,$(E1_CLOSEUP)),1,0),0)
+SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter 1,$(ENG_COUNTDOWN)),-cdn,)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter 0,$(E0_FLOOR_NEAR0)),-fn0,)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(filter-out mute-city-1,$(ENG_COURSE)),-$(ENG_COURSE),)
 SH_OUTPUT_DIR := $(SH_OUTPUT_DIR)$(if $(E1_DRIVER_KH),-kh$(E1_DRIVER_KH),)
@@ -645,6 +651,19 @@ SH_SRCS := engine_main.c engine_scene.c engine_path.c \
     $(if $(filter-out 0,$(E1_FIELD)),engine_field.c,) $(if $(filter 1,$(ENG_FX)),engine_fx.c,) \
     $(if $(filter 1,$(ENG_SCENES)),engine_scenes.c engine_records.c engine_load_fast.c engine_cup.c,) $(if $(filter 1,$(ENG_ROSTER)),engine_roster.c,) \
     $(addprefix $(SH2ZAM_ROOT)/saturn/src/,$(sort $(SH2ZAM_UNITS)))
+ifeq ($(ENG_COUNTDOWN),1)
+ifneq ($(FZX_E1_DRIVE):$(E1_CLOSEUP),1:1)
+$(error ENG_COUNTDOWN=1 needs FZX_E1_DRIVE=1 and E1_CLOSEUP=1)
+endif
+COUNTDOWN_RECEIPT_CHECK := $(shell sh ../../tools/check_receipt.sh $(G)/countdown_engine/countdown_pack.receipt >/dev/null 2>&1 || echo stale)
+ifneq ($(strip $(COUNTDOWN_RECEIPT_CHECK)),)
+$(error Missing or stale engine countdown pack: tools/countdown_assets.py, tools/countdown_pack.py then tools/countdown_engine_pack.py (local, from the ROM))
+endif
+SH_SRCS += engine_countdown.c ../countdown_draw_native.c ../../src/fzx_countdown.c ../../src/fzx_countdown_pack.c ../../src/fzx_countdown_draw.c
+SH_CFLAGS += -DENG_COUNTDOWN=1 -I$(G)/countdown_engine
+else
+SH_CFLAGS += -DENG_COUNTDOWN=0
+endif
 ifneq ($(ENG_DSP_BANDS),0)
 SH_SRCS += ../../src/fzx_band_corners.c
 ifeq ($(ENG_DSP_BANDS),2)
@@ -911,6 +930,7 @@ stage-e0-packs:
 	$(if $(filter 1,$(E0_CLUSTERS)),cp $(GC)/road_cluster/ROADCL.PAK "$(IMAGE_DIRECTORY)/",)
 	$(if $(filter 1,$(ENG_SND)),cp $(G)/snd/SNDRACE.PAK "$(IMAGE_DIRECTORY)/",)
 	$(if $(filter 1,$(ENG_SND_MENU)),cp $(G)/snd_menu/SNDMENU.PAK "$(IMAGE_DIRECTORY)/",)
+	$(if $(filter 1,$(ENG_COUNTDOWN)),cp $(G)/countdown_engine/COUNTDN.PAK $(G)/countdown_engine/COUNTDTX.PAK "$(IMAGE_DIRECTORY)/",)
 ifeq ($(FZX_E1_DRIVE),1)
 	cp $(GC)/physics/PHYS.PAK $(G)/$(E1_SPRITES)/RSPRITE.PAK "$(IMAGE_DIRECTORY)/"
 endif

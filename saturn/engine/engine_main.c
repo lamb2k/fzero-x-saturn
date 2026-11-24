@@ -75,6 +75,15 @@
 #else
 #define CLOSEUP_COMMANDS 0u
 #endif
+#ifndef ENG_COUNTDOWN
+#define ENG_COUNTDOWN 0
+#endif
+#if ENG_COUNTDOWN
+#include "engine_countdown.h"
+/* The sign's commands for this frame, staged in the master's idle time (cdn_stage_frame) and appended after the cars. */
+static unsigned cdn_n;
+static uintptr_t cdn_low_end; /* the end of the sign's low RAM block, 0 when it is not loaded */
+#endif
 #ifndef ENG_CDDA
 #define ENG_CDDA 0
 #endif
@@ -1495,6 +1504,15 @@ static void build(row_t *row, const fzx_engine_cam_t *cam, uint32_t tick, uint16
 #endif
     }
 #endif
+#if ENG_COUNTDOWN
+    /* The countdown sign after the cars, as the original draws it after the machine (the intro only). */
+    if (cdn_n) {
+        if (CMD_FIRST + draws + cdn_n < CMD_CAPACITY) {
+            memcpy(&commands[CMD_FIRST + draws], fzx_cdn_commands(), cdn_n * sizeof(vdp1_cmdt_t));
+            draws += cdn_n;
+        } else fzx_cdn_dropped(cdn_n);
+    }
+#endif
     vdp1_cmdt_t *end = &commands[CMD_FIRST + draws];
     memset(end, 0, sizeof(*end));
     vdp1_cmdt_end_set(end);
@@ -1730,6 +1748,16 @@ void fzx_race_load(void) {
 #endif
         SCN_STAMP(5);
 #endif
+#if ENG_COUNTDOWN
+        /* The sign's charts below the player's 3D region, its work ahead of the frame rows. A race without room runs without the
+         * sign (fzx_cdn_report[0] says why); nothing else moves. */
+        cdn_n = 0;
+        cdn_low_end = 0;
+        {
+            uintptr_t at = (((uintptr_t)fzx_road_stream_low_end + 32u) + 31u) & ~(uintptr_t)31u, after = at;
+            if (fzx_cdn_load(&partitions, closeup_floor, at, &after, (void *)scratch, 0x0028D000u - 32u - scratch, offset)) cdn_low_end = after;
+        }
+#endif
         if (offset > fzx_drive_texture_floor()) fail(51, "SPRITE VRAM OVERLAP", offset);
     }
 #endif
@@ -1748,7 +1776,11 @@ void fzx_race_load(void) {
 #endif
     /* Frame rows follow the track workspace in low work RAM, guarded. */
     {
+#if ENG_COUNTDOWN
+        uintptr_t base = (((cdn_low_end ? cdn_low_end : (uintptr_t)fzx_road_stream_low_end) + 32u + 63u)) & ~(uintptr_t)63u;
+#else
         uintptr_t base = ((uintptr_t)fzx_road_stream_low_end + 32u + 63u) & ~(uintptr_t)63u;
+#endif
         if (base < PATH_BASE + PATH_CAPACITY || base > 0x002f0000u) fail(37, "ROW AREA", (uint32_t)base);
         rows = (row_t *)base;
         row_capacity = (uint32_t)((0x00300000u - 64u - base) / sizeof(row_t));
@@ -1951,6 +1983,13 @@ bool fzx_race_frame(void) {
             const uint16_t h1 = cpu_frt_count_get();
             fzx_drive_hud_prepare();
             row->phys_ticks = (uint16_t)(row->phys_ticks + (uint16_t)(cpu_frt_count_get() - h1));
+        }
+#endif
+#if ENG_COUNTDOWN
+        {   /* The countdown sign (the race intro only), in the same idle time; counted in phys_ticks. */
+            const uint16_t c1 = cpu_frt_count_get();
+            cdn_n = fzx_cdn_stage(&fzx_native_view, cam, fzx_drive_body());
+            row->phys_ticks = (uint16_t)(row->phys_ticks + (uint16_t)(cpu_frt_count_get() - c1));
         }
 #endif
 #else

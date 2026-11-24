@@ -52,6 +52,7 @@ with the base's receipt.
 | `host` | SH-2 checkpoints equal HOST's (`fzx-phys --checkpoints 256`, tubes build, the stage's packs); the finish ms equal, or a retirement where HOST retires; a whole race also matches HOST's final state hash | field race; loop's cold race | plus drive, roster, and each course |
 | `determinism` | two runs give the same per-field ticks and pixel hashes, work RAM, VRAM and stills | field race | field race; loop |
 | `loop` | cold and retry races give equal finish ms, checkpoints and tick-2000 stills | sound on | sound on and off |
+| `countdown` | an image that carries the race countdown sign (`ENG_COUNTDOWN`) loaded it (status 1), built it for the whole start delay (first timer >= 458, last <= 3), drew it on at least 100 frames, never refused or dropped it, at most 30 commands a frame | every race on those images | every race on those images |
 | `reboot` | the saved name survives a reboot (the loop script waits for it, and for the saved Mute City record, `RECORD_MS` in `loop.txt`: the image's own Mute City HOST finish from `fzx-phys`; an image built with `ENG_ATTACKS` stops the gate, since this line has no `fzx-atk` reference) | yes | yes |
 | `reset` | the soft reset returns to TITLE from title, select, records, a fade, load, race and results; the fire count rises each time | sound on | sound on and off |
 | `cancel` | loads cancelled at 30, 100 and 180 fields return to TITLE (load state 3), and the next cold load races | sound on | sound on and off |

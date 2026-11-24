@@ -56,6 +56,11 @@ static uintptr_t art;     /* VDP1 byte offset of FX.PAK */
 static sh2z_ep_view_t view_last;
 static bool view_ok;
 static uint16_t pmod_tex, pmod_tex_half;
+typedef struct {
+    uint16_t pmod, color, texture;
+    bool valid;
+} boost_material_t;
+static boost_material_t head_mats[3], tail_mats[3];
 static uint8_t player_body[3];
 static int32_t player_energy, player_max;
 
@@ -82,6 +87,14 @@ static void pmods(void) {
     pmod_tex_half = c.cmd_pmod;
 }
 
+/* Booster materials use only the two fixed 16x16 cells and three palettes.
+ * Validate their VDP1 words once after loading the effect pack. */
+static boost_material_t boost_material(uint32_t texture, uint32_t palette, uint16_t pmod) {
+    const bool valid = !(texture & 7u) && !(palette & 31u) && texture <= 0x7ffffu && palette <= 0x7ffe0u;
+    return (boost_material_t){.pmod = pmod, .color = (uint16_t)(palette >> 3),
+                             .texture = (uint16_t)(texture >> 3), .valid = valid};
+}
+
 /* 7.5 sqrt(t / 100), Q16, for the boost timer t (racer.c's booster size). */
 static int32_t sqrt_share[101] FX_LOW("sqrt");
 
@@ -105,6 +118,11 @@ uint32_t fzx_fx_load(const vdp1_vram_partitions_t *parts, uint32_t ceiling, void
     }
     art = (tex + pack_at) & 0x7ffffu;
     pmods();
+    for (unsigned env = 0; env < 3u; ++env) {
+        const uint32_t palette = (uint32_t)art + FZX_FX_CLUT_BOOST + env * 32u;
+        head_mats[env] = boost_material((uint32_t)art + FZX_FX_BOOST_HEAD, palette, pmod_tex);
+        tail_mats[env] = boost_material((uint32_t)art + FZX_FX_BOOST_TAIL, palette, pmod_tex_half);
+    }
     reset();
     fzx_closeup_body_get(player_body);
     fzx_fx_report[12] = (uint32_t)art;
@@ -254,6 +272,39 @@ typedef struct {
     uint8_t id;
 } boost_t;
 
+/* Fixed 16x16 distorted-sprite command, with the same vertex order and bounds
+ * as the generic effect-pool emitter. */
+static inline void boost_cmd(uint16_t *cmd, const boost_material_t *mat) {
+    cmd[0] = SH2Z_EP_DISTORTED; cmd[1] = 0;
+    cmd[2] = mat->pmod; cmd[3] = mat->color;
+    cmd[4] = mat->texture; cmd[5] = 0x0210;
+    cmd[14] = 0; cmd[15] = 0;
+}
+
+static bool boost_head(uint16_t *cmd, const boost_material_t *mat, const pt1_t *at, int32_t radius) {
+    const int32_t left = at->x - radius, right = at->x + radius;
+    const int32_t top = at->y - radius, bottom = at->y + radius;
+    if (!mat->valid || left < -1024 || right > 1023 || top < -1024 || bottom > 1023) return false;
+    boost_cmd(cmd, mat);
+    cmd[6] = (uint16_t)right; cmd[7] = (uint16_t)at->y;
+    cmd[8] = (uint16_t)at->x; cmd[9] = (uint16_t)bottom;
+    cmd[10] = (uint16_t)left; cmd[11] = (uint16_t)at->y;
+    cmd[12] = (uint16_t)at->x; cmd[13] = (uint16_t)top;
+    return true;
+}
+
+static bool boost_tail(uint16_t *cmd, const boost_material_t *mat, const pt1_t *at, const pt1_t *end, int32_t radius) {
+    const int16_t left = (int16_t)(at->x - radius), right = (int16_t)(at->x + radius);
+    /* Both projected points already lie inside the fixed 320x224 view plus its 96-pixel guard. */
+    if (!mat->valid || left < -1024 || left > 1023 || right < -1024 || right > 1023) return false;
+    boost_cmd(cmd, mat);
+    cmd[6] = (uint16_t)right; cmd[7] = (uint16_t)at->y;
+    cmd[8] = (uint16_t)end->x; cmd[9] = (uint16_t)end->y;
+    cmd[10] = (uint16_t)left; cmd[11] = (uint16_t)at->y;
+    cmd[12] = cmd[10]; cmd[13] = cmd[11];
+    return true;
+}
+
 /* The racers' boosters (Racer_Draw's booster pass). */
 #if ENG_FX_PROF
 #define PC(i) (++x->c[i])
@@ -281,19 +332,16 @@ static void boosters(jobctx_t *x, const sh2z_ep_view_t *v, const boost_t *o, int
         const int32_t size = m16(s + flicker + o->extra, hover_frac);
         const int32_t r = px1(&pt, size);
         if (r < 1) { PC(2); continue; }
-        const uint32_t colr = (uint32_t)art + FZX_FX_CLUT_BOOST + (uint32_t)o->env * 32u;
         uint16_t *t = slot(x, pt.depth - 1);
-        if (t && sh2z_ep_emit_diamond(t, pt.x, pt.y, r, (uint32_t)art + FZX_FX_BOOST_HEAD, 16u, 16u, colr, pmod_tex)) {
+        if (t && boost_head(t, &head_mats[o->env], &pt, r)) {
             commit(x, t); ++x->boost_cmds; PC(3);
         }
         if (!tail) continue;
         int32_t e[3]; pt1_t pe;
         along(e, p, -m16(o->speed, Q16(0.9)), o->basis[0]);
         if (!proj1(v, e, &pe)) { PC(4); continue; }
-        const int16_t xy[4][2] = { { (int16_t)(pt.x + r), (int16_t)pt.y }, { (int16_t)pe.x, (int16_t)pe.y },
-                                   { (int16_t)(pt.x - r), (int16_t)pt.y }, { (int16_t)(pt.x - r), (int16_t)pt.y } };
         t = slot(x, pt.depth);
-        if (t && sh2z_ep_emit_quad(t, xy, (uint32_t)art + FZX_FX_BOOST_TAIL, 16u, 16u, colr, pmod_tex_half)) {
+        if (t && boost_tail(t, &tail_mats[o->env], &pt, &pe, r)) {
             commit(x, t); ++x->boost_cmds; PC(5);
         }
     }

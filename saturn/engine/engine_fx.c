@@ -227,7 +227,7 @@ static bool visible(const int32_t pos[3]) {
     if (!view_ok) return false;
     const int32_t d = view_depth(&view_last, pos);
     pt1_t pt;
-    return d > 0 && d <= FAR_SPAWN * 16384 && sh2z_ep_spot(&view_last, sh2z_ep_ratio(&view_last), pos, &pt);
+    return d > 0 && d <= FAR_SPAWN * 16384 && sh2z_ep_spot(&view_last, fy_ratio, pos, &pt);
 }
 
 /* p + a x row (Q16 + Q16 x Q1.14). */
@@ -301,7 +301,7 @@ typedef struct {
     uint8_t ord[FZX_FX_JOB_SLOTS], key[FZX_FX_JOB_SLOTS];
     vdp1_cmdt_t cmd[FZX_FX_JOB_SLOTS];
 } job_buf_t;
-static job_buf_t job_buf[FZX_FX_JOBS] FX_LOW("jobs") __attribute__((aligned(32)));
+static job_buf_t job_buf[FZX_FX_JOBS] __attribute__((aligned(32)));
 typedef struct {
     job_buf_t *buf;
     int32_t depth[FZX_FX_JOB_SLOTS];
@@ -313,7 +313,7 @@ typedef struct {
     uint32_t c[8];   /* [0] sockets visited, [1] heads refused by the projection, [2] heads under a pixel, [3] heads emitted, [4] tails projected out, [5] tails emitted, [6] cars, [7] cars with a tail */
 #endif
 } jobctx_t;
-static jobctx_t jc[FZX_FX_JOBS] FX_LOW("jc");
+static jobctx_t jc[FZX_FX_JOBS];
 static uint16_t *slot(jobctx_t *x, int32_t depth) {
     ++x->demand;
     x->spare_depth = depth;
@@ -418,11 +418,11 @@ static void boosters(jobctx_t *x, const sh2z_ep_view_t *v, const boost_t *o, int
 /* The frame's inputs to the emit, staged by the master (fzx_fx_stage) and read by whichever SH-2
  * runs the emit (fzx_fx_job). The rivals are within the booster range and not wrecked. */
 static sh2z_ep_view_t snap_v;
-static boost_t snap_b[CARS] FX_LOW("snap_b");
+static boost_t snap_b[CARS];
 static unsigned snap_n;
 static int32_t snap_hover, snap_up[3];
 /* The sparks: the master steps the ring during the frame's ticks, so the emit reads a copy. */
-static sh2z_ep_particle_t snap_sp[32] FX_LOW("snap_sp");
+static sh2z_ep_particle_t snap_sp[32];
 static unsigned snap_sp_n;
 static uint32_t snap_tick;
 static bool snap_ok;
@@ -473,8 +473,9 @@ bool fzx_fx_stage(const fzx_view_t *view, const fzx_engine_cam_t *cam, const fzx
     v.center_x = (int16_t)((view->center[0] + 32768) >> 16); v.center_y = (int16_t)(((view->center[1] + 32768) >> 16) - 1);
     v.near_z = view->near_plane * 4;
     v.width = 320; v.height = 224; v.guard = 96;
+    if (!view_ok || view_last.focal_x != v.focal_x || view_last.focal_y != v.focal_y)
+        fy_ratio = sh2z_ep_ratio(&v);
     view_last = v; view_ok = true;
-    fy_ratio = sh2z_ep_ratio(&v);
 #if ENG_FX_PROF
     uint16_t sp0 = st0;
 #define SPH(k) do { const uint16_t n_ = cpu_frt_count_get(); fzx_fx_sagg[k] += (uint16_t)(n_ - sp0); sp0 = n_; } while (0)

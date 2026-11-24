@@ -71,7 +71,7 @@ typedef struct {
     int16_t up[3];
 } player_fx_t;
 static player_fx_t pl;
-static bool pl_ok;
+static bool pl_ok, rival_fx_ready;
 
 static uint32_t rnd(void) { rng ^= rng << 13; rng ^= rng >> 17; rng ^= rng << 5; return rng; }
 static int32_t m16(int32_t a, int32_t b) { return (int32_t)(((int64_t)a * b + 0x8000) >> 16); }
@@ -105,7 +105,7 @@ static void reset(void) {
     }
     (void)sh2z_ep_init(&p_spark, it_spark, 32u, 16u, Q16(1.05), 65536);
     memset(car, 0, sizeof(car));
-    whites = 0; view_ok = false; fx_ticks = 0; pl_ok = false;
+    whites = 0; view_ok = false; fx_ticks = 0; pl_ok = false; rival_fx_ready = false;
 }
 
 uint32_t fzx_fx_load(const vdp1_vram_partitions_t *parts, uint32_t ceiling, void *scratch, uint32_t scratch_bytes) {
@@ -144,6 +144,24 @@ static const int16_t *booster_row(uint32_t machine) {
     if (machine < 30u) return fzx_fx_boosters[machine];
     if ((machine == 33u || machine == 34u) && ((FZX_GUEST_MASK >> machine) & 1ull)) return fzx_fx_guest_boosters[machine - 33u];
     return empty_row;
+}
+
+/* A rival's storage and machine assignment are fixed after the course load.
+ * The storage's contents are read live for each staged frame. */
+typedef struct {
+    const sh2z_vehicle_t *vehicle;
+    const int16_t *row;
+} rival_fx_t;
+static rival_fx_t rival_fx[CARS];
+static int32_t rival_boost_ticks;
+
+static void prepare_rival_effects(void) {
+    for (unsigned id = 1; id < CARS; ++id) {
+        rival_fx[id].vehicle = fzx_field_vehicle(id);
+        rival_fx[id].row = booster_row(fzx_field_machine(id));
+    }
+    rival_boost_ticks = fzx_field_boost_ticks();
+    rival_fx_ready = true;
 }
 
 /* ---- the tick ---------------------------------------------------------------------------------------- */
@@ -311,8 +329,7 @@ static void commit(jobctx_t *x, uint16_t *t) {
 
 /* A racer's boosters, staged: where it is, how it burns. */
 typedef struct {
-    int32_t pos[3];
-    int16_t basis[3][3];       /* rows: forward, up, left */
+    const fzx_field_car_t *pose; /* the renderer's pose remains live until both jobs finish */
     int32_t depth;
     int32_t extra;             /* 7.5 sqrt(boost share), Q16 (0 idle) */
     int32_t speed;             /* Q16 per tick */
@@ -363,6 +380,7 @@ static bool boost_tail(uint16_t *cmd, const boost_material_t *mat, const pt1_t *
 #endif
 static void boosters(jobctx_t *x, const sh2z_ep_view_t *v, const boost_t *o, int32_t hover_frac, uint32_t tick) {
     const int16_t *b = o->row;
+    const fzx_field_car_t *pose = o->pose;
     int32_t fl = (int32_t)((3u - (tick & 3u)) * 2u);   /* (3 - (frame & 3)) x 2 x 0.2 flicker */
     if (fl < o->flare) fl = o->flare;
     const int32_t flicker = fl * Q16(0.2);
@@ -376,7 +394,7 @@ static void boosters(jobctx_t *x, const sh2z_ep_view_t *v, const boost_t *o, int
         /* model (x left, y up, z forward) x 0.1, z moved back by 3.6 s (model units) */
         const int32_t mx = q[0] * Q16(0.1), my = q[1] * Q16(0.1), mz = q[2] * Q16(0.1) - m16(s, Q16(0.36));
         for (int a = 0; a < 3; ++a)
-            p[a] = o->pos[a] + (int32_t)(((int64_t)mx * o->basis[2][a] + (int64_t)my * o->basis[1][a] + (int64_t)mz * o->basis[0][a]) >> 14);
+            p[a] = pose->pos[a] + (int32_t)(((int64_t)mx * pose->basis[2][a] + (int64_t)my * pose->basis[1][a] + (int64_t)mz * pose->basis[0][a]) >> 14);
         pt1_t pt;
         if (!proj1(v, p, &pt)) { PC(1); continue; }
         const int32_t size = m16(s + flicker + o->extra, hover_frac);
@@ -388,7 +406,7 @@ static void boosters(jobctx_t *x, const sh2z_ep_view_t *v, const boost_t *o, int
         }
         if (!tail) continue;
         int32_t e[3]; pt1_t pe;
-        along(e, p, -m16(o->speed, Q16(0.9)), o->basis[0]);
+        along(e, p, -m16(o->speed, Q16(0.9)), pose->basis[0]);
         if (!proj1(v, e, &pe)) { PC(4); continue; }
         t = slot(x, pt.depth);
         if (t && boost_tail(t, &tail_mats[o->env], &pt, &pe, r)) {
@@ -496,6 +514,7 @@ bool fzx_fx_stage(const fzx_view_t *view, const fzx_engine_cam_t *cam, const fzx
     /* The boosters' inputs: the player (not crashed or spinning) and each rival within 900 units. */
     snap_n = 0;
     if (n > CARS) n = CARS;
+    if (n && !rival_fx_ready) prepare_rival_effects();
     for (unsigned k = 0; k < n; ++k) {
         const fzx_field_car_t *c = &cars[k];
         const uint32_t id = c->id;
@@ -517,7 +536,7 @@ bool fzx_fx_stage(const fzx_view_t *view, const fzx_engine_cam_t *cam, const fzx
             o->row = booster_row(player_machine);
             o->flare = car[0].flare;
         } else {
-            const sh2z_vehicle_t *rv = fzx_field_vehicle(id);
+            const sh2z_vehicle_t *rv = rival_fx[id].vehicle;
             uint16_t bad = SH2Z_VEH_RETIRED | SH2Z_VEH_STOPPED;
 #ifdef SH2Z_VEH_FALLING
             bad |= SH2Z_VEH_FALLING;
@@ -525,18 +544,17 @@ bool fzx_fx_stage(const fzx_view_t *view, const fzx_engine_cam_t *cam, const fzx
             if (rv->flags & bad) continue;
             o->env = 0; o->extra = 0;
             if ((rv->flags & SH2Z_VEH_BOOST) && rv->boost_ticks > 0) {
-                const int32_t len = fzx_field_boost_ticks();
+                const int32_t len = rival_boost_ticks;
                 int32_t t = len > 0 ? (rv->boost_ticks * 100) / len : 100;
                 if (t > 100) t = 100;
                 o->env = 1u; o->extra = sqrt_share[t];
             }
             o->speed = rv->t.speed << 8;
-            o->row = booster_row(fzx_field_machine(id));
+            o->row = rival_fx[id].row;
             o->flare = 0;
         }
         if (!o->row[0]) { ++fzx_fx_report[15]; continue; }
-        o->pos[0] = c->pos[0]; o->pos[1] = c->pos[1]; o->pos[2] = c->pos[2];
-        memcpy(o->basis, c->basis, sizeof(o->basis));
+        o->pose = c;
         o->depth = depth; o->id = (uint8_t)id;
         ++snap_n;
     }

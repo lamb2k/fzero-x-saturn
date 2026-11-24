@@ -1,0 +1,21 @@
+# Menu audio with a failed boot asset (ENG_SND_MENU_TEST=3: no effect pack; =4: no TOC): the front end must still
+# navigate: a disc read under acquire is granted at once when there is no music of ours, then Start, confirm, load, race.
+until 1 1 3000
+wait 4
+poke _fzx_menu_test+20 1
+wait 100
+mark x_title
+poke _fzx_menu_test 1
+untilword _fzx_menu_test 1 1 900
+mark x_read
+poke _fzx_menu_test+20 0
+pad 0800 2
+until 2 1 600
+wait 60
+pad 2000 2
+wait 20
+pad 0400 2
+until 4 1 4000
+mark x_race
+wait 100
+mark x_race2

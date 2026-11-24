@@ -1,0 +1,41 @@
+# Menu audio (docs/MENU_AUDIO.md): needs an image built with ENG_SND_MENU_TEST=1 and the mixed-mode disc.
+# Title music, a disc read under a hold (and a cancelled hold, and a hold whose target changes), the select screen's
+# music and effects, the confirm effect surviving the LOAD, then the race.
+until 1 1 3000
+wait 4
+poke _fzx_menu_test+20 1
+mark m_title0
+wait 150
+mark m_title_music
+poke _fzx_menu_test 1
+untilword _fzx_menu_test 1 1 900
+mark m_read_done
+wait 120
+mark m_resumed
+poke _fzx_menu_test 2
+untilword _fzx_menu_test 1 2 900
+mark m_cancel_done
+wait 120
+mark m_resumed2
+poke _fzx_menu_test 3
+untilword _fzx_menu_test 1 3 900
+wait 120
+mark m_changed
+poke _fzx_menu_test+20 0
+pad 0800 2
+until 2 1 600
+wait 90
+mark m_select
+pad 2000 2
+wait 20
+pad 2000 2
+wait 20
+pad 0010 2
+wait 30
+mark m_cursor
+pad 0400 2
+mark m_confirm
+until 4 1 4000
+mark m_race
+wait 300
+mark m_race2

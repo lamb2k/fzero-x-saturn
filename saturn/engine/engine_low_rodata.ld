@@ -1,5 +1,5 @@
-/* Read-only data in low work RAM (ENG_LOW_COLD, engine_low.x), each checked by hand: nothing reads it during a
- * race frame. The tables are generated, so they are listed by section name (each name is unique in the image).
+/* Read-only data in low work RAM (ENG_LOW_COLD, engine_low.x). Only the effects tables below are read during a
+ * race frame. The tables are generated and listed by section name (each name is unique in the image).
  *   fzx_course_index  the course bundle's index (8 B a course); the selected row is read from its disc file into
  *                   high work RAM at LOAD (engine_courses.c) and the race reads it through fzx_cid
  *   card_tracks, card_cells   the LOAD cards, copied to VDP2 by the CPU at LOAD
@@ -13,3 +13,7 @@
 *(.rodata.fzx_fx_boosters)
 *(.rodata.fzx_fx_guest_boosters)
 *(.rodata.empty_row)
+/* Menu audio (ENG_SND_MENU, engine_snd.c): its functions, effect table and state (.bss.lowcold.snd_menu) run and are
+ * read only outside a race. Hand-listed because the generated cold-function census list does not name them. */
+*(.text.fzx_snd_menu)
+*(.rodata.fzx_snd_menu)

@@ -1,0 +1,22 @@
+# Menu audio: the confirm effects start before LOAD's blocking reads and ring through them (docs/MENU_AUDIO.md).
+# Needs ENG_SND_MENU_TEST=1 (music is turned off so the effects are the only audio) and the mixed-mode disc.
+until 1 1 3000
+wait 4
+poke _fzx_menu_test+20 1
+poke _fzx_menu_test+24 1
+poke _fzx_menu_test 4
+untilword _fzx_menu_test 1 1 900
+wait 120
+mark l_quiet
+poke _fzx_menu_test+20 0
+pad 0800 2
+until 2 1 600
+wait 120
+mark l_select
+pad 0400 2
+mark l_confirm
+until 3 1 600
+mark l_load
+until 4 1 4000
+mark l_race
+wait 60

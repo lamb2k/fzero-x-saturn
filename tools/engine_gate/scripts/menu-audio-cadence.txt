@@ -1,0 +1,32 @@
+# Menu audio cadence (docs/MENU_AUDIO.md): title with music, select with music, cursor effects, the confirm into a cold
+# load and the race, no disc reads of its own. Runs on any scenes image (ENG_SND_MENU on or off) for the menu gap count.
+until 1 1 3000
+wait 4
+mark c_title0
+wait 200
+mark c_title1
+pad 0800 2
+until 2 1 600
+wait 100
+mark c_select
+pad 2000 2
+wait 20
+pad 2000 2
+wait 20
+pad 1000 2
+wait 20
+pad 0010 2
+wait 30
+mark c_cursor
+pad 0100 2
+until 1 1 600
+wait 100
+mark c_back_title
+pad 0800 2
+until 2 1 600
+wait 60
+pad 0400 2
+until 4 1 4000
+mark c_race
+wait 200
+mark c_race2

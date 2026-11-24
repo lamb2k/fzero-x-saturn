@@ -1,0 +1,10 @@
+# Control of menu-audio.txt's resume check: a hold that is never released (poke 7). The music must stay silent, so the
+# resume check must fail. Needs ENG_SND_MENU_TEST=1.
+until 1 1 3000
+wait 4
+poke _fzx_menu_test+20 1
+wait 150
+mark s_title_music
+poke _fzx_menu_test 7
+wait 200
+mark s_stuck

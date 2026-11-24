@@ -1,0 +1,39 @@
+# Control of menu-audio-fx.txt: effects switched off (poke +28), so the effect check must fail. Needs ENG_SND_MENU_TEST=1.
+until 1 1 3000
+wait 4
+poke _fzx_menu_test+20 1
+poke _fzx_menu_test+24 1
+poke _fzx_menu_test+28 1
+poke _fzx_menu_test 4
+untilword _fzx_menu_test 1 1 900
+wait 150
+mark f_quiet
+poke _fzx_menu_test 0x11E
+untilword _fzx_menu_test 1 2 900
+mark p30
+wait 140
+poke _fzx_menu_test 0x110
+untilword _fzx_menu_test 1 3 900
+mark p16
+wait 140
+poke _fzx_menu_test 0x121
+untilword _fzx_menu_test 1 4 900
+mark p33
+wait 140
+poke _fzx_menu_test 0x120
+untilword _fzx_menu_test 1 5 900
+mark p32
+wait 140
+poke _fzx_menu_test 0x116
+untilword _fzx_menu_test 1 6 900
+mark p22
+wait 140
+poke _fzx_menu_test 0x13E
+untilword _fzx_menu_test 1 7 900
+mark p62
+wait 200
+poke _fzx_menu_test 0x111
+untilword _fzx_menu_test 1 8 900
+mark p17
+wait 140
+mark f_end
